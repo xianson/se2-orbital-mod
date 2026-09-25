@@ -191,6 +191,9 @@ public static class FrameHost
                 // Force sensor: read the anchor's velocity, zero it, fold it into the orbit.
                 f.PendingDrainDv += vel;
                 SetVelocity(ch, Vector3D.Zero);
+                // Zero the server copy too, or it re-supplies the same velocity for several ticks
+                // (seen in game: a 10 m/s kick folded in ~17 times).
+                if (vel.LengthSquared() > 1e-6) ServerPlanetBeacon.PendingPlayer = new PlayerRequest { Velocity = Vector3D.Zero };
             }
         }
 

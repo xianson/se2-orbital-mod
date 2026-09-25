@@ -1,0 +1,230 @@
+using System.IO;
+using Keen.VRage.Core;
+
+#pragma warning disable
+namespace OrbitalMod;
+
+/// <summary>
+/// DEV ONLY. Lets an external tool drive the game for visual testing: teleport the player, aim
+/// the view, switch proxy modes, while screenshots are taken from outside the game.
+///
+/// Protocol: write commands (one per line) to  %TEMP%\OrbitalMod\cmd.txt . The client polls it
+/// every <see cref="PollSeconds"/>, executes and deletes it, and rewrites %TEMP%\OrbitalMod\status.txt
+/// with the camera and planet state. Lines starting with # are ignored.
+///
+///   planets                          list planets in status (index, name, center, radius)
+///   view &lt;planet&gt; &lt;distKm&gt; [bearing]    stand distKm from the planet CENTER, facing it.
+///                                    bearing: keep (current direction, default) | sun | +x -x +y -y +z -z
+///   tp &lt;x&gt; &lt;y&gt; &lt;z&gt;                     teleport to world position (metres), keep orientation
+///   look &lt;x&gt; &lt;y&gt; &lt;z&gt;                   stay, turn to face a world position
+///   lookat &lt;planet&gt;                  stay, turn to face a planet
+///   mode Frame|AlwaysProxy|AlwaysReal|Alternate
+///   hide on|off                       OrbitalConfig.HideRealPlanets
+///   front on|off                      OrbitalConfig.DebugProxyInFront
+///   orbit on|off                      OrbitalConfig.ShowOrbit
+///
+/// &lt;planet&gt; is an index from `planets`, or a name prefix (Verdure, Kemik, ...).
+/// Teleports go through Keen's own EntityAdmin.TeleportPlayer (admin; moves the ship if piloting)
+/// with motion cleared. Single player / listen host only: planet data comes from server beacons.
+/// Off unless <see cref="OrbitalConfig.DevHarness"/> is true. File access is allowed today only
+/// because the mod whitelist admits all of CoreLib (System.IO included).
+/// </summary>
+public static class DevHarness
+{
+    public const double PollSeconds = 0.5;
+
+    private static long _lastPoll;
+    private static string _dir;
+    private static readonly List<string> _log = new List<string>();
+
+    public static void Poll(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera)
+    {
+        if (!OrbitalConfig.DevHarness) return;
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        if (now - _lastPoll < PollSeconds * System.Diagnostics.Stopwatch.Frequency) return;
+        _lastPoll = now;
+
+        try
+        {
+            _dir ??= Path.Combine(Path.GetTempPath(), "OrbitalMod");
+            Directory.CreateDirectory(_dir);
+            string cmdPath = Path.Combine(_dir, "cmd.txt");
+            if (File.Exists(cmdPath))
+            {
+                string[] lines = File.ReadAllLines(cmdPath);
+                File.Delete(cmdPath);
+                foreach (string raw in lines)
+                {
+                    string line = raw.Trim();
+                    if (line.Length == 0 || line.StartsWith("#")) continue;
+                    string result;
+                    try { result = Execute(session, camera, line); }
+                    catch (Exception e) { result = "ERROR " + e.Message; }
+                    Note($"> {line}  =>  {result}");
+                    Log.Default?.Info($"[ORBIT-DEV] {line} => {result}");
+                }
+            }
+            WriteStatus(camera);
+        }
+        catch (Exception e)
+        {
+            Log.Default?.Warning($"[ORBIT-DEV] poll failed: {e.Message}");
+        }
+    }
+
+    private static string Execute(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera, string line)
+    {
+        string[] a = line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+        string verb = a[0].ToLowerInvariant();
+        switch (verb)
+        {
+            case "planets":
+                return $"{Planets().Count} planets (see status)";
+
+            case "view":
+            {
+                var p = FindPlanet(a[1]);
+                if (p == null) return "no such planet";
+                double dist = double.Parse(a[2], System.Globalization.CultureInfo.InvariantCulture) * 1000.0;
+                Vector3D dir = Bearing(a.Length > 3 ? a[3] : "keep", camera.Position - p.Center);
+                Vector3D pos = p.Center + dir * dist;
+                Teleport(session, pos, p.Center - pos);
+                return $"-> {PlanetName(p)} at {dist / 1000:F1} km from center (alt {(dist - PlanetRadius(p)) / 1000:F1} km)";
+            }
+
+            case "tp":
+            {
+                var pos = new Vector3D(D(a[1]), D(a[2]), D(a[3]));
+                Teleport(session, pos, null, camera.Orientation);
+                return $"-> {ServerPlanetBeacon.Fmt(pos)}";
+            }
+
+            case "look":
+            {
+                var target = new Vector3D(D(a[1]), D(a[2]), D(a[3]));
+                Teleport(session, camera.Position, target - camera.Position);
+                return "turned";
+            }
+
+            case "lookat":
+            {
+                var p = FindPlanet(a[1]);
+                if (p == null) return "no such planet";
+                Teleport(session, camera.Position, p.Center - camera.Position);
+                return $"facing {PlanetName(p)}";
+            }
+
+            case "mode":
+                OrbitalConfig.Mode = (ProxyMode)Enum.Parse(typeof(ProxyMode), a[1], ignoreCase: true);
+                return $"mode={OrbitalConfig.Mode}";
+            case "hide":
+                OrbitalConfig.HideRealPlanets = On(a[1]);
+                return $"hide={OrbitalConfig.HideRealPlanets}";
+            case "front":
+                OrbitalConfig.DebugProxyInFront = On(a[1]);
+                return $"front={OrbitalConfig.DebugProxyInFront}";
+            case "orbit":
+                OrbitalConfig.ShowOrbit = On(a[1]);
+                return $"orbit={OrbitalConfig.ShowOrbit}";
+            default:
+                return "unknown command";
+        }
+    }
+
+    /// <summary>Keen's admin teleport. Facing = world direction to look along (null keeps orientation).</summary>
+    private static void Teleport(Keen.VRage.Core.Game.Systems.Session session, Vector3D position, Vector3D? facing, Quaternion? keep = null)
+    {
+        Quaternion q = keep ?? Quaternion.Identity;
+        if (facing.HasValue && facing.Value.LengthSquared() > 1e-6)
+        {
+            Vector3 fwd = (Vector3)Vector3D.Normalize(facing.Value);
+            Vector3 up = Math.Abs(fwd.Y) > 0.95f ? Vector3.UnitZ : Vector3.UnitY;
+            q = Quaternion.CreateFromForwardUp(fwd, up);
+        }
+        RunTeleport(session, new WorldTransform(position, q));
+    }
+
+    private static void RunTeleport(Keen.VRage.Core.Game.Systems.Session session, WorldTransform target)
+    {
+        if (!PlanetRenderBridge.TeleportPlayer(session, target))
+            Log.Default?.Warning("[ORBIT-DEV] teleport failed (see bridge warning)");
+    }
+
+    private static Vector3D Bearing(string spec, Vector3D keep)
+    {
+        switch (spec.ToLowerInvariant())
+        {
+            case "+x": return Vector3D.UnitX;
+            case "-x": return -Vector3D.UnitX;
+            case "+y": return Vector3D.UnitY;
+            case "-y": return -Vector3D.UnitY;
+            case "+z": return Vector3D.UnitZ;
+            case "-z": return -Vector3D.UnitZ;
+            default:
+                return keep.LengthSquared() > 1e-6 ? Vector3D.Normalize(keep) : Vector3D.UnitY;
+        }
+    }
+
+    private static List<PlanetBeacon> Planets()
+    {
+        var list = new List<PlanetBeacon>();
+        foreach (var b in PlanetBeacons.All()) list.Add(b);
+        return list;
+    }
+
+    private static PlanetBeacon FindPlanet(string key)
+    {
+        var list = Planets();
+        if (int.TryParse(key, out int i)) return i >= 0 && i < list.Count ? list[i] : null;
+        foreach (var p in list)
+        {
+            if (PlanetName(p).StartsWith(key, StringComparison.OrdinalIgnoreCase)) return p;
+        }
+        return null;
+    }
+
+    /// <summary>"Verdure" from "...\Planets\Verdure\VerdureMapVisualPrefab.def".</summary>
+    public static string PlanetName(PlanetBeacon p)
+    {
+        string s = p?.MapVisual?.DebugName;
+        if (string.IsNullOrEmpty(s)) return p?.Name ?? "?";
+        string file = s.Replace('/', '\\');
+        int slash = file.LastIndexOf('\\');
+        file = slash >= 0 ? file.Substring(slash + 1) : file;
+        int cut = file.IndexOf("MapVisual", StringComparison.OrdinalIgnoreCase);
+        return cut > 0 ? file.Substring(0, cut) : file;
+    }
+
+    private static double PlanetRadius(PlanetBeacon p) => p.Gravity.R0 > 0 ? p.Gravity.R0 : 0;
+
+    private static void WriteStatus(WorldTransform camera)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"time {DateTime.Now:HH:mm:ss.fff}");
+        sb.AppendLine($"camera {camera.Position.X:F0} {camera.Position.Y:F0} {camera.Position.Z:F0}");
+        sb.AppendLine($"config mode={OrbitalConfig.Mode} hide={OrbitalConfig.HideRealPlanets} front={OrbitalConfig.DebugProxyInFront} orbit={OrbitalConfig.ShowOrbit}");
+        var list = Planets();
+        for (int i = 0; i < list.Count; i++)
+        {
+            var p = list[i];
+            double d = (p.Center - camera.Position).Length();
+            sb.AppendLine($"planet {i} {PlanetName(p)} center={p.Center.X:F0},{p.Center.Y:F0},{p.Center.Z:F0} " +
+                          $"dist={d / 1000:F1}km r0={p.Gravity.R0 / 1000:F1}km g0={p.Gravity.G0:F2} falloff={p.Gravity.Falloff:F2} reach={p.Gravity.Reach / 1000:F1}km");
+        }
+        if (OrbitDisplay.LastReadout != null) sb.AppendLine("orbit " + OrbitDisplay.LastReadout.Replace("\n", " | "));
+        lock (_log) foreach (string l in _log) sb.AppendLine(l);
+        File.WriteAllText(Path.Combine(_dir, "status.txt"), sb.ToString());
+    }
+
+    private static void Note(string s)
+    {
+        lock (_log)
+        {
+            _log.Add($"{DateTime.Now:HH:mm:ss} {s}");
+            if (_log.Count > 20) _log.RemoveAt(0);
+        }
+    }
+
+    private static double D(string s) => double.Parse(s, System.Globalization.CultureInfo.InvariantCulture);
+    private static bool On(string s) => s.Equals("on", StringComparison.OrdinalIgnoreCase) || s == "1" || s.Equals("true", StringComparison.OrdinalIgnoreCase);
+}

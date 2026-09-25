@@ -12,6 +12,7 @@ public sealed class PlanetBeacon
     public Vector3D Center;
     public PrefabDefinition MapVisual;
     public double GravityReach;
+    public GravityLaw Gravity;
     public string Name;
 }
 
@@ -51,6 +52,12 @@ public static class PlanetBeacons
         }
     }
 
+    /// <summary>Snapshot copy, safe to iterate.</summary>
+    public static List<PlanetBeacon> All()
+    {
+        lock (_beacons) return new List<PlanetBeacon>(_beacons);
+    }
+
     public static int Count
     {
         get { lock (_beacons) return _beacons.Count; }
@@ -80,9 +87,12 @@ public class ServerPlanetBeacon : Component, IInSceneListener
             GravityReach = _gravity.AffectDistance,
             Name = Entity?.DebugName ?? "planet",
         };
+        PlanetRenderBridge.TryGetGravityLaw(_gravity, out double g0, out double r0, out double falloff);
+        _beacon.Gravity = new GravityLaw { G0 = g0, R0 = r0, Falloff = falloff, Reach = _gravity.AffectDistance };
         PlanetBeacons.Add(_beacon);
         Log.Default?.Info($"[ORBIT] beacon {_beacon.Name}: center={Fmt(_beacon.Center)} " +
-                          $"gravityReach={_beacon.GravityReach / 1000:F1} km mapVisual={_beacon.MapVisual?.DebugName ?? "none"}");
+                          $"gravity g0={g0:F2} m/s² r0={r0 / 1000:F1} km falloff={falloff:F2} reach={_beacon.GravityReach / 1000:F1} km " +
+                          $"mapVisual={_beacon.MapVisual?.DebugName ?? "none"}");
     }
 
     void IInSceneListener.OnBeforeRemovedFromScene()

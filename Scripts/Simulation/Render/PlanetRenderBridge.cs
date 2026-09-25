@@ -51,6 +51,8 @@ public static class PlanetRenderBridge
         public object Terrain;
         /// <summary>Its VoxelClipmaps: the detailed one and the low-res one that draws the planet from afar.</summary>
         public List<object> Clipmaps = new List<object>();
+        /// <summary>Frames left in a pending hide (see SetTerrainVisible).</summary>
+        public int HideFramesLeft;
 
         public object Environment;
         public MethodInfo EnvSetParameters;
@@ -188,37 +190,65 @@ public static class PlanetRenderBridge
 
     private static int _terrainFailures;
 
+    /// <summary>Frames to keep re-queuing hide transitions before freezing the clipmap.</summary>
+    public const int HideSettleFrames = 20;
+
     /// <summary>
-    /// Hide or show a planet's terrain. Does what VoxelClipmap.Visible's setter does, for BOTH the
-    /// detailed and the low-res clipmap, but tolerates cells that are not attached yet: the stock
-    /// setter throws (NullReference on VoxelCell._voxel) on those and then never records the flag.
-    ///  1. clipmap._visible = visible — new cells inherit it (VoxelClipmapRing.AddCell), and a
-    ///     hidden clipmap stops its LOD update (VoxelClipmap.Update early-out).
-    ///  2. every attached cell gets SetVisible(visible) — a queued transition, applied by the
-    ///     PostProcessCells job, which is not gated on visibility.
+    /// Hide or show a planet's terrain, for BOTH the detailed and the low-res clipmap.
+    ///
+    /// Cell visibility is a queued transition (VoxelCell.SetVisible -> _batchedCellUpdates) that is
+    /// only COMMITTED by VoxelClipmap.Update -> EndBatch -> RecordBatchCommit. Update returns early
+    /// when clipmap._visible is false. So the stock Visible setter (and flipping _visible first)
+    /// never commits the hide for cells that already exist; it only "works" for a planet whose cells
+    /// were never built. Verified in game: at 88 km the atmosphere vanished and the terrain stayed.
+    ///
+    /// Hide therefore takes several frames: queue hides with _visible still true, re-queue for
+    /// <see cref="HideSettleFrames"/> frames (catching cells streamed in meanwhile), then set
+    /// _visible = false to freeze the clipmap (and have future cells created hidden). Call
+    /// <see cref="TickTerrain"/> every frame. Show is immediate: _visible = true, then queue shows.
+    /// Tolerates cells that are not attached yet (the stock setter throws on those).
     /// Returns false on any failure so the caller retries next frame.
     /// </summary>
     public static bool SetTerrainVisible(PlanetHandles h, bool visible)
+    {
+        if (h == null) return false;
+        h.HideFramesLeft = visible ? 0 : HideSettleFrames;
+        return ApplyTerrain(h, visible, setFlag: visible);
+    }
+
+    /// <summary>Advance a pending hide. Cheap no-op when nothing is pending.</summary>
+    public static void TickTerrain(PlanetHandles h)
+    {
+        if (h == null || h.HideFramesLeft <= 0) return;
+        h.HideFramesLeft--;
+        // Last frame: queue once more AND freeze.
+        ApplyTerrain(h, false, setFlag: h.HideFramesLeft == 0);
+    }
+
+    private static bool ApplyTerrain(PlanetHandles h, bool visible, bool setFlag)
     {
         if (h?.Terrain == null) return false;
         try
         {
             foreach (object clipmap in h.Clipmaps)
             {
-                SetMember(clipmap, "_visible", visible);
-                if (!(GetMember(clipmap, "Rings") is IEnumerable rings)) continue;
-                foreach (object ring in rings)
+                if (setFlag || visible) SetMember(clipmap, "_visible", visible);
+
+                // Every cell mesh hangs off a render RootEntity from the clipmap's
+                // DistributedRootEntityProvider (one root per 1 km block, created on demand under
+                // lock(_rootEntities)). Deactivating a root hides everything under it immediately,
+                // with no dependence on the clipmap's batch commit. Take the SAME lock Keen takes.
+                object provider = GetMember(clipmap, "RootEntityProvider");
+                if (!(GetMember(provider, "_rootEntities") is IDictionary roots)) continue;
+                var snapshot = new List<object>();
+                lock (roots)
                 {
-                    if (!(GetMember(ring, "Cells") is IDictionary cells)) continue;
-                    // Copy first: clipmap jobs may add/remove cells while we walk.
-                    var snapshot = new List<object>();
-                    foreach (object cellData in cells.Values) snapshot.Add(cellData);
-                    foreach (object cellData in snapshot)
-                    {
-                        object cell = GetMember(cellData, "Cell");
-                        if (cell == null || GetMember(cell, "_voxel") == null) continue;
-                        cell.GetType().GetMethod("SetVisible", new[] { typeof(bool) })?.Invoke(cell, new object[] { visible });
-                    }
+                    foreach (object root in roots.Values) snapshot.Add(root);
+                }
+                foreach (object root in snapshot)
+                {
+                    if (GetMember(root, "IsValid") is bool ok && !ok) continue;
+                    RootMethod(root.GetType(), visible)?.Invoke(root, null);
                 }
             }
             return true;
@@ -228,6 +258,15 @@ public static class PlanetRenderBridge
             if (++_terrainFailures <= 5) Log.Default?.Warning($"[ORBIT] terrain visibility failed ({_terrainFailures}): {Inner(e)}");
             return false;
         }
+    }
+
+    private static MethodInfo _rootActivate, _rootDeactivate;
+
+    private static MethodInfo RootMethod(Type rootType, bool activate)
+    {
+        _rootActivate ??= rootType.GetMethod("Activate", Type.EmptyTypes);
+        _rootDeactivate ??= rootType.GetMethod("Deactivate", Type.EmptyTypes);
+        return activate ? _rootActivate : _rootDeactivate;
     }
 
     public static bool SetAtmosphereVisible(PlanetHandles h, bool visible)
@@ -412,6 +451,33 @@ public static class PlanetRenderBridge
             return r0 > 0;
         }
         catch (Exception e) { WarnOnce("gravity-law", $"gravity law read failed: {Inner(e)}"); return false; }
+    }
+
+    private static MethodInfo _teleportPlayer;
+
+    /// <summary>
+    /// DEV HARNESS: Keen's admin EntityAdmin.TeleportPlayer(session, target, preferredCharacter,
+    /// teleportIfInShip, clearMotion). Public and whitelisted, but it returns a NetworkStory from
+    /// VRage.Multiplayer, which mod scripts do not reference (CS0012), so it is late-bound here.
+    /// Invoking an async method starts its state machine; nothing needs to await the result.
+    /// </summary>
+    public static bool TeleportPlayer(Keen.VRage.Core.Game.Systems.Session session, WorldTransform target)
+    {
+        try
+        {
+            if (_teleportPlayer == null)
+            {
+                foreach (MethodInfo m in typeof(Keen.Game2.Simulation.GameSystems.AdminTools.EntityAdmin)
+                             .GetMethods(BindingFlags.Public | BindingFlags.Static))
+                {
+                    if (m.Name == "TeleportPlayer" && m.GetParameters().Length == 5) { _teleportPlayer = m; break; }
+                }
+            }
+            if (_teleportPlayer == null) { WarnOnce("tp", "EntityAdmin.TeleportPlayer not found"); return false; }
+            _teleportPlayer.Invoke(null, new object[] { session, target, null, true, true });
+            return true;
+        }
+        catch (Exception e) { Log.Default?.Warning($"[ORBIT] teleport failed: {Inner(e)}"); return false; }
     }
 
     /// <summary>Property or field by name, any visibility, walking base types.</summary>

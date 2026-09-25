@@ -51,6 +51,15 @@ public static class OrbitalConfig
     /// For eyeballing the proxy's look without flying to a planet. Leave false.
     /// </summary>
     public static bool DebugProxyInFront = false;
+
+    /// <summary>Draw the predicted orbit around the dominant planet, with an element readout.</summary>
+    public static bool ShowOrbit = true;
+
+    /// <summary>
+    /// DEV ONLY: poll %TEMP%\OrbitalMod\cmd.txt for teleport/view commands (see DevHarness).
+    /// MUST be false in anything shipped.
+    /// </summary>
+    public static bool DevHarness = true;
     public static double DebugDistance = 300;
     public static double DebugAngularDiameterDeg = 12;
 }
@@ -76,6 +85,8 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
 
     private PlanetRenderBridge.PlanetHandles _handles;
     private double _gravityReach;
+    private GravityLaw _law;
+    private string _planetName = "planet";
     private PlanetRenderBridge.Proxy _proxy;
     private int _setupAttempts;
     private bool _disabled;
@@ -118,15 +129,23 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
 
     private void Tick(IObservers observers)
     {
-        if (_disabled || OrbitalConfig.Mode == ProxyMode.AlwaysReal && _realShown && !OrbitalConfig.DebugProxyInFront) return;
+        if (_disabled) return;
         if (!observers.TryGetFirstTransform(CameraTag, out WorldTransform camera)) return;
 
         lock (PlanetRenderBridge.Lock)
         {
+            var session = Entity.GetSession();
+            DevHarness.Poll(session, camera); // rate-limited; whichever planet ticks first runs it
+
             if (_handles == null && !TrySetup()) return;
 
             Vector3D center = Entity.Data.GetWorldTransform().Position;
             double distance = (center - camera.Position).Length();
+
+            PlanetRenderBridge.TickTerrain(_handles);
+            OrbitDisplay.Consider(this, session, camera, center, _handles.Radius, _law, _planetName);
+
+            if (OrbitalConfig.Mode == ProxyMode.AlwaysReal && _realShown && !OrbitalConfig.DebugProxyInFront) return;
 
             double reach = Math.Max(_gravityReach,_handles.Radius * OrbitalConfig.MinFrameRadii);
             bool wasInFrame = _inFrame;
@@ -226,6 +245,8 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
         _gravityReach = beacon != null && beacon.GravityReach > 0
             ? beacon.GravityReach
             : _handles.Radius * FallbackReachRadii;
+        _law = beacon?.Gravity ?? default;
+        _planetName = beacon != null ? DevHarness.PlanetName(beacon) : _name;
 
         Log.Default?.Info($"[ORBIT] {_name}: resolved after {_setupAttempts} frames center={ServerPlanetBeacon.Fmt(center)} " +
                           $"beacon={(beacon != null ? beacon.Name : "NONE")} (of {PlanetBeacons.Count}) " +

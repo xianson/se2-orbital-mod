@@ -46,8 +46,10 @@ public static class PlanetRenderBridge
         public string Name;
         public double Radius;
 
+        /// <summary>VoxelPlanetRenderComponent. Non-null means terrain can be hidden.</summary>
         public object Terrain;
-        public MethodInfo TerrainSetVisible;
+        /// <summary>Its VoxelClipmaps: the detailed one and the low-res one that draws the planet from afar.</summary>
+        public List<object> Clipmaps = new List<object>();
 
         public object Environment;
         public MethodInfo EnvSetParameters;
@@ -90,7 +92,7 @@ public static class PlanetRenderBridge
     /// Resolve everything needed to hide/show and proxy one planet. Never returns null; check
     /// <see cref="PlanetHandles.Terrain"/> and <see cref="PlanetHandles.HasProxyModel"/>.
     /// </summary>
-    public static PlanetHandles Resolve(PlanetEnvironmentRenderComponent env, DiscoverablePlanetComponent discoverable, string name)
+    public static PlanetHandles Resolve(PlanetEnvironmentRenderComponent env, PrefabDefinition mapVisual, string name)
     {
         var h = new PlanetHandles { Name = name };
 
@@ -99,8 +101,12 @@ public static class PlanetRenderBridge
         try
         {
             h.Terrain = GetMember(env, "_voxelPlanetRender");
-            h.TerrainSetVisible = h.Terrain?.GetType().GetMethod("SetVisible", new[] { typeof(bool) });
-            if (h.TerrainSetVisible == null) h.Terrain = null;
+            foreach (string field in new[] { "_clipmap", "_lowResClipmap" })
+            {
+                object clipmap = GetMember(h.Terrain, field);
+                if (clipmap != null) h.Clipmaps.Add(clipmap);
+            }
+            if (h.Clipmaps.Count == 0) h.Terrain = null;
 
             planet = GetMember(env, "_planet");
             h.Radius = planet != null ? Convert.ToDouble(GetMember(planet, "Radius")) : 0;
@@ -117,7 +123,12 @@ public static class PlanetRenderBridge
             object clouds = GetMember(env, "CloudDefinition");
             object envDefinition = GetMember(env, "_planetEnvRenderDefinition");
             object spherization = GetMember(envDefinition, "Spherization");
-            object sphereData = spherization?.GetType().GetMethod("GetSpherizationData", Type.EmptyTypes)?.Invoke(spherization, null);
+            // An extension method (SpherizationOverrideHelper, VRage.Render), not an instance method.
+            object sphereData = null;
+            Type helper = spherization?.GetType().Assembly.GetType("Keen.VRage.Render.Materials.SpherizationOverrideHelper")
+                          ?? FindType("VRage.Render", "Keen.VRage.Render.Materials.SpherizationOverrideHelper");
+            MethodInfo getData = helper?.GetMethod("GetSpherizationData", BindingFlags.Public | BindingFlags.Static);
+            if (getData != null) sphereData = getData.Invoke(null, new[] { spherization });
             object overlay = GetMember(GetMember(h.Terrain, "Definition"), "PlanetOverlay");
             object atmosphereRadius = GetMember(planet, "AtmosphereRadius");
             object radiusWithMaxHills = GetMember(planet, "RadiusWithMaxHills");
@@ -138,7 +149,7 @@ public static class PlanetRenderBridge
         // Proxy model: the model asset inside the planet's map visual prefab.
         try
         {
-            var prefab = GetMember(discoverable, "_mapVisualPrefab") as PrefabDefinition;
+            var prefab = mapVisual;
             if (prefab == null)
             {
                 WarnOnce("prefab-" + name, $"{name} has no map visual prefab; no proxy");
@@ -174,15 +185,48 @@ public static class PlanetRenderBridge
     // Real planet visibility
     // ─────────────────────────────────────────────────────────────────────────
 
+    private static int _terrainFailures;
+
+    /// <summary>
+    /// Hide or show a planet's terrain. Does what VoxelClipmap.Visible's setter does, for BOTH the
+    /// detailed and the low-res clipmap, but tolerates cells that are not attached yet: the stock
+    /// setter throws (NullReference on VoxelCell._voxel) on those and then never records the flag.
+    ///  1. clipmap._visible = visible — new cells inherit it (VoxelClipmapRing.AddCell), and a
+    ///     hidden clipmap stops its LOD update (VoxelClipmap.Update early-out).
+    ///  2. every attached cell gets SetVisible(visible) — a queued transition, applied by the
+    ///     PostProcessCells job, which is not gated on visibility.
+    /// Returns false on any failure so the caller retries next frame.
+    /// </summary>
     public static bool SetTerrainVisible(PlanetHandles h, bool visible)
     {
         if (h?.Terrain == null) return false;
         try
         {
-            h.TerrainSetVisible.Invoke(h.Terrain, new object[] { visible });
+            foreach (object clipmap in h.Clipmaps)
+            {
+                SetMember(clipmap, "_visible", visible);
+                if (!(GetMember(clipmap, "Rings") is IEnumerable rings)) continue;
+                foreach (object ring in rings)
+                {
+                    if (!(GetMember(ring, "Cells") is IDictionary cells)) continue;
+                    // Copy first: clipmap jobs may add/remove cells while we walk.
+                    var snapshot = new List<object>();
+                    foreach (object cellData in cells.Values) snapshot.Add(cellData);
+                    foreach (object cellData in snapshot)
+                    {
+                        object cell = GetMember(cellData, "Cell");
+                        if (cell == null || GetMember(cell, "_voxel") == null) continue;
+                        cell.GetType().GetMethod("SetVisible", new[] { typeof(bool) })?.Invoke(cell, new object[] { visible });
+                    }
+                }
+            }
             return true;
         }
-        catch (Exception e) { WarnOnce("terrain-set", $"SetVisible failed: {Inner(e)}"); return false; }
+        catch (Exception e)
+        {
+            if (++_terrainFailures <= 5) Log.Default?.Warning($"[ORBIT] terrain visibility failed ({_terrainFailures}): {Inner(e)}");
+            return false;
+        }
     }
 
     public static bool SetAtmosphereVisible(PlanetHandles h, bool visible)
@@ -320,6 +364,17 @@ public static class PlanetRenderBridge
         return found;
     }
 
+    /// <summary>
+    /// The planet's colonization-map visual. Private field on the server-side
+    /// DiscoverablePlanetComponent; the public route, GetDiscoverable(ClientId), needs
+    /// VRage.Multiplayer, which mod scripts do not reference.
+    /// </summary>
+    public static PrefabDefinition GetMapVisualPrefab(DiscoverablePlanetComponent discoverable)
+    {
+        try { return GetMember(discoverable, "_mapVisualPrefab") as PrefabDefinition; }
+        catch (Exception e) { WarnOnce("mapvisual", $"map visual lookup failed: {Inner(e)}"); return null; }
+    }
+
     /// <summary>Property or field by name, any visibility, walking base types.</summary>
     private static object GetMember(object target, string name)
     {
@@ -330,6 +385,27 @@ public static class PlanetRenderBridge
             if (p != null && p.GetIndexParameters().Length == 0) return p.GetValue(target);
             FieldInfo f = t.GetField(name, AnyInstance);
             if (f != null) return f.GetValue(target);
+        }
+        return null;
+    }
+
+    private static void SetMember(object target, string name, object value)
+    {
+        for (Type t = target.GetType(); t != null; t = t.BaseType)
+        {
+            FieldInfo f = t.GetField(name, AnyInstance);
+            if (f != null) { f.SetValue(target, value); return; }
+            PropertyInfo p = t.GetProperty(name, AnyInstance);
+            if (p != null && p.CanWrite) { p.SetValue(target, value); return; }
+        }
+        throw new MissingMemberException(target.GetType().Name, name);
+    }
+
+    private static Type FindType(string assemblyName, string typeName)
+    {
+        foreach (Assembly a in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            if (a.GetName().Name == assemblyName) return a.GetType(typeName);
         }
         return null;
     }

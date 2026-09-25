@@ -53,16 +53,17 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
     /// <summary>Observer tag the engine registers for the camera (VisualEffectsCullingConfiguration).</summary>
     private static readonly StringId CameraTag = StringId.Get("VisualEffectsObserver");
 
-    /// <summary>Give the client render components ~10 s to appear before concluding this is a server.</summary>
-    private const int MaxSetupAttempts = 600;
+    /// <summary>Frames to wait for render components and the server beacon (~20 s) before giving up.</summary>
+    private const int MaxSetupAttempts = 1200;
 
-    [Keen.VRage.DCS.Annotations.Component]
-    private readonly DiscoverablePlanetComponent _discoverable;
+    /// <summary>How far a server beacon may sit from this client planet and still be its twin.</summary>
+    private const double BeaconTolerance = 1000.0;
 
-    [Keen.VRage.DCS.Annotations.Component]
-    private readonly GravityGeneratorComponent _gravity;
+    /// <summary>Frame sphere in planet radii when no server beacon supplies the gravity reach.</summary>
+    private const double FallbackReachRadii = 3.0;
 
     private PlanetRenderBridge.PlanetHandles _handles;
+    private double _gravityReach;
     private PlanetRenderBridge.Proxy _proxy;
     private int _setupAttempts;
     private bool _disabled;
@@ -113,7 +114,7 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
             Vector3D center = Entity.Data.GetWorldTransform().Position;
             double distance = (center - camera.Position).Length();
 
-            double reach = Math.Max(_gravity.AffectDistance, _handles.Radius * OrbitalConfig.MinFrameRadii);
+            double reach = Math.Max(_gravityReach,_handles.Radius * OrbitalConfig.MinFrameRadii);
             bool wasInFrame = _inFrame;
             _inFrame = FrameMath.UpdateInFrame(_inFrame, distance,
                 reach * OrbitalConfig.FrameEnterFactor, reach * OrbitalConfig.FrameExitFactor);
@@ -179,21 +180,33 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
 
     private bool TrySetup()
     {
+        _setupAttempts++;
         var env = Entity.TryGet<PlanetEnvironmentRenderComponent>();
-        if (env == null)
+        Vector3D center = Entity.Data.GetWorldTransform().Position;
+        PlanetBeacon beacon = PlanetBeacons.Find(center, BeaconTolerance);
+
+        // Wait for both the render side and the server twin; give up on the beacon eventually.
+        bool lastChance = _setupAttempts >= MaxSetupAttempts;
+        if (env == null || (beacon == null && !lastChance))
         {
-            if (++_setupAttempts >= MaxSetupAttempts)
+            if (lastChance)
             {
                 _disabled = true;
-                Log.Default?.Info($"[ORBIT] {_name}: no planet render component, frame logic off (server or headless)");
+                Log.Default?.Info($"[ORBIT] {_name}: no planet render component, frame logic off");
             }
             return false;
         }
 
-        _handles = PlanetRenderBridge.Resolve(env, _discoverable, _name);
-        Log.Default?.Info($"[ORBIT] {_name}: resolved terrain={_handles.Terrain != null} " +
-                          $"atmosphere={_handles.EnvShowArgs != null} proxyModel={_handles.HasProxyModel} " +
-                          $"radius={_handles.Radius / 1000:F1} km gravityReach={_gravity.AffectDistance / 1000:F1} km");
+        _handles = PlanetRenderBridge.Resolve(env, beacon?.MapVisual, _name);
+        _gravityReach = beacon != null && beacon.GravityReach > 0
+            ? beacon.GravityReach
+            : _handles.Radius * FallbackReachRadii;
+
+        Log.Default?.Info($"[ORBIT] {_name}: resolved after {_setupAttempts} frames center={ServerPlanetBeacon.Fmt(center)} " +
+                          $"beacon={(beacon != null ? beacon.Name : "NONE")} (of {PlanetBeacons.Count}) " +
+                          $"terrain={_handles.Terrain != null} atmosphere={_handles.EnvShowArgs != null} " +
+                          $"proxyModel={_handles.HasProxyModel} modelRadius={_handles.ProxyModelRadius:F3} " +
+                          $"radius={_handles.Radius / 1000:F1} km reach={_gravityReach / 1000:F1} km");
 
         if (_handles.Terrain == null)
         {

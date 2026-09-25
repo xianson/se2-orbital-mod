@@ -1,0 +1,21 @@
+<Project>
+  <!-- Offline suites for the ported orbital core (from SE-Aerospace tools/*Test). They compile the
+       LITERAL mod sources under Scripts/Simulation/Core against SE2's own math library
+       (VRage.Library: Keen.VRage.Library.Mathematics), so a behaviour difference between SE1's
+       VRageMath and SE2's math shows up here, not in game. Run: dotnet run in each folder;
+       exit code 0 = all pass. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <NoWarn>$(NoWarn);CS0162;CS0168;CS0219;CS0414;CS0649;CS8632;CS1998</NoWarn>
+    <Game2>C:\Program Files (x86)\Steam\steamapps\common\SpaceEngineers2\Game2</Game2>
+    <Core>$(MSBuildThisFileDirectory)..\Scripts\Simulation\Core</Core>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="$(Game2)\VRage.Library.dll" />
+    <Compile Include="$(MSBuildThisFileDirectory)TestUsings.cs" />
+  </ItemGroup>
+</Project>

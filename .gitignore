@@ -7,3 +7,7 @@
 .startupblobscache.json
 Content/contentcache.vrb
 Content/definitionsets.vrb
+
+# Offline test build output
+Tests/**/bin/
+Tests/**/obj/

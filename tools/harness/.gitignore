@@ -1,0 +1,5 @@
+shot_*.png
+shot-result.txt
+last-launch-args.txt
+*.flag
+world.txt

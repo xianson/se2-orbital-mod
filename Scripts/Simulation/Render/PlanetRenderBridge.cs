@@ -2,6 +2,7 @@ using System.Collections;
 using System.Reflection;
 using Keen.Game2.Client.WorldObjects;
 using Keen.Game2.Simulation.GameSystems.Discoveries.Discoverables;
+using Keen.Game2.Simulation.GameSystems.RangedAffectGenerators.Gravity;
 using Keen.VRage.Core;
 using Keen.VRage.Core.Game.Definitions;
 using Keen.VRage.Core.Model;
@@ -373,6 +374,44 @@ public static class PlanetRenderBridge
     {
         try { return GetMember(discoverable, "_mapVisualPrefab") as PrefabDefinition; }
         catch (Exception e) { WarnOnce("mapvisual", $"map visual lookup failed: {Inner(e)}"); return null; }
+    }
+
+    /// <summary>
+    /// The planet's actual gravity law, g(d) = g0 · (r0 / d)^p (GravityGeneratorComponent,
+    /// CalculateGravitationalAccelerationMagnitude). g0 is public; r0 (AccelerationDistance) and
+    /// p (FallOffPower) live in the private GravityGeneratorData, so this invokes the component's
+    /// own protected [Serializer] into a fresh public object builder and reads them from there.
+    /// </summary>
+    public static bool TryGetGravityLaw(GravityGeneratorComponent gravity, out double g0, out double r0, out double falloff)
+    {
+        g0 = gravity?.GravitationalAcceleration ?? 0;
+        r0 = 0;
+        falloff = 0;
+        if (gravity == null) return false;
+        try
+        {
+            MethodInfo serialize = null;
+            for (Type t = gravity.GetType(); t != null && serialize == null; t = t.BaseType)
+            {
+                foreach (MethodInfo m in t.GetMethods(AnyInstance))
+                {
+                    var ps = m.GetParameters();
+                    if (m.Name == "Serialize" && ps.Length == 1 && ps[0].ParameterType == typeof(GravityGeneratorObjectBuilder))
+                    {
+                        serialize = m;
+                        break;
+                    }
+                }
+            }
+            if (serialize == null) { WarnOnce("gravity-law", "GravityGeneratorComponent.Serialize not found"); return false; }
+
+            var ob = new GravityGeneratorObjectBuilder();
+            serialize.Invoke(gravity, new object[] { ob });
+            r0 = ob.AccelerationDistance;
+            falloff = ob.FallOffPower;
+            return r0 > 0;
+        }
+        catch (Exception e) { WarnOnce("gravity-law", $"gravity law read failed: {Inner(e)}"); return false; }
     }
 
     /// <summary>Property or field by name, any visibility, walking base types.</summary>

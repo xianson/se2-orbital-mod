@@ -41,6 +41,18 @@ public static class OrbitalConfig
 
     /// <summary>Also hide atmosphere and clouds with the terrain.</summary>
     public static bool HideAtmosphere = true;
+
+    /// <summary>Master switch for hiding real planets. Off = proxies can still be drawn (debug) but real planets are never touched.</summary>
+    public static bool HideRealPlanets = true;
+
+    /// <summary>
+    /// DEBUG: park every proxy globe in front of the camera, side by side, at
+    /// <see cref="DebugDistance"/> and <see cref="DebugAngularDiameterDeg"/>, regardless of frame.
+    /// For eyeballing the proxy's look without flying to a planet. Leave false.
+    /// </summary>
+    public static bool DebugProxyInFront = false;
+    public static double DebugDistance = 300;
+    public static double DebugAngularDiameterDeg = 12;
 }
 
 /// <summary>
@@ -70,6 +82,8 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
     private bool _inFrame = true;
     private bool _realShown = true;
     private string _name = "planet";
+    private int _debugSlot = -1;
+    private static int _nextDebugSlot;
 
     void IInSceneListener.OnAddedToScene()
     {
@@ -104,7 +118,7 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
 
     private void Tick(IObservers observers)
     {
-        if (_disabled || OrbitalConfig.Mode == ProxyMode.AlwaysReal && _realShown) return;
+        if (_disabled || OrbitalConfig.Mode == ProxyMode.AlwaysReal && _realShown && !OrbitalConfig.DebugProxyInFront) return;
         if (!observers.TryGetFirstTransform(CameraTag, out WorldTransform camera)) return;
 
         lock (PlanetRenderBridge.Lock)
@@ -123,7 +137,7 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
                 Log.Default?.Info($"[ORBIT] {_name}: {(_inFrame ? "entered" : "left")} frame at {distance / 1000:F1} km (reach {reach / 1000:F1} km)");
             }
 
-            bool wantReal = WantReal();
+            bool wantReal = WantReal() || !OrbitalConfig.HideRealPlanets;
 
             // Never hide the real planet unless a proxy can stand in for it.
             if (!wantReal && !_handles.HasProxyModel) wantReal = true;
@@ -135,10 +149,21 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
                 Log.Default?.Info($"[ORBIT] {_name}: real planet {(wantReal ? "SHOWN" : "HIDDEN")} at {distance / 1000:F1} km");
             }
 
-            if (!_realShown)
+            if (!_realShown || OrbitalConfig.DebugProxyInFront)
             {
                 FrameMath.ProjectProxy(camera.Position, center, _handles.Radius, OrbitalConfig.ProxyClampDistance,
                     out Vector3D renderCenter, out double renderRadius);
+
+                if (OrbitalConfig.DebugProxyInFront)
+                {
+                    if (_debugSlot < 0) _debugSlot = _nextDebugSlot++;
+                    Vector3D forward = (Vector3D)Vector3.Transform(Vector3.Forward, camera.Orientation);
+                    Vector3D right = (Vector3D)Vector3.Transform(Vector3.Right, camera.Orientation);
+                    renderRadius = OrbitalConfig.DebugDistance * Math.Tan(OrbitalConfig.DebugAngularDiameterDeg * Math.PI / 360.0);
+                    double spacing = renderRadius * 2.4;
+                    renderCenter = camera.Position + forward * OrbitalConfig.DebugDistance
+                                   + right * ((_debugSlot + 0.6) * spacing);
+                }
 
                 if (_proxy == null)
                 {

@@ -27,7 +27,9 @@ namespace OrbitalMod;
 ///    (server-only velocity writes did not stick in testing). Single player / listen host.
 ///  - Only an EVA character is framed; a seated player is skipped. Grids and multi-member frames
 ///    (CW forces, split, merge) come next.
-///  - Arrival velocity above the world speed cap is clamped (HighSpeed stepping is a later milestone).
+///  - Above the world speed cap the planet cell runs HighSpeed v1 (StepHighSpeed): virtual velocity,
+///    model gravity, per-tick position stepping written on client and server. No thrust while in
+///    HighSpeed yet, and client/server writes jitter the observed speed.
 ///  - Capture requires having been inside a planet's keep first (or the harness `stow` command),
 ///    instead of the full total-partition axiom, so loading a world never yanks the player away.
 /// </summary>
@@ -63,6 +65,7 @@ public static class FrameHost
 
     public static void Tick(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera, double gravityMultiplier)
     {
+        _mult = gravityMultiplier > 0 ? gravityMultiplier : 1.0;
         if (!SystemHost.EnsureBuilt(gravityMultiplier)) return;
         double dt = SystemHost.AdvanceClock();
         if (dt <= 0) return; // once per frame
@@ -87,8 +90,12 @@ public static class FrameHost
 
             var frame = frames.FindByMember(id);
             PlayerFrame = frame;
-            if (frame != null) UpdatePlayerFrame(session, ch, frame, pos, vel, t, dt);
-            else if (!_tpPending) TryStow(session, ch, id, pos, vel, t);
+            if (frame != null) { _hsActive = false; UpdatePlayerFrame(session, ch, frame, pos, vel, t, dt); }
+            else if (!_tpPending)
+            {
+                if (_hsActive && !landed) vel = StepHighSpeed(ch, pos, vel, dt);
+                TryStow(session, ch, id, pos, _hsActive ? _hsVel : vel, t);
+            }
         }
 
         PublishObserver(camera.Position, reg, t);
@@ -109,6 +116,19 @@ public static class FrameHost
     private static void TryStow(Keen.VRage.Core.Game.Systems.Session session, Entity ch, long id, Vector3D pos, Vector3D vel, double t)
     {
         var reg = SystemHost.Registry;
+        if (_pendingOrbit.HasValue)
+        {
+            var (pb, pel) = _pendingOrbit.Value;
+            _pendingOrbit = null;
+            ForceStow = false;
+            var pf = SystemHost.Frames.CreateFrame(pb, pel, id);
+            if (pf == null) return;
+            _hsActive = false;
+            _wasInKeep = false;
+            StartTeleport(session, pf.BerthCenter, Vector3D.Zero, t);
+            Event($"STOW (orbit command) -> frame #{pf.Id} about {pb}: a={pel.SemiMajorAxis / 1000:F1} km e={pel.Eccentricity:F3}");
+            return;
+        }
         if (!VoxelBerthRegistry.TryCellContaining(pos, reg, out string body, out Vector3D cell))
         {
             _wasInKeep = false;
@@ -146,6 +166,7 @@ public static class FrameHost
 
         var frame = SystemHost.Frames.CreateFrame(parent.Name, el, id);
         if (frame == null) return;
+        _hsActive = false;
         ForceStow = false;
         _wasInKeep = false;
         StartTeleport(session, frame.BerthCenter, Vector3D.Zero, t);
@@ -232,7 +253,19 @@ public static class FrameHost
         Vector3D worldPos = cellCenter + cel.Position;   // planet cells are 1:1 inertial windows (no spin in v1)
         Vector3D worldVel = cel.Velocity;
         double speed = worldVel.Length();
-        Vector3D applied = speed > SpeedCap ? worldVel * (SpeedCap / speed) : worldVel;
+        // Above the cap the planet cell runs HighSpeed: land with zero physics velocity and carry the
+        // true velocity virtually (StepHighSpeed). Below it, plain physics.
+        bool hs = speed > SpeedCap;
+        Vector3D applied = hs ? Vector3D.Zero : worldVel;
+        _hsActive = hs;
+        _hsVel = worldVel;
+        if (hs)
+        {
+            // HighSpeed senses gravity through the physics step; jetpack dampeners would cancel it.
+            var noDamp = new PlayerRequest { Dampeners = false };
+            ServerPlanetBeacon.ApplyToCharacter(session, noDamp, "client");
+            ServerPlanetBeacon.PendingPlayer = noDamp;
+        }
 
         long fid = f.Id;
         SystemHost.Frames.Dissolve(fid);
@@ -240,8 +273,110 @@ public static class FrameHost
         _wasInKeep = true;
         StartTeleport(session, worldPos, applied, t);
         Event($"ARRIVE frame #{fid} -> {node.Name} cell: r={cel.Position.Length() / 1000:F1} km (shell {shell / 1000:F1}) " +
-              $"|v|={speed:F0} m/s{(speed > SpeedCap ? $" CLAMPED to {SpeedCap:F0} (HighSpeed not yet ported)" : "")}");
+              $"|v|={speed:F0} m/s{(hs ? " -> HighSpeed" : "")}");
     }
+
+    // ───────────────────────────── HighSpeed (planet cell, above the cap) ─────────────────────────────
+
+    public const double HighSpeedExitFraction = 0.9;  // drop back to physics below cap × this
+    public const double SurfaceGuard = 2000.0;        // m above the body radius: never step closer
+
+    private static bool _hsActive;
+    private static double _mult = 1.0;
+    private static Vector3D _hsVel;
+    public static bool HighSpeedActive => _hsActive;
+    public static Vector3D HighSpeedVelocity => _hsVel;
+
+    /// <summary>
+    /// SE-Aerospace's HighSpeed (FnB virtual velocity + teleport stepping), SE2 form. The true velocity
+    /// lives in <see cref="_hsVel"/>; the character's physics velocity is zeroed every tick and whatever
+    /// the engine added during the tick (planet gravity, jetpack thrust) is read back and folded into
+    /// the virtual velocity: the same force-sensor idea as the conjunction anchor drain. The character
+    /// is then stepped by v·dt. Below cap × 0.9 it hands back to physics; near the surface it stops
+    /// stepping (surface guard) and hands back at the cap: no tunnelling into terrain.
+    /// Returns the velocity to report this tick.
+    /// </summary>
+    private static Vector3D StepHighSpeed(Entity ch, Vector3D pos, Vector3D measured, double dt)
+    {
+        // Gravity from the MODEL (patched 1/r² law × world multiplier): the per-tick physics zeroing
+        // wipes the engine's own gravity step before it can be sensed (seen in game: hsV never changed).
+        // Thrust is not yet folded in while in HighSpeed (SE1 read it from GetAcceleration).
+        if (VoxelBerthRegistry.TryCellContaining(pos, SystemHost.Registry, out string gb, out Vector3D gc)
+            && SystemHost.BeaconOf.TryGetValue(gb, out var beacon))
+        {
+            var law = beacon.Gravity; law.Multiplier = _mult;
+            Vector3D r = pos - gc;
+            double dist = r.Length();
+            if (dist > 1) _hsVel += r * (-law.At(dist) * dt / dist);
+        }
+        double speed = _hsVel.Length();
+        if (speed < SpeedCap * HighSpeedExitFraction)
+        {
+            _hsActive = false;
+            SetVelocity(ch, _hsVel);
+            Event($"HighSpeed off at {speed:F0} m/s (physics takes over)");
+            return _hsVel;
+        }
+
+        Vector3D next = pos + _hsVel * dt;
+        var reg = SystemHost.Registry;
+        if (VoxelBerthRegistry.TryCellContaining(pos, reg, out string body, out Vector3D cell))
+        {
+            var def = reg.FindDefinition(body);
+            double floor = (def != null ? def.RadiusMeters : 0) + SurfaceGuard;
+            if ((next - cell).Length() < floor)
+            {
+                _hsActive = false;
+                Vector3D capped = _hsVel * (SpeedCap / speed);
+                SetVelocity(ch, capped);
+                Event($"HighSpeed surface guard at {((pos - cell).Length() - (def?.RadiusMeters ?? 0)) / 1000:F1} km alt: " +
+                      $"{speed:F0} m/s -> {SpeedCap:F0} m/s physics");
+                return capped;
+            }
+        }
+
+        SetVelocity(ch, Vector3D.Zero);
+        var wt = ch.Data.GetWorldTransform();
+        ch.Data.Set(new WorldTransform(next, wt.Orientation));
+        // The client write alone is overridden by the character controller (seen in game);
+        // the transform also goes through the server, the way EntityAdmin teleports.
+        ServerPlanetBeacon.PendingPlayer = new PlayerRequest { Position = next, Velocity = Vector3D.Zero };
+        return _hsVel;
+    }
+
+    /// <summary>
+    /// Harness: put the player on a given orbit around a planet, starting at APOAPSIS (SE1's /orbit
+    /// command). Framed: replaces the frame's elements. Not framed: stows with those elements.
+    /// </summary>
+    public static string SetOrbit(string body, double apoAltKm, double periAltKm, double incDeg)
+    {
+        var reg = SystemHost.Registry;
+        var node = reg?.Find(body);
+        var def = reg?.FindDefinition(body);
+        if (node == null || def == null) return "no such body";
+        double R = def.RadiusMeters;
+        double ra = R + Math.Max(apoAltKm, periAltKm) * 1000, rp = R + Math.Min(apoAltKm, periAltKm) * 1000;
+        double a = 0.5 * (ra + rp);
+        double va = Math.Sqrt(node.Mu * (2.0 / ra - 1.0 / a));
+        double inc = incDeg * Math.PI / 180.0;
+        var pos = new Vector3D(ra, 0, 0);
+        var vel = new Vector3D(0, Math.Cos(inc), Math.Sin(inc)) * va;
+        var el = OrbitalMath.ToElements(new StateVector(pos, vel), node.Mu, SystemHost.Now);
+        if (!IsFinite(el.SemiMajorAxis)) return "degenerate orbit";
+        if (PlayerFrame != null)
+        {
+            PlayerFrame.ParentBodyName = body;
+            PlayerFrame.Elements = el;
+            PlayerFrame.PendingDrainDv = Vector3D.Zero;
+            Event($"ORBIT set on frame #{PlayerFrame.Id}: {body} Ap {apoAltKm} km Pe {periAltKm} km i {incDeg}°");
+            return "orbit set";
+        }
+        _pendingOrbit = (body, el);
+        ForceStow = true;
+        return "orbit queued (stows next tick)";
+    }
+
+    private static (string body, KeplerianElements el)? _pendingOrbit;
 
     // ───────────────────────────── observer frame (for renderers) ─────────────────────────────
 

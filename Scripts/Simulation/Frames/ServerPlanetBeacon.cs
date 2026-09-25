@@ -154,6 +154,8 @@ public sealed class PlayerRequest
 {
     public bool? Dampeners;
     public Vector3D? Velocity;
+    /// <summary>HighSpeed step: set the character's world position (orientation kept).</summary>
+    public Vector3D? Position;
 }
 
 public partial class ServerPlanetBeacon
@@ -186,6 +188,11 @@ public partial class ServerPlanetBeacon
             ctx.ToggleDampeners(clearRelativeDampeners: true);
         if (req.Velocity.HasValue)
             ctx.Set(new RigidBodyData { LinearVelocity = (Vector3)req.Velocity.Value });
+        if (req.Position.HasValue)
+        {
+            var wt = ctx.GetWorldTransform();
+            ctx.Set(new WorldTransform(req.Position.Value, wt.Orientation));
+        }
         string s = $"{side}: had dampeners={ctx.Has<DampeningData>()} vel={(req.Velocity.HasValue ? req.Velocity.Value.Length().ToString("F1") : "unchanged")}";
         Log.Default?.Info("[ORBIT-DEV] player " + s);
         return s;

@@ -164,6 +164,18 @@ public static class DevHarness
                 return "shot -> " + LastShot;
             }
 
+            case "orbit":
+                if (a.Length >= 4 && !On(a[1]) && !a[1].Equals("off", StringComparison.OrdinalIgnoreCase))
+                {
+                    // orbit <planet> <apoAltKm> <periAltKm> [incDeg]
+                    var op = FindPlanet(a[1]);
+                    string ob = op != null ? SystemHost.BodyNameOf(op) : null;
+                    if (ob == null) return "no such planet";
+                    return FrameHost.SetOrbit(ob, D(a[2]), D(a[3]), a.Length > 4 ? D(a[4]) : 0);
+                }
+                OrbitalConfig.ShowOrbit = On(a[1]);
+                return $"orbit={OrbitalConfig.ShowOrbit}";
+
             case "stow":
                 FrameHost.ForceStow = true;
                 return "stow requested (next tick)";
@@ -218,9 +230,6 @@ public static class DevHarness
                 return $"queued inverse-square for {PlanetName(p)}, reach {reach / 1000:F0} km";
             }
 
-            case "orbit":
-                OrbitalConfig.ShowOrbit = On(a[1]);
-                return $"orbit={OrbitalConfig.ShowOrbit}";
             default:
                 return "unknown command";
         }
@@ -341,7 +350,7 @@ public static class DevHarness
         sb.AppendLine($"system built={SystemHost.Built} t={SystemHost.Now:F1}s warp=x{SystemHost.Timescale} observer={(FrameHost.PlayerFrame != null ? "conjunction #" + FrameHost.PlayerFrame.Id : FrameHost.ObserverPlanet != null ? "planet " + FrameHost.ObserverPlanet : "legacy")} frames={(SystemHost.Frames != null ? SystemHost.Frames.Count : 0)}");
         if (FrameHost.PlayerFrame != null) sb.AppendLine($"frame #{FrameHost.PlayerFrame.Id} parent={FrameHost.PlayerFrame.ParentBodyName} berth={ServerPlanetBeacon.Fmt(FrameHost.PlayerFrame.BerthCenter)} a={FrameHost.PlayerFrame.Elements.SemiMajorAxis / 1000:F1}km e={FrameHost.PlayerFrame.Elements.Eccentricity:F3} pendingDv={FrameHost.PlayerFrame.PendingDrainDv.Length():F2}");
         sb.AppendLine("lastEvent " + FrameHost.LastEvent);
-        sb.AppendLine("host " + FrameHost.Debug);
+        sb.AppendLine("host " + FrameHost.Debug + $" highSpeed={FrameHost.HighSpeedActive} hsV={FrameHost.HighSpeedVelocity.Length():F0}");
         sb.AppendLine("shot " + LastShot);
         if (OrbitDisplay.LastReadout != null) sb.AppendLine("orbit " + OrbitDisplay.LastReadout.Replace("\n", " | "));
         Vector3D mv = OrbitDisplay.MeasuredVelocity;

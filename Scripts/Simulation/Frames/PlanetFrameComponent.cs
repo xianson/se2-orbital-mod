@@ -86,6 +86,7 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
     private PlanetRenderBridge.PlanetHandles _handles;
     private double _gravityReach;
     private GravityLaw _law;
+    private PlanetBeacon _beacon;
     private string _planetName = "planet";
     private PlanetRenderBridge.Proxy _proxy;
     private int _setupAttempts;
@@ -142,6 +143,7 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
             Vector3D center = Entity.Data.GetWorldTransform().Position;
             double distance = (center - camera.Position).Length();
 
+            if (_beacon != null && _beacon.GravityReach > 0) { _law = _beacon.Gravity; _gravityReach = _beacon.GravityReach; }
             PlanetRenderBridge.TickTerrain(_handles);
             OrbitDisplay.Consider(this, session, camera, center, _handles.Radius, _law, _planetName);
 
@@ -246,6 +248,7 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
             ? beacon.GravityReach
             : _handles.Radius * FallbackReachRadii;
         _law = beacon?.Gravity ?? default;
+        _beacon = beacon;
         _planetName = beacon != null ? DevHarness.PlanetName(beacon) : _name;
 
         Log.Default?.Info($"[ORBIT] {_name}: resolved after {_setupAttempts} frames center={ServerPlanetBeacon.Fmt(center)} " +

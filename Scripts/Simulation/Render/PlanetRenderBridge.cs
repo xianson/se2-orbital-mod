@@ -459,6 +459,45 @@ public static class PlanetRenderBridge
         catch (Exception e) { WarnOnce("gravity-law", $"gravity law read failed: {Inner(e)}"); return false; }
     }
 
+    /// <summary>
+    /// Rewrite a planet's gravity law at runtime: FallOffPower and AffectDistance in the private
+    /// GravityGeneratorData (via the protected Component.GetData/SetData, the aero mod's pattern),
+    /// then the public AffectDistance so the trigger volume follows. SERVER THREAD ONLY.
+    /// Note: GravityGeneratorComponent's [Serializer] writes these values back to the object
+    /// builder, so a world SAVED while patched keeps them.
+    /// </summary>
+    public static bool SetGravityLaw(GravityGeneratorComponent gravity, float falloff, float reach)
+    {
+        try
+        {
+            Type dataType = typeof(GravityGeneratorComponent).GetNestedType("GravityGeneratorData", BindingFlags.NonPublic);
+            MethodInfo get = null, set = null;
+            for (Type t = typeof(GravityGeneratorComponent); t != null && (get == null || set == null); t = t.BaseType)
+            {
+                foreach (MethodInfo m in t.GetMethods(AnyInstance))
+                {
+                    if (!m.IsGenericMethodDefinition) continue;
+                    if (m.Name == "GetData" && m.GetParameters().Length == 0) get = m;
+                    if (m.Name == "SetData" && m.GetParameters().Length == 1) set = m;
+                }
+            }
+            if (dataType == null || get == null || set == null)
+            {
+                WarnOnce("gravity-set", $"gravity data access missing (type={dataType != null} get={get != null} set={set != null})");
+                return false;
+            }
+
+            object data = get.MakeGenericMethod(dataType).Invoke(gravity, null);
+            dataType.GetField("FallOffPower").SetValue(data, falloff);
+            dataType.GetField("AffectDistance").SetValue(data, reach);
+            set.MakeGenericMethod(dataType).Invoke(gravity, new[] { data });
+
+            gravity.AffectDistance = reach;
+            return true;
+        }
+        catch (Exception e) { Log.Default?.Warning($"[ORBIT] gravity law write failed: {Inner(e)}"); return false; }
+    }
+
     private static MethodInfo _teleportPlayer;
 
     /// <summary>

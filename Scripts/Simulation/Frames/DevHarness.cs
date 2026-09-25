@@ -150,6 +150,21 @@ public static class DevHarness
                 return "fakevel set";
             }
 
+            case "gravity":
+            {
+                // gravity <planet> inverse <reachKm> | gravity <planet> vanilla
+                var p = FindPlanet(a[1]);
+                if (p == null) return "no such planet";
+                if (a[2].Equals("vanilla", StringComparison.OrdinalIgnoreCase))
+                {
+                    p.PendingGravity = new GravityRequest { Restore = true };
+                    return $"queued restore for {PlanetName(p)}";
+                }
+                float reach = (float)(D(a[3]) * 1000.0);
+                p.PendingGravity = new GravityRequest { Falloff = 2f, Reach = reach };
+                return $"queued inverse-square for {PlanetName(p)}, reach {reach / 1000:F0} km";
+            }
+
             case "orbit":
                 OrbitalConfig.ShowOrbit = On(a[1]);
                 return $"orbit={OrbitalConfig.ShowOrbit}";

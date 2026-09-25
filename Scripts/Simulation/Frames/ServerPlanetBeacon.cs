@@ -2,6 +2,8 @@ using Keen.Game2.Simulation.GameSystems.Discoveries.Discoverables;
 using Keen.Game2.Simulation.GameSystems.RangedAffectGenerators.Gravity;
 using Keen.VRage.Core;
 using Keen.VRage.Core.Game.Definitions;
+using Keen.VRage.Core.Systems;
+using Keen.VRage.DCS.Annotations;
 
 #pragma warning disable
 namespace OrbitalMod;
@@ -13,7 +15,19 @@ public sealed class PlanetBeacon
     public PrefabDefinition MapVisual;
     public double GravityReach;
     public GravityLaw Gravity;
+    /// <summary>The planet's law as loaded, for restoring.</summary>
+    public GravityLaw OriginalGravity;
     public string Name;
+
+    /// <summary>A gravity change requested from any thread; applied on the server thread by the beacon job.</summary>
+    public volatile GravityRequest PendingGravity;
+}
+
+public sealed class GravityRequest
+{
+    public bool Restore;
+    public float Falloff;
+    public float Reach;
 }
 
 /// <summary>
@@ -68,7 +82,7 @@ public static class PlanetBeacons
 /// Injected into server planet compositions. Publishes the planet's map globe prefab and
 /// gravity reach for the client-side <see cref="PlanetFrameComponent"/>.
 /// </summary>
-public class ServerPlanetBeacon : Component, IInSceneListener
+public partial class ServerPlanetBeacon : Component, IInSceneListener
 {
     [Keen.VRage.DCS.Annotations.Component]
     private readonly DiscoverablePlanetComponent _discoverable;
@@ -89,6 +103,7 @@ public class ServerPlanetBeacon : Component, IInSceneListener
         };
         PlanetRenderBridge.TryGetGravityLaw(_gravity, out double g0, out double r0, out double falloff);
         _beacon.Gravity = new GravityLaw { G0 = g0, R0 = r0, Falloff = falloff, Reach = _gravity.AffectDistance };
+        _beacon.OriginalGravity = _beacon.Gravity;
         PlanetBeacons.Add(_beacon);
         Log.Default?.Info($"[ORBIT] beacon {_beacon.Name}: center={Fmt(_beacon.Center)} " +
                           $"gravity g0={g0:F2} m/s² r0={r0 / 1000:F1} km falloff={falloff:F2} reach={_beacon.GravityReach / 1000:F1} km " +
@@ -102,4 +117,30 @@ public class ServerPlanetBeacon : Component, IInSceneListener
     }
 
     internal static string Fmt(Vector3D v) => $"({v.X / 1000:F1}, {v.Y / 1000:F1}, {v.Z / 1000:F1}) km";
+}
+
+public partial class ServerPlanetBeacon
+{
+    [After(typeof(RenderSubmissionBegin))]
+    private class OnBeaconTick : JobGroup;
+
+    /// <summary>Applies queued gravity changes on the thread that owns this (server) entity.</summary>
+    [OnBeaconTick]
+    [MustHave(typeof(ServerPlanetBeacon))]
+    private static void BeaconJob(ServerPlanetBeacon beacon)
+    {
+        var b = beacon._beacon;
+        var req = b?.PendingGravity;
+        if (req == null) return;
+        b.PendingGravity = null;
+
+        float falloff = req.Restore ? (float)b.OriginalGravity.Falloff : req.Falloff;
+        float reach = req.Restore ? (float)b.OriginalGravity.Reach : req.Reach;
+        bool ok = PlanetRenderBridge.SetGravityLaw(beacon._gravity, falloff, reach);
+
+        PlanetRenderBridge.TryGetGravityLaw(beacon._gravity, out double g0, out double r0, out double f);
+        b.Gravity = new GravityLaw { G0 = g0, R0 = r0, Falloff = f, Reach = beacon._gravity.AffectDistance };
+        b.GravityReach = b.Gravity.Reach;
+        Log.Default?.Info($"[ORBIT] {b.Name}: gravity {(ok ? "set" : "FAILED")} -> falloff={f:F2} r0={r0 / 1000:F1} km reach={b.Gravity.Reach / 1000:F1} km");
+    }
 }

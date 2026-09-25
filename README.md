@@ -17,7 +17,11 @@ the two share almost nothing, and players can run either alone.
    camera, fits Keplerian elements to the camera's state and draws the conic plus a readout. It
    renders with a UI3D MeshBuilder, so it needs no reflection. The readout is verified. The conic needs a moving
    player, see open items.
-4. **Dev harness.** An external tool can teleport the player, aim the view and switch modes, and take
+4. **Runtime inverse-square gravity (dev command).** `gravity Verdure inverse 600` rewrites the planet's
+   gravity law on the server thread (FallOffPower 2, 600 km reach) and `gravity Verdure vanilla` restores it.
+   Verified by readback and by the frame and orbit fit following it (screenshot 08, an exact 1/r² conic).
+   **Not yet verified:** that a free body actually falls along it, because the jetpack dampeners hold the player.
+5. **Dev harness.** An external tool can teleport the player, aim the view and switch modes, and take
    screenshots. See below.
 
 ## How it is wired
@@ -84,9 +88,11 @@ and whitelist analyzer as the game).
 1. **Proxy fidelity.** The map globe is low-poly and pale, and has no atmosphere rim (compare screenshots 02 and 03).
    It is also sized from the base radius, about 5% small next to the real limb. Options: size from the surface
    radius, a denser runtime mesh, or reusing the planet's own low-res clipmap far away.
-2. **Real orbital gravity.** Spawn or patch planets with inverse-square falloff, then the orbit display becomes exact.
-3. **Orbit display needs velocity.** The jetpack dampeners hold the player still. Add a harness `vel` command
-   (set `RigidBodyData` server-side), or test from a moving grid.
+2. **Real orbital gravity.** The runtime switch exists (dev command). Still needed: prove bodies follow it
+   (a free-floating grid, or dampeners off), decide whether it becomes the default, and handle saves.
+   GravityGeneratorComponent serializes the patched law, so a world saved while patched keeps it.
+3. **Orbit display with real motion.** Verified with harness `fakevel` (synthetic velocity, screenshots 07 and 08).
+   With real motion it still needs a moving body: the jetpack dampeners hold the player still.
 4. **Dedicated-server pairing** of client planets to their server data.
 5. **SE-Aerospace's frames and rails** (berths, time warp, rails teleport). The core is here. The runtime
    still needs its SE2 design.

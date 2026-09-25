@@ -11,8 +11,9 @@ the two share almost nothing, and players can run either alone.
    atmosphere and clouds are hidden and the planet's own colonization-map globe is drawn in its place,
    in the normal world view, at true direction and size. Hide and restore were both verified at close range (88 km).
 2. **Orbital core ported.** The game-free SE-Aerospace core (Orbital, Rendezvous, Time, SystemDef;
-   about 5.8k lines) runs on SE2's math library. `Tests/` holds the Time, SystemDef and Rendezvous suites:
-   76 + 88 + 97 checks, all passing against SE2's `VRage.Library`.
+   about 5.8k lines) runs on SE2's math library. `Tests/` holds the Time, SystemDef and Rendezvous suites
+   (76 + 88 + 97 checks, all passing against SE2's `VRage.Library`), plus FrameMathTests (21 checks) for the frame
+   and gravity-law math.
 3. **Orbit display.** The first in-game use of the core. It picks the planet whose gravity dominates at the
    camera, fits Keplerian elements to the camera's state and draws the conic plus a readout. It
    renders with a UI3D MeshBuilder, so it needs no reflection. The readout is verified. The conic needs a moving
@@ -20,7 +21,10 @@ the two share almost nothing, and players can run either alone.
 4. **Runtime inverse-square gravity (dev command).** `gravity Verdure inverse 600` rewrites the planet's
    gravity law on the server thread (FallOffPower 2, 600 km reach) and `gravity Verdure vanilla` restores it.
    Verified by readback and by the frame and orbit fit following it (screenshot 08, an exact 1/r² conic).
-   **Not yet verified:** that a free body actually falls along it, because the jetpack dampeners hold the player.
+   Free fall verified qualitatively: with dampeners off at 300 km (vanilla gravity ends at 81 km) the player falls
+   straight at Verdure, 0 to 6.3 m/s in about 9 s. Measured 0.67 m/s² against a model of 0.87 m/s² (0.43 times
+   the world multiplier 2). The shortfall matches the sim running slow while the aero mod's spike was engaged.
+   A clean quantitative run needs a world without the aero mod.
 5. **Dev harness.** An external tool can teleport the player, aim the view and switch modes, and take
    screenshots. See below.
 
@@ -53,6 +57,9 @@ player and listen host. A dedicated-server client needs a different pairing (ope
   lock, for both the detailed and low-res clipmaps, then freezes the clipmap after 20 frames.
 - **Whitelist quirk (VRS1001):** `new T[n]` of a script-defined `T` is banned, because array types miss the
   own-assembly exemption. Use `List<T>` plus `ToArray()`.
+- **World GravityMultiplier is 2 in the test world, on BOTH client and server physics** (`IPhysics.GravityMultiplier`),
+  despite the aero STATUS note that the aero code forces 1. The engine scales all gravity by it, so
+  `GravityLaw.Multiplier` feeds it into the orbit fit. Without it, mu is off by 2x.
 - **Freezes during testing were not this mod.** The test world loads the Aerodynamics Mod from its mod
   list, and its AeroSpeedSpike froze the main thread about 40 s after engaging, with or without the Orbital Mod.
 

@@ -37,9 +37,12 @@ public static class DevHarness
     private static string _dir;
     private static readonly List<string> _log = new List<string>();
 
+    private static float _clientGravityMultiplier = float.NaN;
+
     public static void Poll(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera)
     {
         if (!OrbitalConfig.DevHarness) return;
+        try { _clientGravityMultiplier = session.Get<Keen.VRage.Physics.IPhysics>().GravityMultiplier; } catch { }
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
         if (now - _lastPoll < PollSeconds * System.Diagnostics.Stopwatch.Frequency) return;
         _lastPoll = now;
@@ -135,7 +138,8 @@ public static class DevHarness
                     double factor = a.Length > 3 ? D(a[3]) : 1.0;
                     Vector3D r = camera.Position - p.Center;
                     double d = r.Length();
-                    double mu = p.Gravity.MuAt(d);
+                    var law = p.Gravity; law.Multiplier = _clientGravityMultiplier;
+        double mu = law.MuAt(d);
                     if (mu <= 0) return "no gravity here";
                     // Horizontal direction: perpendicular to r, in the plane of r and the given axis.
                     Vector3D axis = Bearing(a.Length > 4 ? a[4] : "+y", Vector3D.UnitY);
@@ -148,6 +152,37 @@ public static class DevHarness
                 }
                 OrbitDisplay.VelocityOverride = new Vector3D(D(a[1]), D(a[2]), D(a[3]));
                 return "fakevel set";
+            }
+
+            case "player":
+            {
+                // player dampeners on|off | player vel x y z | player vel circular <planet> [factor] [axis]
+                var req = new PlayerRequest();
+                if (a[1].Equals("dampeners", StringComparison.OrdinalIgnoreCase)) req.Dampeners = On(a[2]);
+                else if (a[1].Equals("vel", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (a[2].Equals("circular", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var p = FindPlanet(a[3]);
+                        if (p == null) return "no such planet";
+                        Vector3D? v = CircularVelocity(p, camera.Position, a.Length > 4 ? D(a[4]) : 1.0, a.Length > 5 ? a[5] : "+y");
+                        if (!v.HasValue) return "no gravity here";
+                        req.Velocity = v;
+                    }
+                    else req.Velocity = new Vector3D(D(a[2]), D(a[3]), D(a[4]));
+                }
+                else return "player dampeners on|off | player vel ...";
+                // Merge with anything still queued, so "dampeners" + "vel" in one batch both land.
+                var prev = ServerPlanetBeacon.PendingPlayer;
+                if (prev != null)
+                {
+                    req.Dampeners ??= prev.Dampeners;
+                    req.Velocity ??= prev.Velocity;
+                }
+                ServerPlanetBeacon.PendingPlayer = req;
+                // The local character is likely client-authoritative for movement: apply here too.
+                string local = ServerPlanetBeacon.ApplyToCharacter(session, req, "client");
+                return $"queued player {(req.Dampeners.HasValue ? "dampeners=" + req.Dampeners : "")}{(req.Velocity.HasValue ? $" vel={req.Velocity.Value.Length():F1} m/s" : "")}; {local}";
             }
 
             case "gravity":
@@ -207,6 +242,27 @@ public static class DevHarness
         }
     }
 
+    /// <summary>Circular-orbit velocity at <paramref name="pos"/> for the planet's current law, times factor.</summary>
+    private static Vector3D? CircularVelocity(PlanetBeacon p, Vector3D pos, double factor, string axisSpec)
+    {
+        Vector3D r = pos - p.Center;
+        double d = r.Length();
+        var law = p.Gravity; law.Multiplier = _clientGravityMultiplier;
+        double mu = law.MuAt(d);
+        if (mu <= 0 || d <= 0) return null;
+        Vector3D axis = Bearing(axisSpec, Vector3D.UnitY);
+        Vector3D h = Vector3D.Cross(r, axis);
+        if (h.LengthSquared() < 1e-6) h = Vector3D.Cross(r, Vector3D.UnitX);
+        Vector3D along = Vector3D.Normalize(Vector3D.Cross(h, r));
+        return along * (Math.Sqrt(mu / d) * factor);
+    }
+
+    private static double ModelG(PlanetBeacon p, Vector3D pos)
+    {
+        var law = p.Gravity; law.Multiplier = _clientGravityMultiplier;
+        return law.At((pos - p.Center).Length());
+    }
+
     private static List<PlanetBeacon> Planets()
     {
         var list = new List<PlanetBeacon>();
@@ -244,6 +300,7 @@ public static class DevHarness
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"time {DateTime.Now:HH:mm:ss.fff}");
         sb.AppendLine($"camera {camera.Position.X:F0} {camera.Position.Y:F0} {camera.Position.Z:F0}");
+        sb.AppendLine($"physics gravityMultiplier client={_clientGravityMultiplier} server={ServerPlanetBeacon.ServerGravityMultiplier}");
         sb.AppendLine($"config mode={OrbitalConfig.Mode} hide={OrbitalConfig.HideRealPlanets} front={OrbitalConfig.DebugProxyInFront} orbit={OrbitalConfig.ShowOrbit}");
         var list = Planets();
         for (int i = 0; i < list.Count; i++)
@@ -254,6 +311,14 @@ public static class DevHarness
                           $"dist={d / 1000:F1}km r0={p.Gravity.R0 / 1000:F1}km g0={p.Gravity.G0:F2} falloff={p.Gravity.Falloff:F2} reach={p.Gravity.Reach / 1000:F1}km");
         }
         if (OrbitDisplay.LastReadout != null) sb.AppendLine("orbit " + OrbitDisplay.LastReadout.Replace("\n", " | "));
+        Vector3D mv = OrbitDisplay.MeasuredVelocity;
+        var near = list.Count > 0 ? list[0] : null;
+        foreach (var p in list) if ((p.Center - camera.Position).LengthSquared() < (near.Center - camera.Position).LengthSquared()) near = p;
+        if (near != null)
+        {
+            Vector3D rhat = Vector3D.Normalize(camera.Position - near.Center);
+            sb.AppendLine($"measured |v|={mv.Length():F2} m/s radial={Vector3D.Dot(mv, rhat):F2} m/s (vs {PlanetName(near)}) g_model={ModelG(near, camera.Position):F3} m/s²");
+        }
         lock (_log) foreach (string l in _log) sb.AppendLine(l);
         File.WriteAllText(Path.Combine(_dir, "status.txt"), sb.ToString());
     }

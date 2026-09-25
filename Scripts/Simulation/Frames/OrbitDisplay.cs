@@ -36,6 +36,10 @@ public static class OrbitDisplay
 
     public static string LastReadout;
 
+    /// <summary>Smoothed camera velocity (m/s), before any override. Updated while a planet dominates.</summary>
+    public static Vector3D MeasuredVelocity => _measured;
+    private static Vector3D _measured;
+
     /// <summary>DEV: when set, replaces the measured velocity (m/s, world axes). Harness `fakevel`.</summary>
     public static Vector3D? VelocityOverride;
 
@@ -79,6 +83,7 @@ public static class OrbitDisplay
         }
 
         UpdateVelocity(camera.Position);
+        _measured = _velocity;
         if (VelocityOverride.HasValue) _velocity = VelocityOverride.Value;
         if (!OrbitalConfig.ShowOrbit || (g <= 0 && !_hasFrozen)) { Clear(); return; }
 

@@ -144,6 +144,7 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
             double distance = (center - camera.Position).Length();
 
             if (_beacon != null && _beacon.GravityReach > 0) { _law = _beacon.Gravity; _gravityReach = _beacon.GravityReach; }
+            try { _law.Multiplier = session.Get<Keen.VRage.Physics.IPhysics>().GravityMultiplier; } catch { }
             PlanetRenderBridge.TickTerrain(_handles);
             OrbitDisplay.Consider(this, session, camera, center, _handles.Radius, _law, _planetName);
 

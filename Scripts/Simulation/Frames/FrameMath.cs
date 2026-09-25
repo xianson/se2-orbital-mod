@@ -12,6 +12,10 @@ public struct GravityLaw
     public double R0;       // AccelerationDistance, m
     public double Falloff;  // FallOffPower
     public double Reach;    // AffectDistance, m (hard cutoff)
+    /// <summary>World physics GravityMultiplier (IPhysics); the engine scales all gravity by it. 0 means 1.</summary>
+    public double Multiplier;
+
+    private double M => Multiplier > 0 ? Multiplier : 1.0;
 
     public bool Valid => G0 > 0 && R0 > 0 && Reach > 0;
 
@@ -24,9 +28,9 @@ public struct GravityLaw
         if (Falloff < 0)
         {
             double ramp = 1.0 - (d - R0) / Math.Max(1e-9, Reach - R0);
-            return G0 * Math.Clamp(ramp, 0.0, 1.0);
+            return M * G0 * Math.Clamp(ramp, 0.0, 1.0);
         }
-        return d <= 0 ? G0 : G0 * Math.Pow(R0 / d, Falloff);
+        return M * (d <= 0 ? G0 : G0 * Math.Pow(R0 / d, Falloff));
     }
 
     /// <summary>
@@ -34,7 +38,7 @@ public struct GravityLaw
     /// otherwise the LOCAL equivalent g(d)·d², which matches the current pull but not how it changes
     /// with altitude, so the drawn conic is only a short-horizon approximation.
     /// </summary>
-    public double MuAt(double d) => IsInverseSquare ? G0 * R0 * R0 : At(d) * d * d;
+    public double MuAt(double d) => IsInverseSquare ? M * G0 * R0 * R0 : At(d) * d * d;
 }
 
 /// <summary>

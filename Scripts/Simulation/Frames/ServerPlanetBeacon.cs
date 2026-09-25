@@ -4,6 +4,8 @@ using Keen.VRage.Core;
 using Keen.VRage.Core.Game.Definitions;
 using Keen.VRage.Core.Systems;
 using Keen.VRage.DCS.Annotations;
+using Keen.Game2.Simulation.WorldObjects.Movement;
+using Keen.VRage.Physics.Data;
 
 #pragma warning disable
 namespace OrbitalMod;
@@ -129,6 +131,8 @@ public partial class ServerPlanetBeacon
     [MustHave(typeof(ServerPlanetBeacon))]
     private static void BeaconJob(ServerPlanetBeacon beacon)
     {
+        try { ServerGravityMultiplier = beacon.Entity.GetSession().Get<Keen.VRage.Physics.IPhysics>().GravityMultiplier; } catch { }
+        ApplyPlayerRequest(beacon);
         var b = beacon._beacon;
         var req = b?.PendingGravity;
         if (req == null) return;
@@ -142,5 +146,48 @@ public partial class ServerPlanetBeacon
         b.Gravity = new GravityLaw { G0 = g0, R0 = r0, Falloff = f, Reach = beacon._gravity.AffectDistance };
         b.GravityReach = b.Gravity.Reach;
         Log.Default?.Info($"[ORBIT] {b.Name}: gravity {(ok ? "set" : "FAILED")} -> falloff={f:F2} r0={r0 / 1000:F1} km reach={b.Gravity.Reach / 1000:F1} km");
+    }
+}
+
+/// <summary>DEV: a change to the player's character, applied server-side by a beacon job.</summary>
+public sealed class PlayerRequest
+{
+    public bool? Dampeners;
+    public Vector3D? Velocity;
+}
+
+public partial class ServerPlanetBeacon
+{
+    /// <summary>Queued from the (client-side) harness; taken by whichever beacon job runs first.</summary>
+    public static PlayerRequest PendingPlayer;
+
+    /// <summary>Server physics scene GravityMultiplier (world setting; the aero mod forces 1).</summary>
+    public static float ServerGravityMultiplier = float.NaN;
+
+    private static void ApplyPlayerRequest(ServerPlanetBeacon beacon)
+    {
+        var req = System.Threading.Interlocked.Exchange(ref PendingPlayer, null);
+        if (req == null) return;
+        ApplyToCharacter(beacon.Entity.GetSession(), req, "server");
+    }
+
+    /// <summary>Apply a player request to the first alive character of <paramref name="session"/>.</summary>
+    public static string ApplyToCharacter(Keen.VRage.Core.Game.Systems.Session session, PlayerRequest req, string side)
+    {
+        var chars = new List<Entity>();
+        if (session == null || !session.TryFillAliveCharacters(chars) || chars.Count == 0)
+        {
+            Log.Default?.Warning($"[ORBIT-DEV] no alive character ({side})");
+            return "no character";
+        }
+        var ctx = chars[0].Data;
+        // Toggle is a structural change (DampeningData added/removed), visible next frame.
+        if (req.Dampeners.HasValue && ctx.Has<DampeningData>() != req.Dampeners.Value)
+            ctx.ToggleDampeners(clearRelativeDampeners: true);
+        if (req.Velocity.HasValue)
+            ctx.Set(new RigidBodyData { LinearVelocity = (Vector3)req.Velocity.Value });
+        string s = $"{side}: had dampeners={ctx.Has<DampeningData>()} vel={(req.Velocity.HasValue ? req.Velocity.Value.Length().ToString("F1") : "unchanged")}";
+        Log.Default?.Info("[ORBIT-DEV] player " + s);
+        return s;
     }
 }

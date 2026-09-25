@@ -1,0 +1,9 @@
+# Local Claude Code settings
+.claude/
+
+# SE2 mod SDK generated caches
+.hashescache.json
+.referencescache.json
+.startupblobscache.json
+Content/contentcache.vrb
+Content/definitionsets.vrb

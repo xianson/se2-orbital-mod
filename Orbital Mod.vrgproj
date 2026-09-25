@@ -1,0 +1,49 @@
+{
+  "$Bundles": {
+    "System.Runtime": "1.0.0.0",
+    "VRage": "2.0.2.57"
+  },
+  "$Type": "VRage:Keen.VRage.Core.Project.VRageProjectData",
+  "$Value": {
+    "Name": "Orbital Mod",
+    "Version": null,
+    "Type": "Mod",
+    "ProjectID": {
+      "Guid": "5ce22786-98f3-445a-85fe-8a0e82fd252c",
+      "ModId": null,
+      "ServiceId": ""
+    },
+    "ModSetup": null,
+    "ProjectDependencies": [
+      {
+        "Guid": "56dacb76-e25e-468a-9432-21964a9a0569",
+        "ModId": null,
+        "ServiceId": ""
+      }
+    ],
+    "ProjectDirectories": [
+      "C:\\Program Files (x86)\\Steam\\steamapps\\common\\SpaceEngineers2\\GameData",
+      "C:\\Program Files (x86)\\Steam\\steamapps\\common\\SpaceEngineers2\\VRage\\GameData",
+      "D:\\SteamLibrary\\steamapps\\common\\Space Engineers 2 - Mod SDK\\GameData"
+    ],
+    "UsedBuildStream": "",
+    "DefinitionSetNames": [
+      "World"
+    ],
+    "GameExecutable": "SpaceEngineers2.exe",
+    "GameExecutableSearchPaths": [],
+    "ReferencedAssemblies": [
+      "Game2.Client.dll",
+      "Game2.Game.dll",
+      "Game2.Simulation.dll"
+    ],
+    "ReferencedAssembliesSearchPaths": [
+      "C:\\Program Files (x86)\\Steam\\steamapps\\common\\SpaceEngineers2\\Game2",
+      "D:\\SteamLibrary\\steamapps\\common\\Space Engineers 2 - Mod SDK\\Game2"
+    ],
+    "EditorExtensionAssemblies": [],
+    "EditorExtensionAssembliesSearchPaths": [],
+    "SkipContentMounting": false,
+    "EnableIgnoreProcessingErrorFlags": false
+  }
+}

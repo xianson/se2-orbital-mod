@@ -25,6 +25,10 @@ the two share almost nothing, and players can run either alone.
    straight at Verdure, 0 to 6.3 m/s in about 9 s. Measured 0.67 m/s² against a model of 0.87 m/s² (0.43 times
    the world multiplier 2). The shortfall matches the sim running slow while the aero mod's spike was engaged.
    A clean quantitative run needs a world without the aero mod.
+   Real orbital motion: at 900 km (circular speed 294 m/s, just under the 300 m/s world cap once the x2
+   multiplier is counted) with dampeners off and circular velocity set, the fit from MEASURED motion settles at
+   e 0.004-0.03 (Pe 832 km, Ap 840 km). Real orbits under the speed cap need r > 2mu/300² (865 km for Verdure).
+   Orbital speeds nearer the planet exceed the cap, which is the same blocker as the aero mod's speed spike.
 5. **Dev harness.** An external tool can teleport the player, aim the view and switch modes, and take
    screenshots. See below.
 

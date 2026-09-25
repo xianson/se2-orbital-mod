@@ -266,7 +266,7 @@ public static class PlanetRenderBridge
         }
     }
 
-    private static MethodInfo _rootActivate, _rootDeactivate;
+    private static MethodInfo _rootActivate, _rootDeactivate, _rootUpdateTransform;
 
     private static MethodInfo RootMethod(Type rootType, bool activate)
     {
@@ -315,7 +315,8 @@ public static class PlanetRenderBridge
         if (p == null) return;
         try
         {
-            p.Root.GetType().GetMethod("UpdateTransform")?.Invoke(p.Root, new object[] { new WorldTransform(center) });
+            _rootUpdateTransform ??= p.Root.GetType().GetMethod("UpdateTransform");
+            _rootUpdateTransform?.Invoke(p.Root, new object[] { new WorldTransform(center) });
 
             float scale = (float)(radius / h.ProxyModelRadius);
             if (p.LastScale < 0 || Math.Abs(scale - p.LastScale) > p.LastScale * 1e-3f)

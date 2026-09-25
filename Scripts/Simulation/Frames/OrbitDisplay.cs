@@ -23,6 +23,7 @@ public static class OrbitDisplay
     private const double MinSpeed = 0.5;      // m/s; below this there is no meaningful orbit
     private const double VelocitySmoothing = 0.15;
     private const double DominanceMargin = 1.1;
+    private const double NearCameraSkip = 1000.0; // m
 
     private static MeshBuilder _builder;
     private static object _dominant;
@@ -35,6 +36,15 @@ public static class OrbitDisplay
 
     public static string LastReadout;
 
+    /// <summary>DEV: when set, replaces the measured velocity (m/s, world axes). Harness `fakevel`.</summary>
+    public static Vector3D? VelocityOverride;
+
+    /// <summary>DEV: pin the state (planet-relative position, velocity, mu) so the conic can be viewed from elsewhere. Harness `fakevel freeze`.</summary>
+    public static bool Freeze;
+    private static StateVector _frozen;
+    private static double _frozenMu;
+    private static bool _hasFrozen;
+
     /// <summary>
     /// Called by every client planet each frame, under PlanetRenderBridge.Lock. The planet with the
     /// strongest gravity at the camera takes over (with a margin) and draws.
@@ -45,7 +55,12 @@ public static class OrbitDisplay
         double d = (camera.Position - center).Length();
         double g = law.At(d);
 
-        if (_dominant == null || ReferenceEquals(owner, _dominant))
+        if (_hasFrozen)
+        {
+            // A frozen orbit stays with its planet wherever the camera goes.
+            if (!ReferenceEquals(owner, _dominant)) return;
+        }
+        else if (_dominant == null || ReferenceEquals(owner, _dominant))
         {
             _dominant = g > 0 ? owner : null;
             _dominantG = g;
@@ -64,15 +79,19 @@ public static class OrbitDisplay
         }
 
         UpdateVelocity(camera.Position);
-        if (!OrbitalConfig.ShowOrbit || g <= 0) { Clear(); return; }
+        if (VelocityOverride.HasValue) _velocity = VelocityOverride.Value;
+        if (!OrbitalConfig.ShowOrbit || (g <= 0 && !_hasFrozen)) { Clear(); return; }
 
         _builder ??= CreateBuilder(session);
         if (_builder == null) return;
 
         double mu = law.MuAt(d);
-        var sv = new StateVector(camera.Position - center, _velocity);
+        if (Freeze && !_hasFrozen) { _frozen = new StateVector(camera.Position - center, _velocity); _frozenMu = mu; _hasFrozen = true; }
+        if (!Freeze) _hasFrozen = false;
+        var sv = _hasFrozen ? _frozen : new StateVector(camera.Position - center, _velocity);
+        if (_hasFrozen) mu = _frozenMu;
         string fit = law.IsInverseSquare ? "exact (1/r²)" : $"local fit (falloff {law.Falloff:F1})";
-        double speed = _velocity.Length();
+        double speed = sv.Velocity.Length();
 
         if (speed < MinSpeed || mu <= 0)
         {
@@ -95,8 +114,19 @@ public static class OrbitDisplay
         var pts = path.Points;
         if (pts != null && pts.Length > 1)
         {
-            for (int i = 1; i < pts.Length; i++) _builder.AddLine(center + pts[i - 1], center + pts[i], color, 3f);
-            if (path.IsClosed) _builder.AddLine(center + pts[pts.Length - 1], center + pts[0], color, 3f);
+            // The orbit passes through the camera by construction. Thin (default) lines only, and
+            // skip segments touching the camera's neighbourhood: a world-width line at the eye
+            // fills the screen (seen in game with thickness 3).
+            int n = pts.Length;
+            int segments = path.IsClosed ? n : n - 1;
+            for (int i = 0; i < segments; i++)
+            {
+                Vector3D p0 = center + pts[i];
+                Vector3D p1 = center + pts[(i + 1) % n];
+                if ((p0 - camera.Position).LengthSquared() < NearCameraSkip * NearCameraSkip ||
+                    (p1 - camera.Position).LengthSquared() < NearCameraSkip * NearCameraSkip) continue;
+                _builder.AddLine(p0, p1, color);
+            }
         }
 
         double pe = el.PeriapsisRadius - radius;

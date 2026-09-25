@@ -123,6 +123,33 @@ public static class DevHarness
             case "front":
                 OrbitalConfig.DebugProxyInFront = On(a[1]);
                 return $"front={OrbitalConfig.DebugProxyInFront}";
+            case "fakevel":
+            {
+                // fakevel off | fakevel <x> <y> <z> | fakevel circular <planet> [factor] [+x..-z]
+                if (a[1].Equals("off", StringComparison.OrdinalIgnoreCase)) { OrbitDisplay.VelocityOverride = null; OrbitDisplay.Freeze = false; return "fakevel off"; }
+                if (a[1].Equals("freeze", StringComparison.OrdinalIgnoreCase)) { OrbitDisplay.Freeze = a.Length < 3 || On(a[2]); return $"freeze={OrbitDisplay.Freeze}"; }
+                if (a[1].Equals("circular", StringComparison.OrdinalIgnoreCase))
+                {
+                    var p = FindPlanet(a[2]);
+                    if (p == null) return "no such planet";
+                    double factor = a.Length > 3 ? D(a[3]) : 1.0;
+                    Vector3D r = camera.Position - p.Center;
+                    double d = r.Length();
+                    double mu = p.Gravity.MuAt(d);
+                    if (mu <= 0) return "no gravity here";
+                    // Horizontal direction: perpendicular to r, in the plane of r and the given axis.
+                    Vector3D axis = Bearing(a.Length > 4 ? a[4] : "+y", Vector3D.UnitY);
+                    Vector3D h = Vector3D.Cross(r, axis);
+                    if (h.LengthSquared() < 1e-6) h = Vector3D.Cross(r, Vector3D.UnitX);
+                    Vector3D along = Vector3D.Normalize(Vector3D.Cross(h, r));
+                    double v = Math.Sqrt(mu / d) * factor;
+                    OrbitDisplay.VelocityOverride = along * v;
+                    return $"fakevel circular×{factor:F2} = {v:F0} m/s";
+                }
+                OrbitDisplay.VelocityOverride = new Vector3D(D(a[1]), D(a[2]), D(a[3]));
+                return "fakevel set";
+            }
+
             case "orbit":
                 OrbitalConfig.ShowOrbit = On(a[1]);
                 return $"orbit={OrbitalConfig.ShowOrbit}";

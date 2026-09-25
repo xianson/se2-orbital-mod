@@ -46,6 +46,8 @@ public static class PlanetRenderBridge
     {
         public string Name;
         public double Radius;
+        /// <summary>Radius the proxy is drawn at: midway between base and max-hills radius.</summary>
+        public double SurfaceRadius;
 
         /// <summary>VoxelPlanetRenderComponent. Non-null means terrain can be hidden.</summary>
         public object Terrain;
@@ -113,6 +115,10 @@ public static class PlanetRenderBridge
 
             planet = GetMember(env, "_planet");
             h.Radius = planet != null ? Convert.ToDouble(GetMember(planet, "Radius")) : 0;
+            // Proxy size: the visible limb sits between the base radius and the max-hills radius;
+            // the base radius alone drew the globe ~5% small next to the real planet (screenshots 02/03).
+            object maxHills = GetMember(planet, "RadiusWithMaxHills");
+            h.SurfaceRadius = maxHills != null ? 0.5 * (h.Radius + Convert.ToDouble(maxHills)) : h.Radius;
         }
         catch (Exception e) { WarnOnce("terrain", $"terrain resolve failed: {e.Message}"); h.Terrain = null; }
 

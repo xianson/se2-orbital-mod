@@ -170,7 +170,7 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
 
             if (!_realShown || OrbitalConfig.DebugProxyInFront)
             {
-                FrameMath.ProjectProxy(camera.Position, center, _handles.Radius, OrbitalConfig.ProxyClampDistance,
+                FrameMath.ProjectProxy(camera.Position, center, _handles.SurfaceRadius > 0 ? _handles.SurfaceRadius : _handles.Radius, OrbitalConfig.ProxyClampDistance,
                     out Vector3D renderCenter, out double renderRadius);
 
                 if (OrbitalConfig.DebugProxyInFront)

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="$(Core)\Orbital\*.cs" />
+    <Compile Include="$(Core)\Frames\*.cs" />
+    <Compile Include="$(Core)\SystemDef\*.cs" />
+    <Compile Include="$(Core)\Rendezvous\*.cs" />
+    <Compile Include="$(Core)\Berths\*.cs" />
+    <Compile Include="$(Core)\Time\*.cs" />
+  </ItemGroup>
+</Project>

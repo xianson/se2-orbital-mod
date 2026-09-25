@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="$(Core)\Persistence\*.cs" />
+    <Compile Include="$(Core)\Frames\*.cs" />
+    <Compile Include="$(Core)\Orbital\*.cs" />
+    <Compile Include="$(Core)\SystemDef\*.cs" />
+    <Compile Include="$(Core)\Rendezvous\*.cs" />
+  </ItemGroup>
+</Project>

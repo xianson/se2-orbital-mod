@@ -137,6 +137,9 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
         {
             var session = Entity.GetSession();
             DevHarness.Poll(session, camera); // rate-limited; whichever planet ticks first runs it
+            double mult = 1;
+            try { mult = session.Get<Keen.VRage.Physics.IPhysics>().GravityMultiplier; } catch { }
+            FrameHost.Tick(session, camera, mult); // once per frame (clock-deduped)
 
             if (_handles == null && !TrySetup()) return;
 
@@ -146,7 +149,10 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
             if (_beacon != null && _beacon.GravityReach > 0) { _law = _beacon.Gravity; _gravityReach = _beacon.GravityReach; }
             try { _law.Multiplier = session.Get<Keen.VRage.Physics.IPhysics>().GravityMultiplier; } catch { }
             PlanetRenderBridge.TickTerrain(_handles);
-            OrbitDisplay.Consider(this, session, camera, center, _handles.Radius, _law, _planetName);
+            if (FrameHost.PlayerFrame == null) OrbitDisplay.Consider(this, session, camera, center, _handles.Radius, _law, _planetName);
+
+            // FRAMES MODE (the SE-Aerospace model): the observer is in a planet cell or a conjunction.
+            if (TickFramesMode(camera, distance)) return;
 
             if (OrbitalConfig.Mode == ProxyMode.AlwaysReal && _realShown && !OrbitalConfig.DebugProxyInFront) return;
 
@@ -211,6 +217,67 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
             }
         }
     }
+
+    private bool _inKeep;
+
+    /// <summary>
+    /// Rendering under the frames model. Returns false when there is no published observer frame
+    /// (legacy space: the literal world, handled by the older gravity-reach logic).
+    ///  - Observer in THIS planet's cell: real voxel within the keep envelope (latched: demand below
+    ///    keep, drop above keep × 1.02, as SE1's materializer); beyond it, a proxy at the true place.
+    ///  - Observer in a conjunction or another planet's cell: real voxel hidden, proxy at the
+    ///    frame-relative celestial offset (PlanetBerths.ProjectProxy: true direction, true angular
+    ///    size, render distance clamped at 2000 km).
+    /// </summary>
+    private bool TickFramesMode(WorldTransform camera, double distance)
+    {
+        if (!SystemHost.Built || !FrameHost.Observer.HasValue) return false;
+        string body = _beacon != null ? SystemHost.BodyNameOf(_beacon) : null;
+        var reg = SystemHost.Registry;
+        var node = body != null ? reg?.Find(body) : null;
+        var def = body != null ? reg?.FindDefinition(body) : null;
+        if (node == null || def == null) return false;
+
+        var obs = FrameHost.Observer.Value;
+        double t = SystemHost.Now;
+        bool own = FrameHost.ObserverPlanet == body;
+        double keep = SEAerospace.PlanetBerths.KeepRadius(def);
+        double drop = SEAerospace.PlanetBerths.KeepDropRadius(def);
+        _inKeep = own && (_inKeep ? distance < drop : distance < keep);
+
+        bool wantReal = _inKeep;
+        if (OrbitalConfig.Mode == ProxyMode.AlwaysReal) wantReal = true;
+        else if (OrbitalConfig.Mode == ProxyMode.AlwaysProxy) wantReal = false;
+        if (!OrbitalConfig.HideRealPlanets || !_handles.HasProxyModel) wantReal = true;
+
+        if (wantReal != _realShown && PlanetRenderBridge.SetTerrainVisible(_handles, wantReal))
+        {
+            if (OrbitalConfig.HideAtmosphere) PlanetRenderBridge.SetAtmosphereVisible(_handles, wantReal);
+            _realShown = wantReal;
+            Log.Default?.Info($"[ORBIT] {body}: real planet {(wantReal ? "SHOWN" : "HIDDEN")} " +
+                              $"(frames: observer in {(FrameHost.ObserverPlanet ?? "conjunction")}, {distance / 1000:F1} km)");
+        }
+
+        if (_realShown) { PlanetRenderBridge.SetProxyVisible(_proxy, false); return true; }
+
+        double radius = _handles.SurfaceRadius > 0 ? _handles.SurfaceRadius : _handles.Radius;
+        var pp = SEAerospace.PlanetBerths.ProjectProxy(camera.Position, node.OriginInRoot(t).Position, obs, radius, t, drop);
+        if (pp.RenderRadius <= 0) { PlanetRenderBridge.SetProxyVisible(_proxy, false); return true; }
+
+        if (_proxy == null)
+        {
+            _proxy = PlanetRenderBridge.CreateProxy(_handles, pp.RenderPos);
+            Log.Default?.Info($"[ORBIT] {body}: frames proxy {(_proxy != null ? "created" : "FAILED")}");
+            if (_proxy == null) return true;
+        }
+        PlanetRenderBridge.UpdateProxy(_handles, _proxy, pp.RenderPos, pp.RenderRadius);
+        PlanetRenderBridge.SetProxyVisible(_proxy, true);
+        _lastProxyTrueDistance = pp.TrueDistance;
+        return true;
+    }
+
+    /// <summary>Last frames-mode proxy distance (m), for the harness status.</summary>
+    internal double _lastProxyTrueDistance;
 
     private bool WantReal()
     {

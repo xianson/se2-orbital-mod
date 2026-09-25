@@ -499,6 +499,32 @@ public static class PlanetRenderBridge
         catch (Exception e) { Log.Default?.Warning($"[ORBIT] gravity law write failed: {Inner(e)}"); return false; }
     }
 
+    /// <summary>
+    /// DEV HARNESS: an ENGINE screenshot (RenderContracts.GetMainTarget().TakeScreenshotAsync), the
+    /// path the blueprint tool uses. Rendered by the engine into the game's temp folder, so it works
+    /// when desktop capture (GDI CopyFromScreen) fails because the display is asleep.
+    /// Returns the absolute path it will be written to, or null.
+    /// </summary>
+    public static string EngineScreenshot(string name)
+    {
+        try
+        {
+            if (!ResolveRender()) return null;
+            object target = _contracts.GetType().GetMethod("GetMainTarget", Type.EmptyTypes)?.Invoke(_contracts, null);
+            if (target == null) { WarnOnce("shot", "GetMainTarget unavailable"); return null; }
+            var handle = Keen.VRage.Library.Filesystem.FileSystem.Temp.GetFileHandleWritable(name);
+            MethodInfo take = null;
+            foreach (MethodInfo m in target.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance))
+                if (m.Name == "TakeScreenshotAsync" && m.GetParameters().Length == 5) { take = m; break; }
+            if (take == null) { WarnOnce("shot2", "TakeScreenshotAsync not found"); return null; }
+            take.Invoke(target, new object[] { handle, null, null, false, true });
+            // GetAbsolutePath throws until the file exists; the temp root is the game's Temp folder.
+            try { return handle.GetAbsolutePath(); }
+            catch { return System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData), "SpaceEngineers2", "Temp", name); }
+        }
+        catch (Exception e) { Log.Default?.Warning($"[ORBIT] engine screenshot failed: {Inner(e)}"); return null; }
+    }
+
     private static MethodInfo _teleportPlayer;
 
     /// <summary>
@@ -507,7 +533,7 @@ public static class PlanetRenderBridge
     /// VRage.Multiplayer, which mod scripts do not reference (CS0012), so it is late-bound here.
     /// Invoking an async method starts its state machine; nothing needs to await the result.
     /// </summary>
-    public static bool TeleportPlayer(Keen.VRage.Core.Game.Systems.Session session, WorldTransform target)
+    public static bool TeleportPlayer(Keen.VRage.Core.Game.Systems.Session session, WorldTransform target, bool clearMotion = true)
     {
         try
         {
@@ -520,7 +546,7 @@ public static class PlanetRenderBridge
                 }
             }
             if (_teleportPlayer == null) { WarnOnce("tp", "EntityAdmin.TeleportPlayer not found"); return false; }
-            _teleportPlayer.Invoke(null, new object[] { session, target, null, true, true });
+            _teleportPlayer.Invoke(null, new object[] { session, target, null, true, clearMotion });
             return true;
         }
         catch (Exception e) { Log.Default?.Warning($"[ORBIT] teleport failed: {Inner(e)}"); return false; }

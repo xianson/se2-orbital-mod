@@ -60,10 +60,25 @@ namespace SEAerospace
 
         /// <summary>The fixed world cell center of <paramref name="body"/> (occupancy-independent).
         /// Returns false for an unknown / non-voxel body.</summary>
+        // SE2 PORT: PINNED planet cells. An SE2 world already has its voxel planets placed; SE2 planets
+        // are not moved or spawned by this mod (yet), so each planet's cell is pinned to where the
+        // planet already sits (the doc's legacy-world option: "pin the slot to wherever its planet
+        // already is"). Pinned cells take priority over the lattice for TryGetCell / TryCellContaining;
+        // the planet still reserves its lattice slot, so conjunction slots never collide with it.
+        private static readonly Dictionary<string, Vector3D> _pinned = new Dictionary<string, Vector3D>();
+
+        public static void PinCell(string body, Vector3D center)
+        {
+            if (!string.IsNullOrEmpty(body)) _pinned[body] = center;
+        }
+
+        public static IEnumerable<KeyValuePair<string, Vector3D>> PinnedCells { get { return _pinned; } }
+
         public static bool TryGetCell(string body, SystemRegistry reg, out Vector3D center)
         {
             center = Vector3D.Zero;
             if (string.IsNullOrEmpty(body) || reg == null) return false;
+            if (_pinned.TryGetValue(body, out center)) return true;
             EnsureMapping(reg);
             int slot;
             if (!_slotOf.TryGetValue(body, out slot)) return false;
@@ -110,6 +125,15 @@ namespace SEAerospace
             if (reg == null) return false;
             EnsureMapping(reg);
             double r = _alloc.SlotRadius;
+            foreach (KeyValuePair<string, Vector3D> pin in _pinned)
+            {
+                if (Vector3D.DistanceSquared(worldPos, pin.Value) <= r * r)
+                {
+                    body = pin.Key;
+                    center = pin.Value;
+                    return true;
+                }
+            }
             foreach (KeyValuePair<string, int> kv in _slotOf)
             {
                 Vector3D c = _alloc.SlotCenter(kv.Value);
@@ -167,6 +191,7 @@ namespace SEAerospace
         public static void Clear()
         {
             _slotOf.Clear();
+            _pinned.Clear();
             _occupied.Clear();
             _alloc = null;
             _mapped = false;

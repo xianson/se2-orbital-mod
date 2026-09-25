@@ -1,0 +1,161 @@
+using SEAerospace;
+using SEAerospace.Frames;
+using SEAerospace.Orbital;
+using SEAerospace.SystemDef;
+
+#pragma warning disable
+namespace OrbitalMod;
+
+/// <summary>
+/// Builds and owns the celestial layer for an SE2 world: the star system, the universe clock,
+/// the planet cells and the frame registry. The SE-Aerospace design, adapted to SE2 in three places:
+///
+///  1. The system is built FROM THE WORLD: each SE2 planet (found through its server beacon) becomes
+///     a body orbiting a synthetic star. Its gravitational parameter matches the physics the engine
+///     actually applies after the inverse-square patch: mu = worldMultiplier * g0 * r0^2.
+///  2. Planet cells are PINNED to where the planets already sit (SE2 planets are not spawned or moved
+///     by this mod). The conjunction lattice is placed far from every planet.
+///  3. Planet gravity is patched to inverse-square (falloff 2) with a reach covering the cell, as
+///     SE-Aerospace's PlanetGravity did on SE1.
+///
+/// SINGLE PLAYER / LISTEN HOST: built from the server beacons (same process). See README.
+/// </summary>
+public static class SystemHost
+{
+    /// <summary>Synthetic star: mu = g * R^2 = 28 * (6000 km)^2 ~ 1.0e15 (SampleSystems.Sol).</summary>
+    public const double StarSurfaceGravity = 28.0;
+    public const double StarRadius = 6.0e6;
+    /// <summary>First planet's orbit around the star, and the spacing factor for the next ones.</summary>
+    public const double FirstOrbit = 1.0e8;
+    public const double OrbitSpacing = 1.6;
+    /// <summary>Atmosphere height as a fraction of r0 (SE2 planets expose no clean atmosphere top).</summary>
+    public const double AtmosphereFraction = 0.10;
+    /// <summary>Wait this long after the last beacon appears before building (all planets loaded).</summary>
+    public const double SettleSeconds = 2.0;
+
+    public static bool Built { get; private set; }
+    public static SystemRegistry Registry => SystemRegistry.Active;
+    public static FrameRegistry Frames => FrameRegistry.Active;
+
+    /// <summary>Planet body name -> its server beacon (world centre, gravity law).</summary>
+    public static readonly Dictionary<string, PlanetBeacon> BeaconOf = new Dictionary<string, PlanetBeacon>();
+
+    private static long _firstSeen;
+    private static int _lastCount;
+    private static readonly object _lock = new object();
+
+    // ─────────────────────────── universe clock ───────────────────────────
+    /// <summary>Universe time, seconds. Advances by real dt × <see cref="Timescale"/>.</summary>
+    public static double Now { get; private set; }
+    /// <summary>Time warp. 1 = real time. Warp only advances the celestial layer, never Havok.</summary>
+    public static double Timescale = 1.0;
+    private static long _lastClockTicks;
+
+    /// <summary>Advance the clock once per frame (idempotent within ~2 ms).</summary>
+    public static double AdvanceClock()
+    {
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        if (_lastClockTicks == 0) { _lastClockTicks = now; return 0; }
+        double dt = (now - _lastClockTicks) / (double)System.Diagnostics.Stopwatch.Frequency;
+        if (dt < 0.002) return 0;
+        _lastClockTicks = now;
+        if (dt > 0.25) dt = 0.25; // a stall must not throw rails forward
+        Now += dt * Timescale;
+        return dt;
+    }
+
+    /// <summary>Try to build once all planets have reported. Returns true when the system exists.</summary>
+    public static bool EnsureBuilt(double gravityMultiplier)
+    {
+        if (Built) return true;
+        lock (_lock)
+        {
+            if (Built) return true;
+            var beacons = PlanetBeacons.All();
+            if (beacons.Count == 0) return false;
+            long now = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (beacons.Count != _lastCount) { _lastCount = beacons.Count; _firstSeen = now; return false; }
+            if ((now - _firstSeen) / (double)System.Diagnostics.Stopwatch.Frequency < SettleSeconds) return false;
+            foreach (var b in beacons) if (b.OriginalGravity.R0 <= 0) return false; // law not read yet
+
+            Build(beacons, gravityMultiplier > 0 ? gravityMultiplier : 1.0);
+            return Built;
+        }
+    }
+
+    private static void Build(List<PlanetBeacon> beacons, double mult)
+    {
+        // Stable order: by name, so every build (and every client) agrees.
+        beacons.Sort((a, b) => string.CompareOrdinal(DevHarness.PlanetName(a), DevHarness.PlanetName(b)));
+
+        var def = new SystemDefinition { Name = "SE2World", EpochSeconds = 0.0 };
+        def.Bodies.Add(new BodyDefinition
+        {
+            Name = "Star", Parent = "", HasOrbit = false,
+            SurfaceGravityMps2 = StarSurfaceGravity, RadiusMeters = StarRadius,
+        });
+
+        double a = FirstOrbit;
+        double anomaly = 0;
+        BeaconOf.Clear();
+        foreach (var b in beacons)
+        {
+            string name = DevHarness.PlanetName(b);
+            if (BeaconOf.ContainsKey(name)) name = name + "_" + BeaconOf.Count;
+            BeaconOf[name] = b;
+            var law = b.OriginalGravity;
+            def.Bodies.Add(new BodyDefinition
+            {
+                Name = name, Parent = "Star", HasOrbit = true,
+                SemiMajorAxisMeters = a, Eccentricity = 0.02, MeanAnomalyAtEpochDeg = anomaly,
+                // Match the engine's physics after the inverse-square patch.
+                SurfaceGravityMps2 = law.G0 * mult, RadiusMeters = law.R0,
+                HasAtmosphere = true, AtmosphereHeightMeters = law.R0 * AtmosphereFraction,
+                RotationPeriodSeconds = 0.0, // SE2 voxel planets do not spin; no rotating chart in v1
+                ParkSubtype = "SE2:" + name,
+            });
+            a *= OrbitSpacing;
+            anomaly += 137.5;
+        }
+
+        // Conjunction lattice far from every planet: beyond the farthest one, along +Y.
+        double far = 0;
+        foreach (var b in beacons) far = Math.Max(far, b.Center.Length());
+        PlanetBerths.CurrentBerth = new Vector3D(0, far + 2.0e6, 0);
+
+        VoxelBerthRegistry.Clear();
+        SystemBuildResult res = SystemRegistry.Build(def);
+        if (!res.Ok)
+        {
+            Log.Default?.Warning($"[ORBIT] system build failed: {res.Error}");
+            return;
+        }
+        var reg = SystemRegistry.Active;
+        foreach (var kv in BeaconOf) VoxelBerthRegistry.PinCell(kv.Key, kv.Value.Center);
+
+        var alloc = VoxelBerthRegistry.SharedAllocator(reg);
+        FrameRegistry.Publish(new FrameRegistry(alloc));
+
+        // Inverse-square gravity in each planet cell, reaching across the cell.
+        foreach (var kv in BeaconOf)
+        {
+            var node = reg.Find(kv.Key);
+            var bdef = reg.FindDefinition(kv.Key);
+            double reach = Math.Min(node.SoiRadius, alloc.SlotRadius);
+            kv.Value.PendingGravity = new GravityRequest { Falloff = 2f, Reach = (float)reach };
+            Log.Default?.Info($"[ORBIT] body {kv.Key}: mu={node.Mu:E3} soi={node.SoiRadius / 1000:F0} km " +
+                              $"shell={PlanetBerths.ShellRadius(bdef) / 1000:F1} km keep={PlanetBerths.KeepRadius(bdef) / 1000:F1} km " +
+                              $"cell={ServerPlanetBeacon.Fmt(kv.Value.Center)} gravity reach={reach / 1000:F0} km");
+        }
+        Built = true;
+        Log.Default?.Info($"[ORBIT] system built: {BeaconOf.Count} planets around Star, world gravity multiplier {mult}, " +
+                          $"conjunction lattice at {ServerPlanetBeacon.Fmt(PlanetBerths.CurrentBerth)} slot radius {alloc.SlotRadius / 1000:F0} km");
+    }
+
+    /// <summary>A planet body by its beacon (for renderers).</summary>
+    public static string BodyNameOf(PlanetBeacon beacon)
+    {
+        foreach (var kv in BeaconOf) if (ReferenceEquals(kv.Value, beacon)) return kv.Key;
+        return null;
+    }
+}

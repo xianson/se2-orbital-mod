@@ -38,6 +38,7 @@ public static class DevHarness
     private static readonly List<string> _log = new List<string>();
 
     private static float _clientGravityMultiplier = float.NaN;
+    public static string LastShot = "";
 
     public static void Poll(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera)
     {
@@ -113,7 +114,7 @@ public static class DevHarness
             {
                 var p = FindPlanet(a[1]);
                 if (p == null) return "no such planet";
-                Teleport(session, camera.Position, p.Center - camera.Position);
+                Teleport(session, camera.Position, PlanetWorldPos(p) - camera.Position);
                 return $"facing {PlanetName(p)}";
             }
 
@@ -153,6 +154,23 @@ public static class DevHarness
                 OrbitDisplay.VelocityOverride = new Vector3D(D(a[1]), D(a[2]), D(a[3]));
                 return "fakevel set";
             }
+
+            case "shot":
+            {
+                // Engine screenshot into the game temp folder (works with the display asleep).
+                string name = a.Length > 1 ? a[1] : $"orbital-{DateTime.Now:HHmmss}.png";
+                string path = PlanetRenderBridge.EngineScreenshot(name);
+                LastShot = path ?? "FAILED";
+                return "shot -> " + LastShot;
+            }
+
+            case "stow":
+                FrameHost.ForceStow = true;
+                return "stow requested (next tick)";
+
+            case "warp":
+                SystemHost.Timescale = Math.Max(0.0, D(a[1]));
+                return $"warp x{SystemHost.Timescale}";
 
             case "player":
             {
@@ -257,6 +275,16 @@ public static class DevHarness
         return along * (Math.Sqrt(mu / d) * factor);
     }
 
+    /// <summary>Where the observer SEES the planet: through the published frame when framed, else its real centre.</summary>
+    private static Vector3D PlanetWorldPos(PlanetBeacon p)
+    {
+        string body = SystemHost.BodyNameOf(p);
+        var reg = SystemHost.Registry;
+        if (body != null && reg != null && FrameHost.Observer.HasValue && reg.Find(body) is SEAerospace.Orbital.GravityBody node)
+            return SEAerospace.PlanetBerths.WorldFromCelestial(FrameHost.Observer.Value, node.OriginInRoot(SystemHost.Now).Position);
+        return p.Center;
+    }
+
     private static double ModelG(PlanetBeacon p, Vector3D pos)
     {
         var law = p.Gravity; law.Multiplier = _clientGravityMultiplier;
@@ -310,6 +338,11 @@ public static class DevHarness
             sb.AppendLine($"planet {i} {PlanetName(p)} center={p.Center.X:F0},{p.Center.Y:F0},{p.Center.Z:F0} " +
                           $"dist={d / 1000:F1}km r0={p.Gravity.R0 / 1000:F1}km g0={p.Gravity.G0:F2} falloff={p.Gravity.Falloff:F2} reach={p.Gravity.Reach / 1000:F1}km");
         }
+        sb.AppendLine($"system built={SystemHost.Built} t={SystemHost.Now:F1}s warp=x{SystemHost.Timescale} observer={(FrameHost.PlayerFrame != null ? "conjunction #" + FrameHost.PlayerFrame.Id : FrameHost.ObserverPlanet != null ? "planet " + FrameHost.ObserverPlanet : "legacy")} frames={(SystemHost.Frames != null ? SystemHost.Frames.Count : 0)}");
+        if (FrameHost.PlayerFrame != null) sb.AppendLine($"frame #{FrameHost.PlayerFrame.Id} parent={FrameHost.PlayerFrame.ParentBodyName} berth={ServerPlanetBeacon.Fmt(FrameHost.PlayerFrame.BerthCenter)} a={FrameHost.PlayerFrame.Elements.SemiMajorAxis / 1000:F1}km e={FrameHost.PlayerFrame.Elements.Eccentricity:F3} pendingDv={FrameHost.PlayerFrame.PendingDrainDv.Length():F2}");
+        sb.AppendLine("lastEvent " + FrameHost.LastEvent);
+        sb.AppendLine("host " + FrameHost.Debug);
+        sb.AppendLine("shot " + LastShot);
         if (OrbitDisplay.LastReadout != null) sb.AppendLine("orbit " + OrbitDisplay.LastReadout.Replace("\n", " | "));
         Vector3D mv = OrbitDisplay.MeasuredVelocity;
         var near = list.Count > 0 ? list[0] : null;

@@ -144,6 +144,51 @@ public static class OrbitDisplay
         _drewLastFrame = true;
     }
 
+    /// <summary>
+    /// Conjunction frame: draw the frame's RAILS orbit (its elements, not the camera's motion) around
+    /// the parent body, mapped into the observer's window (the berth). Since the observer is the
+    /// frame, the orbit passes through the camera; segments near it are skipped as usual.
+    /// </summary>
+    public static void DrawFrameOrbit(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera,
+        SEAerospace.ObserverFrame obs, SEAerospace.Frames.ProximityFrame frame, SEAerospace.SystemDef.SystemRegistry reg, double t)
+    {
+        if (!OrbitalConfig.ShowOrbit) { Clear(); return; }
+        var parent = reg.Find(frame.ParentBodyName);
+        if (parent == null) return;
+        _builder ??= CreateBuilder(session);
+        if (_builder == null) return;
+
+        var el = frame.Elements;
+        var parentOrg = parent.OriginInRoot(t).Position;
+        OrbitPath path = OrbitSampler.SamplePath(el, PathPoints, parent.SoiRadius);
+        var color = el.IsElliptic ? ColorSRGB.Yellow : ColorSRGB.Red;
+        var pts = path.Points;
+        if (pts != null && pts.Length > 1)
+        {
+            int n = pts.Length;
+            int segments = path.IsClosed ? n : n - 1;
+            for (int i = 0; i < segments; i++)
+            {
+                Vector3D p0 = SEAerospace.PlanetBerths.WorldFromCelestial(obs, parentOrg + pts[i]);
+                Vector3D p1 = SEAerospace.PlanetBerths.WorldFromCelestial(obs, parentOrg + pts[(i + 1) % n]);
+                if ((p0 - camera.Position).LengthSquared() < NearCameraSkip * NearCameraSkip ||
+                    (p1 - camera.Position).LengthSquared() < NearCameraSkip * NearCameraSkip) continue;
+                _builder.AddLine(p0, p1, color);
+            }
+        }
+
+        var def = reg.FindDefinition(frame.ParentBodyName);
+        double radius = def != null ? def.RadiusMeters : 0;
+        StateVector cur = OrbitPropagation.StateAt(el, t);
+        string ap = el.IsElliptic ? $"Ap {(el.ApoapsisRadius - radius) / 1000:F1} km  T {el.Period / 60:F1} min" : "escape";
+        LastReadout = $"frame #{frame.Id} around {frame.ParentBodyName}: alt {(cur.Position.Length() - radius) / 1000:F1} km  v {cur.Velocity.Length():F0} m/s\n" +
+                      $"a {el.SemiMajorAxis / 1000:F1} km  e {el.Eccentricity:F3}  i {el.Inclination * 180 / Math.PI:F1}°\n" +
+                      $"Pe {(el.PeriapsisRadius - radius) / 1000:F1} km  {ap}\nrails (warp x{SystemHost.Timescale:F0})";
+        DrawText(camera, LastReadout);
+        _builder.Commit();
+        _drewLastFrame = true;
+    }
+
     private static void UpdateVelocity(Vector3D cam)
     {
         long now = System.Diagnostics.Stopwatch.GetTimestamp();

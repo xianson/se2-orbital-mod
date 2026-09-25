@@ -113,7 +113,10 @@ namespace SEAerospace
         /// <summary>World center the first voxel body sits at (and the lattice is built around).
         /// Close enough to the origin that the player spawns INSIDE the first body's shell, and the
         /// shared berth lattice (planets + Conjunctions) is centered here so slot 0 = the home body.</summary>
-        public static readonly Vector3D CurrentBerth = new Vector3D(0.0, 0.0, -40.0e3);
+        // SE2 PORT: settable. SE2 worlds already contain planets at fixed positions, so the
+        // conjunction lattice is placed clear of them at load (OrbitalMod.SystemHost) instead of
+        // at a fixed spot near the origin. Set BEFORE the first VoxelBerthRegistry call.
+        public static Vector3D CurrentBerth = new Vector3D(0.0, 0.0, -40.0e3);
 
         /// <summary>Atmosphere clearance multiplier for the handoff shell: an atmospheric body's
         /// shell sits at RadiusMeters + this × AtmosphereHeightMeters, i.e. SLIGHTLY ABOVE the

@@ -4,6 +4,31 @@ Orbital mechanics for Space Engineers 2, the SE2 counterpart of the SE1 project 
 `D:\SE-Aerospace`. Status as of 2026-09-25, SE2 **2.4.0.77**. Separate from the Aerodynamics Mod on purpose:
 the two share almost nothing, and players can run either alone.
 
+## Frames and rails (the SE-Aerospace design) - verified in game 2026-09-25
+
+The same design as SE-Aerospace (planet cells + conjunction berths, rails, the treadmill, the
+interaction shell, HighSpeed), ported. Verified in game with the harness:
+
+- **System from the world:** Verdure and Kemik become bodies around a synthetic star, mu matching the
+  patched 1/r² physics (incl. the world gravity multiplier 2); planet cells pinned where the planets
+  sit; the conjunction lattice 2000 km beyond the farthest planet.
+- **Stow:** leaving Verdure's keep (113 km) on an escaping arc captures the player into a
+  conjunction frame and teleports them into a berth (0 g there).
+- **Treadmill:** in the berth the player is pinned, velocity drained and folded into the rails; the
+  planets are proxies at the frame-relative celestial offset; the frame orbit is drawn from the rails.
+- **Warp:** rails-only; locks to x1 whenever the player is materialized.
+- **Arrival:** the rails orbit crossing the shell (75.6 km) hands the player back to the real planet at
+  the crossing, with the exact crossing state.
+- **HighSpeed (analytic):** above the 300 m/s cap the player rides the conic, placed each tick.
+- **A full skimming revolution:** Ap 200 / Pe 8 km -> rails -> ARRIVE at 1262 m/s -> HighSpeed through
+  periapsis at exactly 71.0 km -> STOW again at the 79.4 km floor. Orbit after two handoffs:
+  a 166.6 km e 0.574 (was 167.0 / 0.575).
+
+v1 limits: local player only (client-driven; SP / listen host), EVA only (no grids, no multi-member
+frames, no CW forces, split or merge yet), no thrust while in HighSpeed, capture only after leaving a
+keep (not the full total-partition axiom), radial (zero angular momentum) states are not captured,
+planets do not spin (no rotating surface chart), sun direction not driven, frames not persisted.
+
 ## What works (verified in game, see `docs/screenshots/`)
 
 1. **Planet frames with proxy globes.** Each planet has a frame sphere, its gravity reach, with 10%

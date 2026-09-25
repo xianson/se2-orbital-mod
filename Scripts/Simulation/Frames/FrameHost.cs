@@ -257,8 +257,10 @@ public static class FrameHost
         // true velocity virtually (StepHighSpeed). Below it, plain physics.
         bool hs = speed > SpeedCap;
         Vector3D applied = hs ? Vector3D.Zero : worldVel;
+        // HighSpeed continues on the SAME conic the rails were flying (the frame's elements about this body).
         _hsActive = hs;
         _hsVel = worldVel;
+        if (hs) { _hsEl = f.Elements; _hsBody = node.Name; }
         if (hs)
         {
             // HighSpeed senses gravity through the physics step; jetpack dampeners would cancel it.
@@ -288,28 +290,39 @@ public static class FrameHost
     public static Vector3D HighSpeedVelocity => _hsVel;
 
     /// <summary>
-    /// SE-Aerospace's HighSpeed (FnB virtual velocity + teleport stepping), SE2 form. The true velocity
-    /// lives in <see cref="_hsVel"/>; the character's physics velocity is zeroed every tick and whatever
-    /// the engine added during the tick (planet gravity, jetpack thrust) is read back and folded into
-    /// the virtual velocity: the same force-sensor idea as the conjunction anchor drain. The character
-    /// is then stepped by v·dt. Below cap × 0.9 it hands back to physics; near the surface it stops
-    /// stepping (surface guard) and hands back at the cap: no tunnelling into terrain.
-    /// Returns the velocity to report this tick.
+    /// SE-Aerospace's HighSpeed, SE2 form: ANALYTIC. Inside a planet cell gravity is exactly the patched
+    /// inverse-square law, so the true motion is a Kepler conic. On engage the state is converted to
+    /// elements about the body (<see cref="_hsEl"/>); every tick the character is PLACED at the conic's
+    /// position for the current time (client and server writes), with physics velocity zeroed. A write
+    /// lost to the client/server tug is corrected by the next one instead of accumulating (the first,
+    /// integrating version sank below periapsis in game for exactly that reason).
+    /// Below cap × 0.9 it hands back to physics with the conic's velocity; near the surface it stops
+    /// (surface guard) and hands back at the cap: no tunnelling into terrain.
+    /// Thrust is not folded in yet (SE1 re-osculated from GetAcceleration). Returns the velocity.
     /// </summary>
+    private static KeplerianElements _hsEl;
+    private static string _hsBody;
+
+    private static void EngageHighSpeed(string body, Vector3D relPos, Vector3D relVel, double t)
+    {
+        var node = SystemHost.Registry?.Find(body);
+        if (node == null) { _hsActive = false; return; }
+        _hsEl = OrbitalMath.ToElements(new StateVector(relPos, relVel), node.Mu, t);
+        _hsBody = body;
+        _hsVel = relVel;
+        _hsActive = IsFinite(_hsEl.SemiMajorAxis);
+    }
+
     private static Vector3D StepHighSpeed(Entity ch, Vector3D pos, Vector3D measured, double dt)
     {
-        // Gravity from the MODEL (patched 1/r² law × world multiplier): the per-tick physics zeroing
-        // wipes the engine's own gravity step before it can be sensed (seen in game: hsV never changed).
-        // Thrust is not yet folded in while in HighSpeed (SE1 read it from GetAcceleration).
-        if (VoxelBerthRegistry.TryCellContaining(pos, SystemHost.Registry, out string gb, out Vector3D gc)
-            && SystemHost.BeaconOf.TryGetValue(gb, out var beacon))
-        {
-            var law = beacon.Gravity; law.Multiplier = _mult;
-            Vector3D r = pos - gc;
-            double dist = r.Length();
-            if (dist > 1) _hsVel += r * (-law.At(dist) * dt / dist);
-        }
+        var reg = SystemHost.Registry;
+        if (!VoxelBerthRegistry.TryGetCell(_hsBody, reg, out Vector3D cell)) { _hsActive = false; return measured; }
+        var def = reg.FindDefinition(_hsBody);
+        double t = SystemHost.Now;
+        StateVector st = OrbitPropagation.StateAt(_hsEl, t);
+        _hsVel = st.Velocity;
         double speed = _hsVel.Length();
+
         if (speed < SpeedCap * HighSpeedExitFraction)
         {
             _hsActive = false;
@@ -317,30 +330,23 @@ public static class FrameHost
             Event($"HighSpeed off at {speed:F0} m/s (physics takes over)");
             return _hsVel;
         }
-
-        Vector3D next = pos + _hsVel * dt;
-        var reg = SystemHost.Registry;
-        if (VoxelBerthRegistry.TryCellContaining(pos, reg, out string body, out Vector3D cell))
+        double floor = (def != null ? def.RadiusMeters : 0) + SurfaceGuard;
+        if (st.Position.Length() < floor)
         {
-            var def = reg.FindDefinition(body);
-            double floor = (def != null ? def.RadiusMeters : 0) + SurfaceGuard;
-            if ((next - cell).Length() < floor)
-            {
-                _hsActive = false;
-                Vector3D capped = _hsVel * (SpeedCap / speed);
-                SetVelocity(ch, capped);
-                Event($"HighSpeed surface guard at {((pos - cell).Length() - (def?.RadiusMeters ?? 0)) / 1000:F1} km alt: " +
-                      $"{speed:F0} m/s -> {SpeedCap:F0} m/s physics");
-                return capped;
-            }
+            _hsActive = false;
+            Vector3D capped = _hsVel * (SpeedCap / speed);
+            SetVelocity(ch, capped);
+            Event($"HighSpeed surface guard at {(st.Position.Length() - (def?.RadiusMeters ?? 0)) / 1000:F1} km alt: {speed:F0} m/s -> {SpeedCap:F0} m/s physics");
+            return capped;
         }
 
+        Vector3D target = cell + st.Position;
         SetVelocity(ch, Vector3D.Zero);
         var wt = ch.Data.GetWorldTransform();
-        ch.Data.Set(new WorldTransform(next, wt.Orientation));
+        ch.Data.Set(new WorldTransform(target, wt.Orientation));
         // The client write alone is overridden by the character controller (seen in game);
         // the transform also goes through the server, the way EntityAdmin teleports.
-        ServerPlanetBeacon.PendingPlayer = new PlayerRequest { Position = next, Velocity = Vector3D.Zero };
+        ServerPlanetBeacon.PendingPlayer = new PlayerRequest { Position = target, Velocity = Vector3D.Zero };
         return _hsVel;
     }
 

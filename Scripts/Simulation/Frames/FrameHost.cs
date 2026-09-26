@@ -136,6 +136,7 @@ public static class FrameHost
             OrbitDisplay.DrawFrameOrbit(session, camera, Observer.Value, PlayerFrame, reg, t);
         MapView.Tick(session, camera, t);
         OrbitalMap.Tick(session, t);
+        SunDriver.Tick(session, camera.Position, t);
     }
 
     // ───────────────────────────── stow (planet cell -> conjunction) ─────────────────────────────

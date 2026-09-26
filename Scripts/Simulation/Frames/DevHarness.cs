@@ -235,6 +235,7 @@ public static class DevHarness
                     case "off": return SpecCam.Off(session);
                     case "planet": return SpecCam.Planet(a[2], D(a[3]), a.Length > 4 ? D(a[4]) : 0, a.Length > 5 ? D(a[5]) : 30);
                     case "player": return SpecCam.Player(D(a[2]), a.Length > 3 ? D(a[3]) : 0, a.Length > 4 ? D(a[4]) : 30);
+                    case "sun": return SpecCam.Sun();
                     case "map": return SpecCam.Map(D(a[2]), a.Length > 3 ? D(a[3]) : 0, a.Length > 4 ? D(a[4]) : 60);
                 }
                 return "cam off|planet|player|map";
@@ -248,6 +249,10 @@ public static class DevHarness
             case "legacy":
                 OrbitalConfig.CaptureLegacySpace = On(a[1]);
                 return $"captureLegacySpace={OrbitalConfig.CaptureLegacySpace}";
+
+            case "sun":
+                SunDriver.Enabled = On(a[1]);
+                return $"sun driver={SunDriver.Enabled}";
 
             case "omap":
                 // omap on|off | omap focus <system|auto|planet> | omap size <m> | omap view <bearing> <elev> [zoom] | omap spin <deg/s> | omap auto on|off
@@ -456,6 +461,7 @@ public static class DevHarness
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"restore {SavedState.LastRestore} | save {LastSave}");
         sb.AppendLine($"mapview {MapView.Mode}: {MapView.Status} | omap {OrbitalMap.Status} | cam {SpecCam.Status}");
+        sb.AppendLine($"sun {SunDriver.Status}");
         sb.AppendLine($"time {DateTime.Now:HH:mm:ss.fff} ticks/s client={TickRate.Client.PerSecond:F1} server={TickRate.Server.PerSecond:F1} rails t={SystemHost.Now:F1} x{SystemHost.Timescale} clock={SystemHost.ClockSource}");
         sb.AppendLine($"camera {camera.Position.X:F0} {camera.Position.Y:F0} {camera.Position.Z:F0}");
         sb.AppendLine($"physics gravityMultiplier client={_clientGravityMultiplier} server={ServerPlanetBeacon.ServerGravityMultiplier}");

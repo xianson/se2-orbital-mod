@@ -13,7 +13,7 @@ namespace OrbitalMod;
 /// </summary>
 public static class SpecCam
 {
-    public enum Target { None, Fixed, Planet, Player, Map, Point }
+    public enum Target { None, Fixed, Planet, Player, Map, Point, Sun }
     private static Target _target;
     private static string _planet;
     private static double _dist, _bearing, _elev;
@@ -35,6 +35,9 @@ public static class SpecCam
     /// <summary>Orbit a fixed point (the orbital map diorama); re-issued every tick by its owner.</summary>
     public static void Orbit(Vector3D point, double dist, double bearingDeg, double elevDeg)
     { _target = Target.Point; _fixedLook = point; _dist = dist; _bearing = bearingDeg; _elev = elevDeg; }
+
+    /// <summary>From the player, look straight at where the model says the sun is.</summary>
+    public static string Sun() { _target = Target.Sun; return "spectator: looking at the model sun"; }
 
     public static string Off(Keen.VRage.Core.Game.Systems.Session session)
     {
@@ -62,6 +65,13 @@ public static class SpecCam
                 look = p.Value; break;
             case Target.Player: look = playerPos; break;
             case Target.Point: look = _fixedLook; break;
+            case Target.Sun:
+            {
+                Vector3D sd = SunDriver.DirectionToSun;
+                if (sd.LengthSquared() < 0.5) { Status = "no sun direction"; return; }
+                var w0 = new WorldTransform(playerPos + sd * 3000, Quaternion.CreateFromForwardUp((Vector3)sd, Math.Abs(sd.Y) > 0.98 ? Vector3.UnitZ : Vector3.UnitY));
+                Current = w0; cam.SetTransformOverride(w0); Status = "Sun"; return;
+            }
             case Target.Map:
                 var map = MapView.Map(session);
                 if (map == null) { Status = "no map"; return; }

@@ -1,7 +1,8 @@
 # Fusing colonization with orbits: design (revision 2)
 
-Status: proposal, 2026-09-26. Decision from the user: **a real solar system, no compromises.**
-Planets orbit the sun; nothing in the model is pinned for the game's convenience.
+Status: proposal, 2026-09-26. Decisions from the user: **a real solar system, no compromises**
+(planets orbit the sun; nothing in the model is pinned for the game's convenience) and **no fast
+travel at all** (every trip is flown).
 
 ## 1. The consequence: the world is storage, not space
 
@@ -47,14 +48,13 @@ window: sector membership, contract placement, encounter seeds, discovery, field
 
 ## 4. Colonization gameplay on real orbits
 
-1. **Fast travel becomes transfers.** A fast-travel lane between two fields is a transfer
-   between two windows. "Travel" computes the transfer for now (Lambert, built in the core),
-   shows cost and duration, and puts the ship on it with warp to arrival. The graph of lanes
-   the campaign draws stays the graph of allowed routes; the physics decides when and at what
-   cost. Vanilla's instant teleport is replaced (it would jump between windows, skipping the
-   solar system).
-2. **Launch windows as gameplay.** Routes open and close as the planets and regions move. A
-   colonized sector's field can hold a lane service that departs at the next window.
+1. **No fast travel.** Every trip is flown: stow, coast (with warp), arrive. The mod disables
+   the game's fast travel (its fields stay as landmarks and discovery points, but never teleport).
+   The campaign's lanes stay only as drawn routes between sectors, if at all.
+2. **Planning is the player's job, with tools.** A transfer planner on the orbital map (Lambert
+   and intercept planning are in the core): pick a destination window, see the next launch
+   window, its delta-v and duration, and a maneuver marker to burn at. Launch windows open and
+   close as the planets and regions move.
 3. **Reachability as progression.** Each route has a delta-v at the current window. Far regions
    need better engines as well as contracts. The map shades what your ship can reach now.
 4. **Orbital contracts.** Targets can be given real orbits within a window (salvage a derelict
@@ -70,7 +70,7 @@ Two maps, each honest about what it is:
   planned transfers, launch-window countdowns. This is the KSP map, with the colonization
   sectors on it.
 - **The colonization map becomes the network:** the authored layout stays as a schematic
-  (like a subway map), with the orbital data overlaid on its lanes: next window, delta-v,
+  (like a subway map), with the orbital data overlaid between sectors: next window, delta-v,
   duration. Its geometry can no longer be physical, because real positions change every hour.
   (Moving the sectors on it to real positions is possible through public setters, but sector
   membership uses the same coordinates, so the content would fall out of its own sectors.)
@@ -90,16 +90,13 @@ snapshot, not a physical system. We choose:
 
 1. **Region cells:** a pinned window per deep-space sector, with a model orbit; stow and
    arrival for region windows; legacy space outside every window is no longer flyable.
-2. **Transfers:** Lambert planning between windows, launch windows, warp to arrival; fast
-   travel replaced by transfers along the campaign's lanes.
+2. **Transfers:** a player transfer planner (Lambert, launch windows, maneuver markers) and
+   warp to arrival; the game's fast travel disabled.
 3. **Orbital map with sectors:** regions and sector outlines at true positions, planned
    transfers, window countdowns. Colonization map overlay: per-lane window, cost, duration.
-4. **Gameplay:** reachability shading, lane services at colonized fields, orbital contract
-   targets, interceptable cargo ships.
+4. **Gameplay:** reachability shading, orbital contract targets, interceptable cargo ships.
 
 ## 8. Open decisions
 
 - System scale (transfer times against warp).
 - Home of each deep-space sector (Trojans, belts, high planetary orbits).
-- Fast travel: fully replaced by transfers, or transfers plus an optional "skip" that spends
-  the transfer's time and fuel instantly.

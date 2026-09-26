@@ -75,16 +75,46 @@ Two maps, each honest about what it is:
   (Moving the sectors on it to real positions is possible through public setters, but sector
   membership uses the same coordinates, so the content would fall out of its own sectors.)
 
-## 6. Mapping the campaign onto a real system
+## 6. Mapping the campaign onto a real system (decided: big warp, smart mapping)
 
-The campaign layout (15 sectors over about 15,000 km, two planets 3,975 km apart) is a
-snapshot, not a physical system. We choose:
-- **The system's scale:** where Verdure and Kemik orbit (today's model: 160,000 km and
-  100,000 km from a small star). Larger orbits mean longer transfers and more warp.
-- **Each sector's home:** for example, sectors nearest Verdure become Verdure Trojans or high
-  Verdure orbits, those nearest Kemik likewise, the outermost ones a belt beyond Kemik.
-- **Region radius:** the window around each sector's content (sectors are 1,000 to 2,500 km
-  across; the window can cover the authored content, not the whole polygon).
+**Scale: real.** A Sun-mass star; Verdure at 1 AU (a one-year orbit), Kemik at 1.52 AU. A
+Verdure-Kemik Hohmann transfer takes about 8.5 months, with launch windows about every 26
+months. Rails warp goes to x1,000,000 and beyond (8.5 months in about 22 s); the warp stop at
+arrivals and SOI changes already exists. At this scale each planet's SOI is large: about 30,000
+km for Verdure, 46,000 km for Kemik.
+
+**Smart mapping: each sector becomes a region orbiting its nearest planet.** Every authored
+sector lies 900 to 11,000 km from Verdure or Kemik, deep inside that planet's SOI. So the
+authored layout reads naturally as two planetary systems: each sector keeps its authored
+distance and bearing from its host at the epoch, and from then on circles it (prograde, in the
+map plane). Measured from the campaign:
+
+| Sector | Host | Radius | Speed | Period |
+|---|---|---|---|---|
+| Verdure Sector | Verdure | 876 km | 298 m/s | 5.1 h |
+| Echelon | Verdure | 4,255 km | 135 m/s | 2.3 d |
+| Kemik Sector | Kemik | 1,135 km | 262 m/s | 7.6 h |
+| Oblivara | Kemik | 3,183 km | 156 m/s | 1.5 d |
+| Delfos | Kemik | 3,915 km | 141 m/s | 2.0 d |
+| Helionis | Kemik | 4,967 km | 125 m/s | 2.9 d |
+| Nadirae | Kemik | 5,744 km | 116 m/s | 3.6 d |
+| Axionis | Kemik | 6,691 km | 108 m/s | 4.5 d |
+| Tarnyx | Kemik | 7,628 km | 101 m/s | 5.5 d |
+| Zarkon | Kemik | 7,966 km | 99 m/s | 5.9 d |
+| Vantaris | Kemik | 8,874 km | 94 m/s | 6.9 d |
+| Cygnark | Kemik | 9,423 km | 91 m/s | 7.5 d |
+| Byblos | Kemik | 9,770 km | 89 m/s | 8.0 d |
+| Pyrethra | Kemik | 10,497 km | 86 m/s | 8.9 d |
+| Trinarc | Kemik | 10,999 km | 84 m/s | 9.5 d |
+
+- Sector identities, names and colonization progress are untouched: nothing in the world moves.
+  The mapping only gives each sector's window an orbit in the model.
+- The layout is lopsided (12 sectors around Kemik). Option: promote the outermost Kemik
+  sectors to Kemik's L4/L5 Trojans, making them true interplanetary destinations 60 degrees
+  along Kemik's orbit.
+- The colonization map stays the "as charted" snapshot (the layout at the epoch). Re-laying it
+  out live is possible (sector centres are settable) only if the content in each sector moves
+  with it, which would reshuffle the procedural encounters; not recommended.
 
 ## 7. Phases
 
@@ -98,5 +128,4 @@ snapshot, not a physical system. We choose:
 
 ## 8. Open decisions
 
-- System scale (transfer times against warp).
 - Home of each deep-space sector (Trojans, belts, high planetary orbits).

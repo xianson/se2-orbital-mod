@@ -525,6 +525,30 @@ public static class PlanetRenderBridge
         catch (Exception e) { Log.Default?.Warning($"[ORBIT] engine screenshot failed: {Inner(e)}"); return null; }
     }
 
+    /// <summary>
+    /// DEV HARNESS: switch another mod's static bool at runtime (e.g. AeroMod.AeroSpeedSpike.Enabled,
+    /// the aero mod's in-progress experiment that holds every grid at 50 m/s and freezes the main
+    /// thread). Runtime only; the other mod's files are untouched. Returns a description.
+    /// </summary>
+    public static string SetForeignFlag(string typeName, string field, bool value)
+    {
+        try
+        {
+            foreach (Assembly a in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type t;
+                try { t = a.GetType(typeName); } catch { continue; }
+                if (t == null) continue;
+                FieldInfo f = t.GetField(field, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                if (f == null || f.FieldType != typeof(bool)) return $"{typeName}.{field} not a static bool";
+                f.SetValue(null, value);
+                return $"{typeName}.{field}={value} (in {a.GetName().Name})";
+            }
+            return $"{typeName} not loaded";
+        }
+        catch (Exception e) { return "failed: " + Inner(e); }
+    }
+
     private static MethodInfo _teleportPlayer;
 
     /// <summary>

@@ -30,15 +30,18 @@ public class InjectPlanetComponents : Injections
 {
     private static int _serverCount;
     private static int _clientCount;
+    private static int _gridCount;
 
     public static void Please(PrefabDefinition prefab)
     {
+        bool isServerGrid = false;
         bool isServerPlanet = false;
         bool isClientPlanet = false;
         foreach (var type in prefab.Composition.Types)
         {
             if (type == typeof(DiscoverablePlanetComponent)) isServerPlanet = true;
             if (type == typeof(PlanetEnvironmentRenderComponent)) isClientPlanet = true;
+            if (type == typeof(Keen.Game2.Simulation.WorldObjects.CubeGrids.CubeGridComponent)) isServerGrid = true;
         }
 
         if (isServerPlanet)
@@ -46,6 +49,15 @@ public class InjectPlanetComponents : Injections
             Add(prefab, typeof(ServerPlanetBeacon));
             _serverCount++;
             Log.Default?.Info($"[ORBIT] server planet prefab #{_serverCount}: '{prefab.DebugName}' +ServerPlanetBeacon");
+        }
+
+        if (isServerGrid)
+        {
+            // Grids: the server-side frame manager frames them (GridMembers). CubeGridComponent is
+            // on the server composition (the aero mod injects the same way).
+            Add(prefab, typeof(OrbitalGridComponent));
+            _gridCount++;
+            if (_gridCount <= 3) Log.Default?.Info($"[ORBIT] grid prefab #{_gridCount}: '{prefab.DebugName}' +OrbitalGridComponent");
         }
 
         if (isClientPlanet)

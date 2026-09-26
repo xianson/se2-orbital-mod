@@ -60,7 +60,22 @@ public static class SystemHost
         if (dt < 0.002) return 0;
         _lastClockTicks = now;
         if (dt > 0.25) dt = 0.25; // a stall must not throw rails forward
-        Now += dt * Timescale;
+        double next = Now + dt * Timescale;
+        // Warp policy: the clock never steps past an arrival. Stop exactly at the earliest inbound
+        // shell crossing and drop to x1, so the arrival checks (client and server, whatever their
+        // tick rate) see the crossing instead of jumping over it.
+        if (Timescale > 1.0 && Built && Frames != null)
+        {
+            double tc = double.NaN;
+            lock (ServerFrames.FramesLock) tc = FrameHost.EarliestArrival(Now, next);
+            if (!double.IsNaN(tc))
+            {
+                next = Math.Max(Now, tc);
+                Log.Default?.Info($"[ORBIT-FRAME] warp x{Timescale} -> x1 at the shell crossing (t={tc:F1})");
+                Timescale = 1.0;
+            }
+        }
+        Now = next;
         return dt;
     }
 

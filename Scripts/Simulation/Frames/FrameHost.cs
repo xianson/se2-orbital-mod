@@ -65,6 +65,7 @@ public static class FrameHost
 
     public static void Tick(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera, double gravityMultiplier)
     {
+        TickRate.Client.Count();
         _mult = gravityMultiplier > 0 ? gravityMultiplier : 1.0;
         if (!SystemHost.EnsureBuilt(gravityMultiplier)) return;
         double dt = SystemHost.AdvanceClock();
@@ -88,13 +89,18 @@ public static class FrameHost
             if (_tpPending) { SettleTeleport(session, ch, pos, t); landed = !_tpPending; }
             if (landed) vel = _tpVelocity;
 
-            var frame = frames.FindByMember(id);
-            PlayerFrame = frame;
-            if (frame != null) { _hsActive = false; UpdatePlayerFrame(session, ch, frame, pos, vel, t, dt); }
-            else if (!_tpPending)
+            _playerId = id;
+            lock (ServerFrames.FramesLock)
             {
-                if (_hsActive && !landed) vel = StepHighSpeed(ch, pos, vel, dt);
-                TryStow(session, ch, id, pos, _hsActive ? _hsVel : vel, t);
+                if (ApplyServerRequests(session, ch, pos, t)) { PublishObserver(camera.Position, reg, t); return; }
+                var frame = frames.FindByMember(id);
+                PlayerFrame = frame;
+                if (frame != null) { _hsActive = false; UpdatePlayerFrame(session, ch, frame, pos, vel, t, dt); }
+                else if (!_tpPending)
+                {
+                    if (_hsActive && !landed) vel = StepHighSpeed(ch, pos, vel, dt);
+                    TryStow(session, ch, id, pos, _hsActive ? _hsVel : vel, t);
+                }
             }
         }
 
@@ -126,6 +132,7 @@ public static class FrameHost
             _hsActive = false;
             _wasInKeep = false;
             StartTeleport(session, pf.BerthCenter, Vector3D.Zero, t);
+            ServerFrames.Attach.Enqueue(new ServerFrames.AttachRequest { FrameId = pf.Id, RefPos = pos, RefVel = vel, Berth = pf.BerthCenter });
             Event($"STOW (orbit command) -> frame #{pf.Id} about {pb}: a={pel.SemiMajorAxis / 1000:F1} km e={pel.Eccentricity:F3}");
             return;
         }
@@ -169,6 +176,7 @@ public static class FrameHost
         _hsActive = false;
         ForceStow = false;
         _wasInKeep = false;
+        ServerFrames.Attach.Enqueue(new ServerFrames.AttachRequest { FrameId = frame.Id, RefPos = pos, RefVel = vel, Berth = frame.BerthCenter });
         StartTeleport(session, frame.BerthCenter, Vector3D.Zero, t);
         Event($"STOW -> frame #{frame.Id} orbiting {parent.Name}: r={(cel - porg.Position).Length() / 1000:F1} km " +
               $"|v|={vel.Length():F1} m/s a={el.SemiMajorAxis / 1000:F1} km e={el.Eccentricity:F3} slot={frame.BerthSlotId} berth={ServerPlanetBeacon.Fmt(frame.BerthCenter)}");
@@ -179,6 +187,11 @@ public static class FrameHost
     private static void UpdatePlayerFrame(Keen.VRage.Core.Game.Systems.Session session, Entity ch, ProximityFrame f,
                                           Vector3D pos, Vector3D vel, double t, double dt)
     {
+        if (f.AnchorEntityId != _playerId)
+        {
+            UpdateRider(session, ch, f, pos, vel, t, dt);
+            return;
+        }
         if (!_tpPending)
         {
             // Hard pin: the anchor never translates in world space.
@@ -205,8 +218,41 @@ public static class FrameHost
         TryMaterialize(session, f, t);
     }
 
+    /// <summary>
+    /// RIDER: the player in a frame anchored by a grid (SE1 CharacterRider / loose-object feed). Not pinned,
+    /// not drained: the player floats freely relative to the anchor and feels the berth's differential
+    /// gravity minus the frame acceleration A the server folded this tick. Past the slot radius the
+    /// player splits into a frame of their own.
+    /// </summary>
+    private static void UpdateRider(Keen.VRage.Core.Game.Systems.Session session, Entity ch, ProximityFrame f,
+                                    Vector3D pos, Vector3D vel, double t, double dt)
+    {
+        if (_tpPending) return;
+        Vector3D A = ServerFrames.AnchorAccel.TryGetValue(f.Id, out var a) ? a : Vector3D.Zero;
+        StateVector cur = OrbitPropagation.StateAt(f.Elements, t);
+        Vector3D rRel = pos - f.BerthCenter;   // the anchor is pinned at the berth
+        double mu = f.Elements.Mu;
+        Vector3D acc = (Grav(cur.Position + rRel, mu) - Grav(cur.Position, mu)) - A;
+        if (IsFinite(acc) && acc.LengthSquared() > 1e-10) SetVelocity(ch, vel + acc * dt);
+        if (rRel.Length() > ServerFrames.SlotRadius)
+        {
+            var el = OrbitalMath.ToElements(new StateVector(cur.Position + rRel, cur.Velocity + vel), mu, t);
+            if (!IsFinite(el.SemiMajorAxis)) return;
+            var nf = SystemHost.Frames.SplitOff(f, _playerId, f.ParentBodyName, el);
+            if (nf == null) return;
+            StartTeleport(session, nf.BerthCenter, Vector3D.Zero, t);
+            Event($"SPLIT player from frame #{f.Id} at {rRel.Length() / 1000:F1} km -> frame #{nf.Id}");
+        }
+    }
+
+    private static Vector3D Grav(Vector3D r, double mu)
+    {
+        double d = r.Length();
+        return d > 1 ? r * (-mu / (d * d * d)) : Vector3D.Zero;
+    }
+
     /// <summary>Patched conics: leave the parent's SOI or enter a child's -> re-express the orbit there.</summary>
-    private static void TryReparent(ProximityFrame f, double t)
+    internal static void TryReparent(ProximityFrame f, double t)
     {
         var reg = SystemHost.Registry;
         GravityBody parent = reg.Find(f.ParentBodyName);
@@ -413,6 +459,92 @@ public static class FrameHost
         Observer = null;
         ObserverPlanet = null;
     }
+
+    // ───────────────────────────── requests from the server half ─────────────────────────────
+
+    private static long _playerId;
+    private static Vector3D _pendingShift;
+    private sealed class ArrivalRequest
+    {
+        public string Body; public Vector3D Target; public Vector3D AnchorPos; public Vector3D CelPos; public Vector3D CelVel; public double Epoch;
+    }
+    private static ArrivalRequest _pendingArrival;
+
+    /// <summary>Server re-pinned a grid-anchored frame by shifting it; the player member shifts too.</summary>
+    public static void RequestShift(long frameId, Vector3D shift)
+    {
+        var f = SystemHost.Frames?.FindByMember(_playerId);
+        if (f != null && f.Id == frameId) _pendingShift += shift;
+    }
+
+    /// <summary>Server materialized a grid-anchored frame; the player member arrives at the same offset.</summary>
+    public static void RequestArrival(long frameId, string body, Vector3D target, Vector3D anchorPos,
+                                      Vector3D celPos, Vector3D celVel, double epoch)
+    {
+        var f = SystemHost.Frames?.FindByMember(_playerId);
+        if (f == null || f.Id != frameId) return;
+        _pendingArrival = new ArrivalRequest { Body = body, Target = target, AnchorPos = anchorPos, CelPos = celPos, CelVel = celVel, Epoch = epoch };
+    }
+
+    /// <summary>Returns true when this tick was consumed by a server-requested move.</summary>
+    private static bool ApplyServerRequests(Keen.VRage.Core.Game.Systems.Session session, Entity ch, Vector3D pos, double t)
+    {
+        if (_pendingArrival != null)
+        {
+            var a = _pendingArrival;
+            _pendingArrival = null;
+            _pendingShift = Vector3D.Zero;
+            Vector3D off = pos - a.AnchorPos;
+            Vector3D relPos = a.CelPos + off;
+            double speed = a.CelVel.Length();
+            bool hs = speed > SpeedCap;
+            if (hs)
+            {
+                EngageHighSpeed(a.Body, relPos, a.CelVel, a.Epoch);
+                var noDamp = new PlayerRequest { Dampeners = false };
+                ServerPlanetBeacon.ApplyToCharacter(session, noDamp, "client");
+                ServerPlanetBeacon.PendingPlayer = noDamp;
+            }
+            PlayerFrame = null;
+            _wasInKeep = true;
+            StartTeleport(session, a.Target + off, hs ? Vector3D.Zero : a.CelVel, t);
+            Event($"player arrives with its grid frame at {a.Body}{(hs ? " (HighSpeed)" : "")}");
+            return true;
+        }
+        if (_pendingShift.LengthSquared() > 1e-6 && _tpPending)
+            _pendingShift = Vector3D.Zero; // not at the berth yet: the teleport target is already the pinned berth
+        if (_pendingShift.LengthSquared() > 1e-6)
+        {
+            Vector3D p = pos + _pendingShift;
+            _pendingShift = Vector3D.Zero;
+            var wt = ch.Data.GetWorldTransform();
+            ch.Data.Set(new WorldTransform(p, wt.Orientation));
+            ServerPlanetBeacon.PendingPlayer = new PlayerRequest { Position = p };
+        }
+        return false;
+    }
+
+    /// <summary>The earliest inbound shell crossing of any frame in (t0, t1], or NaN. Caller holds FramesLock.</summary>
+    internal static double EarliestArrival(double t0, double t1)
+    {
+        var reg = SystemHost.Registry;
+        double best = double.NaN;
+        foreach (var f in SystemHost.Frames.Frames)
+        {
+            BodyDefinition def = reg.FindDefinition(f.ParentBodyName);
+            if (def == null || string.IsNullOrEmpty(def.ParkSubtype)) continue;
+            double shell = PlanetBerths.ShellRadius(def);
+            if (shell <= 0) continue;
+            var cur = OrbitPropagation.StateAt(f.Elements, t0);
+            if (!IsFinite(cur.Position) || cur.Position.Length() < shell) continue;
+            if (!OrbitPropagation.TryTimeToRadius(f.Elements, shell, out _, out double tInRel)) continue;
+            double tc = NextInboundCrossing(f.Elements, tInRel, t0);
+            if (IsFinite(tc) && tc > t0 && tc <= t1 && (double.IsNaN(best) || tc < best)) best = tc;
+        }
+        return best;
+    }
+
+    public static double NextInboundCrossingPublic(KeplerianElements el, double tInRel, double t) => NextInboundCrossing(el, tInRel, t);
 
     // ───────────────────────────── helpers ─────────────────────────────
 

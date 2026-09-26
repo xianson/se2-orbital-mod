@@ -94,8 +94,12 @@ public partial class ServerPlanetBeacon : Component, IInSceneListener
 
     private PlanetBeacon _beacon;
 
+    /// <summary>The server scene's session (set by the first server planet).</summary>
+    public static Keen.VRage.Core.Game.Systems.Session ServerSession;
+
     void IInSceneListener.OnAddedToScene()
     {
+        ServerSession ??= Entity.GetSession();
         _beacon = new PlanetBeacon
         {
             Center = Entity.Data.GetWorldTransform().Position,
@@ -131,6 +135,7 @@ public partial class ServerPlanetBeacon
     [MustHave(typeof(ServerPlanetBeacon))]
     private static void BeaconJob(ServerPlanetBeacon beacon)
     {
+        ServerFrames.Tick(beacon.Entity.GetSession());
         try { ServerGravityMultiplier = beacon.Entity.GetSession().Get<Keen.VRage.Physics.IPhysics>().GravityMultiplier; } catch { }
         ApplyPlayerRequest(beacon);
         var b = beacon._beacon;

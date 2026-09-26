@@ -24,100 +24,21 @@ interaction shell, HighSpeed), ported. Verified in game with the harness:
   periapsis at exactly 71.0 km -> STOW again at the 79.4 km floor. Orbit after two handoffs:
   a 166.6 km e 0.574 (was 167.0 / 0.575).
 
-v1 limits: local player only (client-driven; SP / listen host), EVA only (no grids, no multi-member
-frames, no CW forces, split or merge yet), no thrust while in HighSpeed, capture only after leaving a
-keep (not the full total-partition axiom), radial (zero angular momentum) states are not captured,
-planets do not spin (no rotating surface chart), sun direction not driven, frames not persisted.
+- **Ships as frame members (server side):** grids within 5 km of a stowing player join its frame;
+  the heaviest dynamic grid is the anchor (pinned, drained, folded into the rails on the server);
+  the other members and the player get the berth's differential gravity minus the frame
+  acceleration (Clohessy-Wiltshire); a member beyond 20 km splits into its own frame. Verified:
+  the Nova35 wreck (5 grids, 90 t anchor) plus the player stow together, warp, arrive together in
+  HighSpeed (offsets held at 0.32-0.34 km through periapsis) and re-stow together.
+- **Lone grids** in a planet cell stow into their own frame when they leave the keep (or cross above
+  the shell on an escaping arc), taking grids within 5 km along.
+- **Warp never skips an arrival:** the rails clock stops exactly at the earliest inbound shell
+  crossing and drops to x1, so arrival works at any tick rate.
 
-## What works (verified in game, see `docs/screenshots/`)
-
-1. **Planet frames with proxy globes.** Each planet has a frame sphere, its gravity reach, with 10%
-   exit hysteresis. Inside it the real voxel planet is drawn. Outside it the real planet's terrain,
-   atmosphere and clouds are hidden and the planet's own colonization-map globe is drawn in its place,
-   in the normal world view, at true direction and size. Hide and restore were both verified at close range (88 km).
-2. **Orbital core ported.** The game-free SE-Aerospace core (Orbital, Rendezvous, Time, SystemDef;
-   about 5.8k lines) runs on SE2's math library. `Tests/` holds the Time, SystemDef and Rendezvous suites
-   (76 + 88 + 97 checks, all passing against SE2's `VRage.Library`), plus FrameMathTests (21 checks) for the frame
-   and gravity-law math.
-3. **Orbit display.** The first in-game use of the core. It picks the planet whose gravity dominates at the
-   camera, fits Keplerian elements to the camera's state and draws the conic plus a readout. It
-   renders with a UI3D MeshBuilder, so it needs no reflection. The readout is verified. The conic needs a moving
-   player, see open items.
-4. **Runtime inverse-square gravity (dev command).** `gravity Verdure inverse 600` rewrites the planet's
-   gravity law on the server thread (FallOffPower 2, 600 km reach) and `gravity Verdure vanilla` restores it.
-   Verified by readback and by the frame and orbit fit following it (screenshot 08, an exact 1/r² conic).
-   Free fall verified qualitatively: with dampeners off at 300 km (vanilla gravity ends at 81 km) the player falls
-   straight at Verdure, 0 to 6.3 m/s in about 9 s. Measured 0.67 m/s² against a model of 0.87 m/s² (0.43 times
-   the world multiplier 2). The shortfall matches the sim running slow while the aero mod's spike was engaged.
-   A clean quantitative run needs a world without the aero mod.
-   Real orbital motion: at 900 km (circular speed 294 m/s, just under the 300 m/s world cap once the x2
-   multiplier is counted) with dampeners off and circular velocity set, the fit from MEASURED motion settles at
-   e 0.004-0.03 (Pe 832 km, Ap 840 km). Real orbits under the speed cap need r > 2mu/300² (865 km for Verdure).
-   Orbital speeds nearer the planet exceed the cap, which is the same blocker as the aero mod's speed spike.
-5. **Dev harness.** An external tool can teleport the player, aim the view and switch modes, and take
-   screenshots. See below.
-
-## How it is wired
-
-| Piece | File | Notes |
-|---|---|---|
-| Entry | `Injection/PlanetInjector.cs` | Injects components into planet **prefab compositions** at definition load, the same trick as the aero mod. The content pipeline is dead until the Mod SDK catches up. |
-| Server half | `Frames/ServerPlanetBeacon.cs` | On server planet compositions (`DiscoverablePlanetComponent`). Publishes centre, map-globe prefab and gravity law. |
-| Client half | `Frames/PlanetFrameComponent.cs` | On client planet compositions (`PlanetEnvironmentRenderComponent`). Frame decision, hide/show, proxy, orbit display. Pairs with its beacon by position. |
-| Pure math | `Frames/FrameMath.cs` | Hysteresis, angular-size-preserving proxy projection, `GravityLaw`. |
-| **All reflection** | `Render/PlanetRenderBridge.cs` | The only file that uses reflection. A reflection ban breaks this file and nothing else. |
-| Orbital core | `Core/**` | Literal SE-Aerospace sources. Namespaces kept as `SEAerospace.*` for traceability. |
-
-SE2 keeps **separate client and server compositions** per entity. The first version injected
-everything on the server side and never ran on the client. Keen's validator rejects client types on server
-compositions, and the binding between the two lives in `VRage.Multiplayer`, which mods cannot see.
-Hence the beacon/frame split. The beacon pairing only works where both scenes share a process: single
-player and listen host. A dedicated-server client needs a different pairing (open item).
-
-## Findings worth keeping
-
-- **SE2 vanilla gravity is a linear shell, not inverse-square.** Verdure is 1 g out to 63 km and falls
-  linearly to 0 at 81 km (falloff power -1). Kemik is 1 g to 52.5 km and 0 at 67.5 km. Stable orbits are
-  physically impossible in vanilla. Real orbits need `FallOffPower = 2` and a large `AffectDistance`
-  set on the planet's gravity generator object builder at spawn, capped by `MaxAffectDistance`.
-- **Hiding terrain:** `VoxelClipmap.Visible` and Keen's own debug "HidePlanet" do not work on a built
-  planet. Queued cell transitions are only committed inside `Update`, which exits early once hidden.
-  The mod deactivates the clipmaps' render root entities instead, one per 1 km block, under Keen's own
-  lock, for both the detailed and low-res clipmaps, then freezes the clipmap after 20 frames.
-- **Whitelist quirk (VRS1001):** `new T[n]` of a script-defined `T` is banned, because array types miss the
-  own-assembly exemption. Use `List<T>` plus `ToArray()`.
-- **World GravityMultiplier is 2 in the test world, on BOTH client and server physics** (`IPhysics.GravityMultiplier`),
-  despite the aero STATUS note that the aero code forces 1. The engine scales all gravity by it, so
-  `GravityLaw.Multiplier` feeds it into the orbit fit. Without it, mu is off by 2x.
-- **Freezes during testing were not this mod.** The test world loads the Aerodynamics Mod from its mod
-  list, and its AeroSpeedSpike froze the main thread about 40 s after engaging, with or without the Orbital Mod.
-
-## Dev harness (visual testing without a human)
-
-Off switch: `OrbitalConfig.DevHarness`. **It must be `false` in anything shipped.** The mod polls
-`%TEMP%\OrbitalMod\cmd.txt` and writes `%TEMP%\OrbitalMod\status.txt`. The full command list is in
-`Frames/DevHarness.cs`:
-
-```
-planets                      view Verdure 200 [keep|sun|+x..-z]    lookat Kemik
-tp x y z   look x y z        mode Frame|AlwaysProxy|AlwaysReal|Alternate
-hide on|off   front on|off   orbit on|off
-```
-
-`tools/harness/` holds the driver side:
-- `launch-orbital.ps1` launches the game with this mod.
-- `shot.ps1` captures the screen.
-- `orb.sh` sends commands, waits for them to be consumed, and optionally captures a screenshot.
-
-Both `.ps1` scripts must run as **scheduled tasks with an Interactive principal** (`OrbitalTestSE2`,
-`OrbitalShotSE2`). The agent shell's window station cannot launch the GUI or capture the screen.
-
-```
-tools/harness/orb.sh --shot 5 "view Verdure 200"     # then look at the PNG it names
-```
-
-Compile check without launching the game: `D:\aero\tools\ModCheck` (same references, generators
-and whitelist analyzer as the game).
+Remaining limits: local player only (client-driven; SP / listen host), no merge of frames, no thrust
+while in HighSpeed, legacy-space objects are not captured, radial (zero angular momentum) states are
+not captured, planets do not spin (no rotating surface chart), sun direction not driven, frames not
+persisted, relative motion of members is integrated at x1 while the rails warp.
 
 ## Open items, highest value first
 

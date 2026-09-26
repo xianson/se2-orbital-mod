@@ -96,6 +96,18 @@ public static class DevHarness
                 return $"-> {PlanetName(p)} at {dist / 1000:F1} km from center (alt {(dist - PlanetRadius(p)) / 1000:F1} km)";
             }
 
+            case "tpgrid":
+            {
+                // tpgrid <gridId> [offsetM]: stand next to a grid (server snapshot position), facing it.
+                Vector3D gp = default; bool found = false;
+                if (long.TryParse(a[1], out long gid)) lock (ServerFrames.GridPositions) found = ServerFrames.GridPositions.TryGetValue(gid, out gp);
+                if (!found) return "unknown grid (see status)";
+                double off = a.Length > 2 ? D(a[2]) : 150.0;
+                Vector3D from = gp + Vector3D.Normalize(camera.Position - gp) * off;
+                Teleport(session, from, gp - from);
+                return $"-> {off:F0} m from grid {gid}";
+            }
+
             case "tp":
             {
                 var pos = new Vector3D(D(a[1]), D(a[2]), D(a[3]));
@@ -175,6 +187,14 @@ public static class DevHarness
                 }
                 OrbitalConfig.ShowOrbit = On(a[1]);
                 return $"orbit={OrbitalConfig.ShowOrbit}";
+
+            case "aerospike":
+                // aerospike on|off: the aero mod's experiment (holds every grid at 50 m/s, freezes the sim).
+                return PlanetRenderBridge.SetForeignFlag("AeroMod.AeroSpeedSpike", "Enabled", On(a[1]));
+
+            case "gridsstop":
+                ServerFrames.StopAllGrids = true;
+                return "stopping all dynamic grids (server, next tick)";
 
             case "stow":
                 FrameHost.ForceStow = true;
@@ -335,7 +355,7 @@ public static class DevHarness
     private static void WriteStatus(WorldTransform camera)
     {
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine($"time {DateTime.Now:HH:mm:ss.fff}");
+        sb.AppendLine($"time {DateTime.Now:HH:mm:ss.fff} ticks/s client={TickRate.Client.PerSecond:F1} server={TickRate.Server.PerSecond:F1} rails t={SystemHost.Now:F1} x{SystemHost.Timescale}");
         sb.AppendLine($"camera {camera.Position.X:F0} {camera.Position.Y:F0} {camera.Position.Z:F0}");
         sb.AppendLine($"physics gravityMultiplier client={_clientGravityMultiplier} server={ServerPlanetBeacon.ServerGravityMultiplier}");
         sb.AppendLine($"config mode={OrbitalConfig.Mode} hide={OrbitalConfig.HideRealPlanets} front={OrbitalConfig.DebugProxyInFront} orbit={OrbitalConfig.ShowOrbit}");
@@ -352,6 +372,7 @@ public static class DevHarness
         sb.AppendLine("lastEvent " + FrameHost.LastEvent);
         sb.AppendLine("host " + FrameHost.Debug + $" highSpeed={FrameHost.HighSpeedActive} hsV={FrameHost.HighSpeedVelocity.Length():F0}");
         sb.AppendLine("shot " + LastShot);
+        sb.Append(ServerFrames.GridSnapshot); // built on the server thread (client-side reads froze the game)
         if (OrbitDisplay.LastReadout != null) sb.AppendLine("orbit " + OrbitDisplay.LastReadout.Replace("\n", " | "));
         Vector3D mv = OrbitDisplay.MeasuredVelocity;
         var near = list.Count > 0 ? list[0] : null;

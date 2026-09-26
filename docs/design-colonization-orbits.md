@@ -93,7 +93,7 @@ snapshot, not a physical system. We choose:
 2. **Transfers:** a player transfer planner (Lambert, launch windows, maneuver markers) and
    warp to arrival; the game's fast travel disabled.
 3. **Orbital map with sectors:** regions and sector outlines at true positions, planned
-   transfers, window countdowns. Colonization map overlay: per-lane window, cost, duration.
+   transfers, window countdowns. Colonization map overlay: next window, cost, duration per route.
 4. **Gameplay:** reachability shading, orbital contract targets, interceptable cargo ships.
 
 ## 8. Open decisions

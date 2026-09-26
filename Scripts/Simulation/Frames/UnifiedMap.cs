@@ -54,6 +54,7 @@ public static class UnifiedMap
         public bool OwnsPlanet, Trojan;
         public int TrojanSide, TrojanIndex;
         public double R, Theta0, Omega;
+        public SectorHomes.Home Home;
     }
 
     /// <summary>Draw everything for this frame. Returns false when the unified map is off.</summary>
@@ -96,12 +97,15 @@ public static class UnifiedMap
         {
             Vector3D chartGlobe = C(SystemHost.BeaconOf[p.Name].Center);
             double rMax = 1;
-            foreach (var si in infos) if (si.Host == p.Name && !si.Trojan && !si.OwnsPlanet) rMax = Math.Max(rMax, si.R);
+            foreach (var si in infos)
+                if (si.Host == p.Name && si.Home != null && si.Home.Kind == SectorHomes.Kind.Ellipse) rMax = Math.Max(rMax, si.Home.A * (1 + si.Home.E));
+                else if (si.Host == p.Name && !si.Trojan && !si.OwnsPlanet && !BandSections) rMax = Math.Max(rMax, si.R);
             double sChart = 1.0 / scale;
             double sFamily = Math.Max(sChart, 0.16 * dist / rMax);
             double sBadge = 0.03 * dist / rMax;
             famCenter[p.Name] = Lerp(chartGlobe, Solar(p.StateInParentAt(t).Position), w23);
             famScale[p.Name] = LerpD(LerpD(sChart, sFamily, w12), sBadge, w23);
+            MapView.GlobePos[p.Name] = famCenter[p.Name];
         }
         Vector3D Fam(string planet, Vector3D rel) => famCenter[planet] + Rot(new Vector3D(rel.X, 0, rel.Z) * famScale[planet]);
 
@@ -139,6 +143,11 @@ public static class UnifiedMap
             ColorSRGB col = state == SectorColonizationState.Colonized ? Colonized : state == SectorColonizationState.Unlocked ? Unlocked : Locked;
             bool sel = selected.HasValue && selected.Value == Keen.VRage.Library.Utils.StringId.Get(sc.Name);
 
+            if (BandSections)
+            {
+                DrawHome(b, si, reg, col, sel, t, dist, w23, (planet, rel) => Fam(planet, new Vector3D(rel.X, 0, rel.Y)), Solar, orient);
+                continue;
+            }
             Vector3D cc = C(sc.Area.Center);
             Vector3D live;   // where the sector's region is now, at this zoom
             if (si.OwnsPlanet) live = famCenter[si.Host];
@@ -302,6 +311,8 @@ public static class UnifiedMap
             si.Theta0 = Math.Atan2(c.Z - hc.Z, c.X - hc.X);
             double mu = reg.Find(si.Host).Mu;
             si.Omega = Math.Sqrt(mu / (best * best * best));
+            si.Home = SectorHomes.Make(sc.Name, si.Host, best, si.Theta0, sc.Area.Size, 0);
+            if (si.OwnsPlanet) si.Home.Kind = SectorHomes.Kind.OwnPlanet;
             if (!si.OwnsPlanet && best > MapView.TrojanThreshold)
             {
                 si.Trojan = true;
@@ -311,6 +322,18 @@ public static class UnifiedMap
                 si.TrojanIndex = k / 2;
             }
             list.Add(si);
+        }
+        // Slots within each L-point group (spread the members apart).
+        var slots = new Dictionary<string, int>();
+        foreach (var si in list)
+        {
+            if (si.Home == null) continue;
+            string key = si.Host + "/" + si.Home.Kind;
+            slots.TryGetValue(key, out int k);
+            si.Home.Slot = k; slots[key] = k + 1;
+            si.Trojan = si.Home.Kind == SectorHomes.Kind.L4 || si.Home.Kind == SectorHomes.Kind.L5;
+            if (si.Trojan) si.TrojanSide = si.Home.Kind == SectorHomes.Kind.L4 ? 1 : -1;
+            si.TrojanIndex = si.Home.Slot;
         }
         return list;
     }
@@ -404,6 +427,80 @@ public static class UnifiedMap
             b.AddLine(i0, i1, edge, (float)width, true);
             b.AddLine(o0, o1, edge, (float)width, true);
         }
+    }
+
+    /// <summary>
+    /// One sector as a band section of its prescribed motion (SectorHomes): a stretch of its path
+    /// around the current position (a fixed slice of TIME, so it stretches where the motion is
+    /// fast: Kepler's second law), its whole path faint, and its name.
+    /// </summary>
+    private static void DrawHome(MeshBuilder b, SectorInfo si, SystemRegistry reg, ColorSRGB col, bool sel, double t, double dist, double w23,
+                                 Func<string, Vector3D, Vector3D> fam, Func<Vector3D, Vector3D> solar, Quaternion orient)
+    {
+        var h = si.Home; var planet = reg.Find(si.Host);
+        if (h == null || planet == null) return;
+        var edge = sel ? Selected : col;
+        double W(double k) => dist * 0.0022 * k;
+        Vector3D up = (QuaternionD)orient * new Vector3D(0, dist * 0.012, 0);
+        switch (h.Kind)
+        {
+            case SectorHomes.Kind.OwnPlanet:
+            {
+                if (w23 > 0.9) return;
+                double rOut = si.R + h.Size * 0.15, rIn = Math.Max(si.R * 0.35, 1);
+                Vector3D P(double ang, double rr) => fam(si.Host, new Vector3D(Math.Cos(ang) * rr, Math.Sin(ang) * rr, 0));
+                BandArc(b, P, 0.5 * (rIn + rOut), 0, Math.PI, 0.5 * (rOut - rIn), new ColorSRGB(col, (sel ? 0.24f : 0.12f) * (float)(1 - w23)), new ColorSRGB(edge, (float)(1 - w23)), W(sel ? 1.0 : 0.6), 96);
+                b.AddText(fam(si.Host, new Vector3D(0, -rOut, 0)) + up, si.Sector.Name, sel ? Selected : Text, 0.45f);
+                return;
+            }
+            case SectorHomes.Kind.L4:
+            case SectorHomes.Kind.L5:
+            {
+                if (w23 < 0.3) return;   // millions of km along the planet's orbit: solar band only
+                Vector3D pos = solar(SectorHomes.HelioTrojan(h, planet, t));
+                b.AddSphere(new WorldTransform(pos, Quaternion.Identity), dist * 0.004, col, edge, true);
+                b.AddText(pos + up, $"{si.Sector.Name} ({h.Kind})", sel ? Selected : Text, 0.42f);
+                return;
+            }
+        }
+        // Ellipse or L1/L2 loop: path, band section, label.
+        double T = SectorHomes.Period(h, planet);
+        Vector3D At(double tau) { SectorHomes.Rel(h, planet, tau, out var rel); return rel; }
+        Func<Vector3D, Vector3D> map = rel => w23 < 0.5 ? fam(si.Host, rel) : solar(planet.StateInParentAt(t).Position + rel);
+        float a = (float)(1 - w23 * 0.6);
+        // The whole path, faint.
+        Vector3D q = map(At(t));
+        for (int i = 1; i <= 96; i++)
+        {
+            Vector3D p = map(At(t + T * i / 96));
+            b.AddLine(q, p, new ColorSRGB(sel ? Selected : Ring, 0.35f * a), (float)W(0.5), true);
+            q = p;
+        }
+        // The band: a slice of time around now, thickened across the path.
+        double span = 0.07 * T, hw = Math.Min(h.Size * 0.18, (h.Kind == SectorHomes.Kind.Ellipse ? h.A : SectorHomes.HillRadius(planet)) * 0.08);
+        const int n = 20;
+        Vector3D prevIn = default, prevOut = default;
+        for (int i = 0; i <= n; i++)
+        {
+            double tau = t - span + 2 * span * i / n;
+            Vector3D r0 = At(tau), r1 = At(tau + T * 0.002);
+            Vector3D tan = r1 - r0; tan.Z = 0;
+            Vector3D nrm = tan.LengthSquared() > 0 ? Vector3D.Normalize(new Vector3D(-tan.Y, tan.X, 0)) : Vector3D.UnitX;
+            Vector3D pin = map(r0 - nrm * hw), pout = map(r0 + nrm * hw);
+            if (i > 0)
+            {
+                b.AddTriangle(prevIn, prevOut, pout, new ColorSRGB(col, (sel ? 0.55f : 0.38f) * a), true);
+                b.AddTriangle(prevIn, pout, pin, new ColorSRGB(col, (sel ? 0.55f : 0.38f) * a), true);
+                b.AddLine(prevIn, pin, new ColorSRGB(edge, a), (float)W(sel ? 1.2 : 0.7), true);
+                b.AddLine(prevOut, pout, new ColorSRGB(edge, a), (float)W(sel ? 1.2 : 0.7), true);
+            }
+            else b.AddLine(pin, pout, new ColorSRGB(edge, a), (float)W(0.7), true);
+            prevIn = pin; prevOut = pout;
+        }
+        b.AddLine(prevIn, prevOut, new ColorSRGB(edge, a), (float)W(0.7), true);
+        string tag = h.Kind == SectorHomes.Kind.Ellipse ? "" : $" ({h.Kind})";
+        string label = sel ? $"{si.Sector.Name}{tag}  T {T / 3600:F0} h" : si.Sector.Name + tag;
+        b.AddText(map(At(t)) + up, label, sel ? Selected : Text, sel ? 0.55f : 0.42f);
     }
 
     /// <summary>A band section of an orbit: radius a, centre angle, half span, half width (P maps angle, radius to the map).</summary>

@@ -232,33 +232,25 @@ public static class CleanMap
             switch (h.Kind)
             {
                 case SectorHomes.Kind.OwnPlanet:
-                    parts.Add(Annulus(bd.Name, 0, Math.PI, R(si_own_outer(h)) * 0.94, R(si_own_outer(h))));
+                    Circle(W, R(si_own_outer(h)), OrbitColor(bd), bd.Selected ? 2.4f : 1.8f);
                     break;
                 case SectorHomes.Kind.Ellipse:
                 {
                     SectorHomes.Rel(h, planet, t, out var rel);
                     double ang = Math.Atan2(rel.Y, rel.X);
                     double rr = R(Math.Sqrt(rel.X * rel.X + rel.Y * rel.Y));   // true current distance
-                    if (bd.Selected)
+                    // Its true ellipse, every sector: the orbit is the sector.
+                    double T = SectorHomes.Period(h, planet);
+                    Vector3D pv = default;
+                    for (int q = 0; q <= 160; q++)
                     {
-                        // Its true ellipse.
-                        double T = SectorHomes.Period(h, planet);
-                        Vector3D pv = default;
-                        for (int q = 0; q <= 128; q++)
-                        {
-                            SectorHomes.Rel(h, planet, t + T * q / 128, out var rq);
-                            Vector3D pp = W(Lv(rq));
-                            if (q > 0) MapPipeline.Line(pv, pp, LineSel, 2f);
-                            pv = pp;
-                        }
+                        SectorHomes.Rel(h, planet, t + T * q / 160, out var rq);
+                        Vector3D pp = W(Lv(rq));
+                        if (q > 0) MapPipeline.Line(pv, pp, OrbitColor(bd), bd.Selected ? 2.4f : 1.8f);
+                        pv = pp;
                     }
-                    // Thickness from the gap to the neighbouring orbits: bands never overlap.
-                    double gap = double.MaxValue;
-                    foreach (var o in ell)
-                        if (o != bd) gap = Math.Min(gap, Math.Abs(R(o.Home.A) - R(h.A)));
-                    double hwb = Math.Max(fit * 0.004, Math.Min(fit * 0.028, gap * 0.38));
-                    parts.Add(Annulus(bd.Name, ang, 0.20, rr - hwb, rr + hwb));
-                    MapPipeline.Text(W(L(ang, rr + fit * 0.07)), $"{bd.Number}  {bd.Name}", bd.Selected ? LineSel : Text, 0.72f);
+                    Marker(W(L(ang, rr)), bd);
+                    MapPipeline.Text(W(L(ang, rr + fit * 0.055)), $"{bd.Number}  {bd.Name}", bd.Selected ? LineSel : Text, 0.72f);
                     break;
                 }
                 case SectorHomes.Kind.L1:
@@ -284,9 +276,16 @@ public static class CleanMap
                         break;
                     }
                     double ang = Math.Atan2(nl.Z, nl.X), rr = Math.Sqrt(nl.X * nl.X + nl.Z * nl.Z);
-                    var dot = Annulus(bd.Name, 0, Math.PI, 0, fit * 0.022);
-                    for (int q = 0; q < dot.TriVerts.Count; q++) dot.TriVerts[q] += (Vector3)nl;
-                    parts.Add(dot);
+                    Vector3D lv = default;
+                    for (int q = 0; q <= 96; q++)
+                    {
+                        SectorHomes.Rel(h, planet, t + T * q / 96, out var rq);
+                        Vector3D d = rq - centreRel;
+                        Vector3D lp = W(centreL + new Vector3D(d.X, 0, d.Y) * loopScale);
+                        if (q > 0) MapPipeline.Line(lv, lp, OrbitColor(bd), bd.Selected ? 2.4f : 1.8f);
+                        lv = lp;
+                    }
+                    Marker(W(nl), bd);
                     MapPipeline.Text(W(nl + new Vector3D(0, 0, fit * 0.05)), $"{bd.Number}  {bd.Name}", bd.Selected ? LineSel : Text, 0.72f);
                     break;
                 }
@@ -337,8 +336,9 @@ public static class CleanMap
             if (bd.Home.Kind != SectorHomes.Kind.Belt) continue;
             Vector3D hp = SectorHomes.HelioBelt(bd.Home, root.Mu, t);
             double ang = Math.Atan2(hp.Y, hp.X), r = Rs(hp.Length());
-            parts.Add(Annulus(bd.Name, ang, 0.07, r - SolarRadius * 0.035, r + SolarRadius * 0.035));
-            MapPipeline.Text(W(new Vector3D(Math.Cos(ang) * (r + SolarRadius * 0.085), 0, Math.Sin(ang) * (r + SolarRadius * 0.085))), $"{bd.Number}  {bd.Name}", bd.Selected ? LineSel : Text, 0.72f);
+            Circle(W, r, OrbitColor(bd), bd.Selected ? 2.4f : 1.8f);
+            Marker(W(new Vector3D(Math.Cos(ang) * r, 0, Math.Sin(ang) * r)), bd);
+            MapPipeline.Text(W(new Vector3D(Math.Cos(ang) * (r + SolarRadius * 0.06), 0, Math.Sin(ang) * (r + SolarRadius * 0.06))), $"{bd.Number}  {bd.Name}", bd.Selected ? LineSel : Text, 0.72f);
         }
 
         // Sectors with their own orbit (a planet-like ring): the full orbit line and the band section.
@@ -347,9 +347,9 @@ public static class CleanMap
             if (bd.Home.Kind != SectorHomes.Kind.Ring) continue;
             Vector3D hp = SectorHomes.HelioRing(bd.Home, root.Mu, t);
             double ang = Math.Atan2(hp.Y, hp.X), r = Rs(hp.Length());
-            Circle(W, r, bd.Selected ? LineSel : Line, 1.2f);
-            parts.Add(Annulus(bd.Name, ang, 0.09, r - SolarRadius * 0.04, r + SolarRadius * 0.04));
-            MapPipeline.Text(W(new Vector3D(Math.Cos(ang) * (r + SolarRadius * 0.09), 0, Math.Sin(ang) * (r + SolarRadius * 0.09))), $"{bd.Number}  {bd.Name}", bd.Selected ? LineSel : Text, 0.8f);
+            Circle(W, r, OrbitColor(bd), bd.Selected ? 2.4f : 1.8f);
+            Marker(W(new Vector3D(Math.Cos(ang) * r, 0, Math.Sin(ang) * r)), bd);
+            MapPipeline.Text(W(new Vector3D(Math.Cos(ang) * (r + SolarRadius * 0.06), 0, Math.Sin(ang) * (r + SolarRadius * 0.06))), $"{bd.Number}  {bd.Name}", bd.Selected ? LineSel : Text, 0.8f);
         }
 
         // The planets: orbit line, the globe, and the planet's own sector as a circular section around it.
@@ -413,6 +413,22 @@ public static class CleanMap
             Tri(m0, mid, o0, edge, o1, edge); Tri(m0, mid, o1, edge, m1, mid);
         }
         return part;
+    }
+
+    /// <summary>A sector's orbit line colour: its state, faint; the selected sector in gold.</summary>
+    static ColorSRGB OrbitColor(Band b)
+    {
+        if (b.Selected) return LineSel;
+        var c = StateColor(b);
+        return new ColorSRGB(c.R, c.G, c.B, 0.75f);
+    }
+
+    /// <summary>Where a sector is now on its orbit: a ringed dot in its state colour.</summary>
+    static void Marker(Vector3D world, Band b)
+    {
+        var c = b.Selected ? LineSel : StateColor(b);
+        MapPipeline.ScreenRing(world, 8f, c, 2f);
+        MapPipeline.ScreenRing(world, 3.5f, c, 3.5f);
     }
 
     private static void Circle(Func<Vector3D, Vector3D> W, double r, ColorSRGB col, float px)

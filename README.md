@@ -50,6 +50,15 @@ interaction shell, HighSpeed), ported. Verified in game with the harness:
   are remapped through saved entity references. Verified: a frame with 5 grids and the player was
   saved and reloaded intact (orbit, clock t=150, all members). The harness `save` only ever writes
   the "Orbital Test World" copy.
+- **Orbital map (KSP style):** SE2's strategic map only exists in worlds with colonization
+  sectors, so the mod has its own map mode. It opens automatically with the terminal's Map tab
+  when there is no colonization map (or `omap on`), switches the renderer to map-only drawing
+  (the world hidden, as the strategic map does) and builds a diorama at the player: focus on the
+  planet you orbit (its textured map globe, keep ring, every frame's orbit with Ap/Pe, "you + N
+  grids") or the whole system (sun, planet globes on heliocentric orbits, SOI rings). Where the
+  colonization map exists, orbits are also drawn over it (MapView). Screenshots 09-11.
+- **Spectator camera (harness):** `cam planet|player|map ...` overrides the render camera
+  (CameraComponent.SetTransformOverride) and rebuilds the proxies for that viewpoint. Screenshot 12.
 - **Lone grids** in a planet cell stow into their own frame when they leave the keep (or cross above
   the shell on an escaping arc), taking grids within 5 km along.
 - **Warp never skips an arrival:** the rails clock stops exactly at the earliest inbound shell

@@ -58,6 +58,12 @@ public static class DevHarness
     public static void Poll(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera)
     {
         if (!OrbitalConfig.DevHarness) return;
+        try
+        {
+            SpecCam.Tick(session, name => { var pl = FindPlanet(name); return pl != null ? PlanetWorldPos(pl) : (Vector3D?)null; },
+                         FrameHost.PlayerPosition);
+        }
+        catch (Exception e) { SpecCam.Status = "error " + e.Message; }
         try { _clientGravityMultiplier = session.Get<Keen.VRage.Physics.IPhysics>().GravityMultiplier; } catch { }
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
         if (now - _lastPoll < PollSeconds * System.Diagnostics.Stopwatch.Frequency) return;
@@ -78,7 +84,12 @@ public static class DevHarness
                     if (line.Length == 0 || line.StartsWith("#")) continue;
                     string result;
                     try { result = Execute(session, camera, line); }
-                    catch (Exception e) { result = "ERROR " + e.Message; }
+                    catch (Exception e)
+                    {
+                        result = "ERROR " + e.Message;
+                        string st = e.ToString().Replace('\n', ' ');
+                        Log.Default?.Info("[ORBIT-DEV] stack: " + st.Substring(0, Math.Min(1500, st.Length)));
+                    }
                     Note($"> {line}  =>  {result}");
                     Log.Default?.Info($"[ORBIT-DEV] {line} => {result}");
                 }
@@ -216,6 +227,44 @@ public static class DevHarness
                 SaveAndLog(server);
                 return $"saving to '{TestWorldContainer}'";
             }
+
+            case "cam":
+                // cam off | cam planet <planet> <distKm> [bearing] [elev] | cam player <distKm> [bearing] [elev] | cam map <units> [bearing] [elev]
+                switch (a[1].ToLowerInvariant())
+                {
+                    case "off": return SpecCam.Off(session);
+                    case "planet": return SpecCam.Planet(a[2], D(a[3]), a.Length > 4 ? D(a[4]) : 0, a.Length > 5 ? D(a[5]) : 30);
+                    case "player": return SpecCam.Player(D(a[2]), a.Length > 3 ? D(a[3]) : 0, a.Length > 4 ? D(a[4]) : 30);
+                    case "map": return SpecCam.Map(D(a[2]), a.Length > 3 ? D(a[3]) : 0, a.Length > 4 ? D(a[4]) : 60);
+                }
+                return "cam off|planet|player|map";
+
+            case "map":
+            {
+                if (On(a[1])) MapView.Open(session); else MapView.Close();
+                return On(a[1]) ? "opening map (terminal Map tab)" : "closing map";
+            }
+
+            case "omap":
+                // omap on|off | omap focus <system|auto|planet> | omap size <m> | omap view <bearing> <elev> [zoom] | omap spin <deg/s> | omap auto on|off
+                switch (a[1].ToLowerInvariant())
+                {
+                    case "on": return OrbitalMap.Open();
+                    case "off": return OrbitalMap.Close(session);
+                    case "focus": OrbitalMap.Focus = a[2]; return "focus=" + a[2];
+                    case "size": OrbitalMap.Size = D(a[2]); return "size=" + a[2];
+                    case "view":
+                        OrbitalMap.Bearing = D(a[2]); OrbitalMap.Elevation = D(a[3]);
+                        if (a.Length > 4) OrbitalMap.ZoomFactor = D(a[4]);
+                        return $"view {OrbitalMap.Bearing}/{OrbitalMap.Elevation} zoom {OrbitalMap.ZoomFactor}";
+                    case "spin": OrbitalMap.SpinDegPerSec = D(a[2]); return "spin=" + a[2];
+                    case "auto": OrbitalMap.AutoWithMapTab = On(a[2]); return "auto=" + On(a[2]);
+                }
+                return "omap on|off|focus|size|view|spin|auto";
+
+            case "mapview":
+                MapView.Mode = (MapView.ViewMode)Enum.Parse(typeof(MapView.ViewMode), a[1], ignoreCase: true);
+                return $"mapview={MapView.Mode}";
 
             case "kick":
                 // kick <prograde m/s> [radial] [normal]  (HighSpeed only)
@@ -402,6 +451,7 @@ public static class DevHarness
     {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"restore {SavedState.LastRestore} | save {LastSave}");
+        sb.AppendLine($"mapview {MapView.Mode}: {MapView.Status} | omap {OrbitalMap.Status} | cam {SpecCam.Status}");
         sb.AppendLine($"time {DateTime.Now:HH:mm:ss.fff} ticks/s client={TickRate.Client.PerSecond:F1} server={TickRate.Server.PerSecond:F1} rails t={SystemHost.Now:F1} x{SystemHost.Timescale} clock={SystemHost.ClockSource}");
         sb.AppendLine($"camera {camera.Position.X:F0} {camera.Position.Y:F0} {camera.Position.Z:F0}");
         sb.AppendLine($"physics gravityMultiplier client={_clientGravityMultiplier} server={ServerPlanetBeacon.ServerGravityMultiplier}");

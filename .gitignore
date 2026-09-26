@@ -11,3 +11,4 @@ Content/definitionsets.vrb
 # Offline test build output
 Tests/**/bin/
 Tests/**/obj/
+docs/shots-work/

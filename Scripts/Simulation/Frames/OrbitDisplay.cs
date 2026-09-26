@@ -26,6 +26,9 @@ public static class OrbitDisplay
     private const double NearCameraSkip = 1000.0; // m
 
     private static MeshBuilder _builder;
+    /// <summary>Line width as a fraction of the distance to the camera (the thick-line width is in world metres).</summary>
+    public static float LineThickness = 0.0025f;
+    private static bool IsFiniteV(Vector3D v) => !double.IsNaN(v.X + v.Y + v.Z) && !double.IsInfinity(v.X + v.Y + v.Z);
     private static object _dominant;
     private static double _dominantG;
     private static bool _hasPrev;
@@ -173,11 +176,29 @@ public static class OrbitDisplay
                 Vector3D p1 = SEAerospace.PlanetBerths.WorldFromCelestial(obs, parentOrg + pts[(i + 1) % n]);
                 if ((p0 - camera.Position).LengthSquared() < NearCameraSkip * NearCameraSkip ||
                     (p1 - camera.Position).LengthSquared() < NearCameraSkip * NearCameraSkip) continue;
-                _builder.AddLine(p0, p1, color);
+                _builder.AddLine(p0, p1, color, (float)Math.Max(1.0, ((p0 + p1) * 0.5 - camera.Position).Length() * LineThickness), true);
             }
         }
 
         var def = reg.FindDefinition(frame.ParentBodyName);
+        // Ship position and the apsides, so the ellipse reads at any distance.
+        {
+            StateVector now = OrbitPropagation.StateAt(el, t);
+            double rad0 = def != null ? def.RadiusMeters : 0;
+            void Mark(Vector3D cel, string text)
+            {
+                Vector3D w = SEAerospace.PlanetBerths.WorldFromCelestial(obs, parentOrg + cel);
+                double size = Math.Max(50, (w - camera.Position).Length() * 0.006);
+                _builder.AddSphere(new WorldTransform(w, Quaternion.Identity), size, color, color, true);
+                _builder.AddText(w, text, color, 0.6f);
+            }
+            if (IsFiniteV(now.Position)) Mark(now.Position, "ship");
+            if (el.IsElliptic)
+            {
+                Mark(OrbitSampler.PositionAtTrueAnomaly(el, 0), $"Pe {(el.PeriapsisRadius - rad0) / 1000:F0} km");
+                Mark(OrbitSampler.PositionAtTrueAnomaly(el, Math.PI), $"Ap {(el.ApoapsisRadius - rad0) / 1000:F0} km");
+            }
+        }
         double radius = def != null ? def.RadiusMeters : 0;
         StateVector cur = OrbitPropagation.StateAt(el, t);
         string ap = el.IsElliptic ? $"Ap {(el.ApoapsisRadius - radius) / 1000:F1} km  T {el.Period / 60:F1} min" : "escape";
@@ -217,7 +238,7 @@ public static class OrbitDisplay
         _builder.AddText(camera.Position + fwd * 10.0 + up * 3.0 + left * 4.0, text, ColorSRGB.Yellow, 0.7f);
     }
 
-    private static void Clear()
+    internal static void Clear()
     {
         if (_builder != null && _drewLastFrame) _builder.Commit();
         _drewLastFrame = false;

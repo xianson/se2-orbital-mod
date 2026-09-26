@@ -46,6 +46,22 @@ public static class FrameHost
     public static ObserverFrame? Observer;
     /// <summary>Body whose planet cell the observer is in (planet frame), else null.</summary>
     public static string ObserverPlanet;
+    public static string ObserverPlanetName => ObserverPlanet;
+
+    private static Vector3D _lastPos, _lastVel;
+
+    /// <summary>The player's orbit about a planet while materialized in its cell (HighSpeed: its conic).</summary>
+    public static bool TryGetLocalOrbit(string body, double t, out KeplerianElements el)
+    {
+        el = default;
+        if (_hsActive && _hsBody == body) { el = _hsEl; return true; }
+        var reg = SystemHost.Registry;
+        var node = reg?.Find(body);
+        if (node == null || !VoxelBerthRegistry.TryGetCell(body, reg, out Vector3D cell)) return false;
+        if (!VoxelBerthRegistry.TryCellContaining(_lastPos, reg, out string b, out _) || b != body) return false;
+        el = OrbitalMath.ToElements(new StateVector(_lastPos - cell, _lastVel), node.Mu, t);
+        return IsFinite(el.SemiMajorAxis) && IsFinite(el.MeanMotion);
+    }
     /// <summary>The local player's conjunction frame, if framed.</summary>
     public static ProximityFrame PlayerFrame;
     /// <summary>Harness: capture on the next tick regardless of the keep gate.</summary>
@@ -88,6 +104,7 @@ public static class FrameHost
             bool landed = false;
             if (_tpPending) { SettleTeleport(session, ch, pos, t); landed = !_tpPending; }
             if (landed) vel = _tpVelocity;
+            _lastPos = pos; _lastVel = _hsActive ? _hsVel : vel;
 
             _playerId = id;
             lock (ServerFrames.FramesLock)
@@ -114,8 +131,11 @@ public static class FrameHost
             Event($"warp x{SystemHost.Timescale} -> x1 (player is materialized; warp is rails-only)");
             SystemHost.Timescale = 1.0;
         }
-        if (PlayerFrame != null && Observer.HasValue)
+        if (OrbitalMap.Active) OrbitDisplay.Clear();
+        else if (PlayerFrame != null && Observer.HasValue)
             OrbitDisplay.DrawFrameOrbit(session, camera, Observer.Value, PlayerFrame, reg, t);
+        MapView.Tick(session, camera, t);
+        OrbitalMap.Tick(session, t);
     }
 
     // ───────────────────────────── stow (planet cell -> conjunction) ─────────────────────────────
@@ -338,6 +358,7 @@ public static class FrameHost
     private static Vector3D _hsVel;
     public static bool HighSpeedActive => _hsActive;
     public static long PlayerId => _playerId;
+    public static Vector3D PlayerPosition => _lastPos;
 
     /// <summary>Save: the player's HighSpeed conic, if riding one.</summary>
     public static bool TryGetHighSpeed(out string body, out KeplerianElements el)
@@ -712,7 +733,7 @@ public static class FrameHost
     private static Vector3D ReadVelocity(Entity ch) =>
         ch.Data.TryGet<RigidBodyData>(out var rb) ? (Vector3D)rb.LinearVelocity : Vector3D.Zero;
 
-    private static Entity PlayerCharacter(Keen.VRage.Core.Game.Systems.Session session)
+    internal static Entity PlayerCharacter(Keen.VRage.Core.Game.Systems.Session session)
     {
         var list = new List<Entity>();
         return session.TryFillAliveCharacters(list) && list.Count > 0 ? list[0] : null;

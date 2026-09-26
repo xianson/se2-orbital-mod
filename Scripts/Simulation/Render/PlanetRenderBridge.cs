@@ -290,7 +290,13 @@ public static class PlanetRenderBridge
     // Proxy globes
     // ─────────────────────────────────────────────────────────────────────────
 
-    public static Proxy CreateProxy(PlanetHandles h, Vector3D center)
+    public static Proxy CreateProxy(PlanetHandles h, Vector3D center) => CreateProxy(h, center, false);
+
+    /// <summary>
+    /// A globe from the planet's map-visual model. mapOnly: EntityType.Map, drawn only while the
+    /// renderer is in map mode (<see cref="SetDraw3DMap"/>): the orbital map's globes.
+    /// </summary>
+    public static Proxy CreateProxy(PlanetHandles h, Vector3D center, bool mapOnly)
     {
         if (h == null || !h.HasProxyModel || !ResolveRender()) return null;
         try
@@ -299,10 +305,10 @@ public static class PlanetRenderBridge
 
             // Visible | SkipFarPlaneCulling | ForceHighestLOD, as a Default (world-view) entity.
             object flags = Enum.ToObject(_renderFlagsType, 0x1 | 0x10 | 0x20);
-            object entityType = Enum.ToObject(_entityTypeType, 0);
+            object entityType = mapOnly ? Enum.Parse(_entityTypeType, "Map") : Enum.ToObject(_entityTypeType, 0);
             object model = _createModel.Invoke(_contracts, new object[]
             {
-                "OrbitalProxy_" + h.Name, h.ProxyModel, RelativeTransform.Identity, root, flags, entityType, null
+                (mapOnly ? "OrbitalMapGlobe_" : "OrbitalProxy_") + h.Name, h.ProxyModel, RelativeTransform.Identity, root, flags, entityType, null
             });
 
             return new Proxy { Root = root, Model = model, Visible = true };
@@ -355,6 +361,24 @@ public static class PlanetRenderBridge
     // ─────────────────────────────────────────────────────────────────────────
     // Internals
     // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The renderer's map mode (RenderSystem.SetDraw3DMap): only EntityType.Map models are drawn,
+    /// the world is hidden. What the strategic map uses; the orbital map uses it the same way.
+    /// </summary>
+    public static bool SetDraw3DMap(bool enable)
+    {
+        try
+        {
+            if (!ResolveRender()) return false;
+            object rs = _contracts.GetType().GetMethod("GetRenderSystem", Type.EmptyTypes)?.Invoke(_contracts, null);
+            var m = rs?.GetType().GetMethod("SetDraw3DMap");
+            if (m == null) { WarnOnce("draw3dmap", "SetDraw3DMap not found"); return false; }
+            m.Invoke(rs, new object[] { enable });
+            return true;
+        }
+        catch (Exception e) { WarnOnce("draw3dmap2", $"SetDraw3DMap failed: {Inner(e)}"); return false; }
+    }
 
     private static bool ResolveRender()
     {
@@ -505,6 +529,9 @@ public static class PlanetRenderBridge
     /// when desktop capture (GDI CopyFromScreen) fails because the display is asleep.
     /// Returns the absolute path it will be written to, or null.
     /// </summary>
+    /// <summary>Engine screenshots leave out the 2D UI (HUD, terminal); 3D labels stay.</summary>
+    public static bool ShotWithoutUi = true;
+
     public static string EngineScreenshot(string name)
     {
         try
@@ -517,7 +544,7 @@ public static class PlanetRenderBridge
             foreach (MethodInfo m in target.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance))
                 if (m.Name == "TakeScreenshotAsync" && m.GetParameters().Length == 5) { take = m; break; }
             if (take == null) { WarnOnce("shot2", "TakeScreenshotAsync not found"); return null; }
-            take.Invoke(target, new object[] { handle, null, null, false, true });
+            take.Invoke(target, new object[] { handle, null, null, ShotWithoutUi, true });
             // GetAbsolutePath throws until the file exists; the temp root is the game's Temp folder.
             try { return handle.GetAbsolutePath(); }
             catch { return System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData), "SpaceEngineers2", "Temp", name); }
@@ -577,7 +604,19 @@ public static class PlanetRenderBridge
     }
 
     /// <summary>Property or field by name, any visibility, walking base types.</summary>
-    private static object GetMember(object target, string name)
+    /// <summary>Call a one-argument bool method by name (for types in assemblies mods cannot reference).</summary>
+    internal static bool CallBool(object target, string method, object arg)
+    {
+        foreach (MethodInfo m in target.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance))
+        {
+            if (m.Name != method || m.ReturnType != typeof(bool)) continue;
+            var ps = m.GetParameters();
+            if (ps.Length == 1 && ps[0].ParameterType.IsInstanceOfType(arg)) return (bool)m.Invoke(target, new[] { arg });
+        }
+        return false;
+    }
+
+    internal static object GetMember(object target, string name)
     {
         if (target == null) return null;
         for (Type t = target.GetType(); t != null; t = t.BaseType)

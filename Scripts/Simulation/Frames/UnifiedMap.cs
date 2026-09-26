@@ -117,7 +117,9 @@ public static class UnifiedMap
             CleanMap.Draw(session, PlanetRenderBridge.GetMember(map, "SectorsRenderer"), PlanetRenderBridge.GetMember(map, "_configuration"),
                           bands, reg, mapPos, orient, u, t, youPlanet, youRel, youOrbit, usedGlobes);
             MapGlobes.End(usedGlobes);
-            Status = $"clean u={u:F2} {CleanMap.Status}";
+            ApplyPick(map);
+            if (DevClick) { DevClick = false; map.OnSelectSector(); }
+            Status = $"clean u={u:F2} {CleanMap.Status} {PickStatus}";
             return true;
         }
         double maxAp = 1;
@@ -401,6 +403,40 @@ public static class UnifiedMap
     }
 
     public static bool HideGameSectors = true;
+    private static object _stashedCollider;
+    public static string PickStatus = "";
+    /// <summary>DEV: a mouse position (screen fractions) for the pick, instead of the real cursor.</summary>
+    public static Vector2? DevMouse;
+    /// <summary>DEV: the game's own click handler (select the hovered sector).</summary>
+    public static bool DevClick;
+
+    /// <summary>
+    /// Selection by what we draw: the sector whose orbit line, marker or list row is under the mouse
+    /// becomes the game's hovered sector (its own click handler then selects it, with its side panel,
+    /// highlight and contracts). The game's own raycast against its Voronoi collider is off meanwhile.
+    /// </summary>
+    private static void ApplyPick(ColonizationMapSessionComponent map)
+    {
+        try
+        {
+            object win = PlanetRenderBridge.GetMember(PlanetRenderBridge.GetMember(map, "_windows"), "Window");
+            if (!(PlanetRenderBridge.GetMember(win, "ClientMousePosition") is Vector2 mouse)) return;
+            if (DevMouse.HasValue) { var sz = MapPipeline.ScreenSize; mouse = new Vector2(DevMouse.Value.X * sz.X, DevMouse.Value.Y * sz.Y); }
+            string name = MapPipeline.ResolvePick(mouse, 14f);
+            CleanMap.Hovered = name;
+            int idx = -1;
+            if (name != null && PlanetRenderBridge.GetMember(PlanetRenderBridge.GetMember(map, "SectorsRenderer"), "SectorIds") is System.Collections.IList ids)
+            {
+                var sid = Keen.VRage.Library.Utils.StringId.Get(name);
+                for (int i = 0; i < ids.Count; i++) if (ids[i] != null && ids[i].Equals(sid)) { idx = i; break; }
+            }
+            PlanetRenderBridge.SetMember(map, "_sectorIndexUnderCursor", idx);
+            PlanetRenderBridge.SetMember(map, "_hoverIndex", idx);
+            PickStatus = $"mouse=({mouse.X:F0},{mouse.Y:F0}) pick={name ?? "-"} idx={idx}";
+        }
+        catch (Exception e) { PickStatus = "pick: " + e.Message; }
+    }
+    private static object _stashedController;
 
     private static void SetGameVisible(ColonizationMapSessionComponent map, bool visible)
     {
@@ -408,7 +444,47 @@ public static class UnifiedMap
             PlanetRenderBridge.SetRenderComponentVisible(PlanetRenderBridge.GetMember(map, "SectorsRenderer"), visible);
         // Globes: shrink through the engine's own scale path instead of render flags.
         // The game's own markers ("You are here", GPS): we draw our own.
-        try { var mr = PlanetRenderBridge.GetMember(map, "MarkersRenderer"); if (mr != null) PlanetRenderBridge.SetMember(mr, "Enabled", visible); } catch { }
+        // The game's sector picking raycasts its Voronoi collider: off while our map owns the view
+        // (UpdateInteraction returns early without it); ApplyPick picks by our drawing instead.
+        try
+        {
+            object sr = PlanetRenderBridge.GetMember(map, "SectorsRenderer");
+            if (sr != null && CleanMap.Enabled && !visible)
+            {
+                var col = PlanetRenderBridge.GetMember(sr, "_proceduralSectorCollider");
+                if (col != null) { _stashedCollider = col; PlanetRenderBridge.SetMember(sr, "_proceduralSectorCollider", null); }
+            }
+            else if (sr != null && visible && _stashedCollider != null)
+            {
+                // Regenerated meanwhile (sectors changed)? Keep the new one, drop ours.
+                if (PlanetRenderBridge.GetMember(sr, "_proceduralSectorCollider") == null) PlanetRenderBridge.SetMember(sr, "_proceduralSectorCollider", _stashedCollider);
+                else (_stashedCollider as IDisposable)?.Dispose();
+                _stashedCollider = null;
+            }
+        }
+        catch { }
+        try
+        {
+            var mr = PlanetRenderBridge.GetMember(map, "MarkersRenderer");
+            if (mr != null)
+            {
+                PlanetRenderBridge.SetMember(mr, "Enabled", visible);
+                // "You are here" (the map UI's overlay) is placed through the markers renderer's
+                // TryGetMapScreenPosition, which returns false without a player controller: stash it
+                // while we own the map (its draw job is disabled above; every other use is guarded).
+                if (!visible)
+                {
+                    var pc = PlanetRenderBridge.GetMember(mr, "_playerControllerComponent");
+                    if (pc != null) { _stashedController = pc; PlanetRenderBridge.SetMember(mr, "_playerControllerComponent", null); }
+                }
+                else if (_stashedController != null)
+                {
+                    PlanetRenderBridge.SetMember(mr, "_playerControllerComponent", _stashedController);
+                    _stashedController = null;
+                }
+            }
+        }
+        catch { }
         if (PlanetRenderBridge.GetMember(map, "_discoveredPlanets") is System.Collections.IDictionary planets)
             foreach (var v in planets.Values)
             {

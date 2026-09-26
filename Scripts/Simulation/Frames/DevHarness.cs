@@ -325,6 +325,16 @@ public static class DevHarness
                 return FrameMarkers.DevCloneAt(session, (int)D(a[1]), ef.BerthCenter + new Vector3D(off, 0, 0), nm);
             }
 
+            case "pickat":
+                // pickat <fx> <fy> | pickat off: a mouse position for the map pick (screen fractions)
+                if (a[1] == "off") { UnifiedMap.DevMouse = null; return "pickat off"; }
+                UnifiedMap.DevMouse = new Vector2((float)D(a[1]), (float)D(a[2]));
+                return $"pickat {a[1]},{a[2]}";
+
+            case "mapclick":
+                UnifiedMap.DevClick = true;
+                return "mapclick queued";
+
             case "devfar":
                 EncounterFrames.RequestDevFar(a.Length > 1 ? (long)D(a[1]) : 0);
                 return "devfar queued";

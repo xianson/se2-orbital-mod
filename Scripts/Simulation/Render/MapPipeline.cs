@@ -258,6 +258,7 @@ public static class MapPipeline
     {
         _batch = null;
         _placed.Clear();
+        _picks.Clear();
         try
         {
             _cam = SpecCam.CameraOf(session);
@@ -297,6 +298,7 @@ public static class MapPipeline
     public static void Line(Vector3D a, Vector3D b, ColorSRGB color, float width)
     {
         if (_batch == null || _drawLine == null || !Screen(a, out var sa) || !Screen(b, out var sb)) return;
+        AddPick(sa, sb);
         var ps = _drawLine.GetParameters();
         _drawLine.Invoke(_batch, new object[] { sa, sb, color, width, ps[4].DefaultValue, 1f, false });
     }
@@ -335,6 +337,7 @@ public static class MapPipeline
     public static void ScreenRing(Vector3D at, float radiusPx, ColorSRGB color, float width)
     {
         if (_batch == null || _drawLine == null || !Screen(at, out var c)) return;
+        AddPick(c, c);
         var ps = _drawLine.GetParameters();
         const int n = 24;
         Vector2 prev = c + new Vector2(radiusPx, 0);
@@ -362,6 +365,7 @@ public static class MapPipeline
     /// <summary>Left-aligned text at a screen position (px), in the map's font; no collision test.</summary>
     public static void ScreenText(Vector2 at, string text, ColorSRGB color, float scale)
     {
+        if (PickName != null && !string.IsNullOrEmpty(text)) { float h = 22f * scale; AddPick(at + new Vector2(0, h * 0.5f), at + new Vector2(text.Length * 15f * scale, h * 0.5f)); }
         if (_batch == null || _drawString == null || _font == null) return;
         try
         {
@@ -517,6 +521,32 @@ public static class MapPipeline
         if (st.GetField("Font")?.GetValue(box) == null) { GpsError = "GPS font not set"; return false; }
         _gpsSettings = box;
         return true;
+    }
+
+    // ── picking: what is drawn under a sector's name can be pointed at ──
+    /// <summary>While set, every line, ring and screen text drawn is a pick target for this sector.</summary>
+    public static string PickName;
+    private struct PickSeg { public string Name; public Vector2 A, B; }
+    private static readonly List<PickSeg> _picks = new List<PickSeg>();
+
+    private static void AddPick(Vector2 a, Vector2 b)
+    {
+        if (PickName != null) _picks.Add(new PickSeg { Name = PickName, A = a, B = b });
+    }
+
+    /// <summary>The sector whose drawing is nearest the screen point, within radius (px), or null.</summary>
+    public static string ResolvePick(Vector2 m, float radius)
+    {
+        string best = null; float bd = radius * radius;
+        foreach (var p in _picks)
+        {
+            Vector2 ab = p.B - p.A;
+            float L = ab.LengthSquared();
+            float k = L > 1e-6f ? Math.Clamp(Vector2.Dot(m - p.A, ab) / L, 0f, 1f) : 0f;
+            float d = (p.A + ab * k - m).LengthSquared();
+            if (d < bd) { bd = d; best = p.Name; }
+        }
+        return best;
     }
 
     public static void UiEnd()

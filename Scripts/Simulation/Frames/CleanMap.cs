@@ -121,11 +121,13 @@ public static class CleanMap
             }
             if (!expanded(b)) continue;
             var c = b.Selected ? LineSel : Text;
+            MapPipeline.PickName = b.Name;
             MapPipeline.ScreenText(new Vector2(x, y), b.Number.ToString(), Dim, scale);
             MapPipeline.ScreenDot(new Vector2(x + scr.Y * 0.030f, y + line * 0.42f), 4.5f, StateColor(b));
             MapPipeline.ScreenText(new Vector2(x + scr.Y * 0.045f, y), b.Name, c, scale);
             MapPipeline.ScreenText(new Vector2(x + scr.Y * 0.19f, y), Where(b), Dim, scale * 0.85f);
             MapPipeline.ScreenText(new Vector2(x + scr.Y * 0.30f, y), StateText(b), StateColor(b), scale * 0.85f);
+            MapPipeline.PickName = null;
             y += line;
         }
     }
@@ -230,6 +232,7 @@ public static class CleanMap
         foreach (var bd in mine)
         {
             var h = bd.Home;
+            MapPipeline.PickName = bd.Name;
             switch (h.Kind)
             {
                 case SectorHomes.Kind.OwnPlanet:
@@ -296,6 +299,7 @@ public static class CleanMap
         Vector3D porg = planet.OriginInRoot(t).Position;
         Overlay(r => Lv(r - porg), fit * 1.02, W, t, reg);
 
+        MapPipeline.PickName = null;
         // You.
         if (playerPlanet == planet.Name)
         {
@@ -338,6 +342,7 @@ public static class CleanMap
         foreach (var bd in bands)
         {
             if (bd.Home.Kind != SectorHomes.Kind.Belt) continue;
+            MapPipeline.PickName = bd.Name;
             Vector3D hp = SectorHomes.HelioBelt(bd.Home, root.Mu, t);
             double ang = Math.Atan2(hp.Y, hp.X), r = Rs(hp.Length());
             Circle(W, r, OrbitColor(bd), bd.Selected ? 2.4f : 1.8f);
@@ -349,6 +354,7 @@ public static class CleanMap
         foreach (var bd in bands)
         {
             if (bd.Home.Kind != SectorHomes.Kind.Ring) continue;
+            MapPipeline.PickName = bd.Name;
             Vector3D hp = SectorHomes.HelioRing(bd.Home, root.Mu, t);
             double ang = Math.Atan2(hp.Y, hp.X), r = Rs(hp.Length());
             Circle(W, r, OrbitColor(bd), bd.Selected ? 2.4f : 1.8f);
@@ -377,6 +383,7 @@ public static class CleanMap
             int n = 0; foreach (var bd in bands) if (bd.Host == p.Name && bd.Home.Kind != SectorHomes.Kind.OwnPlanet) n++;
             MapPipeline.Text(W(c + new Vector3D(0, 0, SolarRadius * 0.045)), p.Name, p.Name == playerPlanet ? You : Text, 0.9f);
         }
+        MapPipeline.PickName = null;
         Overlay(r => S(r), SolarRadius * 1.02, W, t, reg);
     }
 
@@ -484,9 +491,13 @@ public static class CleanMap
     }
 
     /// <summary>A sector's orbit line colour: its state, faint; the selected sector in gold.</summary>
+    /// <summary>The sector under the mouse (from the last frame's pick).</summary>
+    public static string Hovered;
+
     static ColorSRGB OrbitColor(Band b)
     {
         if (b.Selected) return LineSel;
+        if (b.Name == Hovered) { var h = StateColor(b); return new ColorSRGB(Math.Min(1f, h.R + 0.25f), Math.Min(1f, h.G + 0.25f), Math.Min(1f, h.B + 0.25f), 1f); }
         var c = StateColor(b);
         return new ColorSRGB(c.R, c.G, c.B, 0.75f);
     }

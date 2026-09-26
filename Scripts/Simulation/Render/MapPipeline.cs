@@ -347,6 +347,15 @@ public static class MapPipeline
         }
     }
 
+    /// <summary>A fixed-size diamond on screen around a world point (GPS markers on the map).</summary>
+    public static void ScreenDiamond(Vector3D at, float r, ColorSRGB color, float width)
+    {
+        if (_batch == null || _drawLine == null || !Screen(at, out var c)) return;
+        var ps = _drawLine.GetParameters();
+        var d = new[] { c + new Vector2(0, -r), c + new Vector2(r, 0), c + new Vector2(0, r), c + new Vector2(-r, 0), c + new Vector2(0, -r) };
+        for (int i = 0; i < 4; i++) _drawLine.Invoke(_batch, new object[] { d[i], d[i + 1], color, width, ps[4].DefaultValue, 1f, false });
+    }
+
     /// <summary>Screen resolution in pixels.</summary>
     public static Vector2 ScreenSize => _cam != null ? new Vector2(_cam.Resolution.X, _cam.Resolution.Y) : new Vector2(1920, 1080);
 
@@ -415,6 +424,99 @@ public static class MapPipeline
             ScreenText(s + new Vector2(14, 4), distance + (edge ? "  >" : ""), new ColorSRGB(0.85f, 0.9f, 1f, 0.9f), 0.55f);
         }
         catch { }
+    }
+
+    // ── the game's own GPS marker look (GPSMarkerHelpers.DrawSingleMarker) ──
+    private static object _gpsSettings, _lodFull;
+    private static MethodInfo _drawSingle;
+    public static string GpsError = "";
+
+    /// <summary>
+    /// Draw a GPS marker exactly as the game's HUD does (its icon, name, colour; the edge arrow when off
+    /// screen), at a world point, showing the given distance. False if the game's drawing is unavailable.
+    /// </summary>
+    public static bool GameMarker(Keen.VRage.Core.Game.Systems.Session session, object marker, Vector3D world, double distance)
+    {
+        if (_batch == null || _cam == null || marker == null) return false;
+        try
+        {
+            if (_gpsSettings == null && !BuildGpsSettings(session)) return false;
+            var wt = _cam.Entity.Data.GetWorldTransform();
+            Vector3D fwd = (QuaternionD)wt.Orientation * Vector3D.Forward;
+            Vector2 size = ScreenSize, centre = size * 0.5f;
+            bool front = Vector3D.Dot(world - wt.Position, fwd) > 1e-6;
+            Vector2 s = _cam.WorldToScreenPoint(front ? world : wt.Position - (world - wt.Position));
+            float mx = size.X * 0.06f, my = size.Y * 0.08f;
+            bool edge = !front || s.X < mx || s.Y < my || s.X > size.X - mx || s.Y > size.Y - my;
+            if (edge)
+            {
+                Vector2 dir = s - centre;
+                if (!front) dir = -dir;
+                if (dir.LengthSquared() < 1e-6f) dir = new Vector2(0, 1);
+                // On an ellipse inside the screen, as the game clamps its own markers.
+                float ax = centre.X - mx, ay = centre.Y - my;
+                float k = 1f / (float)Math.Sqrt(dir.X * dir.X / (ax * ax) + dir.Y * dir.Y / (ay * ay));
+                s = centre + dir * k;
+            }
+            _drawSingle.Invoke(null, new object[] { _gpsSettings, _batch, _lodFull, centre, centre, s, false, edge, marker, distance });
+            return true;
+        }
+        catch (Exception e) { GpsError = (e.InnerException ?? e).Message; _gpsSettings = null; return false; }
+    }
+
+    private static bool BuildGpsSettings(Keen.VRage.Core.Game.Systems.Session session)
+    {
+        var comp = session.SessionComponents.TryGet<Keen.Game2.Client.GameSystems.GPS.GPSMarkerRenderSessionComponent>();
+        object def = comp != null ? PlanetRenderBridge.GetMember(comp, "_definition") : null;
+        object cam = comp != null ? PlanetRenderBridge.GetMember(comp, "_cameraComponent") : null;
+        if (def == null) { GpsError = "no GPS definition"; return false; }
+        cam ??= _cam;
+        var helpers = comp.GetType().Assembly.GetType("Keen.Game2.Client.GameSystems.GPS.GPSMarkerHelpers");
+        var st = helpers?.GetNestedType("MarkerDrawSettings");
+        _drawSingle = helpers?.GetMethod("DrawSingleMarker");
+        if (st == null || _drawSingle == null) { GpsError = "no GPSMarkerHelpers"; return false; }
+        _lodFull = Enum.Parse(_drawSingle.GetParameters()[2].ParameterType, "Full");
+        MethodInfo toScreen = null;
+        foreach (var m in cam.GetType().GetMethods())
+            if (m.Name == "ToScreenSpace" && m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == typeof(float)) toScreen = m;
+        float TS(float v) => toScreen != null ? Convert.ToSingle(toScreen.Invoke(cam, new object[] { v })) : v * 1080f;
+        object box = Activator.CreateInstance(st);
+        void Set(string field, object value)
+        {
+            var f = st.GetField(field);
+            if (f == null || value == null) return;
+            if (!f.FieldType.IsInstanceOfType(value))
+            {
+                MethodInfo conv = null;
+                foreach (var t in new[] { f.FieldType, value.GetType() })
+                    foreach (var m in t.GetMethods(BindingFlags.Static | BindingFlags.Public))
+                        if ((m.Name == "op_Implicit" || m.Name == "op_Explicit") && m.ReturnType == f.FieldType && m.GetParameters()[0].ParameterType.IsInstanceOfType(value)) conv = m;
+                if (conv == null) return;
+                value = conv.Invoke(null, new[] { value });
+            }
+            f.SetValue(box, value);
+        }
+        object D(string n) => PlanetRenderBridge.GetMember(def, n);
+        Set("Font", D("Font"));
+        Set("RegularFontSize", D("RegualarFontSize") ?? D("RegularFontSize"));
+        Set("FocusFontSize", D("FocusFontSize"));
+        Set("OutsideScreenFontSize", D("OutsideScreenFontSize"));
+        Set("BunchIcon", D("BunchIcon"));
+        Set("ArrowIcon", D("ArrowIcon"));
+        Set("BunchColor", D("BunchColor"));
+        Set("Margin", TS(0.005f));
+        Set("FocusedBunchMaxMarkers", D("FocusedBunchMaxMarkers"));
+        Set("ShortBunchMaxMarkers", D("ShortBunchMaxMarkers"));
+        Set("NewLineMargin", TS(0.0005f));
+        Set("IconHalfSize", TS(0.0175f));
+        Set("MarkerBBInflateAmount", TS(0.02f));
+        object tso = D("TextShadowOffset");
+        Set("TextShadowOffset", TS(tso != null ? Convert.ToSingle(tso) : 0.001f));
+        Set("MaxNameWidth", 7f);
+        Set("Opacity", 1f);
+        if (st.GetField("Font")?.GetValue(box) == null) { GpsError = "GPS font not set"; return false; }
+        _gpsSettings = box;
+        return true;
     }
 
     public static void UiEnd()

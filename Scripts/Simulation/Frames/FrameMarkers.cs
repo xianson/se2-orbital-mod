@@ -29,7 +29,7 @@ public static class FrameMarkers
     private static readonly HashSet<GPSMarker> _hidden = new HashSet<GPSMarker>();
     private static readonly HashSet<string> _restoreKeys = new HashSet<string>();
 
-    private struct Proxy { public Vector3D World; public string Name; public double Distance; public ColorSRGB Color; }
+    private struct Proxy { public Vector3D World; public string Name; public double Distance; public ColorSRGB Color; public GPSMarker Marker; }
     private static readonly List<Proxy> _proxies = new List<Proxy>();
 
     /// <summary>Client tick (holds nothing; takes FramesLock briefly).</summary>
@@ -71,12 +71,12 @@ public static class FrameMarkers
             if (!ours) { m.Hidden = true; _hidden.Add(m); }
             // Draw at a comfortable depth in the true direction (projection only needs the direction).
             Vector3D at = camera.Position + dw * (Math.Min(dist, 5e4) / dist);
-            _proxies.Add(new Proxy { World = at, Name = m.Name, Distance = dist, Color = m.Color });
+            _proxies.Add(new Proxy { World = at, Name = m.Name, Distance = dist, Color = m.Color, Marker = m });
             moved++;
         }
         // Forget markers that no longer exist.
         _hidden.RemoveWhere(h => !markers.Contains(h));
-        Status = $"gps {markers.Count} marker(s), {moved} frame-transferred";
+        Status = $"gps {markers.Count} marker(s), {moved} frame-transferred{(MapPipeline.GpsError.Length > 0 ? " (game draw: " + MapPipeline.GpsError + ")" : "")}";
 
         if (_proxies.Count > 0 && !MapView.Visible && !OrbitalMap.Active) Draw(session);
     }
@@ -94,7 +94,8 @@ public static class FrameMarkers
         try
         {
             foreach (var p in _proxies)
-                MapPipeline.HudMarker(p.World, p.Name, Dist(p.Distance), p.Color);
+                if (!MapPipeline.GameMarker(session, p.Marker, p.World, p.Distance))
+                    MapPipeline.HudMarker(p.World, p.Name, Dist(p.Distance), p.Color);
         }
         finally { MapPipeline.UiEnd(); }
     }
@@ -160,6 +161,22 @@ public static class FrameMarkers
         model = parent.OriginInRoot(t).Position + OrbitPropagation.StateAt(best.Elements, t).Position + (world - best.BerthCenter);
         window = "frame:" + best.Id;
         return IsFinite(model);
+    }
+
+    /// <summary>Every visible local marker with its true (sun-centred) model position, for the map.</summary>
+    public static List<(string name, ColorSRGB color, Vector3D model)> MapMarkers(Keen.VRage.Core.Game.Systems.Session session, double t)
+    {
+        var l = new List<(string, ColorSRGB, Vector3D)>();
+        var markers = LocalMarkers(session);
+        if (markers == null) return l;
+        foreach (var m in markers)
+        {
+            if (m == null || (m.Hidden && !_hidden.Contains(m))) continue;
+            bool ok; Vector3D mm;
+            lock (ServerFrames.FramesLock) ok = ModelOf(m.Position, t, out mm, out _, out _);
+            if (ok) l.Add((m.Name, m.Color, mm));
+        }
+        return l;
     }
 
     /// <summary>Harness: every local marker, its window, and whether it is frame-transferred.</summary>

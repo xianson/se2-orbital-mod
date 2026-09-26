@@ -312,7 +312,7 @@ public static class DevHarness
                 return EncounterFrames.Describe().Replace((char)10, '|');
 
             case "gps":
-                return FrameMarkers.Describe(session);
+                return FrameMarkers.Describe(session) + " | " + FrameMarkers.Status;
 
             case "gpsat":
             {
@@ -324,6 +324,10 @@ public static class DevHarness
                 string nm = (EncounterFrames.SiteOf(ef.Id)?.Label ?? "Encounter") + " (test)";
                 return FrameMarkers.DevCloneAt(session, (int)D(a[1]), ef.BerthCenter + new Vector3D(off, 0, 0), nm);
             }
+
+            case "devfar":
+                EncounterFrames.RequestDevFar(a.Length > 1 ? (long)D(a[1]) : 0);
+                return "devfar queued";
 
             case "devsite":
                 // devsite <gridId> <sector name...>: make a test site of a grid at that sector's centre (0 = pick one).

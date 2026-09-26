@@ -41,7 +41,8 @@ public static class EncounterFrames
     public const double SiteRadius = ServerFrames.SlotRadius;   // m: a site's bubble (same as the split radius)
     public const double CloseRadius = 5000.0;                   // m: a procedural spawn this close joins the frame
     public const double FarReach = 3 * SiteRadius;              // m: spawns beyond this from any frame are left alone
-    public const double ClusterRadius = 2000.0;                 // m: grids spawned together go together
+    public const double ClusterRadius = 2000.0;
+    public const double FarMinKm = 25, FarMaxKm = 60;           // a far spawn's initial separation                 // m: grids spawned together go together
     public const double SpawnSettleSeconds = 2.0;               // s: let a spawn finish before framing it
     public const double BuildDelaySeconds = 8.0;                // s: after the system is built, before sites are read
 
@@ -121,6 +122,7 @@ public static class EncounterFrames
         if (!_built && Wall() - _builtAt > BuildDelaySeconds && SavedState.Idle) BuildSites(session, t);
         if (!_built) return;
         while (_devSites.TryDequeue(out var ds)) DevMakeSite(session, ds.grid, ds.sector, t);
+        while (_devFar.TryDequeue(out long fg)) DevFar(fg, t);
         RefreshSites(t);
         if (tick % 20 == 0) AdoptIntoSites();
         ProcessNewGrids(t);
@@ -434,7 +436,13 @@ public static class EncounterFrames
                 if (d <= SiteRadius && SystemHost.Frames.AddMember(F, id)) Event($"new grid {id} '{g.DisplayName}' joins frame #{F.Id}");
                 continue;
             }
-            if (d <= CloseRadius || (IsSite(F) && d <= SiteRadius))
+            // A static grid is built on something (an asteroid base on its rock, which is voxel, not a
+            // grid): it cannot move without it, so it stays where it spawned, in this frame.
+            bool anchored = false;
+            foreach (var o in GridMembers.All())
+                if (o.IsServer && SystemHost.Frames.FindByMember(o.Id) == null && (GridMembers.Position(o) - pos).Length() <= ClusterRadius
+                    && IsEncounterGrid(o) && !GridMembers.IsDynamic(o)) { anchored = true; break; }
+            if (d <= CloseRadius || anchored || (IsSite(F) && d <= SiteRadius))
             {
                 // CLOSE: a similar orbit, i.e. the same frame.
                 if (SystemHost.Frames.AddMember(F, id))
@@ -461,7 +469,12 @@ public static class EncounterFrames
         foreach (var g in cluster) { c += GridMembers.Position(g); vAvg += GridMembers.Velocity(g); }
         c /= cluster.Count; vAvg /= cluster.Count;
         StateVector cur = OrbitPropagation.StateAt(F.Elements, t);
+        // Its place: the spawn's bearing from the berth, but genuinely far (25-60 km, beyond the merge
+        // range): it comes back only if its relative orbit brings it back (a conjunction).
         Vector3D delta = c - F.BerthCenter;                        // berth offsets are inertial
+        uint h0 = (uint)(cluster[0].Id * 40503L);
+        double far = FarMinKm * 1000 + (FarMaxKm - FarMinKm) * 1000 * ((h0 & 0xFFFF) / 65535.0);
+        delta = (delta.LengthSquared() > 1 ? Vector3D.Normalize(delta) : Vector3D.UnitX) * Math.Max(far, delta.Length());
         // A deterministic kick (2-15 m/s, mostly in the orbit plane): a relative orbit that is eccentric
         // against the spawning frame's, so the encounter drifts off and may come round again.
         uint hsh = (uint)(cluster[0].Id * 2654435761L);
@@ -491,6 +504,22 @@ public static class EncounterFrames
     private static readonly ConcurrentQueue<(long grid, string sector)> _devSites = new ConcurrentQueue<(long, string)>();
     /// <summary>DEV: move a grid to a sector's charted centre and make it an authored site there.</summary>
     public static void RequestDevSite(long gridId, string sector) => _devSites.Enqueue((gridId, sector));
+
+    private static readonly ConcurrentQueue<long> _devFar = new ConcurrentQueue<long>();
+    /// <summary>DEV: treat a grid as a far spawn from its frame (0 = the first dynamic encounter grid in a frame).</summary>
+    public static void RequestDevFar(long gridId) => _devFar.Enqueue(gridId);
+
+    private static void DevFar(long gridId, double t)
+    {
+        OrbitalGridComponent g = gridId != 0 ? GridMembers.Get(gridId) : null;
+        if (g == null)
+            foreach (var c in GridMembers.All())
+                if (c.IsServer && GridMembers.IsDynamic(c) && IsEncounterGrid(c) && SystemHost.Frames.FindByMember(c.Id) != null && !GridMembers.IsConstrained(c)) { g = c; break; }
+        var F = g != null ? SystemHost.Frames.FindByMember(g.Id) : null;
+        if (g == null || F == null) { Event("devfar: no framed dynamic encounter grid"); return; }
+        SystemHost.Frames.RemoveMember(g.Id);
+        FarFrame(F, new List<OrbitalGridComponent> { g }, t);
+    }
 
     private static void DevMakeSite(Keen.VRage.Core.Game.Systems.Session session, long gridId, string sectorName, double t)
     {

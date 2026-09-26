@@ -39,9 +39,12 @@ A grid that appears outside the planet cells near a frame's berth is framed by d
 
 - **Close** (within 5 km of a berth, or anywhere in a site's bubble): joins that frame, i.e. a
   similar orbit; it floats alongside.
+- **Anchored** (the cluster has a static grid, e.g. an asteroid base built on its voxel rock,
+  which is not a grid and cannot be moved with it): stays where it spawned, in that frame.
 - **Far**: it (and everything spawned with it, 2 km cluster) gets a frame of its own on a
-  slightly different orbit: the spawning frame's state plus its offset plus a deterministic
-  2-15 m/s kick, mostly in the orbit plane. The relative orbit is eccentric; the encounter drifts
+  slightly different orbit: the spawning frame's state plus an offset along the spawn's bearing
+  but 25-60 km out (beyond the 10 km merge range), plus a deterministic 2-15 m/s kick, mostly in
+  the orbit plane. The relative orbit is eccentric; the encounter drifts
   off and may come round again as a conjunction.
 - The game's procedural lifetime still applies: when the player leaves the originating procedural
   sector the game despawns the encounter wherever it is; an emptied encounter frame dissolves.
@@ -69,8 +72,16 @@ frame's berth / site bubble, or plain world space.
   The game's copy is hidden meanwhile and shown again when the windows agree.
 - Markers the mod hid are recorded in the save and shown again first on load.
 - Covered: the player's GPS list, its groups, and contract HUD markers.
+- Transferred markers are drawn by the game's own GPSMarkerHelpers.DrawSingleMarker (its icon,
+  colour, edge arrow and distance format), with the true distance.
+
+## Map
+
+Both map views draw every encounter frame that is not a sector anchor (anchors are the sector
+orbit lines already): its orbit (orange) and where it is now; and every GPS marker at its true
+place (a diamond in its colour), pinned to the view edge with an arrow when beyond it.
 
 ## Harness
 
 `encounters`, `gotosite <i> [behindKm]`, `devsite <gridId|0> <sector>`, `gps`,
-`gpsat <marker> <encounter> [offsetKm]`.
+`gpsat <marker> <encounter> [offsetKm]`, `devfar [gridId]` (send a framed encounter grid far).

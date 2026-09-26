@@ -141,6 +141,7 @@ public static class CleanMap
                             HashSet<string> globes)
     {
         Vector3D W(Vector3D local) => mapPos + (QuaternionD)orient * local;
+        _session = session;
         bool solar = u >= SolarZoom;
         string focus = Focus != "auto" ? Focus : null;
         if (focus == null) foreach (var bd in bands) if (bd.Selected && bd.Home.Kind != SectorHomes.Kind.OwnPlanet) focus = bd.Host;
@@ -292,6 +293,9 @@ public static class CleanMap
             }
         }
 
+        Vector3D porg = planet.OriginInRoot(t).Position;
+        Overlay(r => Lv(r - porg), fit * 1.02, W, t, reg);
+
         // You.
         if (playerPlanet == planet.Name)
         {
@@ -373,6 +377,70 @@ public static class CleanMap
             int n = 0; foreach (var bd in bands) if (bd.Host == p.Name && bd.Home.Kind != SectorHomes.Kind.OwnPlanet) n++;
             MapPipeline.Text(W(c + new Vector3D(0, 0, SolarRadius * 0.045)), p.Name, p.Name == playerPlanet ? You : Text, 0.9f);
         }
+        Overlay(r => S(r), SolarRadius * 1.02, W, t, reg);
+    }
+
+    // ───────────────────────────── encounters and GPS (both views) ─────────────────────────────
+
+    private static Keen.VRage.Core.Game.Systems.Session _session;
+    static readonly ColorSRGB EncColor = new ColorSRGB(1.00f, 0.55f, 0.25f, 0.85f);
+
+    /// <summary>
+    /// Encounter frames (procedural spawns, authored sites; sector anchors are the sector orbits already):
+    /// their orbit and where they are now. GPS markers: at their true place (frame-transferred), pinned to
+    /// the edge when beyond the view. toLocal maps a sun-centred model position to the map.
+    /// </summary>
+    private static void Overlay(Func<Vector3D, Vector3D> toLocal, double limit, Func<Vector3D, Vector3D> W, double t, SystemRegistry reg)
+    {
+        long player = FrameHost.PlayerId;
+        lock (ServerFrames.FramesLock)
+        {
+            if (SystemHost.Frames == null) return;
+            foreach (var f in SystemHost.Frames.Frames)
+            {
+                if (!f.IsEncounter || f.HasMember(player)) continue;
+                var site = EncounterFrames.SiteOf(f.Id);
+                if (site != null && site.Anchor) continue;
+                var parent = reg.Find(f.ParentBodyName);
+                if (parent == null) continue;
+                Vector3D porg = parent.OriginInRoot(t).Position;
+                var el = f.Elements;
+                double T = el.IsElliptic && IsFinite(el.Period) ? el.Period : 6 * 3600.0;
+                Vector3D prev = default; bool havePrev = false;
+                for (int k = 0; k <= 120; k++)
+                {
+                    var st = OrbitPropagation.StateAt(el, t + T * k / 120);
+                    if (!IsFinite(st.Position.X) || !IsFinite(st.Position.Y)) { havePrev = false; continue; }
+                    Vector3D p = toLocal(porg + st.Position);
+                    bool inView = Math.Sqrt(p.X * p.X + p.Z * p.Z) <= limit * 1.3;
+                    if (havePrev && inView) MapPipeline.Line(W(prev), W(p), new ColorSRGB(EncColor.R, EncColor.G, EncColor.B, 0.55f), 1.4f);
+                    prev = p; havePrev = inView;
+                }
+                var now = OrbitPropagation.StateAt(el, t);
+                if (!IsFinite(now.Position.X) || !IsFinite(now.Position.Y)) continue;
+                Vector3D here = toLocal(porg + now.Position);
+                int npc = 0; foreach (long id in f.Members) if (EncounterFrames.IsNpcId(id)) npc++;
+                string label = site != null ? site.Label : $"Encounter ({f.Members.Count})";
+                Pin(here, limit, W, label, EncColor);
+            }
+        }
+
+        // GPS markers at their true place.
+        if (_session == null) return;
+        foreach (var (name, color, model) in FrameMarkers.MapMarkers(_session, t))
+            Pin(toLocal(model), limit, W, name, color, diamond: true);
+    }
+
+    /// <summary>A marker and label at a map point, or pinned to the view's edge with an arrow.</summary>
+    private static void Pin(Vector3D p, double limit, Func<Vector3D, Vector3D> W, string label, ColorSRGB c, bool diamond = false)
+    {
+        double r = Math.Sqrt(p.X * p.X + p.Z * p.Z);
+        bool edge = r > limit;
+        if (edge) p = p * (limit / r);
+        Vector3D w = W(p);
+        if (diamond) MapPipeline.ScreenDiamond(w, 6f, c, 1.8f);
+        else { MapPipeline.ScreenRing(w, 6f, c, 1.8f); MapPipeline.ScreenRing(w, 2.5f, c, 2.5f); }
+        MapPipeline.Text(W(p * (edge ? 1.07 : 1.0) + new Vector3D(0, 0, limit * 0.045)), edge ? label + " >" : label, c, 0.6f);
     }
 
     public const string SunPart = "OrbitalSun", BeltPart = "OrbitalBelt";

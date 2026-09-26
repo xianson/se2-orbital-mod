@@ -319,6 +319,11 @@ public static class DevHarness
                 UnifiedMap.BandSections = On(a[1]);
                 return "band sections=" + UnifiedMap.BandSections;
 
+            case "clean":
+                if (a[1].Equals("focus", StringComparison.OrdinalIgnoreCase)) { CleanMap.Focus = a[2]; return "clean focus=" + a[2]; }
+                CleanMap.Enabled = On(a[1]);
+                return "clean map=" + CleanMap.Enabled;
+
             case "unified":
                 UnifiedMap.Enabled = On(a[1]);
                 return "unified map=" + UnifiedMap.Enabled;

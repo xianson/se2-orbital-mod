@@ -665,7 +665,7 @@ public static class PlanetRenderBridge
         return null;
     }
 
-    private static void SetMember(object target, string name, object value)
+    internal static void SetMember(object target, string name, object value)
     {
         for (Type t = target.GetType(); t != null; t = t.BaseType)
         {

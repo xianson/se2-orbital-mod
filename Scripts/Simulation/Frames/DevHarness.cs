@@ -183,10 +183,23 @@ public static class DevHarness
                     var op = FindPlanet(a[1]);
                     string ob = op != null ? SystemHost.BodyNameOf(op) : null;
                     if (ob == null) return "no such planet";
-                    return FrameHost.SetOrbit(ob, D(a[2]), D(a[3]), a.Length > 4 ? D(a[4]) : 0);
+                    return FrameHost.SetOrbit(ob, D(a[2]), D(a[3]), a.Length > 4 ? D(a[4]) : 0, a.Length > 5 ? D(a[5]) : 0);
                 }
                 OrbitalConfig.ShowOrbit = On(a[1]);
                 return $"orbit={OrbitalConfig.ShowOrbit}";
+
+            case "gridorbit":
+            {
+                // gridorbit <gridId> <planet> <apoAltKm> <periAltKm> [incDeg] [phaseDeg]
+                if (a.Length < 5) return "usage: gridorbit <gridId> <planet> <apoAltKm> <periAltKm> [incDeg] [phaseDeg]";
+                var gp = FindPlanet(a[2]);
+                string gb = gp != null ? SystemHost.BodyNameOf(gp) : null;
+                if (gb == null) return "no such planet";
+                if (!FrameHost.OrbitElements(gb, D(a[3]), D(a[4]), a.Length > 5 ? D(a[5]) : 0, a.Length > 6 ? D(a[6]) : 0, out var gel))
+                    return "degenerate orbit";
+                ServerFrames.GridOrbit.Enqueue(new ServerFrames.GridOrbitRequest { GridId = long.Parse(a[1]), Body = gb, El = gel });
+                return "grid orbit queued (server, next tick)";
+            }
 
             case "aerospike":
                 // aerospike on|off: the aero mod's experiment (holds every grid at 50 m/s, freezes the sim).

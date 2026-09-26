@@ -403,21 +403,9 @@ public static class FrameHost
     /// Harness: put the player on a given orbit around a planet, starting at APOAPSIS (SE1's /orbit
     /// command). Framed: replaces the frame's elements. Not framed: stows with those elements.
     /// </summary>
-    public static string SetOrbit(string body, double apoAltKm, double periAltKm, double incDeg)
+    public static string SetOrbit(string body, double apoAltKm, double periAltKm, double incDeg, double phaseDeg = 0)
     {
-        var reg = SystemHost.Registry;
-        var node = reg?.Find(body);
-        var def = reg?.FindDefinition(body);
-        if (node == null || def == null) return "no such body";
-        double R = def.RadiusMeters;
-        double ra = R + Math.Max(apoAltKm, periAltKm) * 1000, rp = R + Math.Min(apoAltKm, periAltKm) * 1000;
-        double a = 0.5 * (ra + rp);
-        double va = Math.Sqrt(node.Mu * (2.0 / ra - 1.0 / a));
-        double inc = incDeg * Math.PI / 180.0;
-        var pos = new Vector3D(ra, 0, 0);
-        var vel = new Vector3D(0, Math.Cos(inc), Math.Sin(inc)) * va;
-        var el = OrbitalMath.ToElements(new StateVector(pos, vel), node.Mu, SystemHost.Now);
-        if (!IsFinite(el.SemiMajorAxis)) return "degenerate orbit";
+        if (!OrbitElements(body, apoAltKm, periAltKm, incDeg, phaseDeg, out var el)) return "no such body / degenerate orbit";
         if (PlayerFrame != null)
         {
             PlayerFrame.ParentBodyName = body;
@@ -432,6 +420,33 @@ public static class FrameHost
     }
 
     private static (string body, KeplerianElements el)? _pendingOrbit;
+
+    /// <summary>Elements for an Ap/Pe/inclination orbit, starting at apoapsis advanced by phaseDeg of mean anomaly.</summary>
+    public static bool OrbitElements(string body, double apoAltKm, double periAltKm, double incDeg, double phaseDeg,
+                                     out KeplerianElements el)
+    {
+        el = default;
+        var reg = SystemHost.Registry;
+        var node = reg?.Find(body);
+        var def = reg?.FindDefinition(body);
+        if (node == null || def == null) return false;
+        double R = def.RadiusMeters;
+        double ra = R + Math.Max(apoAltKm, periAltKm) * 1000, rp = R + Math.Min(apoAltKm, periAltKm) * 1000;
+        double a = 0.5 * (ra + rp);
+        double va = Math.Sqrt(node.Mu * (2.0 / ra - 1.0 / a));
+        double inc = incDeg * Math.PI / 180.0;
+        double t = SystemHost.Now;
+        var e0 = OrbitalMath.ToElements(new StateVector(new Vector3D(ra, 0, 0), new Vector3D(0, Math.Cos(inc), Math.Sin(inc)) * va), node.Mu, t);
+        if (!IsFinite(e0.SemiMajorAxis)) return false;
+        if (phaseDeg != 0 && IsFinite(e0.Period))
+        {
+            var st = OrbitPropagation.StateAt(e0, t + phaseDeg / 360.0 * e0.Period);
+            e0 = OrbitalMath.ToElements(st, node.Mu, t);
+            if (!IsFinite(e0.SemiMajorAxis)) return false;
+        }
+        el = e0;
+        return true;
+    }
 
     // ───────────────────────────── observer frame (for renderers) ─────────────────────────────
 
@@ -477,6 +492,19 @@ public static class FrameHost
         if (f != null && f.Id == frameId) _pendingShift += shift;
     }
 
+    private static Vector3D _pendingMergeMove, _pendingMergeDv;
+    private static bool _pendingMerge;
+
+    /// <summary>Server merged the player's frame into another: move into the host berth at the relative state.</summary>
+    public static void RequestMerge(long incomerId, Vector3D translation, Vector3D dVel)
+    {
+        var f = SystemHost.Frames?.FindByMember(_playerId);
+        if (f == null || f.Id != incomerId) return;
+        _pendingMerge = true;
+        _pendingMergeMove += translation;
+        _pendingMergeDv += dVel;
+    }
+
     /// <summary>Server materialized a grid-anchored frame; the player member arrives at the same offset.</summary>
     public static void RequestArrival(long frameId, string body, Vector3D target, Vector3D anchorPos,
                                       Vector3D celPos, Vector3D celVel, double epoch)
@@ -509,6 +537,15 @@ public static class FrameHost
             _wasInKeep = true;
             StartTeleport(session, a.Target + off, hs ? Vector3D.Zero : a.CelVel, t);
             Event($"player arrives with its grid frame at {a.Body}{(hs ? " (HighSpeed)" : "")}");
+            return true;
+        }
+        if (_pendingMerge)
+        {
+            _pendingMerge = false;
+            Vector3D target = (_tpPending ? _tpTarget : pos) + _pendingMergeMove;
+            Vector3D v = (_tpPending ? _tpVelocity : ReadVelocity(ch)) + _pendingMergeDv;
+            _pendingMergeMove = Vector3D.Zero; _pendingMergeDv = Vector3D.Zero; _pendingShift = Vector3D.Zero;
+            StartTeleport(session, target, v, t);
             return true;
         }
         if (_pendingShift.LengthSquared() > 1e-6 && _tpPending)
@@ -573,6 +610,9 @@ public static class FrameHost
             _tpStarted = now;
         }
     }
+
+    private static Vector3D ReadVelocity(Entity ch) =>
+        ch.Data.TryGet<RigidBodyData>(out var rb) ? (Vector3D)rb.LinearVelocity : Vector3D.Zero;
 
     private static Entity PlayerCharacter(Keen.VRage.Core.Game.Systems.Session session)
     {

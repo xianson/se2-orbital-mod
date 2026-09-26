@@ -30,12 +30,17 @@ interaction shell, HighSpeed), ported. Verified in game with the harness:
   acceleration (Clohessy-Wiltshire); a member beyond 20 km splits into its own frame. Verified:
   the Nova35 wreck (5 grids, 90 t anchor) plus the player stow together, warp, arrive together in
   HighSpeed (offsets held at 0.32-0.34 km through periapsis) and re-stow together.
+- **Merge (a rendezvous, as in SE1):** same-SOI frame pairs are screened for closest approach over
+  30 min; miss < 10 km and rel speed < 1000 m/s feed a sticky tracker (2 s dwell), and a latched
+  pair merges when it is also within 10 km and below the cap now. The lighter frame moves into the
+  heavier one's berth at the celestial relative state. Verified: the player's frame merged into
+  the wreck's (sep 1.18 km, 3.7 m/s).
 - **Lone grids** in a planet cell stow into their own frame when they leave the keep (or cross above
   the shell on an escaping arc), taking grids within 5 km along.
 - **Warp never skips an arrival:** the rails clock stops exactly at the earliest inbound shell
   crossing and drops to x1, so arrival works at any tick rate.
 
-Remaining limits: local player only (client-driven; SP / listen host), no merge of frames, no thrust
+Remaining limits: local player only (client-driven; SP / listen host), no thrust
 while in HighSpeed, legacy-space objects are not captured, radial (zero angular momentum) states are
 not captured, planets do not spin (no rotating surface chart), sun direction not driven, frames not
 persisted, relative motion of members is integrated at x1 while the rails warp.

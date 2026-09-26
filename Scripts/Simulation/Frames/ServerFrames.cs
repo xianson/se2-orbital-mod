@@ -3,6 +3,7 @@ using Keen.VRage.Core;
 using SEAerospace;
 using SEAerospace.Frames;
 using SEAerospace.Orbital;
+using SEAerospace.Rendezvous;
 using SEAerospace.SystemDef;
 
 #pragma warning disable
@@ -58,6 +59,10 @@ public static class ServerFrames
     public sealed class AttachRequest { public long FrameId; public Vector3D RefPos; public Vector3D RefVel; public Vector3D Berth; }
     public static readonly ConcurrentQueue<AttachRequest> Attach = new ConcurrentQueue<AttachRequest>();
 
+    /// <summary>DEV: put a grid on its own orbit (a frame with the grid as anchor).</summary>
+    public sealed class GridOrbitRequest { public long GridId; public string Body; public KeplerianElements El; }
+    public static readonly ConcurrentQueue<GridOrbitRequest> GridOrbit = new ConcurrentQueue<GridOrbitRequest>();
+
     /// <summary>Grid HighSpeed (analytic, like the player's): grid id -> (body, elements).</summary>
     private static readonly Dictionary<long, (string body, KeplerianElements el)> _gridHighSpeed =
         new Dictionary<long, (string, KeplerianElements)>();
@@ -90,10 +95,12 @@ public static class ServerFrames
             lock (FramesLock)
             {
                 while (Attach.TryDequeue(out var req)) DoAttach(req);
+                while (GridOrbit.TryDequeue(out var go)) DoGridOrbit(go);
                 var frames = new List<ProximityFrame>(SystemHost.Frames.Frames);
                 foreach (var f in frames) UpdateGridFrame(f, dt);
                 StepGridHighSpeed();
                 if (_tick % 10 == 0) StowLoneGrids();
+                if (_tick % MergeScreenInterval == 0) ScreenMerges(MergeScreenInterval * dt);
             }
         }
 
@@ -186,6 +193,130 @@ public static class ServerFrames
             DoAttach(new AttachRequest { FrameId = frame.Id, RefPos = pos, RefVel = vel, Berth = frame.BerthCenter });
         }
     }
+
+    private static void DoGridOrbit(GridOrbitRequest r)
+    {
+        var g = GridMembers.Get(r.GridId);
+        if (g == null || !g.IsServer || !GridMembers.IsDynamic(g)) { Event($"gridorbit: grid {r.GridId} not found / not dynamic"); return; }
+        var old = SystemHost.Frames.FindByMember(g.Id);
+        if (old != null) SystemHost.Frames.RemoveMember(g.Id);
+        var f = SystemHost.Frames.CreateFrame(r.Body, r.El, g.Id);
+        if (f == null) { Event("gridorbit: no free berth"); return; }
+        _gridHighSpeed.Remove(g.Id);
+        GridMembers.SetPosition(g, f.BerthCenter);
+        GridMembers.SetVelocity(g, Vector3D.Zero);
+        Event($"gridorbit: grid {g.Id} '{g.DisplayName}' -> frame #{f.Id} about {r.Body} a={r.El.SemiMajorAxis / 1000:F1} km e={r.El.Eccentricity:F3} slot={f.BerthSlotId}");
+    }
+
+    // ───────────────────────────── merge (SE1 ScreenMerges / ExecuteMerge) ─────────────────────────────
+
+    public const int MergeScreenInterval = 30;       // server ticks between screens (SE1 SeamCheckInterval)
+    public const double TcaHorizonSeconds = 1800.0;  // SE1: 30 min look-ahead
+    public const int TcaSamples = 48;
+    public static readonly RendezvousParams Rendezvous = RendezvousParams.Default;
+    private static readonly Dictionary<(long, long), RendezvousTracker> _trackers = new Dictionary<(long, long), RendezvousTracker>();
+
+    /// <summary>
+    /// Merge is a rendezvous (SE1): per same-SOI pair, the closest approach over the next 30 min
+    /// decides whether to feed the sticky tracker (miss below 10 km and rel speed below 1000 m/s) or
+    /// starve it (fly-by). A latched pair merges on the first screen where it is ALSO close now
+    /// (inside the enter range) and slow now (below the physics cap), so an incomer never coasts out of the berth.
+    /// </summary>
+    private static void ScreenMerges(double dt)
+    {
+        double t = SystemHost.Now;
+        var frames = new List<ProximityFrame>(SystemHost.Frames.Frames);
+        double er = Rendezvous.EnterRangeMeters;
+        for (int a = 0; a < frames.Count; a++)
+        {
+            var fa = frames[a];
+            if (SystemHost.Frames.Get(fa.Id) == null || !Finite(fa.Elements)) continue;
+            bool bandA = RadialBand(fa.Elements, out double peA, out double apA);
+            for (int b = a + 1; b < frames.Count; b++)
+            {
+                var fb = frames[b];
+                if (SystemHost.Frames.Get(fb.Id) == null || !Finite(fb.Elements)) continue;
+                if (fa.ParentBodyName != fb.ParentBodyName) continue;
+                if (bandA && RadialBand(fb.Elements, out double peB, out double apB) && (apA + er < peB || apB + er < peA)) continue;
+                if (!FrameRails.CanMutateAt(fa.Elements, t) || !FrameRails.CanMutateAt(fb.Elements, t)) continue;
+
+                var ev = ClosestApproach.Find(fa.Elements, fb.Elements, t, TcaHorizonSeconds, TcaSamples);
+                bool ok = ev.Found && IsFinite(ev.MissDistance) && IsFinite(ev.RelativeSpeed);
+                double miss = ok ? ev.MissDistance : double.PositiveInfinity;
+                double rel = ok ? ev.RelativeSpeed : double.PositiveInfinity;
+                var key = fa.Id < fb.Id ? (fa.Id, fb.Id) : (fb.Id, fa.Id);
+                if (!_trackers.TryGetValue(key, out var tr)) { tr = new RendezvousTracker(); _trackers[key] = tr; }
+                bool merged = miss < er && rel < Rendezvous.EnterRelSpeedMps
+                    ? tr.Update(miss, rel, dt, Rendezvous)
+                    : tr.Update(double.PositiveInfinity, double.PositiveInfinity, dt, Rendezvous);
+                if (!merged) continue;
+
+                var sa = OrbitPropagation.StateAt(fa.Elements, t);
+                var sb = OrbitPropagation.StateAt(fb.Elements, t);
+                if (!IsFinite(sa.Position) || !IsFinite(sb.Position) || !IsFinite(sa.Velocity) || !IsFinite(sb.Velocity)) continue;
+                if ((sb.Position - sa.Position).Length() >= er) continue;
+                if ((sb.Velocity - sa.Velocity).Length() >= FrameHost.SpeedCap) continue;
+                ExecuteMerge(fa, fb, sa, sb);
+                _trackers.Remove(key);
+            }
+        }
+        var dead = new List<(long, long)>();
+        foreach (var k in _trackers.Keys) if (SystemHost.Frames.Get(k.Item1) == null || SystemHost.Frames.Get(k.Item2) == null) dead.Add(k);
+        foreach (var k in dead) _trackers.Remove(k);
+    }
+
+    private static void ExecuteMerge(ProximityFrame fa, ProximityFrame fb, StateVector sa, StateVector sb)
+    {
+        ProximityFrame host, inc; StateVector sHost, sInc;
+        if (FrameMass(fa) >= FrameMass(fb)) { host = fa; inc = fb; sHost = sa; sInc = sb; }
+        else { host = fb; inc = fa; sHost = sb; sInc = sa; }
+
+        // Anchors sit at their berths (pinned), so the incomer moves by berth-to-berth plus the
+        // celestial separation, and gains the celestial relative velocity. Members keep their own
+        // offsets and velocities relative to their old anchor.
+        Vector3D dPos = sInc.Position - sHost.Position;
+        Vector3D dVel = sInc.Velocity - sHost.Velocity;
+        Vector3D translation = host.BerthCenter + dPos - inc.BerthCenter;
+        if (!IsFinite(translation) || !IsFinite(dVel)) return;
+        int n = 0;
+        foreach (long id in new List<long>(inc.Members))
+        {
+            if (!GridMembers.IsGridId(id)) continue;
+            var g = GridMembers.Get(id);
+            if (g == null || !g.IsServer) continue;
+            GridMembers.SetPosition(g, GridMembers.Position(g) + translation);
+            GridMembers.SetVelocity(g, GridMembers.Velocity(g) + dVel);
+            n++;
+        }
+        FrameHost.RequestMerge(inc.Id, translation, dVel);   // the player, if a member of the incomer
+        long hostId = host.Id, incId = inc.Id;
+        SystemHost.Frames.MergeInto(host, inc);
+        AnchorAccel.Remove(incId);
+        Event($"MERGE frame #{incId} -> #{hostId}: {n} grid(s) moved, sep {dPos.Length() / 1000:F2} km, |dv| {dVel.Length():F1} m/s (host now {host.Members.Count} members)");
+    }
+
+    private static double FrameMass(ProximityFrame f)
+    {
+        double m = 0;
+        foreach (long id in f.Members)
+        {
+            if (!GridMembers.IsGridId(id)) { m += 100; continue; }   // a character
+            var g = GridMembers.Get(id);
+            if (g != null) m += GridMembers.Mass(g);
+        }
+        return m;
+    }
+
+    private static bool RadialBand(KeplerianElements el, out double rPe, out double rAp)
+    {
+        rPe = rAp = 0;
+        double a = el.SemiMajorAxis, e = el.Eccentricity;
+        if (!IsFinite(a) || a <= 0 || !IsFinite(e) || e < 0 || e >= 1) return false;
+        rPe = a * (1 - e); rAp = a * (1 + e);
+        return true;
+    }
+
+    private static bool Finite(KeplerianElements el) => IsFinite(el.SemiMajorAxis) && IsFinite(el.MeanMotion);
 
     // ───────────────────────────── per-frame update (grids) ─────────────────────────────
 

@@ -118,6 +118,19 @@ public static class GridMembers
         catch { return false; }
     }
 
+    /// <summary>This frame's thrust delta-v (the thrust component's per-frame impulse / mass), world space.</summary>
+    public static Vector3D ThrustDv(OrbitalGridComponent g)
+    {
+        try
+        {
+            if (g.Entity.Data.TryGet<Keen.Game2.Simulation.WorldObjects.Movement.ActiveThrustData>(out var at) &&
+                g.Entity.Data.TryGet<RigidBodyMassProperties>(out var mp) && mp.InvMass > 0)
+                return (Vector3D)WorldTransform.TransformDirection(at.ComputedThrustPerFrame, g.Entity.Data.GetWorldTransform()) * mp.InvMass;
+        }
+        catch { }
+        return Vector3D.Zero;
+    }
+
     /// <summary>Move the grid (orientation kept), the way the engine's own admin teleport does.</summary>
     public static bool SetPosition(OrbitalGridComponent g, Vector3D p)
     {

@@ -48,8 +48,8 @@ interaction shell, HighSpeed), ported. Verified in game with the harness:
 - **Warp never skips an arrival:** the rails clock stops exactly at the earliest inbound shell
   crossing and drops to x1, so arrival works at any tick rate.
 
-Remaining limits: local player only (client-driven; SP / listen host), HighSpeed thrust for grids
-(the player only; jetpack thrust verified only as no false folds, not with a real key press), legacy-space objects are not captured, radial (zero angular momentum) states are
+Remaining limits: local player only (client-driven; SP / listen host), HighSpeed thrust
+verified only as no false folds plus a harness kick (no real key press; grid thrust untested), legacy-space objects are not captured, radial (zero angular momentum) states are
 not captured, planets do not spin (no rotating surface chart), sun direction not driven, frames not
 persisted, relative motion of members is integrated at x1 while the rails warp.
 

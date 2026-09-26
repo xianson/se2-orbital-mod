@@ -480,13 +480,24 @@ public static class ServerFrames
         double t = SystemHost.Now;
         var reg = SystemHost.Registry;
         var done = new List<long>();
+        var refold = new List<(long id, string body, KeplerianElements el)>();
         foreach (var kv in _gridHighSpeed)
         {
             var g = GridMembers.Get(kv.Key);
             if (g != null && SystemHost.Frames.FindByMember(g.Id) != null) { done.Add(kv.Key); continue; } // framed: rails own it
             if (g == null || !VoxelBerthRegistry.TryGetCell(kv.Value.body, reg, out Vector3D cell)) { done.Add(kv.Key); continue; }
             var def = reg.FindDefinition(kv.Value.body);
-            StateVector st = OrbitPropagation.StateAt(kv.Value.el, t);
+            var el = kv.Value.el;
+            Vector3D thrust = GridMembers.ThrustDv(g);
+            if (thrust.LengthSquared() > 1e-12)
+            {
+                // Grid thrust in HighSpeed: fold the frame's thrust impulse into the conic (as the player's).
+                var node = reg.Find(kv.Value.body);
+                StateVector s0 = OrbitPropagation.StateAt(el, t);
+                var el2 = node != null ? OrbitalMath.ToElements(new StateVector(s0.Position, s0.Velocity + thrust), node.Mu, t) : el;
+                if (IsFinite(el2.SemiMajorAxis) && IsFinite(el2.MeanMotion)) { el = el2; refold.Add((kv.Key, kv.Value.body, el2)); }
+            }
+            StateVector st = OrbitPropagation.StateAt(el, t);
             double speed = st.Velocity.Length();
             double floor = (def?.RadiusMeters ?? 0) + FrameHost.SurfaceGuard;
             if (speed < FrameHost.SpeedCap * FrameHost.HighSpeedExitFraction || st.Position.Length() < floor)
@@ -500,6 +511,7 @@ public static class ServerFrames
             GridMembers.SetPosition(g, cell + st.Position);
             GridMembers.SetVelocity(g, Vector3D.Zero);
         }
+        foreach (var r in refold) if (!done.Contains(r.id)) _gridHighSpeed[r.id] = (r.body, r.el);
         foreach (long id in done) _gridHighSpeed.Remove(id);
     }
 

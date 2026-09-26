@@ -53,6 +53,19 @@ public static class SystemHost
 
     private static DateTime _lastGameTime;
 
+    /// <summary>Legacy space: the nearest planet cell (the window this world region belongs to).</summary>
+    public static bool TryNearestCell(Vector3D pos, out string body, out Vector3D cell)
+    {
+        body = null; cell = default;
+        double best = double.MaxValue;
+        foreach (var kv in SEAerospace.VoxelBerthRegistry.PinnedCells)
+        {
+            double d = (kv.Value - pos).LengthSquared();
+            if (d < best) { best = d; body = kv.Key; cell = kv.Value; }
+        }
+        return body != null;
+    }
+
     /// <summary>Load: continue the rails clock from the saved universe time.</summary>
     public static void RestoreClock(double t) { if (!double.IsNaN(t) && !double.IsInfinity(t)) Now = t; }
     /// <summary>Which clock drove the last advance ("game" = IGameTime, "wall" = fallback).</summary>

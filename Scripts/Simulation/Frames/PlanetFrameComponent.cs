@@ -25,6 +25,16 @@ public enum ProxyMode
 /// <summary>Tunables. Edit and reload the world.</summary>
 public static class OrbitalConfig
 {
+    /// <summary>
+    /// TOTAL PARTITION for legacy space (the world outside every planet cell, e.g. the spawn area):
+    /// capture its dynamic grids and the player into conjunction frames, treating that space as a
+    /// window around the nearest planet (celestial = planet + world offset). OFF by default: objects
+    /// there are nearly at rest relative to the planet, so their captured orbits are radial falls and
+    /// the whole area would drop into the planet within the hour. A world designed for orbits (things
+    /// placed with orbital velocity) wants it on.
+    /// </summary>
+    public static bool CaptureLegacySpace = false;
+
     public static ProxyMode Mode = ProxyMode.Frame;
 
     /// <summary>Frame sphere = gravity reach × this. Enter below it.</summary>

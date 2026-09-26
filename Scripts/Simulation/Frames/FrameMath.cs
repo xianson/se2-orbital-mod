@@ -52,6 +52,28 @@ public struct GravityLaw
 public static class FrameMath
 {
     /// <summary>
+    /// Elements for CAPTURING a state (stow, split, arrival, fold). A radial state (zero angular
+    /// momentum: at rest relative to the body, or moving straight toward/away from it) makes the
+    /// classical conversion divide by zero (NaN inclination). Nudge it with a tiny perpendicular
+    /// velocity: the result is a needle-thin ellipse that follows the radial fall to well within
+    /// a metre over the fall, and whose inbound shell crossing (the arrival) is well defined.
+    /// </summary>
+    public static SEAerospace.Orbital.KeplerianElements CaptureElements(SEAerospace.Orbital.StateVector s, double mu, double t)
+    {
+        Vector3D r = s.Position, v = s.Velocity;
+        double rm = r.Length(), vm = v.Length();
+        double h = Vector3D.Cross(r, v).Length();
+        if (rm > 1 && h < 1e-6 * rm * Math.Max(vm, 1.0))
+        {
+            Vector3D radial = r / rm;
+            Vector3D axis = Math.Abs(radial.Z) < 0.9 ? Vector3D.UnitZ : Vector3D.UnitX;
+            Vector3D perp = Vector3D.Normalize(Vector3D.Cross(axis, radial));
+            v += perp * Math.Max(0.01, 1e-5 * vm);
+        }
+        return SEAerospace.Orbital.OrbitalMath.ToElements(new SEAerospace.Orbital.StateVector(r, v), mu, t);
+    }
+
+    /// <summary>
     /// Frame membership with hysteresis: enter below <paramref name="enterRadius"/>,
     /// leave above <paramref name="exitRadius"/>. Stops flicker at the boundary.
     /// </summary>

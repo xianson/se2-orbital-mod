@@ -59,7 +59,7 @@ public static class FrameHost
         var node = reg?.Find(body);
         if (node == null || !VoxelBerthRegistry.TryGetCell(body, reg, out Vector3D cell)) return false;
         if (!VoxelBerthRegistry.TryCellContaining(_lastPos, reg, out string b, out _) || b != body) return false;
-        el = OrbitalMath.ToElements(new StateVector(_lastPos - cell, _lastVel), node.Mu, t);
+        el = FrameMath.CaptureElements(new StateVector(_lastPos - cell, _lastVel), node.Mu, t);
         return IsFinite(el.SemiMajorAxis) && IsFinite(el.MeanMotion);
     }
     /// <summary>The local player's conjunction frame, if framed.</summary>
@@ -157,10 +157,13 @@ public static class FrameHost
             Event($"STOW (orbit command) -> frame #{pf.Id} about {pb}: a={pel.SemiMajorAxis / 1000:F1} km e={pel.Eccentricity:F3}");
             return;
         }
+        bool legacy = false;
         if (!VoxelBerthRegistry.TryCellContaining(pos, reg, out string body, out Vector3D cell))
         {
             _wasInKeep = false;
-            if (!ForceStow) return; // legacy space: v1 never captures here unless forced
+            if (!ForceStow && !OrbitalConfig.CaptureLegacySpace) return; // legacy space: captured only when enabled (or forced)
+            if (!SystemHost.TryNearestCell(pos, out body, out cell)) { ForceStow = false; return; }
+            legacy = true;
         }
         GravityBody node = body != null ? reg.Find(body) : null;
         BodyDefinition def = body != null ? reg.FindDefinition(body) : null;
@@ -175,7 +178,7 @@ public static class FrameHost
         double keep = PlanetBerths.KeepRadius(def);
         Debug += $" cell={body} d={d / 1000:F1}km shell={shell / 1000:F1} keep={keep / 1000:F1}";
 
-        KeplerianElements elBody = OrbitalMath.ToElements(new StateVector(rel, vel), node.Mu, t);
+        KeplerianElements elBody = FrameMath.CaptureElements(new StateVector(rel, vel), node.Mu, t);
         if (d < keep)
         {
             _wasInKeep = true;
@@ -185,11 +188,11 @@ public static class FrameHost
                 if (!IsFinite(elBody.SemiMajorAxis) || !FrameRails.EscapesShell(elBody, t, shell, keep, MaterializeLead)) return;
             }
         }
-        else if (!_wasInKeep && !ForceStow) return; // v1 gate: only departures from a planet are captured
+        else if (!_wasInKeep && !ForceStow && !legacy) return; // v1 gate: only departures from a planet are captured
 
         GravityBody parent = reg.Root.DeepestSoiContaining(cel, t) ?? node;
         StateVector porg = parent.OriginInRoot(t);
-        var el = OrbitalMath.ToElements(new StateVector(cel - porg.Position, celVel - porg.Velocity), parent.Mu, t);
+        var el = FrameMath.CaptureElements(new StateVector(cel - porg.Position, celVel - porg.Velocity), parent.Mu, t);
         if (!IsFinite(el.SemiMajorAxis) || !IsFinite(el.MeanMotion)) return;
 
         var frame = SystemHost.Frames.CreateFrame(parent.Name, el, id);
@@ -257,7 +260,7 @@ public static class FrameHost
         if (IsFinite(acc) && acc.LengthSquared() > 1e-10) SetVelocity(ch, vel + acc * dt);
         if (rRel.Length() > ServerFrames.SlotRadius)
         {
-            var el = OrbitalMath.ToElements(new StateVector(cur.Position + rRel, cur.Velocity + vel), mu, t);
+            var el = FrameMath.CaptureElements(new StateVector(cur.Position + rRel, cur.Velocity + vel), mu, t);
             if (!IsFinite(el.SemiMajorAxis)) return;
             var nf = SystemHost.Frames.SplitOff(f, _playerId, f.ParentBodyName, el);
             if (nf == null) return;
@@ -283,7 +286,7 @@ public static class FrameHost
         GravityBody now = reg.Root.DeepestSoiContaining(cel.Position, t);
         if (now == null || now == parent) return;
         StateVector norg = now.OriginInRoot(t);
-        var el = OrbitalMath.ToElements(new StateVector(cel.Position - norg.Position, cel.Velocity - norg.Velocity), now.Mu, t);
+        var el = FrameMath.CaptureElements(new StateVector(cel.Position - norg.Position, cel.Velocity - norg.Velocity), now.Mu, t);
         if (!IsFinite(el.SemiMajorAxis) || !IsFinite(el.MeanMotion)) return;
         Event($"SOI {f.ParentBodyName} -> {now.Name} (frame #{f.Id}, a={el.SemiMajorAxis / 1000:F0} km e={el.Eccentricity:F3})");
         f.ParentBodyName = now.Name;
@@ -395,7 +398,7 @@ public static class FrameHost
     {
         var node = SystemHost.Registry?.Find(body);
         if (node == null) { _hsActive = false; return; }
-        _hsEl = OrbitalMath.ToElements(new StateVector(relPos, relVel), node.Mu, t);
+        _hsEl = FrameMath.CaptureElements(new StateVector(relPos, relVel), node.Mu, t);
         _hsBody = body;
         _hsVel = relVel;
         _hsActive = IsFinite(_hsEl.SemiMajorAxis);
@@ -466,7 +469,7 @@ public static class FrameHost
         }
         if (!HsThrustFold || !IsFinite(dv) || dv.LengthSquared() < 1e-12) return;
         StateVector st = OrbitPropagation.StateAt(_hsEl, t);
-        var el = OrbitalMath.ToElements(new StateVector(st.Position, st.Velocity + dv), node.Mu, t);
+        var el = FrameMath.CaptureElements(new StateVector(st.Position, st.Velocity + dv), node.Mu, t);
         if (!IsFinite(el.SemiMajorAxis) || !IsFinite(el.MeanMotion)) return;
         _hsEl = el;
         HsFolds++;

@@ -245,6 +245,10 @@ public static class DevHarness
                 return On(a[1]) ? "opening map (terminal Map tab)" : "closing map";
             }
 
+            case "legacy":
+                OrbitalConfig.CaptureLegacySpace = On(a[1]);
+                return $"captureLegacySpace={OrbitalConfig.CaptureLegacySpace}";
+
             case "omap":
                 // omap on|off | omap focus <system|auto|planet> | omap size <m> | omap view <bearing> <elev> [zoom] | omap spin <deg/s> | omap auto on|off
                 switch (a[1].ToLowerInvariant())

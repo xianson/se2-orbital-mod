@@ -59,14 +59,20 @@ interaction shell, HighSpeed), ported. Verified in game with the harness:
   colonization map exists, orbits are also drawn over it (MapView). Screenshots 09-11.
 - **Spectator camera (harness):** `cam planet|player|map ...` overrides the render camera
   (CameraComponent.SetTransformOverride) and rebuilds the proxies for that viewpoint. Screenshot 12.
+- **Total partition incl. legacy space (opt-in):** with `OrbitalConfig.CaptureLegacySpace` (harness
+  `legacy on`) the player and every dynamic grid outside all planet cells are captured into frames,
+  treating that space as a window around the nearest planet. Off by default: objects there sit at
+  rest relative to the planet, so they fall in (verified: 11 grid groups captured, fell, merged,
+  arrived at Verdure at ~1340 m/s in HighSpeed).
+- **Radial states:** zero-angular-momentum states (at rest, or straight in/out) are captured as a
+  needle ellipse (tiny perpendicular nudge) instead of NaN elements. Verified: a=370.7 km e=1.000.
 - **Lone grids** in a planet cell stow into their own frame when they leave the keep (or cross above
   the shell on an escaping arc), taking grids within 5 km along.
 - **Warp never skips an arrival:** the rails clock stops exactly at the earliest inbound shell
   crossing and drops to x1, so arrival works at any tick rate.
 
 Remaining limits: local player only (client-driven; SP / listen host), HighSpeed thrust
-verified only as no false folds plus a harness kick (no real key press; grid thrust untested), legacy-space objects are not captured, radial (zero angular momentum) states are
-not captured, planets do not spin (no rotating surface chart), sun direction not driven, relative motion of members is integrated at x1 while the rails warp.
+verified only as no false folds plus a harness kick (no real key press; grid thrust untested), legacy-space capture is opt-in, planets do not spin (no rotating surface chart), sun direction not driven, relative motion of members is integrated at x1 while the rails warp.
 
 ## Open items, highest value first
 

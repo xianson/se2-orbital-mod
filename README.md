@@ -84,14 +84,16 @@ verified only as no false folds plus a harness kick (no real key press; grid thr
 
 ## Open items, highest value first
 
-1. **Proxy fidelity.** The map globe is low-poly and pale, and has no atmosphere rim (compare screenshots 02 and 03).
-   It is also sized from the base radius, about 5% small next to the real limb. Options: size from the surface
-   radius, a denser runtime mesh, or reusing the planet's own low-res clipmap far away.
-2. **Real orbital gravity.** The runtime switch exists (dev command). Still needed: prove bodies follow it
-   (a free-floating grid, or dampeners off), decide whether it becomes the default, and handle saves.
-   GravityGeneratorComponent serializes the patched law, so a world saved while patched keeps it.
-3. **Orbit display with real motion.** Verified with harness `fakevel` (synthetic velocity, screenshots 07 and 08).
-   With real motion it still needs a moving body: the jetpack dampeners hold the player still.
-4. **Dedicated-server pairing** of client planets to their server data.
-5. **SE-Aerospace's frames and rails** (berths, time warp, rails teleport). The core is here. The runtime
-   still needs its SE2 design.
+1. **Multiplayer.** The client host drives only the local player and shares static state with the
+   server half, so it works in single player and on a listen host. A dedicated server needs the
+   player's frame logic server-side and a server-to-client command channel for character moves
+   (characters are client-authoritative). No dedicated server is installed here to test with.
+2. **Orbital map controls.** The map is hands-free (auto focus, auto framing, turntable): the map
+   screen's input actions live in an assembly mods cannot reference.
+3. **Real key-press test of HighSpeed thrust** (jetpack and piloted grids). Folding is verified with
+   no false folds and a harness kick only.
+4. **Proxy fidelity.** The map globe is low-poly and pale, with no atmosphere rim.
+5. **Gravity patch as the default.** The 1/r^2 patch is applied at runtime and saved with the world;
+   decide whether a world without the mod's first load should be patched automatically.
+6. **Warp and member motion.** While the rails warp, members' relative motion runs at x1 (as KSP
+   keeps vessels on rails); fine for coasting, not for long warps of loose formations.

@@ -68,7 +68,7 @@ public static class FrameHost
         TickRate.Client.Count();
         _mult = gravityMultiplier > 0 ? gravityMultiplier : 1.0;
         if (!SystemHost.EnsureBuilt(gravityMultiplier)) return;
-        double dt = SystemHost.AdvanceClock();
+        double dt = SystemHost.AdvanceClock(session);
         if (dt <= 0) return; // once per frame
         var reg = SystemHost.Registry;
         var frames = SystemHost.Frames;
@@ -337,6 +337,7 @@ public static class FrameHost
     private static Vector3D _hsVel;
     public static bool HighSpeedActive => _hsActive;
     public static Vector3D HighSpeedVelocity => _hsVel;
+    public static string HighSpeedElements => _hsActive ? $"a={_hsEl.SemiMajorAxis / 1000:F2}km,e={_hsEl.Eccentricity:F4}" : "-";
 
     /// <summary>
     /// SE-Aerospace's HighSpeed, SE2 form: ANALYTIC. Inside a planet cell gravity is exactly the patched
@@ -362,12 +363,92 @@ public static class FrameHost
         _hsActive = IsFinite(_hsEl.SemiMajorAxis);
     }
 
+    private static Vector3D _kick;
+    /// <summary>DEV: give the HighSpeed player a velocity (prograde, radial, normal m/s) through physics.</summary>
+    public static string Kick(double pro, double rad, double nor)
+    {
+        if (!_hsActive) return "not in HighSpeed";
+        _kick = new Vector3D(pro, rad, nor);
+        return "kick queued";
+    }
+
+    /// <summary>HighSpeed: a velocity jump the thrust does not explain, above this, is a push (collision, harness kick).</summary>
+    public const double HsPushThreshold = 2.0;   // m/s per tick
+    public static double HsResidualAvg, HsResidualMax;
+    public static int HsFolds;
+    public static bool HsThrustFold = true;
+    public static string HsDiag = "";
+    private static double _hsFoldLogAt;
+    private static Vector3D _hsFoldedSinceLog;
+
+    /// <summary>
+    /// HighSpeed keeps the player's own delta-v. The character's thrust component applies one
+    /// impulse per frame (ActiveThrustData.ComputedThrustPerFrame, body-local); that impulse times
+    /// the inverse mass is the exact thrust delta-v, folded into the conic by re-osculating. The
+    /// physics velocity itself is no use for small changes: the thrust job zeroes components below
+    /// the movement minimum speed, which swallows a frame of gravity (~0.2 m/s). Large unexplained
+    /// jumps (a collision, the harness kick) are folded from the velocity instead.
+    /// </summary>
+    private static void FoldHighSpeedThrust(Entity ch, Vector3D relPos, Vector3D measured, double dt, double t)
+    {
+        if (dt <= 0) return;
+        var node = SystemHost.Registry?.Find(_hsBody);
+        if (node == null) return;
+
+        Vector3D thrust = Vector3D.Zero;
+        try
+        {
+            if (ch.Data.TryGet<Keen.Game2.Simulation.WorldObjects.Movement.ActiveThrustData>(out var at) &&
+                ch.Data.TryGet<Keen.VRage.Physics.Data.RigidBodyMassProperties>(out var mp) && mp.InvMass > 0)
+            {
+                var wt = ch.Data.GetWorldTransform();
+                thrust = (Vector3D)WorldTransform.TransformDirection(at.ComputedThrustPerFrame, wt) * mp.InvMass;
+            }
+        }
+        catch { thrust = Vector3D.Zero; }
+
+        double r = relPos.Length();
+        Vector3D gPhys = r > 1 ? relPos * (-node.Mu / (r * r * r)) : Vector3D.Zero;
+        Vector3D push = IsFinite(measured) ? measured - gPhys * dt - thrust : Vector3D.Zero;
+        double pm = push.Length();
+        HsResidualAvg = HsResidualAvg * 0.98 + pm * 0.02;
+        if (pm > HsResidualMax) HsResidualMax = pm;
+        HsDiag = $"thrust={thrust.Length():F3} meas={(IsFinite(measured) ? measured.Length() : -1):F3} gdt={gPhys.Length() * dt:F3}";
+
+        Vector3D dv = thrust + (pm > HsPushThreshold ? push : Vector3D.Zero);
+        if (_kick.LengthSquared() > 0)
+        {
+            // DEV kick: prograde / radial / normal, injected as a push (tests the fold, not the engine).
+            StateVector k = OrbitPropagation.StateAt(_hsEl, t);
+            Vector3D pro = Vector3D.Normalize(k.Velocity), rad = Vector3D.Normalize(k.Position);
+            Vector3D kv = pro * _kick.X + rad * _kick.Y + Vector3D.Cross(rad, pro) * _kick.Z;
+            Event($"DEV kick {kv.Length():F1} m/s (prograde {_kick.X:F1}, radial {_kick.Y:F1}, normal {_kick.Z:F1})");
+            dv += kv;
+            _kick = Vector3D.Zero;
+        }
+        if (!HsThrustFold || !IsFinite(dv) || dv.LengthSquared() < 1e-12) return;
+        StateVector st = OrbitPropagation.StateAt(_hsEl, t);
+        var el = OrbitalMath.ToElements(new StateVector(st.Position, st.Velocity + dv), node.Mu, t);
+        if (!IsFinite(el.SemiMajorAxis) || !IsFinite(el.MeanMotion)) return;
+        _hsEl = el;
+        HsFolds++;
+        _hsFoldedSinceLog += dv;
+        double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+        if (now - _hsFoldLogAt > 1.0)
+        {
+            _hsFoldLogAt = now;
+            Event($"HighSpeed dv folded: {_hsFoldedSinceLog.Length():F2} m/s -> a={el.SemiMajorAxis / 1000:F2} km e={el.Eccentricity:F4} (folds {HsFolds})");
+            _hsFoldedSinceLog = Vector3D.Zero;
+        }
+    }
+
     private static Vector3D StepHighSpeed(Entity ch, Vector3D pos, Vector3D measured, double dt)
     {
         var reg = SystemHost.Registry;
         if (!VoxelBerthRegistry.TryGetCell(_hsBody, reg, out Vector3D cell)) { _hsActive = false; return measured; }
         var def = reg.FindDefinition(_hsBody);
         double t = SystemHost.Now;
+        FoldHighSpeedThrust(ch, pos - cell, measured, dt, t);
         StateVector st = OrbitPropagation.StateAt(_hsEl, t);
         _hsVel = st.Velocity;
         double speed = _hsVel.Length();

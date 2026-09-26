@@ -35,13 +35,21 @@ interaction shell, HighSpeed), ported. Verified in game with the harness:
   pair merges when it is also within 10 km and below the cap now. The lighter frame moves into the
   heavier one's berth at the celestial relative state. Verified: the player's frame merged into
   the wreck's (sep 1.18 km, 3.7 m/s).
+- **Thrust in HighSpeed:** the character's per-frame thrust impulse (ActiveThrustData) is folded
+  into the conic by re-osculating; unexplained jumps above 2 m/s (collisions) are folded from the
+  velocity. With no input the orbit is unchanged (0 folds over a periapsis pass); a harness 50 m/s
+  prograde kick at periapsis gave a 167.0 -> 229.7 km (vis-viva: 229.8). The physics velocity
+  alone cannot be used: the thrust job zeroes components below the movement minimum speed, which
+  swallows a frame of gravity.
+- **Clock on game time:** the rails and the server's tidal integration run on IGameTime (synced
+  client/server, follows game speed, pauses with the game), so the rails and the physics agree.
 - **Lone grids** in a planet cell stow into their own frame when they leave the keep (or cross above
   the shell on an escaping arc), taking grids within 5 km along.
 - **Warp never skips an arrival:** the rails clock stops exactly at the earliest inbound shell
   crossing and drops to x1, so arrival works at any tick rate.
 
-Remaining limits: local player only (client-driven; SP / listen host), no thrust
-while in HighSpeed, legacy-space objects are not captured, radial (zero angular momentum) states are
+Remaining limits: local player only (client-driven; SP / listen host), HighSpeed thrust for grids
+(the player only; jetpack thrust verified only as no false folds, not with a real key press), legacy-space objects are not captured, radial (zero angular momentum) states are
 not captured, planets do not spin (no rotating surface chart), sun direction not driven, frames not
 persisted, relative motion of members is integrated at x1 while the rails warp.
 

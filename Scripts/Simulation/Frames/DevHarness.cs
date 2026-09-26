@@ -188,6 +188,14 @@ public static class DevHarness
                 OrbitalConfig.ShowOrbit = On(a[1]);
                 return $"orbit={OrbitalConfig.ShowOrbit}";
 
+            case "hsfold":
+                FrameHost.HsThrustFold = On(a[1]);
+                return $"hsfold={FrameHost.HsThrustFold}";
+
+            case "kick":
+                // kick <prograde m/s> [radial] [normal]  (HighSpeed only)
+                return FrameHost.Kick(D(a[1]), a.Length > 2 ? D(a[2]) : 0, a.Length > 3 ? D(a[3]) : 0);
+
             case "gridorbit":
             {
                 // gridorbit <gridId> <planet> <apoAltKm> <periAltKm> [incDeg] [phaseDeg]
@@ -368,7 +376,7 @@ public static class DevHarness
     private static void WriteStatus(WorldTransform camera)
     {
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine($"time {DateTime.Now:HH:mm:ss.fff} ticks/s client={TickRate.Client.PerSecond:F1} server={TickRate.Server.PerSecond:F1} rails t={SystemHost.Now:F1} x{SystemHost.Timescale}");
+        sb.AppendLine($"time {DateTime.Now:HH:mm:ss.fff} ticks/s client={TickRate.Client.PerSecond:F1} server={TickRate.Server.PerSecond:F1} rails t={SystemHost.Now:F1} x{SystemHost.Timescale} clock={SystemHost.ClockSource}");
         sb.AppendLine($"camera {camera.Position.X:F0} {camera.Position.Y:F0} {camera.Position.Z:F0}");
         sb.AppendLine($"physics gravityMultiplier client={_clientGravityMultiplier} server={ServerPlanetBeacon.ServerGravityMultiplier}");
         sb.AppendLine($"config mode={OrbitalConfig.Mode} hide={OrbitalConfig.HideRealPlanets} front={OrbitalConfig.DebugProxyInFront} orbit={OrbitalConfig.ShowOrbit}");
@@ -383,7 +391,7 @@ public static class DevHarness
         sb.AppendLine($"system built={SystemHost.Built} t={SystemHost.Now:F1}s warp=x{SystemHost.Timescale} observer={(FrameHost.PlayerFrame != null ? "conjunction #" + FrameHost.PlayerFrame.Id : FrameHost.ObserverPlanet != null ? "planet " + FrameHost.ObserverPlanet : "legacy")} frames={(SystemHost.Frames != null ? SystemHost.Frames.Count : 0)}");
         if (FrameHost.PlayerFrame != null) sb.AppendLine($"frame #{FrameHost.PlayerFrame.Id} parent={FrameHost.PlayerFrame.ParentBodyName} berth={ServerPlanetBeacon.Fmt(FrameHost.PlayerFrame.BerthCenter)} a={FrameHost.PlayerFrame.Elements.SemiMajorAxis / 1000:F1}km e={FrameHost.PlayerFrame.Elements.Eccentricity:F3} pendingDv={FrameHost.PlayerFrame.PendingDrainDv.Length():F2}");
         sb.AppendLine("lastEvent " + FrameHost.LastEvent);
-        sb.AppendLine("host " + FrameHost.Debug + $" highSpeed={FrameHost.HighSpeedActive} hsV={FrameHost.HighSpeedVelocity.Length():F0}");
+        sb.AppendLine("host " + FrameHost.Debug + $" highSpeed={FrameHost.HighSpeedActive} hsV={FrameHost.HighSpeedVelocity.Length():F0} hsEl={FrameHost.HighSpeedElements} hsResid avg={FrameHost.HsResidualAvg:F3} max={FrameHost.HsResidualMax:F3} folds={FrameHost.HsFolds} {FrameHost.HsDiag}");
         sb.AppendLine("shot " + LastShot);
         sb.Append(ServerFrames.GridSnapshot); // built on the server thread (client-side reads froze the game)
         if (OrbitDisplay.LastReadout != null) sb.AppendLine("orbit " + OrbitDisplay.LastReadout.Replace("\n", " | "));

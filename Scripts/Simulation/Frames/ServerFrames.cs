@@ -41,6 +41,7 @@ public static class ServerFrames
     public static readonly Dictionary<long, Vector3D> AnchorAccel = new Dictionary<long, Vector3D>();
 
     private static long _lastTickStamp;
+    private static DateTime _lastGameTime;
     private static int _tick;
 
     /// <summary>Snapshot for the harness status (built on the server thread).</summary>
@@ -74,6 +75,21 @@ public static class ServerFrames
         if (_lastTickStamp != 0 && dt < 0.004) return; // once per frame
         _lastTickStamp = now;
         TickRate.Server.Count();
+        // Physics runs on game time (it slows and pauses with the game), so the tidal velocity
+        // changes must use game-time dt too; the wall-clock dt above only gates once-per-frame.
+        try
+        {
+            var gt = session.Get<Keen.VRage.Core.Game.GameSystems.GameTimes.IGameTime>();
+            if (gt != null)
+            {
+                DateTime g = gt.CurrentGameTime;
+                double gdt = _lastGameTime == default ? 0 : (g - _lastGameTime).TotalSeconds;
+                _lastGameTime = g;
+                if (gdt <= 0) return;   // paused
+                dt = gdt;
+            }
+        }
+        catch { }
         if (dt <= 0 || dt > 0.25) dt = 1.0 / 60.0;
         _tick++;
 

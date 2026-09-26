@@ -51,14 +51,39 @@ public static class SystemHost
     public static double Timescale = 1.0;
     private static long _lastClockTicks;
 
-    /// <summary>Advance the clock once per frame (idempotent within ~2 ms).</summary>
-    public static double AdvanceClock()
+    private static DateTime _lastGameTime;
+    /// <summary>Which clock drove the last advance ("game" = IGameTime, "wall" = fallback).</summary>
+    public static string ClockSource = "-";
+
+    /// <summary>
+    /// Advance the clock once per frame (idempotent: a second call in the same frame sees no game time
+    /// pass). Driven by the game's own time (IGameTime: synced client/server, follows game speed,
+    /// pauses with the game), so the rails and the physics agree on how much time passed; the
+    /// physics steps gravity on game time, not wall time. Falls back to the wall clock.
+    /// </summary>
+    public static double AdvanceClock(Keen.VRage.Core.Game.Systems.Session session = null)
     {
-        long now = System.Diagnostics.Stopwatch.GetTimestamp();
-        if (_lastClockTicks == 0) { _lastClockTicks = now; return 0; }
-        double dt = (now - _lastClockTicks) / (double)System.Diagnostics.Stopwatch.Frequency;
-        if (dt < 0.002) return 0;
-        _lastClockTicks = now;
+        double dt;
+        Keen.VRage.Core.Game.GameSystems.GameTimes.IGameTime gt = null;
+        try { gt = session?.Get<Keen.VRage.Core.Game.GameSystems.GameTimes.IGameTime>(); } catch { gt = null; }
+        if (gt != null)
+        {
+            DateTime g = gt.CurrentGameTime;
+            if (_lastGameTime == default) { _lastGameTime = g; return 0; }
+            dt = (g - _lastGameTime).TotalSeconds;
+            if (dt <= 0) return 0;
+            _lastGameTime = g;
+            ClockSource = "game";
+        }
+        else
+        {
+            long now = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (_lastClockTicks == 0) { _lastClockTicks = now; return 0; }
+            dt = (now - _lastClockTicks) / (double)System.Diagnostics.Stopwatch.Frequency;
+            if (dt < 0.002) return 0;
+            _lastClockTicks = now;
+            ClockSource = "wall";
+        }
         if (dt > 0.25) dt = 0.25; // a stall must not throw rails forward
         double next = Now + dt * Timescale;
         // Warp policy: the clock never steps past an arrival. Stop exactly at the earliest inbound

@@ -279,6 +279,28 @@ public static class DevHarness
                 MapView.DiagCross = On(a[1]);
                 return "mapdiag=" + MapView.DiagCross;
 
+            case "sectors":
+            {
+                // DEV: log every colonization sector (centre, size, nearest body and distance).
+                var sec = session.SessionComponents.TryGet<Keen.Game2.Simulation.GameSystems.Colonization.SectorsSessionComponent>();
+                if (sec == null) return "no sectors component";
+                int n = 0;
+                foreach (var sc in sec.Sectors)
+                {
+                    var c = sc.Area.Center;
+                    string near = "-"; double nd = double.MaxValue;
+                    foreach (var p in PlanetBeacons.All())
+                    {
+                        double d = (p.Center - c).Length();
+                        if (d < nd) { nd = d; near = PlanetName(p); }
+                    }
+                    Log.Default?.Info($"[ORBIT-DEV] sector '{sc.Name}' centre=({c.X / 1000:F0}, {c.Y / 1000:F0}, {c.Z / 1000:F0}) km size={sc.Area.Size / 1000:F0} km hole={sc.IsHole} nearest={near} at {nd / 1000:F0} km");
+                    n++;
+                }
+                Log.Default?.Info($"[ORBIT-DEV] map world pos={sec.MapWorldPosition} scale={sec.MapWorldScale}");
+                return $"{n} sectors logged";
+            }
+
             case "mapview":
                 MapView.Mode = (MapView.ViewMode)Enum.Parse(typeof(MapView.ViewMode), a[1], ignoreCase: true);
                 return $"mapview={MapView.Mode}";

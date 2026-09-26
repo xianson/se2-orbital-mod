@@ -23,11 +23,15 @@ namespace OrbitalMod;
 public static class SystemHost
 {
     /// <summary>Synthetic star: mu = g * R^2 = 28 * (6000 km)^2 ~ 1.0e15 (SampleSystems.Sol).</summary>
-    public const double StarSurfaceGravity = 28.0;   // SE-Aerospace's playable central well
+    /// <summary>The sun's mass as in SE-Aerospace (28 m/s^2 at its k-scaled radius); kept when the orbits shrink.</summary>
+    public const double StarMu = 28.0 * (6.9634e8 * K) * (6.9634e8 * K);
+    public const double StarSurfaceGravity = StarMu / (StarRadius * StarRadius);
     /// <summary>The system scale (SE-Aerospace's rule): Verdure plays Earth, k = 63 km / 6371 km.</summary>
     public const double K = 63.0 / 6371.0;
-    public const double AU = 1.495978707e11 * K;          // 1.479 M km
-    public const double StarRadius = 6.9634e8 * K;        // 6,886 km
+    /// <summary>Orbits (and the sun's radius) a further 10x smaller than k: a compact, KSP-like system.</summary>
+    public const double OrbitScale = 0.1;
+    public const double AU = 1.495978707e11 * K * OrbitScale;   // 147,900 km
+    public const double StarRadius = 6.9634e8 * K * OrbitScale;   // 689 km
     /// <summary>First planet's orbit around the star, and the spacing factor for the next ones.</summary>
     public const double FirstOrbit = AU;                  // Verdure = Earth, 1 AU
     public const double OrbitSpacing = 1.524;             // Kemik = Mars, 1.524 AU
@@ -74,7 +78,7 @@ public static class SystemHost
     public static readonly string[] PlanetOrder = { "Verdure", "Kemik" };
 
     /// <summary>Palatine plays the Moon (384,400 km x k); other moons keep their charted distance (Caligo is Phobos-like).</summary>
-    private static double MoonOrbit(string name, double charted) => name == "Palatine" ? 3.844e8 * K : charted;
+    private static double MoonOrbit(string name, double charted) => name == "Palatine" ? 3.844e8 * K * OrbitScale : charted;
     private static double MoonEccentricity(string name) => name == "Palatine" ? 0.0549 : 0.015;
     private static double PlanetEccentricity(string name) => name == "Verdure" ? 0.0167 : name == "Kemik" ? 0.0934 : 0.02;
     public const double MoonMaxDistance = 1.0e6;   // m

@@ -377,8 +377,8 @@ public static class CleanMap
 
     public const string SunPart = "OrbitalSun", BeltPart = "OrbitalBelt";
     // The planet's own sector at true size: from its charted distance, +/- half its charted size.
-    private static double si_own_inner(SectorHomes.Home h) => Math.Max(0, h.A - h.Size * 0.5);
-    private static double si_own_outer(SectorHomes.Home h) => h.A + h.Size * 0.5;
+    private static double si_own_inner(SectorHomes.Home h) => Math.Max(0, h.A - h.Size * 0.5 * SystemHost.OrbitScale);
+    private static double si_own_outer(SectorHomes.Home h) => h.A + h.Size * 0.5 * SystemHost.OrbitScale;
     public const int BeltSegments = 48;
 
     // ───────────────────────────── helpers ─────────────────────────────

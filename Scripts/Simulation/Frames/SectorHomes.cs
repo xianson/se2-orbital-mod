@@ -46,7 +46,7 @@ public static class SectorHomes
         h.Kind = Campaign.TryGetValue(sector, out var k) ? k : chartDistance > MapView.TrojanThreshold ? (slot % 2 == 0 ? Kind.L4 : Kind.L5) : Kind.Ellipse;
         uint hash = 2166136261;
         foreach (char c in sector) hash = (hash ^ c) * 16777619;
-        h.A = chartDistance;
+        h.A = chartDistance * SystemHost.OrbitScale;   // the charted distance, scaled with the orbits
         h.E = 0.06 + 0.22 * ((hash & 0xFFFF) / 65535.0);
         h.Omega = ((hash >> 16) & 0xFFFF) / 65535.0 * 2 * Math.PI;
         h.M0 = chartBearing - h.Omega;   // starts near its charted bearing

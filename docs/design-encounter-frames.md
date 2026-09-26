@@ -16,6 +16,9 @@ orbit), never by flying through the meaningless world space between windows.
 - **Sector anchors**: every deep-space sector gets a site at its charted centre, even when empty.
   Reaching a sector's orbit drops you into its region, where the game spawns the sector's
   procedural encounters around you as usual; they are adopted into the site.
+- Anchors keep clear of hazards: a sector centre inside a brown dwarf's killing field (Delfos:
+  700 km, lethal within about 430 km in one 1.5 s tick) is moved radially out to 1.08 x the field
+  radius in the chart plane, towards the sector's planet. The anchor's orbit stays its sector's home.
 - Anything unframed in a site's bubble (20 km) belongs to the site: grids, the player.
 - Sites are rebuilt from the world on load (not saved); their members are re-adopted.
 

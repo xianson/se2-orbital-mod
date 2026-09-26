@@ -164,32 +164,81 @@ public static class EncounterFrames
             n++;
         }
         int anchors = 0;
+        var hazards = Hazards(session);
         if (SectorAnchors && sectors != null)
             foreach (var sc in sectors.Sectors)
             {
                 if (!homes.TryGetValue(sc.Name, out var h) || h.Kind == SectorHomes.Kind.OwnPlanet) continue;
-                Vector3D c = sc.Area.Center;
+                Vector3D c = ClearOf(hazards, sc.Area.Center, h.Host);
                 if (VoxelBerthRegistry.TryCellContaining(c, reg, out _, out _) || SiteContaining(c) != null) continue;
-                var f = MakeSite(sectors, homes, c, sc.Name, t);
+                var f = MakeSite(sectors, homes, c, sc.Name, t, sc.Area.Center);
                 if (f == null) continue;
                 _sites[f.Id].Anchor = true;
                 anchors++;
             }
-        Status = $"{n} site(s) from {cand.Count} encounter grid(s), {anchors} sector anchor(s); {homes.Count} sector homes";
+        Status = $"{n} site(s) from {cand.Count} encounter grid(s), {anchors} sector anchor(s), {hazards.Count} hazard(s); {homes.Count} sector homes";
         Event($"SITES built: {Status}");
+    }
+
+    public const double HazardMargin = 1.08;   // keep anchors this far outside a killing field's outer radius
+
+    /// <summary>
+    /// Killing fields (a brown dwarf's heat): centre and outer radius. Delfos Sector's charted centre IS the
+    /// brown dwarf, whose field kills a character within about 430 km in one 1.5 s damage tick.
+    /// </summary>
+    private static List<(Vector3D c, double r)> Hazards(Keen.VRage.Core.Game.Systems.Session session)
+    {
+        var l = new List<(Vector3D, double)>();
+        try
+        {
+            foreach (var e in session.GetEntitiesOfType<Keen.Game2.Simulation.WorldObjects.BrownDwarf.KillingFieldComponent>())
+            {
+                var comp = e.TryGet<Keen.Game2.Simulation.WorldObjects.BrownDwarf.KillingFieldComponent>();
+                object def = comp != null ? PlanetRenderBridge.GetMember(comp, "_componentDefinition") : null;
+                object rv = def != null ? PlanetRenderBridge.GetMember(def, "Radius") : null;
+                double r = rv is double d ? d : rv is float fl ? fl : 7.0e5;   // Delfos: 700 km
+                l.Add((e.Data.GetWorldTransform().Position, r));
+                Event($"hazard: killing field r={r / 1000:F0} km at {ServerPlanetBeacon.Fmt(e.Data.GetWorldTransform().Position)}");
+            }
+        }
+        catch (Exception ex) { Event("hazards: " + ex.Message); }
+        return l;
+    }
+
+    /// <summary>A point pushed radially out of every killing field (towards the sector's planet when at the centre).</summary>
+    private static Vector3D ClearOf(List<(Vector3D c, double r)> hazards, Vector3D p, string host)
+    {
+        foreach (var (c, r) in hazards)
+        {
+            double keep = r * HazardMargin;
+            Vector3D d = p - c;
+            if (d.Length() >= keep) continue;
+            // Out along the chart plane (XZ); from the very centre, towards the sector's planet.
+            Vector3D flat = new Vector3D(d.X, 0, d.Z);
+            if (flat.Length() < 1000.0)
+            {
+                Vector3D to = SystemHost.BeaconOf.TryGetValue(host ?? "", out var b) ? b.Center - c : Vector3D.UnitX;
+                flat = new Vector3D(to.X, 0, to.Z);
+                if (flat.LengthSquared() < 1) flat = Vector3D.UnitX;
+            }
+            d = flat;
+            p = c + Vector3D.Normalize(d) * keep;
+        }
+        return p;
     }
 
     /// <summary>A site frame at a world spot (its sector gives it an orbit). Caller holds FramesLock.</summary>
     internal static ProximityFrame MakeSite(SectorsSessionComponent sectors, Dictionary<string, SectorHomes.Home> homes,
-                                            Vector3D world, string label, double t)
+                                            Vector3D world, string label, double t, Vector3D? chartPoint = null)
     {
         var reg = SystemHost.Registry;
         SectorComponent sc = null;
-        try { sc = sectors?.TryGetSectorAt(world); } catch { }
+        Vector3D cp = chartPoint ?? world;   // where it is on the chart (an anchor moved clear of a hazard keeps its sector's point)
+        try { sc = sectors?.TryGetSectorAt(cp); } catch { }
         if (sc == null && sectors != null)
         {
             double best = double.MaxValue;
-            foreach (var s in sectors.Sectors) { double d = (s.Area.Center - world).Length(); if (d < best) { best = d; sc = s; } }
+            foreach (var s in sectors.Sectors) { double d = (s.Area.Center - cp).Length(); if (d < best) { best = d; sc = s; } }
         }
         if (sc == null || !homes.TryGetValue(sc.Name, out var home) || reg.Find(home.Host) == null) return null;
 
@@ -201,7 +250,7 @@ public static class EncounterFrames
             var planet = reg.Find(home.Host);
             var def = reg.FindDefinition(home.Host);
             Vector3D pc = SystemHost.BeaconOf.TryGetValue(home.Host, out var b) ? b.Center : Vector3D.Zero;
-            Vector3D d = world - pc;
+            Vector3D d = cp - pc;
             double keep = def != null ? PlanetBerths.KeepRadius(def) : 1e5;
             site.OwnR = Math.Max(keep * 1.6, new Vector3D(d.X, d.Z, 0).Length() * SystemHost.OrbitScale);
             site.OwnTheta = Math.Atan2(d.Z, d.X);
@@ -209,7 +258,7 @@ public static class EncounterFrames
         else
         {
             // The site's place within its sector, scaled like the orbits, held in the home's co-moving axes.
-            Vector3D dw = (world - sc.Area.Center) * SystemHost.OrbitScale;
+            Vector3D dw = (cp - sc.Area.Center) * SystemHost.OrbitScale;
             Vector3D dm = new Vector3D(dw.X, dw.Z, dw.Y);   // map/world XZ is the ecliptic (model XY)
             Basis(site, t, out Vector3D R, out Vector3D T, out Vector3D N);
             site.Rtn = new Vector3D(Vector3D.Dot(dm, R), Vector3D.Dot(dm, T), Vector3D.Dot(dm, N));

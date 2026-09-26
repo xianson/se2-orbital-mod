@@ -66,6 +66,16 @@ public static class SystemHost
         return body != null;
     }
 
+    /// <summary>The world's sun period (seconds, 0 = its sun does not rotate); set by the client host.</summary>
+    public static double WorldSunPeriod;
+
+    private static double PlanetDay()
+    {
+        double d = OrbitalConfig.PlanetDaySeconds;
+        if (d >= 0) return d;
+        return WorldSunPeriod > 0 ? WorldSunPeriod : 0;
+    }
+
     /// <summary>Load: continue the rails clock from the saved universe time.</summary>
     public static void RestoreClock(double t) { if (!double.IsNaN(t) && !double.IsInfinity(t)) Now = t; }
     /// <summary>Which clock drove the last advance ("game" = IGameTime, "wall" = fallback).</summary>
@@ -167,7 +177,7 @@ public static class SystemHost
                 // Match the engine's physics after the inverse-square patch.
                 SurfaceGravityMps2 = law.G0 * mult, RadiusMeters = law.R0,
                 HasAtmosphere = true, AtmosphereHeightMeters = law.R0 * AtmosphereFraction,
-                RotationPeriodSeconds = 0.0, // SE2 voxel planets do not spin; no rotating chart in v1
+                RotationPeriodSeconds = PlanetDay(), // the cell is the rotating chart (see Chart)
                 ParkSubtype = "SE2:" + name,
             });
             a *= OrbitSpacing;

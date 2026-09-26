@@ -118,11 +118,20 @@ public static class GridMembers
         catch { return false; }
     }
 
-    /// <summary>This frame's thrust delta-v (the thrust component's per-frame impulse / mass), world space.</summary>
+    /// <summary>
+    /// This frame's thrust delta-v (the thrust component's per-frame impulse / mass), world space,
+    /// ONLY while a pilot commands thrust (VoluntaryThrustData non-zero). Without input the thrust
+    /// is the inertial dampeners, and in HighSpeed they would fight the engine's own gravity step
+    /// (the velocity is zeroed every tick): folding that would cancel gravity in the conic (seen in
+    /// game: an unpiloted wreck climbed from a=167 to 217 km). In orbit, dampeners hold the orbit.
+    /// </summary>
     public static Vector3D ThrustDv(OrbitalGridComponent g)
     {
         try
         {
+            if (!g.Entity.Data.TryGet<Keen.Game2.Simulation.WorldObjects.CubeBlocks.Movement.VoluntaryThrustData>(out var vt) ||
+                vt.VoluntaryThrust.LengthSquared() < 1e-6f)
+                return Vector3D.Zero;
             if (g.Entity.Data.TryGet<Keen.Game2.Simulation.WorldObjects.Movement.ActiveThrustData>(out var at) &&
                 g.Entity.Data.TryGet<RigidBodyMassProperties>(out var mp) && mp.InvMass > 0)
                 return (Vector3D)WorldTransform.TransformDirection(at.ComputedThrustPerFrame, g.Entity.Data.GetWorldTransform()) * mp.InvMass;

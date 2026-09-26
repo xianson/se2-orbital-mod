@@ -26,6 +26,15 @@ public enum ProxyMode
 public static class OrbitalConfig
 {
     /// <summary>
+    /// Planet day (sidereal), seconds: -1 = the world's own sun period (keeps SE2's day length; no
+    /// spin when the world's sun does not rotate), 0 = planets do not spin, &gt; 0 = that period.
+    /// </summary>
+    public static double PlanetDaySeconds = -1;
+    /// <summary>Fictitious forces in a spinning cell apply above this speed or altitude only (the
+    /// surface is at rest in the chart; slow ground traffic sees corrections far below friction).</summary>
+    public static double FictitiousMinSpeed = 20.0, FictitiousMinAltitude = 5000.0;
+
+    /// <summary>
     /// TOTAL PARTITION for legacy space (the world outside every planet cell, e.g. the spawn area):
     /// capture its dynamic grids and the player into conjunction frames, treating that space as a
     /// window around the nearest planet (celestial = planet + world offset). OFF by default: objects

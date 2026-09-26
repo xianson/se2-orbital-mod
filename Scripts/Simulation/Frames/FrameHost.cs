@@ -59,7 +59,9 @@ public static class FrameHost
         var node = reg?.Find(body);
         if (node == null || !VoxelBerthRegistry.TryGetCell(body, reg, out Vector3D cell)) return false;
         if (!VoxelBerthRegistry.TryCellContaining(_lastPos, reg, out string b, out _) || b != body) return false;
-        el = FrameMath.CaptureElements(new StateVector(_lastPos - cell, _lastVel), node.Mu, t);
+        var ch = Chart.Of(body, t);
+        Vector3D lr = _lastPos - cell;
+        el = FrameMath.CaptureElements(new StateVector(ch.ToInertial(lr), ch.VelToInertial(lr, _lastVel)), node.Mu, t);
         return IsFinite(el.SemiMajorAxis) && IsFinite(el.MeanMotion);
     }
     /// <summary>The local player's conjunction frame, if framed.</summary>
@@ -83,6 +85,15 @@ public static class FrameHost
     {
         TickRate.Client.Count();
         _mult = gravityMultiplier > 0 ? gravityMultiplier : 1.0;
+        if (!SystemHost.Built)
+        {
+            try
+            {
+                var sun = session.SessionComponents.TryGet<Keen.Game2.Simulation.GameSystems.Sun.SunSessionComponent>();
+                SystemHost.WorldSunPeriod = sun != null && sun.SunRotation ? sun.SunPeriod.TotalSeconds : 0;
+            }
+            catch { }
+        }
         if (!SystemHost.EnsureBuilt(gravityMultiplier)) return;
         double dt = SystemHost.AdvanceClock(session);
         if (dt <= 0) return; // once per frame
@@ -117,6 +128,7 @@ public static class FrameHost
                 else if (!_tpPending)
                 {
                     if (_hsActive && !landed) vel = StepHighSpeed(ch, pos, vel, dt);
+                    else if (!landed) vel = ApplyFictitious(ch, pos, vel, dt);
                     TryStow(session, ch, id, pos, _hsActive ? _hsVel : vel, t);
                 }
             }
@@ -171,7 +183,10 @@ public static class FrameHost
         if (node == null) { ForceStow = false; return; }
 
         StateVector borg = node.OriginInRoot(t);
-        Vector3D rel = pos - cell;
+        Chart chart = legacy ? default : Chart.Of(body, t);
+        Vector3D relChart = pos - cell;
+        Vector3D rel = chart.ToInertial(relChart);
+        if (!_hsActive) vel = chart.VelToInertial(relChart, vel);   // HighSpeed carries the inertial velocity
         Vector3D cel = borg.Position + rel;
         Vector3D celVel = borg.Velocity + vel;
         double d = rel.Length();
@@ -201,7 +216,7 @@ public static class FrameHost
         _hsActive = false;
         ForceStow = false;
         _wasInKeep = false;
-        ServerFrames.Attach.Enqueue(new ServerFrames.AttachRequest { FrameId = frame.Id, RefPos = pos, RefVel = vel, Berth = frame.BerthCenter });
+        ServerFrames.Attach.Enqueue(new ServerFrames.AttachRequest { FrameId = frame.Id, RefPos = pos, RefVel = vel, Berth = frame.BerthCenter, Body = legacy ? null : body, Time = t });
         StartTeleport(session, frame.BerthCenter, Vector3D.Zero, t);
         Event($"STOW -> frame #{frame.Id} orbiting {parent.Name}: r={(cel - porg.Position).Length() / 1000:F1} km " +
               $"|v|={vel.Length():F1} m/s a={el.SemiMajorAxis / 1000:F1} km e={el.Eccentricity:F3} slot={frame.BerthSlotId} berth={ServerPlanetBeacon.Fmt(frame.BerthCenter)}");
@@ -324,8 +339,9 @@ public static class FrameHost
         if (!act) return;
         if (!VoxelBerthRegistry.TryGetCell(node.Name, reg, out Vector3D cellCenter)) return;
 
-        Vector3D worldPos = cellCenter + cel.Position;   // planet cells are 1:1 inertial windows (no spin in v1)
-        Vector3D worldVel = cel.Velocity;
+        Chart chart = Chart.Of(node.Name, t);
+        Vector3D worldPos = cellCenter + chart.FromInertial(cel.Position);   // the cell is the planet's rotating chart
+        Vector3D worldVel = chart.VelFromInertial(cel.Position, cel.Velocity);
         double speed = worldVel.Length();
         // Above the cap the planet cell runs HighSpeed: land with zero physics velocity and carry the
         // true velocity virtually (StepHighSpeed). Below it, plain physics.
@@ -457,7 +473,7 @@ public static class FrameHost
         if (pm > HsResidualMax) HsResidualMax = pm;
         HsDiag = $"thrust={thrust.Length():F3} meas={(IsFinite(measured) ? measured.Length() : -1):F3} gdt={gPhys.Length() * dt:F3}";
 
-        Vector3D dv = thrust + (pm > HsPushThreshold ? push : Vector3D.Zero);
+        Vector3D dv = Chart.Of(_hsBody, t).ToInertial(thrust + (pm > HsPushThreshold ? push : Vector3D.Zero));   // chart axes -> inertial
         if (_kick.LengthSquared() > 0)
         {
             // DEV kick: prograde / radial / normal, injected as a push (tests the fold, not the engine).
@@ -484,6 +500,23 @@ public static class FrameHost
         }
     }
 
+    /// <summary>Free flight in a spinning planet's cell (the rotating chart): Coriolis + centrifugal.</summary>
+    private static Vector3D ApplyFictitious(Entity ch, Vector3D pos, Vector3D vel, double dt)
+    {
+        if (dt <= 0) return vel;
+        var reg = SystemHost.Registry;
+        if (!VoxelBerthRegistry.TryCellContaining(pos, reg, out string body, out Vector3D cell)) return vel;
+        Chart c = Chart.Of(body, SystemHost.Now);
+        if (!c.Spin) return vel;
+        Vector3D r = pos - cell;
+        double alt = r.Length() - (reg.FindDefinition(body)?.RadiusMeters ?? 0);
+        if (vel.Length() < OrbitalConfig.FictitiousMinSpeed && alt < OrbitalConfig.FictitiousMinAltitude) return vel;
+        Vector3D nv = vel + c.Fictitious(r, vel) * dt;
+        if (!IsFinite(nv)) return vel;
+        SetVelocity(ch, nv);
+        return nv;
+    }
+
     private static Vector3D StepHighSpeed(Entity ch, Vector3D pos, Vector3D measured, double dt)
     {
         var reg = SystemHost.Registry;
@@ -493,12 +526,13 @@ public static class FrameHost
         FoldHighSpeedThrust(ch, pos - cell, measured, dt, t);
         StateVector st = OrbitPropagation.StateAt(_hsEl, t);
         _hsVel = st.Velocity;
-        double speed = _hsVel.Length();
+        Vector3D vChart = Chart.Of(_hsBody, t).VelFromInertial(st.Position, st.Velocity);
+        double speed = vChart.Length();
 
         if (speed < SpeedCap * HighSpeedExitFraction)
         {
             _hsActive = false;
-            SetVelocity(ch, _hsVel);
+            SetVelocity(ch, vChart);
             Event($"HighSpeed off at {speed:F0} m/s (physics takes over)");
             return _hsVel;
         }
@@ -506,13 +540,13 @@ public static class FrameHost
         if (st.Position.Length() < floor)
         {
             _hsActive = false;
-            Vector3D capped = _hsVel * (SpeedCap / speed);
+            Vector3D capped = vChart * (SpeedCap / speed);
             SetVelocity(ch, capped);
             Event($"HighSpeed surface guard at {(st.Position.Length() - (def?.RadiusMeters ?? 0)) / 1000:F1} km alt: {speed:F0} m/s -> {SpeedCap:F0} m/s physics");
             return capped;
         }
 
-        Vector3D target = cell + st.Position;
+        Vector3D target = cell + Chart.Of(_hsBody, t).FromInertial(st.Position);
         SetVelocity(ch, Vector3D.Zero);
         var wt = ch.Data.GetWorldTransform();
         ch.Data.Set(new WorldTransform(target, wt.Orientation));
@@ -590,7 +624,10 @@ public static class FrameHost
         if (VoxelBerthRegistry.TryCellContaining(cam, reg, out string body, out Vector3D cell) && reg.Find(body) is GravityBody node)
         {
             StateVector o = node.OriginInRoot(t);
-            Observer = new ObserverFrame(cell, o.Position, o.Velocity, node);
+            var obs = new ObserverFrame(cell, o.Position, o.Velocity, node);
+            var odef = reg.FindDefinition(body);
+            if (odef != null) { PlanetBerths.FillWindowSpin(ref obs, node, odef, t, cam); PlanetBerths.SetWindowSpinActive(ref obs, true); }
+            Observer = obs;
             ObserverPlanet = body;
             return;
         }
@@ -645,9 +682,13 @@ public static class FrameHost
             var a = _pendingArrival;
             _pendingArrival = null;
             _pendingShift = Vector3D.Zero;
-            Vector3D off = pos - a.AnchorPos;
+            Vector3D off = pos - a.AnchorPos;              // berth offset (inertial window axes)
             Vector3D relPos = a.CelPos + off;
-            double speed = a.CelVel.Length();
+            Chart achart = Chart.Of(a.Body, t);
+            Vector3D chartVel = achart.VelFromInertial(relPos, a.CelVel);
+            Vector3D arriveAt = VoxelBerthRegistry.TryGetCell(a.Body, SystemHost.Registry, out Vector3D acell)
+                ? acell + achart.FromInertial(relPos) : a.Target + off;
+            double speed = chartVel.Length();
             bool hs = speed > SpeedCap;
             if (hs)
             {
@@ -658,7 +699,7 @@ public static class FrameHost
             }
             PlayerFrame = null;
             _wasInKeep = true;
-            StartTeleport(session, a.Target + off, hs ? Vector3D.Zero : a.CelVel, t);
+            StartTeleport(session, arriveAt, hs ? Vector3D.Zero : chartVel, t);
             Event($"player arrives with its grid frame at {a.Body}{(hs ? " (HighSpeed)" : "")}");
             return true;
         }

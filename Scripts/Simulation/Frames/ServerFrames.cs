@@ -57,7 +57,8 @@ public static class ServerFrames
     public static volatile bool StopAllGrids;
 
     // ── requests from the client half ──
-    public sealed class AttachRequest { public long FrameId; public Vector3D RefPos; public Vector3D RefVel; public Vector3D Berth; }
+    /// <summary>RefVel is inertial; Body (null = no chart) and Time give the chart the grids' velocities convert from.</summary>
+    public sealed class AttachRequest { public long FrameId; public Vector3D RefPos; public Vector3D RefVel; public Vector3D Berth; public string Body; public double Time; }
     public static readonly ConcurrentQueue<AttachRequest> Attach = new ConcurrentQueue<AttachRequest>();
 
     /// <summary>DEV: put a grid on its own orbit (a frame with the grid as anchor).</summary>
@@ -116,6 +117,7 @@ public static class ServerFrames
                 foreach (var f in frames) UpdateGridFrame(f, dt);
                 StepGridHighSpeed();
                 if (_tick % 10 == 0) StowLoneGrids();
+                ApplyFictitious(dt);
                 if (_tick % MergeScreenInterval == 0) ScreenMerges(MergeScreenInterval * dt);
             }
         }
@@ -139,7 +141,10 @@ public static class ServerFrames
             if (!SystemHost.Frames.AddMember(frame, g.Id)) continue;
             // A grid riding its conic (HighSpeed) has zero physical velocity: its true velocity is the
             // conic's. Leave HighSpeed first, or StepGridHighSpeed keeps dragging it off the berth.
-            Vector3D v = GridMembers.Velocity(g);
+            Chart chart = req.Body != null ? Chart.Of(req.Body, req.Time) : default;
+            Vector3D cellC = default;
+            bool inCell = req.Body != null && VoxelBerthRegistry.TryGetCell(req.Body, SystemHost.Registry, out cellC);
+            Vector3D v = inCell ? chart.VelToInertial(p - cellC, GridMembers.Velocity(g)) : GridMembers.Velocity(g);
             if (_gridHighSpeed.TryGetValue(g.Id, out var hs))
             {
                 var st = OrbitPropagation.StateAt(hs.el, SystemHost.Now);
@@ -148,11 +153,32 @@ public static class ServerFrames
             }
             // Same relative placement in the berth; velocity relative to the frame (the player's own
             // velocity went into the rails).
-            GridMembers.SetPosition(g, req.Berth + (p - req.RefPos));
+            GridMembers.SetPosition(g, req.Berth + (inCell ? chart.ToInertial(p - req.RefPos) : p - req.RefPos));
             GridMembers.SetVelocity(g, v - req.RefVel);
             n++;
         }
         if (n > 0) Event($"ATTACH {n} grid(s) within {AttachRadius / 1000:F0} km -> frame #{frame.Id}");
+    }
+
+    /// <summary>Free-flying grids in a spinning planet's cell (the rotating chart): Coriolis + centrifugal.</summary>
+    private static void ApplyFictitious(double dt)
+    {
+        var reg = SystemHost.Registry;
+        double t = SystemHost.Now;
+        foreach (var g in GridMembers.All())
+        {
+            if (!g.IsServer || _gridHighSpeed.ContainsKey(g.Id) || !GridMembers.IsDynamic(g)) continue;
+            Vector3D pos = GridMembers.Position(g);
+            if (!VoxelBerthRegistry.TryCellContaining(pos, reg, out string body, out Vector3D cell)) continue;
+            if (SystemHost.Frames.FindByMember(g.Id) != null) continue;
+            Chart c = Chart.Of(body, t);
+            if (!c.Spin) continue;
+            Vector3D r = pos - cell, v = GridMembers.Velocity(g);
+            double alt = r.Length() - (reg.FindDefinition(body)?.RadiusMeters ?? 0);
+            if (v.Length() < OrbitalConfig.FictitiousMinSpeed && alt < OrbitalConfig.FictitiousMinAltitude) continue;
+            Vector3D dv = c.Fictitious(r, v) * dt;
+            if (IsFinite(dv)) GridMembers.AddVelocity(g, dv);
+        }
     }
 
     // ───────────────────────────── stow (grids without a player) ─────────────────────────────
@@ -187,7 +213,11 @@ public static class ServerFrames
                 var st = OrbitPropagation.StateAt(hs.el, t);
                 if (IsFinite(st.Velocity)) vel = st.Velocity;
             }
-            Vector3D rel = pos - cell;
+            bool legacy = !VoxelBerthRegistry.TryCellContaining(pos, reg, out _, out _);
+            Chart chart = legacy ? default : Chart.Of(body, t);
+            Vector3D relChart = pos - cell;
+            Vector3D rel = chart.ToInertial(relChart);
+            if (!_gridHighSpeed.ContainsKey(g.Id)) vel = chart.VelToInertial(relChart, vel);
             double d = rel.Length();
             double shell = PlanetBerths.ShellRadius(def);
             double keep = PlanetBerths.KeepRadius(def);
@@ -209,7 +239,7 @@ public static class ServerFrames
             GridMembers.SetVelocity(g, Vector3D.Zero);
             Event($"STOW grid {g.Id} '{g.DisplayName}' -> frame #{frame.Id} orbiting {parent.Name}: r={(cel - porg.Position).Length() / 1000:F1} km " +
                   $"|v|={vel.Length():F0} m/s a={el.SemiMajorAxis / 1000:F1} km e={el.Eccentricity:F3} slot={frame.BerthSlotId}");
-            DoAttach(new AttachRequest { FrameId = frame.Id, RefPos = pos, RefVel = vel, Berth = frame.BerthCenter });
+            DoAttach(new AttachRequest { FrameId = frame.Id, RefPos = pos, RefVel = vel, Berth = frame.BerthCenter, Body = legacy ? null : body, Time = t });
         }
     }
 
@@ -452,21 +482,22 @@ public static class ServerFrames
         if (!VoxelBerthRegistry.TryGetCell(node.Name, reg, out Vector3D cell)) return;
 
         Vector3D anchorPos = GridMembers.Position(anchor);
-        Vector3D target = cell + cel.Position;
-        double speed = cel.Velocity.Length();
+        Chart chart = Chart.Of(node.Name, t);
+        Vector3D target = cell + chart.FromInertial(cel.Position);
+        double speed = chart.VelFromInertial(cel.Position, cel.Velocity).Length();
         bool hs = speed > FrameHost.SpeedCap;
         foreach (var g in grids)
         {
             Vector3D off = GridMembers.Position(g) - anchorPos;
             Vector3D vRel = GridMembers.Velocity(g);
-            GridMembers.SetPosition(g, target + off);
+            GridMembers.SetPosition(g, cell + chart.FromInertial(cel.Position + off));   // berth offsets are inertial
             if (hs)
             {
                 GridMembers.SetVelocity(g, Vector3D.Zero);
                 var el = FrameMath.CaptureElements(new StateVector(cel.Position + off, cel.Velocity + vRel), node.Mu, epoch);
                 if (IsFinite(el.SemiMajorAxis)) _gridHighSpeed[g.Id] = (node.Name, el);
             }
-            else GridMembers.SetVelocity(g, cel.Velocity + vRel);
+            else GridMembers.SetVelocity(g, chart.VelFromInertial(cel.Position + off, cel.Velocity + vRel));
         }
         // The player, if a member, arrives with the same offset from the anchor.
         long fid = f.Id;
@@ -502,7 +533,7 @@ public static class ServerFrames
             if (g == null || !VoxelBerthRegistry.TryGetCell(kv.Value.body, reg, out Vector3D cell)) { done.Add(kv.Key); continue; }
             var def = reg.FindDefinition(kv.Value.body);
             var el = kv.Value.el;
-            Vector3D thrust = GridMembers.ThrustDv(g);
+            Vector3D thrust = Chart.Of(kv.Value.body, t).ToInertial(GridMembers.ThrustDv(g));
             if (thrust.LengthSquared() > 1e-12)
             {
                 // Grid thrust in HighSpeed: fold the frame's thrust impulse into the conic (as the player's).
@@ -512,17 +543,19 @@ public static class ServerFrames
                 if (IsFinite(el2.SemiMajorAxis) && IsFinite(el2.MeanMotion)) { el = el2; refold.Add((kv.Key, kv.Value.body, el2)); }
             }
             StateVector st = OrbitPropagation.StateAt(el, t);
-            double speed = st.Velocity.Length();
+            Chart chart = Chart.Of(kv.Value.body, t);
+            Vector3D vChart = chart.VelFromInertial(st.Position, st.Velocity);
+            double speed = vChart.Length();
             double floor = (def?.RadiusMeters ?? 0) + FrameHost.SurfaceGuard;
             if (speed < FrameHost.SpeedCap * FrameHost.HighSpeedExitFraction || st.Position.Length() < floor)
             {
-                Vector3D v = speed > FrameHost.SpeedCap ? st.Velocity * (FrameHost.SpeedCap / speed) : st.Velocity;
+                Vector3D v = speed > FrameHost.SpeedCap ? vChart * (FrameHost.SpeedCap / speed) : vChart;
                 GridMembers.SetVelocity(g, v);
                 done.Add(kv.Key);
                 Event($"grid {g.Id} HighSpeed off ({speed:F0} m/s, alt {(st.Position.Length() - (def?.RadiusMeters ?? 0)) / 1000:F1} km)");
                 continue;
             }
-            GridMembers.SetPosition(g, cell + st.Position);
+            GridMembers.SetPosition(g, cell + chart.FromInertial(st.Position));
             GridMembers.SetVelocity(g, Vector3D.Zero);
         }
         foreach (var r in refold) if (!done.Contains(r.id)) _gridHighSpeed[r.id] = (r.body, r.el);

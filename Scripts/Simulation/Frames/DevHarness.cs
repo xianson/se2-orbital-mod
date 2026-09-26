@@ -462,6 +462,12 @@ public static class DevHarness
         sb.AppendLine($"restore {SavedState.LastRestore} | save {LastSave}");
         sb.AppendLine($"mapview {MapView.Mode}: {MapView.Status} | omap {OrbitalMap.Status} | cam {SpecCam.Status}");
         sb.AppendLine($"sun {SunDriver.Status}");
+        try
+        {
+            var vb = SystemHost.Registry?.Find("Verdure");
+            if (vb != null) sb.AppendLine($"spin Verdure T={vb.RotationPeriodSeconds:F0}s theta={vb.RotationAngleAt(SystemHost.Now) * 180 / Math.PI:F1}deg worldSunPeriod={SystemHost.WorldSunPeriod:F0}s");
+        }
+        catch { }
         sb.AppendLine($"time {DateTime.Now:HH:mm:ss.fff} ticks/s client={TickRate.Client.PerSecond:F1} server={TickRate.Server.PerSecond:F1} rails t={SystemHost.Now:F1} x{SystemHost.Timescale} clock={SystemHost.ClockSource}");
         sb.AppendLine($"camera {camera.Position.X:F0} {camera.Position.Y:F0} {camera.Position.Z:F0}");
         sb.AppendLine($"physics gravityMultiplier client={_clientGravityMultiplier} server={ServerPlanetBeacon.ServerGravityMultiplier}");

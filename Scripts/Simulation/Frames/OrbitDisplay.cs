@@ -110,7 +110,8 @@ public static class OrbitDisplay
             return;
         }
 
-        KeplerianElements el = OrbitalMath.ToElements(sv, mu);
+        Chart chart = Chart.Of(name, SystemHost.Now);
+        KeplerianElements el = OrbitalMath.ToElements(new StateVector(chart.ToInertial(sv.Position), chart.VelToInertial(sv.Position, sv.Velocity)), mu);
         if (!IsFinite(el.SemiMajorAxis) || !IsFinite(el.Eccentricity))
         {
             Clear();
@@ -129,8 +130,8 @@ public static class OrbitDisplay
             int segments = path.IsClosed ? n : n - 1;
             for (int i = 0; i < segments; i++)
             {
-                Vector3D p0 = center + pts[i];
-                Vector3D p1 = center + pts[(i + 1) % n];
+                Vector3D p0 = center + chart.FromInertial(pts[i]);
+                Vector3D p1 = center + chart.FromInertial(pts[(i + 1) % n]);
                 if ((p0 - camera.Position).LengthSquared() < NearCameraSkip * NearCameraSkip ||
                     (p1 - camera.Position).LengthSquared() < NearCameraSkip * NearCameraSkip) continue;
                 _builder.AddLine(p0, p1, color);

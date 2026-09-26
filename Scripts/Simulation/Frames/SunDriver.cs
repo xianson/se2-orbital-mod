@@ -41,6 +41,8 @@ public static class SunDriver
         Vector3D d = star - cel;
         if (d.LengthSquared() < 1) return;
         d = Vector3D.Normalize(d);
+        if (FrameHost.PlayerFrame == null && VoxelBerthRegistry.TryCellContaining(observerWorld, reg, out string cb, out _))
+            d = Chart.Of(cb, t).FromInertial(d);   // the rotating chart: day and night
         DirectionToSun = d;
         var (az, el) = Vector3.GetAzimuthAndElevation(-(Vector3)d);
         sun.Override(MathHelper.ToDegrees(az), MathHelper.ToDegrees(el));
@@ -63,10 +65,12 @@ public static class SunDriver
             return true;
         }
         string body; Vector3D cell;
-        if (!VoxelBerthRegistry.TryCellContaining(world, reg, out body, out cell) && !SystemHost.TryNearestCell(world, out body, out cell)) return false;
+        bool inCell = VoxelBerthRegistry.TryCellContaining(world, reg, out body, out cell);
+        if (!inCell && !SystemHost.TryNearestCell(world, out body, out cell)) return false;
         var node = reg.Find(body);
         if (node == null) return false;
-        cel = node.OriginInRoot(t).Position + (world - cell);
+        // Legacy space is an inertial window; only a planet cell is the rotating chart.
+        cel = node.OriginInRoot(t).Position + (inCell ? Chart.Of(body, t).ToInertial(world - cell) : world - cell);
         return true;
     }
 }

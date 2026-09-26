@@ -108,3 +108,42 @@ public static class FrameMath
         renderRadius = radius * k;
     }
 }
+
+/// <summary>
+/// A spinning planet's ROTATING SURFACE CHART (SE-Aerospace's chart, applied to the whole cell).
+/// SE2 voxel planets cannot rotate, so the planet cell itself is the rotating frame: the terrain is
+/// at rest in it. Inertial states (rails, HighSpeed conics) convert to and from the chart only where
+/// objects leave or enter the voxel world (stow, arrival, HighSpeed placement), and free flight in
+/// the cell gets the fictitious forces (Coriolis, centrifugal) so it stays physically right.
+/// Identity when the body does not spin.
+/// </summary>
+public struct Chart
+{
+    public bool Spin;
+    public Vector3D Axis;
+    public double Theta, Omega;
+
+    public static Chart Of(string body, double t)
+    {
+        var b = SystemHost.Registry?.Find(body);
+        if (b == null || !SEAerospace.PlanetBerths.TryBodySpin(b, out Vector3D axis, out double omega)) return default;
+        return new Chart { Spin = true, Axis = axis, Omega = omega, Theta = b.RotationAngleAt(t) };
+    }
+
+    public Vector3D W => Axis * Omega;
+    /// <summary>Chart (world-relative-to-cell) position -> inertial.</summary>
+    public Vector3D ToInertial(Vector3D r) => Spin ? SEAerospace.PlanetBerths.RotateAboutAxis(r, Axis, Theta) : r;
+    /// <summary>Inertial position (or any vector) -> chart axes.</summary>
+    public Vector3D FromInertial(Vector3D p) => Spin ? SEAerospace.PlanetBerths.RotateAboutAxis(p, Axis, -Theta) : p;
+    /// <summary>Chart velocity at chart position r -> inertial velocity.</summary>
+    public Vector3D VelToInertial(Vector3D r, Vector3D v) => Spin ? ToInertial(v + Vector3D.Cross(W, r)) : v;
+    /// <summary>Inertial state -> chart velocity at the matching chart position.</summary>
+    public Vector3D VelFromInertial(Vector3D p, Vector3D vi) => Spin ? FromInertial(vi) - Vector3D.Cross(W, FromInertial(p)) : vi;
+    /// <summary>Fictitious acceleration in the chart: Coriolis + centrifugal.</summary>
+    public Vector3D Fictitious(Vector3D r, Vector3D v)
+    {
+        if (!Spin) return Vector3D.Zero;
+        Vector3D w = W;
+        return -2.0 * Vector3D.Cross(w, v) - Vector3D.Cross(w, Vector3D.Cross(w, r));
+    }
+}

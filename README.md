@@ -66,13 +66,21 @@ interaction shell, HighSpeed), ported. Verified in game with the harness:
   arrived at Verdure at ~1340 m/s in HighSpeed).
 - **Radial states:** zero-angular-momentum states (at rest, or straight in/out) are captured as a
   needle ellipse (tiny perpendicular nudge) instead of NaN elements. Verified: a=370.7 km e=1.000.
+- **Planet spin (rotating surface chart):** planets spin with the world's own sun period (9600 s
+  in the test world; `OrbitalConfig.PlanetDaySeconds` overrides). SE2 voxels cannot rotate, so the
+  whole planet cell is the rotating chart (terrain at rest); inertial states convert where objects
+  leave or enter the voxel world (stow, arrival, HighSpeed placement, thrust folds), free flight in
+  the cell gets Coriolis + centrifugal (above 20 m/s or 5 km), the observer frame carries the spin
+  so proxies and the sun turn with the day. Verified: the grid-frame cycle (arrival, HighSpeed,
+  re-stow of the player + 5 grids) preserves the orbit exactly as without spin (a 168.6 km).
+- **Sun from the model:** see above; in a spinning cell the sun rises and sets with the chart.
 - **Lone grids** in a planet cell stow into their own frame when they leave the keep (or cross above
   the shell on an escaping arc), taking grids within 5 km along.
 - **Warp never skips an arrival:** the rails clock stops exactly at the earliest inbound shell
   crossing and drops to x1, so arrival works at any tick rate.
 
 Remaining limits: local player only (client-driven; SP / listen host), HighSpeed thrust
-verified only as no false folds plus a harness kick (no real key press; grid thrust untested), legacy-space capture is opt-in, planets do not spin (no rotating surface chart), sun direction not driven, relative motion of members is integrated at x1 while the rails warp.
+verified only as no false folds plus a harness kick (no real key press; grid thrust untested), legacy-space capture is opt-in, relative motion of members is integrated at x1 while the rails warp.
 
 ## Open items, highest value first
 

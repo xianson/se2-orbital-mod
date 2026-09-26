@@ -23,11 +23,14 @@ namespace OrbitalMod;
 public static class SystemHost
 {
     /// <summary>Synthetic star: mu = g * R^2 = 28 * (6000 km)^2 ~ 1.0e15 (SampleSystems.Sol).</summary>
-    public const double StarSurfaceGravity = 20.0;   // mu = g R^2 = 2e17
-    public const double StarRadius = 1.0e8;
+    public const double StarSurfaceGravity = 28.0;   // SE-Aerospace's playable central well
+    /// <summary>The system scale (SE-Aerospace's rule): Verdure plays Earth, k = 63 km / 6371 km.</summary>
+    public const double K = 63.0 / 6371.0;
+    public const double AU = 1.495978707e11 * K;          // 1.479 M km
+    public const double StarRadius = 6.9634e8 * K;        // 6,886 km
     /// <summary>First planet's orbit around the star, and the spacing factor for the next ones.</summary>
-    public const double FirstOrbit = 5.0e9;
-    public const double OrbitSpacing = 1.5;
+    public const double FirstOrbit = AU;                  // Verdure = Earth, 1 AU
+    public const double OrbitSpacing = 1.524;             // Kemik = Mars, 1.524 AU
     /// <summary>Atmosphere height as a fraction of r0 (SE2 planets expose no clean atmosphere top).</summary>
     public const double AtmosphereFraction = 0.10;
     /// <summary>Wait this long after the last beacon appears before building (all planets loaded).</summary>
@@ -69,6 +72,11 @@ public static class SystemHost
     /// <summary>The world's sun period (seconds, 0 = its sun does not rotate); set by the client host.</summary>
     public static double WorldSunPeriod;
     public static readonly string[] PlanetOrder = { "Verdure", "Kemik" };
+
+    /// <summary>Palatine plays the Moon (384,400 km x k); other moons keep their charted distance (Caligo is Phobos-like).</summary>
+    private static double MoonOrbit(string name, double charted) => name == "Palatine" ? 3.844e8 * K : charted;
+    private static double MoonEccentricity(string name) => name == "Palatine" ? 0.0549 : 0.015;
+    private static double PlanetEccentricity(string name) => name == "Verdure" ? 0.0167 : name == "Kemik" ? 0.0934 : 0.02;
     public const double MoonMaxDistance = 1.0e6;   // m
     public const double MoonMassRatio = 10.0;
     public static int MoonCount;
@@ -206,7 +214,7 @@ public static class SystemHost
                 def.Bodies.Add(new BodyDefinition
                 {
                     Name = name, Parent = nameOf[host], HasOrbit = true,
-                    SemiMajorAxisMeters = (b.Center - host.Center).Length(), Eccentricity = 0.0, MeanAnomalyAtEpochDeg = 0,
+                    SemiMajorAxisMeters = MoonOrbit(name, (b.Center - host.Center).Length()), Eccentricity = MoonEccentricity(name), MeanAnomalyAtEpochDeg = 90,
                     SurfaceGravityMps2 = law.G0 * mult, RadiusMeters = law.R0,
                     HasAtmosphere = true, AtmosphereHeightMeters = law.R0 * AtmosphereFraction,
                     RotationPeriodSeconds = PlanetDay(),
@@ -217,7 +225,7 @@ public static class SystemHost
             def.Bodies.Add(new BodyDefinition
             {
                 Name = name, Parent = "Star", HasOrbit = true,
-                SemiMajorAxisMeters = a, Eccentricity = 0.02, MeanAnomalyAtEpochDeg = anomaly,
+                SemiMajorAxisMeters = a, Eccentricity = PlanetEccentricity(name), MeanAnomalyAtEpochDeg = anomaly,
                 // Match the engine's physics after the inverse-square patch.
                 SurfaceGravityMps2 = law.G0 * mult, RadiusMeters = law.R0,
                 HasAtmosphere = true, AtmosphereHeightMeters = law.R0 * AtmosphereFraction,

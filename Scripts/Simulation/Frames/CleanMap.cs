@@ -1,5 +1,4 @@
 using Keen.VRage.Core;
-using Keen.VRage.Core.Render;
 using SEAerospace;
 using SEAerospace.Orbital;
 using SEAerospace.SystemDef;
@@ -8,246 +7,317 @@ using SEAerospace.SystemDef;
 namespace OrbitalMod;
 
 /// <summary>
-/// The clean map. Two views and a crossfade, nothing else:
-///  - SYSTEM (zoomed in): ONE planet system, centred: the planet, its moon, its sectors on
-///    nested, evenly spaced, near-circular orbits (one thin line each), each sector a short
-///    band section of uniform thickness with its name outside it; the L1/L2 loops at the
-///    edge; you and your orbit.
-///  - SOLAR (zoomed out): the sun, circular planet orbits, the planets with their sector
-///    counts, the Trojan groups as torus arcs.
-/// Radii in the system view are compressed (r^0.6) so 3,000 km bands and 38,000 km Lagrange
-/// loops both read at one zoom.
+/// The clean map, rendered through the game's own map pipeline (MapPipeline):
+///  - band sections are mesh parts NAMED AFTER THEIR SECTORS inside the game's sector model, so
+///    the game's sector material draws them (gradient edges) and colours them by colonization
+///    state, and its selection highlight works on them;
+///  - orbit rings, Lagrange loops and your orbit are smooth screen-space UI lines;
+///  - labels are in the map's own font.
+/// Two views, fixed in map units (so zooming really zooms, and the mesh only changes when things
+/// move): SYSTEM (one planet system, centred; real angles, real ORDER of radii at readable
+/// spacing) and SOLAR (sun, planet orbits, Trojan groups), switched by the zoom.
 /// </summary>
 public static class CleanMap
 {
     public static bool Enabled = true;
-    public static string Focus = "auto";   // "auto" = the planet you are at / the selected sector's host
+    public static string Focus = "auto";
+    public const double SystemRadius = 0.50;   // map units (fills most of the view at the map's default zoom)
+    public const double SolarRadius = 1.90;
+    public const double SolarZoom = 2.2;       // u (camera distance / original max) where the view switches
+    public static double MeshRebuildSeconds = 0.5;
 
-    static readonly ColorSRGB Line = new ColorSRGB(0.55f, 0.66f, 0.80f);
-    static readonly ColorSRGB Locked = new ColorSRGB(0.62f, 0.66f, 0.74f);
-    static readonly ColorSRGB Unlocked = new ColorSRGB(0.33f, 0.66f, 1.00f);
-    static readonly ColorSRGB Colonized = new ColorSRGB(0.38f, 0.92f, 0.55f);
-    static readonly ColorSRGB Selected = new ColorSRGB(1.00f, 0.84f, 0.25f);
-    static readonly ColorSRGB You = new ColorSRGB(1.00f, 0.80f, 0.15f);
-    static readonly ColorSRGB Text = new ColorSRGB(0.93f, 0.96f, 1.00f);
-    static readonly ColorSRGB Dim = new ColorSRGB(0.62f, 0.70f, 0.80f);
-    static readonly ColorSRGB SunC = new ColorSRGB(1.00f, 0.86f, 0.45f);
+    static readonly ColorSRGB Line = new ColorSRGB(0.60f, 0.72f, 0.88f, 0.55f);
+    static readonly ColorSRGB LineSel = new ColorSRGB(1.00f, 0.85f, 0.30f, 0.95f);
+    static readonly ColorSRGB You = new ColorSRGB(1.00f, 0.80f, 0.15f, 1f);
+    static readonly ColorSRGB Text = new ColorSRGB(0.94f, 0.97f, 1.00f, 1f);
+    static readonly ColorSRGB Dim = new ColorSRGB(0.70f, 0.78f, 0.88f, 0.9f);
 
     public sealed class Band
     {
         public string Name, Host;
         public SectorHomes.Home Home;
-        public ColorSRGB Color;
         public bool Selected;
-        public double DisplayA;   // evenly spaced display radius (ellipse homes)
     }
 
-    public static void Draw(MeshBuilder b, List<Band> bands, SystemRegistry reg, Vector3D mapPos, Quaternion orient,
-                            double dist, double u, double t, string playerPlanet, Vector3D playerRel,
-                            KeplerianElements? playerOrbit, HashSet<string> globes)
-    {
-        double wSolar = Smooth(2.2, 2.8, u);
-        Vector3D Rot(Vector3D v) => (QuaternionD)orient * v;
-        double W(double k) => dist * 0.0020 * k;
-        Vector3D up = Rot(new Vector3D(0, dist * 0.014, 0));
+    private static double _lastMesh;
+    private static string _lastKey;
+    public static string Status = "-";
 
-        // ── which system ──
+    public static void Draw(Keen.VRage.Core.Game.Systems.Session session, object sectorsRenderer, object mapConfig,
+                            List<Band> bands, SystemRegistry reg, Vector3D mapPos, Quaternion orient,
+                            double u, double t, string playerPlanet, Vector3D playerRel, KeplerianElements? playerOrbit,
+                            HashSet<string> globes)
+    {
+        Vector3D W(Vector3D local) => mapPos + (QuaternionD)orient * local;
+        bool solar = u >= SolarZoom;
         string focus = Focus != "auto" ? Focus : null;
         if (focus == null) foreach (var bd in bands) if (bd.Selected && bd.Home.Kind != SectorHomes.Kind.OwnPlanet) focus = bd.Host;
         focus ??= playerPlanet;
         var planet = focus != null ? reg.Find(focus) : null;
 
-        // ── SYSTEM view ──
-        if (planet != null && wSolar < 0.99)
+        var parts = new List<MapPipeline.Part>();
+        bool ui = MapPipeline.UiBegin(session, mapConfig);
+        try
         {
-            float a = (float)(1 - wSolar);
-            var mine = new List<Band>();
-            foreach (var bd in bands) if (bd.Host == focus) mine.Add(bd);
-            // Evenly spaced display radii for the ellipse homes, in order of their real size.
-            var ell = mine.FindAll(x => x.Home.Kind == SectorHomes.Kind.Ellipse);
-            ell.Sort((x, y) => x.Home.A.CompareTo(y.Home.A));
-            double rH = SectorHomes.HillRadius(planet);
-            double rMax = rH * 1.25;
-            double fit = 0.78 * dist;
-            // A system diagram: real angles and real ORDER of radii, readable spacing.
-            double lo = 0.28, hi = 0.73;
-            double R(double r)
-            {
-                if (r >= rH * 0.8) return fit * 0.92 * (r / rH);                       // Lagrange region
-                if (ell.Count == 0) return fit * lo;
-                // piecewise-linear through the sorted ellipse radii
-                if (r <= ell[0].Home.A) return fit * lo * Math.Max(0, r) / ell[0].Home.A;
-                for (int i = 1; i < ell.Count; i++)
-                    if (r <= ell[i].Home.A)
-                    {
-                        double f = (r - ell[i - 1].Home.A) / (ell[i].Home.A - ell[i - 1].Home.A);
-                        return fit * (lo + (hi - lo) * ((i - 1) + f) / Math.Max(1, ell.Count - 1));
-                    }
-                double last = ell[ell.Count - 1].Home.A;
-                return fit * (hi + (0.92 - hi) * Math.Min(1, (r - last) / (rH * 0.8 - last)));
-            }
-            Vector3D P(double ang, double r) => mapPos + Rot(new Vector3D(Math.Cos(ang) * R(r), 0, Math.Sin(ang) * R(r)));
-            Vector3D Pv(Vector3D rel) => P(Math.Atan2(rel.Y, rel.X), Math.Sqrt(rel.X * rel.X + rel.Y * rel.Y));
-
-            // Planet, and its SOI as the frame of the view.
-            var def = reg.FindDefinition(planet.Name);
-            double planetR = fit * 0.07;
-            MapGlobes.Use(planet.Name, mapPos, planetR, globes);
-            b.AddText(mapPos - Rot(new Vector3D(0, 0, planetR * 1.8)), planet.Name, new ColorSRGB(Text, a), 0.8f);
-
-            // Moons.
-            foreach (var moon in planet.Children)
-            {
-                if (!SystemHost.BeaconOf.ContainsKey(moon.Name)) continue;
-                double mr = moon.StateInParentAt(t).Position.Length();
-                Circle(b, mapPos, orient, fit * 0.16, new ColorSRGB(Line, 0.35f * a), W(0.5));
-                Vector3D mp = moon.StateInParentAt(t).Position;
-                double ang = Math.Atan2(mp.Y, mp.X), rr = fit * 0.16;
-                Vector3D mpos = mapPos + Rot(new Vector3D(Math.Cos(ang) * rr, 0, Math.Sin(ang) * rr));
-                MapGlobes.Use(moon.Name, mpos, planetR * 0.35, globes);
-            }
-
-            // Sector orbits: one thin line each, then the band sections, then the names.
-            for (int i = 0; i < ell.Count; i++)
-            {
-                var bd = ell[i];
-                bd.DisplayA = bd.Home.A;
-                Circle(b, mapPos, orient, R(bd.DisplayA), new ColorSRGB(bd.Selected ? Selected : Line, (bd.Selected ? 0.8f : 0.45f) * a), W(bd.Selected ? 1.1 : 0.7));
-            }
-            foreach (var bd in mine)
-            {
-                var h = bd.Home;
-                var col = new ColorSRGB(bd.Selected ? Selected : bd.Color, a);
-                switch (h.Kind)
-                {
-                    case SectorHomes.Kind.OwnPlanet:
-                        // The planet's own sector: a soft halo around it.
-                        Ring(b, mapPos, orient, planetR * 1.15, fit * 0.21, new ColorSRGB(bd.Color, 0.10f * a), new ColorSRGB(col, 0.5f * a), W(0.5));
-                        b.AddText(mapPos + Rot(new Vector3D(0, 0, fit * 0.21)), bd.Name, new ColorSRGB(Dim, a), 0.5f);
-                        break;
-                    case SectorHomes.Kind.Ellipse:
-                    {
-                        SectorHomes.Rel(h, planet, t, out var rel);
-                        double ang = Math.Atan2(rel.Y, rel.X);
-                        double rr = R(bd.DisplayA), hw = fit * 0.026, span = 0.26;
-                        BandSection(b, mapPos, orient, rr, ang, span, hw, new ColorSRGB(col, 0.85f * a), new ColorSRGB(Text, a), W(0.9));
-                        Vector3D lp = mapPos + Rot(new Vector3D(Math.Cos(ang) * (rr + hw * 2.4), 0, Math.Sin(ang) * (rr + hw * 2.4)));
-                        b.AddText(lp, bd.Name, new ColorSRGB(bd.Selected ? Selected : Text, a), bd.Selected ? 0.66f : 0.62f);
-                        break;
-                    }
-                    case SectorHomes.Kind.L1:
-                    case SectorHomes.Kind.L2:
-                    {
-                        // The loop around the Lagrange point, and the sector on it.
-                        Vector3D prev = default;
-                        double T = SectorHomes.Period(h, planet);
-                        for (int i = 0; i <= 72; i++)
-                        {
-                            SectorHomes.Rel(h, planet, t + T * i / 72, out var r);
-                            Vector3D p = Pv(r);
-                            if (i > 0) b.AddLine(prev, p, new ColorSRGB(Line, 0.4f * a), (float)W(0.5), true);
-                            prev = p;
-                        }
-                        SectorHomes.Rel(h, planet, t, out var now);
-                        Vector3D np = Pv(now);
-                        b.AddSphere(new WorldTransform(np, Quaternion.Identity), fit * 0.016, col, col, true);
-                        b.AddText(np + up, $"{bd.Name}  ({h.Kind})", new ColorSRGB(bd.Selected ? Selected : Text, a), 0.56f);
-                        break;
-                    }
-                }
-            }
-
-            // You.
-            if (playerPlanet == focus)
-            {
-                if (playerOrbit.HasValue && IsFinite(playerOrbit.Value.SemiMajorAxis))
-                {
-                    var path = OrbitSampler.SamplePath(playerOrbit.Value, 128, planet.SoiRadius);
-                    var pts = path.Points;
-                    if (pts != null)
-                        for (int i = 0; i + 1 < pts.Length || (path.IsClosed && i < pts.Length); i++)
-                            b.AddLine(Pv(pts[i]), Pv(pts[(i + 1) % pts.Length]), new ColorSRGB(You, 0.8f * a), (float)W(0.8), true);
-                }
-                Vector3D yp = Pv(playerRel);
-                b.AddSphere(new WorldTransform(yp, Quaternion.Identity), fit * 0.012, You, You, false);
-                b.AddText(yp + up, "you", new ColorSRGB(You, a), 0.56f);
-            }
+            if (!solar && planet != null) DrawSystem(parts, bands, reg, planet, t, playerPlanet, playerRel, playerOrbit, globes, W);
+            else DrawSolar(parts, bands, reg, t, playerPlanet, globes, W);
         }
+        finally { if (ui) MapPipeline.UiEnd(); }
 
-        // ── SOLAR view ──
-        if (wSolar > 0.01)
-        {
-            float a = (float)wSolar;
-            var root = reg.Root;
-            double maxR = 1;
-            foreach (var p in root.Children) if (SystemHost.BeaconOf.ContainsKey(p.Name)) maxR = Math.Max(maxR, p.StateInParentAt(t).Position.Length());
-            double k = 0.40 * dist / maxR;
-            Vector3D S(Vector3D helio) => mapPos + Rot(new Vector3D(helio.X, 0, helio.Y) * k);
-            b.AddSphere(new WorldTransform(mapPos, Quaternion.Identity), dist * 0.018, SunC, SunC, true);
-            foreach (var p in root.Children)
+        // Every sector keeps a (possibly zero-size) part: the game colours parts by sector name and
+        // must always find them.
+        var have = new HashSet<string>();
+        foreach (var pt in parts) have.Add(pt.Name);
+        foreach (var bd in bands)
+            if (!have.Contains(bd.Name))
             {
-                if (!SystemHost.BeaconOf.ContainsKey(p.Name)) continue;
-                Vector3D hp = p.StateInParentAt(t).Position;
-                Circle(b, mapPos, orient, hp.Length() * k, new ColorSRGB(Line, 0.45f * a), W(0.7));
-                int n = 0; foreach (var bd in bands) if (bd.Host == p.Name && bd.Home.Kind != SectorHomes.Kind.OwnPlanet) n++;
-                MapGlobes.Use(p.Name, S(hp), dist * 0.022, globes);
-                b.AddText(S(hp) + Rot(new Vector3D(0, dist * 0.04, 0)), $"{p.Name}   {n} sector{(n == 1 ? "" : "s")}", new ColorSRGB(Text, a), 0.62f);
-                // Trojan groups: torus arcs 60 degrees ahead and behind.
-                foreach (int side in new[] { 1, -1 })
-                {
-                    var names = new List<string>();
-                    foreach (var bd in bands)
-                        if (bd.Host == p.Name && ((side > 0 && bd.Home.Kind == SectorHomes.Kind.L4) || (side < 0 && bd.Home.Kind == SectorHomes.Kind.L5))) names.Add(bd.Name);
-                    if (names.Count == 0) continue;
-                    double baseAng = Math.Atan2(hp.Y, hp.X) + side * Math.PI / 3, r = hp.Length() * k;
-                    BandSection(b, mapPos, orient, r, baseAng, 0.16, r * 0.045, new ColorSRGB(Unlocked, 0.30f * a), new ColorSRGB(Unlocked, a), W(0.8));
-                    Vector3D lp = mapPos + Rot(new Vector3D(Math.Cos(baseAng) * r * 1.12, 0, Math.Sin(baseAng) * r * 1.12));
-                    b.AddText(lp, $"{(side > 0 ? "L4" : "L5")}: {string.Join(", ", names)}", new ColorSRGB(Dim, a), 0.5f);
-                }
+                var ph = new MapPipeline.Part { Name = bd.Name };
+                ph.Outline.Add(new Vector3(0, -0.001f, 0)); ph.Outline.Add(new Vector3(1e-6f, -0.001f, 0)); ph.Outline.Add(new Vector3(0, -0.001f, 1e-6f));
+                parts.Add(ph);
             }
+
+        // The mesh changes only when the view changes, or every MeshRebuildSeconds (motion).
+        double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+        string key = solar ? "solar" : "sys:" + focus;
+        if (key != _lastKey || now - _lastMesh > MeshRebuildSeconds)
+        {
+            bool ok = MapPipeline.ShowParts(sectorsRenderer, parts);
+            if (ok)
+            {
+                MapPipeline.ColourSection(sectorsRenderer, SunPart, new ColorSRGB(1f, 0.78f, 0.35f, 0.95f), new ColorSRGB(1f, 0.93f, 0.6f, 1f));
+                MapPipeline.ColourSection(sectorsRenderer, BeltPart, new ColorSRGB(0.20f, 0.18f, 0.15f, 0.25f), new ColorSRGB(0.55f, 0.50f, 0.42f, 0.5f));
+            }
+            _lastKey = key; _lastMesh = now;
+            Status = ok ? $"{key} parts={parts.Count}" : $"{key} mesh failed: {MapPipeline.LastError}";
         }
     }
 
-    // ── primitives (all in the map plane) ──
+    public static void Reset() { _lastKey = null; }
 
-    static void Circle(MeshBuilder b, Vector3D c, Quaternion o, double r, ColorSRGB col, double w)
+    // ───────────────────────────── system view ─────────────────────────────
+
+    private static void DrawSystem(List<MapPipeline.Part> parts, List<Band> bands, SystemRegistry reg, GravityBody planet, double t,
+                                   string playerPlanet, Vector3D playerRel, KeplerianElements? playerOrbit, HashSet<string> globes,
+                                   Func<Vector3D, Vector3D> W)
+    {
+        double fit = SystemRadius;
+        var mine = bands.FindAll(b => b.Host == planet.Name);
+        var ell = mine.FindAll(b => b.Home.Kind == SectorHomes.Kind.Ellipse);
+        ell.Sort((x, y) => x.Home.A.CompareTo(y.Home.A));
+        double rH = SectorHomes.HillRadius(planet);
+        const double lo = 0.30, hi = 0.74;
+        double R(double r)
+        {
+            if (r >= rH * 0.8) return fit * 0.93 * (r / rH);
+            if (ell.Count == 0) return fit * lo;
+            if (r <= ell[0].Home.A) return fit * lo * Math.Max(0, r) / ell[0].Home.A;
+            for (int i = 1; i < ell.Count; i++)
+                if (r <= ell[i].Home.A)
+                {
+                    double f = (r - ell[i - 1].Home.A) / (ell[i].Home.A - ell[i - 1].Home.A);
+                    return fit * (lo + (hi - lo) * ((i - 1) + f) / Math.Max(1, ell.Count - 1));
+                }
+            double last = ell[ell.Count - 1].Home.A;
+            return fit * (hi + (0.93 - hi) * Math.Min(1, (r - last) / (rH * 0.8 - last)));
+        }
+        Vector3D L(double ang, double r) => new Vector3D(Math.Cos(ang) * r, 0, Math.Sin(ang) * r);
+        Vector3D Lv(Vector3D rel) => L(Math.Atan2(rel.Y, rel.X), R(Math.Sqrt(rel.X * rel.X + rel.Y * rel.Y)));
+
+        // Planet and moons.
+        double planetR = fit * 0.075;
+        MapGlobes.Use(planet.Name, W(Vector3D.Zero), planetR, globes);
+        MapPipeline.Text(W(new Vector3D(0, 0, planetR * 1.9)), planet.Name, Text, 0.9f);
+        foreach (var moon in planet.Children)
+        {
+            if (!SystemHost.BeaconOf.ContainsKey(moon.Name)) continue;
+            Circle(W, fit * 0.17, Line, 1.5f);
+            Vector3D mp = moon.StateInParentAt(t).Position;
+            Vector3D ml = L(Math.Atan2(mp.Y, mp.X), fit * 0.17);
+            MapGlobes.Use(moon.Name, W(ml), planetR * 0.32, globes);
+            MapPipeline.Text(W(ml + new Vector3D(0, 0, planetR * 0.8)), moon.Name, Dim, 0.6f);
+        }
+
+        foreach (var bd in mine)
+        {
+            var h = bd.Home;
+            switch (h.Kind)
+            {
+                case SectorHomes.Kind.OwnPlanet:
+                    parts.Add(Annulus(bd.Name, 0, Math.PI, planetR * 1.25, fit * 0.23));
+                    MapPipeline.Text(W(new Vector3D(0, 0, -fit * 0.25)), bd.Name, Dim, 0.6f);
+                    break;
+                case SectorHomes.Kind.Ellipse:
+                {
+                    double rr = R(h.A);
+                    Circle(W, rr, bd.Selected ? LineSel : Line, bd.Selected ? 2.5f : 1.5f);
+                    SectorHomes.Rel(h, planet, t, out var rel);
+                    double ang = Math.Atan2(rel.Y, rel.X);
+                    parts.Add(Annulus(bd.Name, ang, 0.20, rr - fit * 0.028, rr + fit * 0.028));
+                    MapPipeline.Text(W(L(ang, rr + fit * 0.075)), bd.Name, bd.Selected ? LineSel : Text, 0.72f);
+                    break;
+                }
+                case SectorHomes.Kind.L1:
+                case SectorHomes.Kind.L2:
+                {
+                    // The loop, drawn small around its Lagrange point (the radius remap would distort it).
+                    double T = SectorHomes.Period(h, planet);
+                    var sp = planet.StateInParentAt(t);
+                    Vector3D radial = Vector3D.Normalize(new Vector3D(sp.Position.X, sp.Position.Y, 0));
+                    Vector3D centreRel = radial * (h.Kind == SectorHomes.Kind.L1 ? -rH : rH);
+                    Vector3D centreL = Lv(centreRel);
+                    double loopScale = fit * 0.05 / (SectorHomes.LyapunovKappa * SectorHomes.LyapunovAmplitude * rH);
+                    Vector3D prev = default;
+                    for (int i = 0; i <= 72; i++)
+                    {
+                        SectorHomes.Rel(h, planet, t + T * i / 72, out var r);
+                        Vector3D d = r - centreRel;
+                        Vector3D p = W(centreL + new Vector3D(d.X, 0, d.Y) * loopScale);
+                        if (i > 0) MapPipeline.Line(prev, p, bd.Selected ? LineSel : Line, 1.5f);
+                        prev = p;
+                    }
+                    MapPipeline.Text(W(centreL), h.Kind.ToString(), Dim, 0.55f);
+                    SectorHomes.Rel(h, planet, t, out var now);
+                    Vector3D dn = now - centreRel;
+                    Vector3D nl = centreL + new Vector3D(dn.X, 0, dn.Y) * loopScale;
+                    double ang = Math.Atan2(nl.Z, nl.X), rr = Math.Sqrt(nl.X * nl.X + nl.Z * nl.Z);
+                    var dot = Annulus(bd.Name, 0, Math.PI, 0, fit * 0.022);
+                    for (int q = 0; q < dot.TriVerts.Count; q++) dot.TriVerts[q] += (Vector3)nl;
+                    parts.Add(dot);
+                    MapPipeline.Text(W(nl + new Vector3D(0, 0, fit * 0.06)), bd.Name, bd.Selected ? LineSel : Text, 0.72f);
+                    break;
+                }
+            }
+        }
+
+        // You.
+        if (playerPlanet == planet.Name)
+        {
+            if (playerOrbit.HasValue && IsFinite(playerOrbit.Value.SemiMajorAxis))
+            {
+                var path = OrbitSampler.SamplePath(playerOrbit.Value, 128, planet.SoiRadius);
+                var pts = path.Points;
+                if (pts != null)
+                    for (int i = 0; i < pts.Length - (path.IsClosed ? 0 : 1); i++)
+                        MapPipeline.Line(W(Lv(pts[i])), W(Lv(pts[(i + 1) % pts.Length])), You, 2f);
+            }
+            Vector3D yl = Lv(playerRel);
+            MapPipeline.Text(W(yl), "+", You, 1.2f);
+            MapPipeline.Text(W(yl + new Vector3D(0, 0, fit * 0.05)), "you", You, 0.7f);
+        }
+    }
+
+    // ───────────────────────────── solar view ─────────────────────────────
+
+    private static void DrawSolar(List<MapPipeline.Part> parts, List<Band> bands, SystemRegistry reg, double t, string playerPlanet,
+                                  HashSet<string> globes, Func<Vector3D, Vector3D> W)
+    {
+        var root = reg.Root;
+        double outer = SectorHomes.RingAU * 1.05 * SystemHost.AU;
+        double k = SolarRadius / outer;
+        Vector3D S(Vector3D helio) => new Vector3D(helio.X, 0, helio.Y) * k;
+
+        // The sun: a warm disc (its own section, coloured below), and its name.
+        parts.Add(Annulus(SunPart, 0, Math.PI, 0, SolarRadius * 0.045));
+        MapPipeline.Text(W(new Vector3D(0, 0, SolarRadius * 0.085)), "Sun", Text, 0.85f);
+
+        // The belt: a torus of its own, and its sectors as band sections on it.
+        double b0 = SectorHomes.BeltInnerAU * SystemHost.AU * k, b1 = SectorHomes.BeltOuterAU * SystemHost.AU * k;
+        parts.Add(Annulus(BeltPart, 0, Math.PI, b0, b1));
+        MapPipeline.Text(W(new Vector3D(0, 0, -(b1 + SolarRadius * 0.04))), "Main belt", Dim, 0.7f);
+        foreach (var bd in bands)
+        {
+            if (bd.Home.Kind != SectorHomes.Kind.Belt) continue;
+            Vector3D hp = SectorHomes.HelioBelt(bd.Home, root.Mu, t);
+            double ang = Math.Atan2(hp.Y, hp.X), r = hp.Length() * k;
+            parts.Add(Annulus(bd.Name, ang, 0.07, r - SolarRadius * 0.035, r + SolarRadius * 0.035));
+            MapPipeline.Text(W(new Vector3D(Math.Cos(ang) * (r + SolarRadius * 0.085), 0, Math.Sin(ang) * (r + SolarRadius * 0.085))), bd.Name, bd.Selected ? LineSel : Text, 0.72f);
+        }
+
+        // Sectors with their own orbit (a planet-like ring): the full orbit line and the band section.
+        foreach (var bd in bands)
+        {
+            if (bd.Home.Kind != SectorHomes.Kind.Ring) continue;
+            Vector3D hp = SectorHomes.HelioRing(bd.Home, root.Mu, t);
+            double ang = Math.Atan2(hp.Y, hp.X), r = hp.Length() * k;
+            Circle(W, r, bd.Selected ? LineSel : Line, 1.8f);
+            parts.Add(Annulus(bd.Name, ang, 0.09, r - SolarRadius * 0.04, r + SolarRadius * 0.04));
+            MapPipeline.Text(W(new Vector3D(Math.Cos(ang) * (r + SolarRadius * 0.09), 0, Math.Sin(ang) * (r + SolarRadius * 0.09))), bd.Name, bd.Selected ? LineSel : Text, 0.8f);
+        }
+
+        // The planets: orbit line, the globe, and the planet's own sector as a circular section around it.
+        foreach (var p in root.Children)
+        {
+            if (!SystemHost.BeaconOf.ContainsKey(p.Name)) continue;
+            var el = OrbitalMath.ToElements(p.StateInParentAt(t), root.Mu, t);
+            var path = OrbitSampler.SamplePath(el, 160);
+            if (path.Points != null)
+                for (int i = 0; i < path.Points.Length; i++)
+                    MapPipeline.Line(W(S(path.Points[i])), W(S(path.Points[(i + 1) % path.Points.Length])), Line, 1.8f);
+            Vector3D hp = p.StateInParentAt(t).Position;
+            Vector3D c = S(hp);
+            var own = bands.Find(b => b.Host == p.Name && b.Home.Kind == SectorHomes.Kind.OwnPlanet);
+            if (own != null)
+            {
+                var disc = Annulus(own.Name, 0, Math.PI, 0, SolarRadius * 0.07);
+                for (int q = 0; q < disc.TriVerts.Count; q++) disc.TriVerts[q] += (Vector3)c;
+                parts.Add(disc);
+            }
+            MapGlobes.Use(p.Name, W(c), SolarRadius * 0.03, globes);
+            int n = 0; foreach (var bd in bands) if (bd.Host == p.Name && bd.Home.Kind != SectorHomes.Kind.OwnPlanet) n++;
+            MapPipeline.Text(W(c + new Vector3D(0, 0, SolarRadius * 0.11)), p.Name, p.Name == playerPlanet ? You : Text, 0.9f);
+            MapPipeline.Text(W(c + new Vector3D(0, 0, SolarRadius * 0.155)), $"{n} sector{(n == 1 ? "" : "s")}{(p.Name == playerPlanet ? "  -  you are here" : "")}", Dim, 0.62f);
+        }
+    }
+
+    public const string SunPart = "OrbitalSun", BeltPart = "OrbitalBelt";
+    public const int BeltSegments = 48;
+
+    // ───────────────────────────── helpers ─────────────────────────────
+
+    /// <summary>
+    /// A band section (annular sector) as a mesh part: centre angle, half span, inner/outer radius.
+    /// Triangulated as a strip with inner, middle and outer rows; the gradient coordinate is 0 on
+    /// both edges and the half-width in the middle (as the game's sectors: distance to the edge),
+    /// so one band, even a full ring, has one clean glowing edge. r0 = 0 gives a disc.
+    /// </summary>
+    private static MapPipeline.Part Annulus(string name, double centre, double half, double r0, double r1)
+    {
+        var part = new MapPipeline.Part { Name = name };
+        int n = Math.Max(6, (int)(half / Math.PI * 96));
+        double hw = 0.5 * (r1 - r0), rm = 0.5 * (r0 + r1);
+        Vector3 P(double a, double r) => new Vector3((float)(Math.Cos(a) * r), 0, (float)(Math.Sin(a) * r));
+        void Tri(Vector3 a, Vector2 ua, Vector3 b, Vector2 ub, Vector3 c, Vector2 uc)
+        { part.TriVerts.Add(a); part.TriUvs.Add(ua); part.TriVerts.Add(b); part.TriUvs.Add(ub); part.TriVerts.Add(c); part.TriUvs.Add(uc); }
+        var edge = new Vector2(0, 0);
+        var mid = new Vector2((float)hw, 1f);
+        for (int i = 0; i < n; i++)
+        {
+            double a0 = centre - half + 2 * half * i / n, a1 = centre - half + 2 * half * (i + 1) / n;
+            if (r0 <= 1e-9)
+            {
+                // Disc: a fan from the centre; the centre carries the full radius as "distance to the edge".
+                Tri(Vector3.Zero, new Vector2((float)r1, 1f), P(a0, r1), edge, P(a1, r1), edge);
+                continue;
+            }
+            Vector3 i0 = P(a0, r0), i1 = P(a1, r0), m0 = P(a0, rm), m1 = P(a1, rm), o0 = P(a0, r1), o1 = P(a1, r1);
+            Tri(i0, edge, m0, mid, m1, mid); Tri(i0, edge, m1, mid, i1, edge);
+            Tri(m0, mid, o0, edge, o1, edge); Tri(m0, mid, o1, edge, m1, mid);
+        }
+        return part;
+    }
+
+    private static void Circle(Func<Vector3D, Vector3D> W, double r, ColorSRGB col, float px)
     {
         const int n = 128;
-        Vector3D prev = c + (QuaternionD)o * new Vector3D(r, 0, 0);
+        Vector3D prev = W(new Vector3D(r, 0, 0));
         for (int i = 1; i <= n; i++)
         {
-            double ang = 2 * Math.PI * i / n;
-            Vector3D p = c + (QuaternionD)o * new Vector3D(Math.Cos(ang) * r, 0, Math.Sin(ang) * r);
-            b.AddLine(prev, p, col, (float)w, true);
+            double a = 2 * Math.PI * i / n;
+            Vector3D p = W(new Vector3D(Math.Cos(a) * r, 0, Math.Sin(a) * r));
+            MapPipeline.Line(prev, p, col, px);
             prev = p;
         }
     }
 
-    static void Ring(MeshBuilder b, Vector3D c, Quaternion o, double r0, double r1, ColorSRGB fill, ColorSRGB edge, double w)
-        => BandSection(b, c, o, 0.5 * (r0 + r1), 0, Math.PI, 0.5 * (r1 - r0), fill, edge, w);
-
-    /// <summary>A band section: radius r, centre angle, half span (rad), half width; filled, outlined.</summary>
-    static void BandSection(MeshBuilder b, Vector3D c, Quaternion o, double r, double centre, double half, double hw,
-                            ColorSRGB fill, ColorSRGB edge, double w)
-    {
-        int n = Math.Max(8, (int)(half / Math.PI * 64));
-        Vector3D Q(double ang, double rr) => c + (QuaternionD)o * new Vector3D(Math.Cos(ang) * rr, 0, Math.Sin(ang) * rr);
-        for (int i = 0; i < n; i++)
-        {
-            double a0 = centre - half + 2 * half * i / n, a1 = centre - half + 2 * half * (i + 1) / n;
-            Vector3D i0 = Q(a0, r - hw), o0 = Q(a0, r + hw), i1 = Q(a1, r - hw), o1 = Q(a1, r + hw);
-            b.AddTriangle(i0, o0, o1, fill, true);
-            b.AddTriangle(i0, o1, i1, fill, true);
-            b.AddLine(i0, i1, edge, (float)w, true);
-            b.AddLine(o0, o1, edge, (float)w, true);
-        }
-        if (half < Math.PI)
-        {
-            b.AddLine(Q(centre - half, r - hw), Q(centre - half, r + hw), edge, (float)w, true);
-            b.AddLine(Q(centre + half, r - hw), Q(centre + half, r + hw), edge, (float)w, true);
-        }
-    }
-
-    static double Smooth(double a, double b, double x) { double k = Math.Max(0, Math.Min(1, (x - a) / (b - a))); return k * k * (3 - 2 * k); }
-    static bool IsFinite(double x) => !double.IsNaN(x) && !double.IsInfinity(x);
+    private static bool IsFinite(double x) => !double.IsNaN(x) && !double.IsInfinity(x);
 }

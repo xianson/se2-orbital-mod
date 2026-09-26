@@ -96,6 +96,8 @@ public static class SpecCam
         Status = $"{_target} {(_target == Target.Planet ? _planet : "")} dist={_dist:F2} bearing={_bearing} elev={_elev}";
     }
 
+    public static CameraComponent CameraOf(Keen.VRage.Core.Game.Systems.Session session) => Camera(session);
+
     private static CameraComponent Camera(Keen.VRage.Core.Game.Systems.Session session)
     {
         try

@@ -380,6 +380,8 @@ public static class PlanetRenderBridge
         catch (Exception e) { WarnOnce("draw3dmap2", $"SetDraw3DMap failed: {Inner(e)}"); return false; }
     }
 
+    private static Assembly _renderAsm;
+
     private static bool ResolveRender()
     {
         if (_renderResolved) return _renderOk;
@@ -392,6 +394,7 @@ public static class PlanetRenderBridge
                 if (a.GetName().Name == "VRage.Render") { render = a; break; }
             }
             if (render == null) { WarnOnce("render-asm", "VRage.Render not loaded (dedicated server?)"); return false; }
+            _renderAsm = render;
 
             Type engine = render.GetType("Keen.VRage.Render.EngineComponents.RenderEngineComponent");
             object instance = engine?.GetField("Instance", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
@@ -650,6 +653,15 @@ public static class PlanetRenderBridge
             mapObject.GetType().GetMethod("UpdateScale")?.Invoke(mapObject, new object[] { m });
         }
         catch (Exception e) { WarnOnce("mapobj-scale", $"map object scale failed: {Inner(e)}"); }
+    }
+
+    /// <summary>For the map pipeline: the render assembly, the RenderContracts instance, a type by name.</summary>
+    public static Assembly RenderAssembly { get { ResolveRender(); return _renderAsm; } }
+    public static object Contracts { get { ResolveRender(); return _contracts; } }
+    public static Type RenderOrCoreType(string fullName)
+    {
+        ResolveRender();
+        return _renderAsm?.GetType(fullName) ?? typeof(Keen.VRage.Core.Render.RenderRuntimeDataType).Assembly.GetType(fullName);
     }
 
     internal static object GetMember(object target, string name)

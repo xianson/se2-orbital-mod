@@ -89,16 +89,11 @@ public static class UnifiedMap
         {
             var bands = new List<CleanMap.Band>();
             foreach (var si in infos)
-            {
-                var st = SectorColonizationState.Locked;
-                try { if (progress != null) st = progress.GetGlobalProgressFor(si.Sector).State; } catch { }
                 bands.Add(new CleanMap.Band
                 {
                     Name = si.Sector.Name, Host = si.Host, Home = si.Home,
-                    Color = st == SectorColonizationState.Colonized ? Colonized : st == SectorColonizationState.Unlocked ? Unlocked : Locked,
                     Selected = selected.HasValue && selected.Value == Keen.VRage.Library.Utils.StringId.Get(si.Sector.Name),
                 });
-            }
             string youPlanet = null; Vector3D youRel = default; KeplerianElements? youOrbit = null;
             if (SunDriver.TryObserverCelestial(FrameHost.PlayerPosition, t, out Vector3D ycel))
             {
@@ -112,10 +107,13 @@ public static class UnifiedMap
                     else if (f == null && FrameHost.TryGetLocalOrbit(youPlanet, t, out var le)) youOrbit = le;
                 }
             }
+            // The game's sector renderer draws OUR model now: keep it visible.
+            PlanetRenderBridge.SetRenderComponentVisible(PlanetRenderBridge.GetMember(map, "SectorsRenderer"), true);
             var usedGlobes = new HashSet<string>();
-            CleanMap.Draw(b, bands, reg, mapPos, orient, dist, u, t, youPlanet, youRel, youOrbit, usedGlobes);
+            CleanMap.Draw(session, PlanetRenderBridge.GetMember(map, "SectorsRenderer"), PlanetRenderBridge.GetMember(map, "_configuration"),
+                          bands, reg, mapPos, orient, u, t, youPlanet, youRel, youOrbit, usedGlobes);
             MapGlobes.End(usedGlobes);
-            Status = $"clean u={u:F2} bands={bands.Count} focus={CleanMap.Focus}";
+            Status = $"clean u={u:F2} {CleanMap.Status}";
             return true;
         }
         double maxAp = 1;
@@ -381,6 +379,8 @@ public static class UnifiedMap
     public static void RestoreGame(ColonizationMapSessionComponent map)
     {
         if (!_gameHidden || map == null) return;
+        MapPipeline.Restore(PlanetRenderBridge.GetMember(map, "SectorsRenderer"));
+        CleanMap.Reset();
         SetGameVisible(map, true);
         if (_baseMax > 0) map.MaxDistance = _baseMax;
         _gameHidden = false;
@@ -390,7 +390,7 @@ public static class UnifiedMap
 
     private static void SetGameVisible(ColonizationMapSessionComponent map, bool visible)
     {
-        if (HideGameSectors || visible)
+        if ((HideGameSectors && !CleanMap.Enabled) || visible)
             PlanetRenderBridge.SetRenderComponentVisible(PlanetRenderBridge.GetMember(map, "SectorsRenderer"), visible);
         // Globes: shrink through the engine's own scale path instead of render flags.
         // The game's own markers ("You are here", GPS): we draw our own.

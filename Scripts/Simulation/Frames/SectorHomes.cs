@@ -17,7 +17,7 @@ namespace OrbitalMod;
 /// </summary>
 public static class SectorHomes
 {
-    public enum Kind { OwnPlanet, Ellipse, L1, L2, L4, L5 }
+    public enum Kind { OwnPlanet, Ellipse, L1, L2, L4, L5, Belt, Ring }
 
     public sealed class Home
     {
@@ -32,7 +32,7 @@ public static class SectorHomes
     public static readonly Dictionary<string, Kind> Campaign = new Dictionary<string, Kind>
     {
         { "Vantaris", Kind.L1 }, { "Cygnark", Kind.L2 },
-        { "Byblos Sector", Kind.L4 }, { "Trinarc", Kind.L4 }, { "Pyrethra", Kind.L5 },
+        { "Byblos Sector", Kind.Ring }, { "Trinarc", Kind.Belt }, { "Pyrethra", Kind.Belt },
     };
 
     // Planar Lyapunov orbit (linearised about L1/L2, small mass ratio): in-plane frequency
@@ -99,6 +99,32 @@ public static class SectorHomes
         if (h.Kind == Kind.Ellipse) return 2 * Math.PI * Math.Sqrt(h.A * h.A * h.A / planet.Mu);
         double n = Math.Sqrt(planet.Parent.Mu / Math.Pow(planet.StateInParentAt(0).Position.Length(), 3));
         return 2 * Math.PI / (LyapunovLambda * n);
+    }
+
+    /// <summary>The main belt: 2.2 to 3.2 AU (scaled), between Kemik and where Jupiter would be.</summary>
+    public const double BeltInnerAU = 2.2, BeltOuterAU = 3.2;
+
+    /// <summary>A belt sector's heliocentric position: a circular orbit in the belt, spread by name.</summary>
+    public static Vector3D HelioBelt(Home h, double starMu, double t)
+    {
+        uint hash = 2166136261;
+        foreach (char c in h.Sector) hash = (hash ^ c) * 16777619;
+        double a = (BeltInnerAU + (BeltOuterAU - BeltInnerAU) * (0.2 + 0.6 * ((hash & 0xFFFF) / 65535.0))) * SystemHost.AU;
+        double ph = ((hash >> 16) & 0xFFFF) / 65535.0 * 2 * Math.PI;
+        double n = Math.Sqrt(starMu / (a * a * a));
+        return new Vector3D(Math.Cos(ph + n * t) * a, Math.Sin(ph + n * t) * a, 0);
+    }
+
+    /// <summary>A sector with its own orbit around the sun (a planet-like ring), beyond the belt.</summary>
+    public const double RingAU = 3.9;
+
+    public static Vector3D HelioRing(Home h, double starMu, double t)
+    {
+        uint hash = 2166136261;
+        foreach (char c in h.Sector) hash = (hash ^ c) * 16777619;
+        double a = RingAU * SystemHost.AU, ph = (hash & 0xFFFF) / 65535.0 * 2 * Math.PI;
+        double n = Math.Sqrt(starMu / (a * a * a));
+        return new Vector3D(Math.Cos(ph + n * t) * a, Math.Sin(ph + n * t) * a, 0);
     }
 
     /// <summary>A Trojan's heliocentric position: the planet's, 60 degrees ahead (L4) or behind (L5).</summary>

@@ -347,6 +347,41 @@ public static class MapPipeline
         }
     }
 
+    /// <summary>Screen resolution in pixels.</summary>
+    public static Vector2 ScreenSize => _cam != null ? new Vector2(_cam.Resolution.X, _cam.Resolution.Y) : new Vector2(1920, 1080);
+
+    /// <summary>Left-aligned text at a screen position (px), in the map's font; no collision test.</summary>
+    public static void ScreenText(Vector2 at, string text, ColorSRGB color, float scale)
+    {
+        if (_batch == null || _drawString == null || _font == null) return;
+        try
+        {
+            var shadow = new ColorSRGB(0f, 0f, 0f, 0.8f);
+            _drawString.Invoke(_batch, new object[] { _font, at + new Vector2(1.5f, 1.5f), shadow, text, scale, false, null, 0f });
+            _drawString.Invoke(_batch, new object[] { _font, at, color, text, scale, false, null, 0f });
+        }
+        catch { }
+    }
+
+    /// <summary>A small filled dot on screen (concentric rings).</summary>
+    public static void ScreenDot(Vector2 c, float r, ColorSRGB color)
+    {
+        if (_batch == null || _drawLine == null) return;
+        var ps = _drawLine.GetParameters();
+        for (float rr = 0.8f; rr <= r; rr += 1.2f)
+        {
+            const int n = 14;
+            Vector2 prev = c + new Vector2(rr, 0);
+            for (int i = 1; i <= n; i++)
+            {
+                double a = 2 * Math.PI * i / n;
+                Vector2 p = c + new Vector2((float)(Math.Cos(a) * rr), (float)(Math.Sin(a) * rr));
+                _drawLine.Invoke(_batch, new object[] { prev, p, color, 1.4f, ps[4].DefaultValue, 1f, false });
+                prev = p;
+            }
+        }
+    }
+
     public static void UiEnd()
     {
         try { (_batch as IDisposable)?.Dispose(); } catch { }

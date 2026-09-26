@@ -89,11 +89,15 @@ public static class UnifiedMap
         {
             var bands = new List<CleanMap.Band>();
             foreach (var si in infos)
+            {
+                var st0 = SectorColonizationState.Locked;
+                try { if (progress != null) st0 = progress.GetGlobalProgressFor(si.Sector).State; } catch { }
                 bands.Add(new CleanMap.Band
                 {
-                    Name = si.Sector.Name, Host = si.Host, Home = si.Home,
+                    Name = si.Sector.Name, Host = si.Host, Home = si.Home, State = st0,
                     Selected = selected.HasValue && selected.Value == Keen.VRage.Library.Utils.StringId.Get(si.Sector.Name),
                 });
+            }
             string youPlanet = null; Vector3D youRel = default; KeplerianElements? youOrbit = null;
             if (SunDriver.TryObserverCelestial(FrameHost.PlayerPosition, t, out Vector3D ycel))
             {

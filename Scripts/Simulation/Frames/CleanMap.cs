@@ -38,7 +38,86 @@ public static class CleanMap
         public string Name, Host;
         public SectorHomes.Home Home;
         public bool Selected;
+        public int Number;
+        public Keen.Game2.Simulation.GameSystems.Colonization.SectorColonizationState State;
     }
+
+    static readonly ColorSRGB StLocked = new ColorSRGB(0.62f, 0.66f, 0.74f, 1f);
+    static readonly ColorSRGB StUnlocked = new ColorSRGB(0.35f, 0.68f, 1.00f, 1f);
+    static readonly ColorSRGB StColonized = new ColorSRGB(0.40f, 0.92f, 0.55f, 1f);
+    static ColorSRGB StateColor(Band b) => b.State == Keen.Game2.Simulation.GameSystems.Colonization.SectorColonizationState.Colonized ? StColonized
+        : b.State == Keen.Game2.Simulation.GameSystems.Colonization.SectorColonizationState.Unlocked ? StUnlocked : StLocked;
+
+    /// <summary>Where a sector lives, as a list group ("Kemik orbit", "Main belt", ...).</summary>
+    static string Group(Band b) => b.Home.Kind switch
+    {
+        SectorHomes.Kind.OwnPlanet => b.Host,
+        SectorHomes.Kind.Ellipse => b.Host + " orbit",
+        SectorHomes.Kind.L1 or SectorHomes.Kind.L2 => b.Host + " Lagrange points",
+        SectorHomes.Kind.L4 or SectorHomes.Kind.L5 => b.Host + " Trojans",
+        SectorHomes.Kind.Belt => "Main belt",
+        SectorHomes.Kind.Ring => "Outer ring",
+        _ => "Other",
+    };
+
+    static int GroupRank(Band b)
+    {
+        int planet = Array.IndexOf(SystemHost.PlanetOrder, b.Host); if (planet < 0) planet = 9;
+        return b.Home.Kind switch
+        {
+            SectorHomes.Kind.OwnPlanet => planet * 10, SectorHomes.Kind.Ellipse => planet * 10 + 1,
+            SectorHomes.Kind.L1 or SectorHomes.Kind.L2 => planet * 10 + 2, SectorHomes.Kind.L4 or SectorHomes.Kind.L5 => planet * 10 + 3,
+            SectorHomes.Kind.Belt => 200, SectorHomes.Kind.Ring => 300, _ => 400,
+        };
+    }
+
+    /// <summary>Number the sectors in list order (group, then distance).</summary>
+    static List<Band> Ordered(List<Band> bands)
+    {
+        var list = new List<Band>(bands);
+        list.Sort((x, y) => { int g = GroupRank(x).CompareTo(GroupRank(y)); return g != 0 ? g : x.Home.A.CompareTo(y.Home.A); });
+        for (int i = 0; i < list.Count; i++) list[i].Number = i + 1;
+        return list;
+    }
+
+    static string Where(Band b) => b.Home.Kind switch
+    {
+        SectorHomes.Kind.OwnPlanet => "near space",
+        SectorHomes.Kind.Ellipse => $"{b.Home.A / 1000:N0} km",
+        SectorHomes.Kind.L1 => "L1", SectorHomes.Kind.L2 => "L2", SectorHomes.Kind.L4 => "L4", SectorHomes.Kind.L5 => "L5",
+        SectorHomes.Kind.Belt => $"{SectorHomes.BeltInnerAU:F1}-{SectorHomes.BeltOuterAU:F1} AU",
+        SectorHomes.Kind.Ring => $"{SectorHomes.RingAU:F1} AU",
+        _ => "",
+    };
+
+    /// <summary>The sector list: grouped, numbered, state dot, name, where; on the right, below the game's index box.</summary>
+    static void DrawList(List<Band> ordered, Func<Band, bool> expanded)
+    {
+        Vector2 scr = MapPipeline.ScreenSize;
+        float x = scr.X * 0.785f, y = scr.Y * 0.29f, line = scr.Y * 0.024f, scale = 0.62f;
+        string group = null;
+        foreach (var b in ordered)
+        {
+            string g = Group(b);
+            if (g != group)
+            {
+                if (group != null) y += line * 0.35f;
+                int count = ordered.FindAll(o => Group(o) == g).Count;
+                bool open = expanded(b);
+                MapPipeline.ScreenText(new Vector2(x, y), open ? g.ToUpperInvariant() : $"{g.ToUpperInvariant()}  ({count})", Dim, scale * 0.85f);
+                y += line;
+                group = g;
+            }
+            if (!expanded(b)) continue;
+            var c = b.Selected ? LineSel : Text;
+            MapPipeline.ScreenText(new Vector2(x, y), b.Number.ToString(), Dim, scale);
+            MapPipeline.ScreenDot(new Vector2(x + scr.Y * 0.030f, y + line * 0.42f), 4.5f, StateColor(b));
+            MapPipeline.ScreenText(new Vector2(x + scr.Y * 0.045f, y), b.Name, c, scale);
+            MapPipeline.ScreenText(new Vector2(x + scr.Y * 0.20f, y), Where(b), Dim, scale * 0.9f);
+            y += line;
+        }
+    }
+
 
     private static double _lastMesh;
     private static string _lastKey;
@@ -57,9 +136,13 @@ public static class CleanMap
         var planet = focus != null ? reg.Find(focus) : null;
 
         var parts = new List<MapPipeline.Part>();
+        var ordered = Ordered(bands);
         bool ui = MapPipeline.UiBegin(session, mapConfig);
         try
         {
+            DrawList(ordered, b => solar
+                ? b.Home.Kind == SectorHomes.Kind.Belt || b.Home.Kind == SectorHomes.Kind.Ring || b.Selected
+                : b.Host == focus && b.Home.Kind != SectorHomes.Kind.Belt && b.Home.Kind != SectorHomes.Kind.Ring);
             if (!solar && planet != null) DrawSystem(parts, bands, reg, planet, t, playerPlanet, playerRel, playerOrbit, globes, W);
             else DrawSolar(parts, bands, reg, t, playerPlanet, globes, W);
         }
@@ -137,7 +220,7 @@ public static class CleanMap
             switch (h.Kind)
             {
                 case SectorHomes.Kind.OwnPlanet:
-                    parts.Add(Annulus(bd.Name, 0, Math.PI, R(si_own_inner(h)), R(si_own_outer(h))));
+                    parts.Add(Annulus(bd.Name, 0, Math.PI, R(si_own_outer(h)) * 0.94, R(si_own_outer(h))));
                     break;
                 case SectorHomes.Kind.Ellipse:
                 {
@@ -158,7 +241,7 @@ public static class CleanMap
                         }
                     }
                     parts.Add(Annulus(bd.Name, ang, 0.20, rr - fit * 0.028, rr + fit * 0.028));
-                    MapPipeline.Text(W(L(ang, rr + fit * 0.075)), bd.Name, bd.Selected ? LineSel : Text, 0.72f);
+                    MapPipeline.Text(W(L(ang, rr + fit * 0.06)), bd.Selected ? $"{bd.Number}  {bd.Name}" : bd.Number.ToString(), bd.Selected ? LineSel : Text, 0.66f);
                     break;
                 }
                 case SectorHomes.Kind.L1:
@@ -180,14 +263,14 @@ public static class CleanMap
                         // Beyond the frame: pinned to the edge in its true direction, with its true distance.
                         Vector3D edgeP = nl * (fit * 1.02 / nlLen);
                         MapPipeline.ScreenRing(W(edgeP), 5f, Dim, 1.2f);
-                        MapPipeline.Text(W(edgeP * 1.08), $"{bd.Name}  {Math.Sqrt(now.X * now.X + now.Y * now.Y) / 1e6:F1} Mm  >", bd.Selected ? LineSel : Dim, 0.62f);
+                        MapPipeline.Text(W(edgeP * 1.07), $"{bd.Number} >", bd.Selected ? LineSel : Dim, 0.62f);
                         break;
                     }
                     double ang = Math.Atan2(nl.Z, nl.X), rr = Math.Sqrt(nl.X * nl.X + nl.Z * nl.Z);
                     var dot = Annulus(bd.Name, 0, Math.PI, 0, fit * 0.022);
                     for (int q = 0; q < dot.TriVerts.Count; q++) dot.TriVerts[q] += (Vector3)nl;
                     parts.Add(dot);
-                    MapPipeline.Text(W(nl + new Vector3D(0, 0, fit * 0.06)), bd.Name, bd.Selected ? LineSel : Text, 0.72f);
+                    MapPipeline.Text(W(nl + new Vector3D(0, 0, fit * 0.05)), bd.Number.ToString(), bd.Selected ? LineSel : Text, 0.66f);
                     break;
                 }
             }
@@ -238,7 +321,7 @@ public static class CleanMap
             Vector3D hp = SectorHomes.HelioBelt(bd.Home, root.Mu, t);
             double ang = Math.Atan2(hp.Y, hp.X), r = Rs(hp.Length());
             parts.Add(Annulus(bd.Name, ang, 0.07, r - SolarRadius * 0.035, r + SolarRadius * 0.035));
-            MapPipeline.Text(W(new Vector3D(Math.Cos(ang) * (r + SolarRadius * 0.085), 0, Math.Sin(ang) * (r + SolarRadius * 0.085))), bd.Name, bd.Selected ? LineSel : Text, 0.72f);
+            MapPipeline.Text(W(new Vector3D(Math.Cos(ang) * (r + SolarRadius * 0.085), 0, Math.Sin(ang) * (r + SolarRadius * 0.085))), bd.Number.ToString(), bd.Selected ? LineSel : Text, 0.72f);
         }
 
         // Sectors with their own orbit (a planet-like ring): the full orbit line and the band section.
@@ -249,7 +332,7 @@ public static class CleanMap
             double ang = Math.Atan2(hp.Y, hp.X), r = Rs(hp.Length());
             Circle(W, r, bd.Selected ? LineSel : Line, 1.2f);
             parts.Add(Annulus(bd.Name, ang, 0.09, r - SolarRadius * 0.04, r + SolarRadius * 0.04));
-            MapPipeline.Text(W(new Vector3D(Math.Cos(ang) * (r + SolarRadius * 0.09), 0, Math.Sin(ang) * (r + SolarRadius * 0.09))), bd.Name, bd.Selected ? LineSel : Text, 0.8f);
+            MapPipeline.Text(W(new Vector3D(Math.Cos(ang) * (r + SolarRadius * 0.09), 0, Math.Sin(ang) * (r + SolarRadius * 0.09))), bd.Number.ToString(), bd.Selected ? LineSel : Text, 0.8f);
         }
 
         // The planets: orbit line, the globe, and the planet's own sector as a circular section around it.

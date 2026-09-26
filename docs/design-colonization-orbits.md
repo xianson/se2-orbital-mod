@@ -62,18 +62,69 @@ window: sector membership, contract placement, encounter seeds, discovery, field
 5. **Encounters stay authored.** Procedural and static encounters live in their region window
    at their authored coordinates. Cargo ships get real trajectories.
 
-## 5. Display
+## 5. Display: one map, one zoom
 
-Two maps, each honest about what it is:
-- **The orbital map is the truth:** the sun, planets and moons at their real positions, every
-  region at its real position, sector boundaries drawn around each region, your orbit and
-  planned transfers, launch-window countdowns. This is the KSP map, with the colonization
-  sectors on it.
-- **The colonization map becomes the network:** the authored layout stays as a schematic
-  (like a subway map), with the orbital data overlaid between sectors: next window, delta-v,
-  duration. Its geometry can no longer be physical, because real positions change every hour.
-  (Moving the sectors on it to real positions is possible through public setters, but sector
-  membership uses the same coordinates, so the content would fall out of its own sectors.)
+The colonization map and the KSP map are one map. The game's map stays the interactive surface
+(its controls, selection, side panel, contracts); the orbital layers live in the same 3D scene
+and take over as you zoom out. Zoom is the game's own scroll; its outer limit (public
+MaxDistance) is raised so you can keep zooming past the sector chart.
+
+### The key fact that makes it seamless
+
+Each deep sector orbits its planet at its authored distance, starting at its authored bearing.
+So **at the epoch, the planet systems are exactly the chart.** The chart is not a fake: it is
+a photograph of the system at t = 0. Everything after is that photograph coming alive.
+
+### Three zoom bands
+
+**1. Chart (close zoom): colonization, as the game shows it.**
+- The game's sector polygons, colours, contracts, markers, side panel: unchanged.
+- On top, per sector, a small **moon marker**: where that sector's region is *now* on its orbit
+  around the planet globe, with a faint arc back to its chart cell. At the epoch the marker sits
+  inside its cell; days later it has swung around the planet.
+- Your ship: in the sector you are in, or, in transit, on its true path around the planet.
+- The selected sector (the game's own selection) shows its orbit, its current position, and
+  from you: next launch window, delta-v, flight time.
+
+**2. System (mid zoom): the planet systems come alive.**
+- The chart polygons fade to a faint ghost footprint.
+- Each planet becomes the centre of its family: planet globe, moons, the sector regions as
+  labelled bodies on their orbit rings, coloured by colonization state (locked, unlocked,
+  colonized: the game's own sector colours).
+- Your orbit and planned transfers inside that planet's space, with Ap/Pe and closest approaches.
+
+**3. Solar (far zoom): the KSP map.**
+- The sun, both planets on their true orbits (5 and 7.5 million km), the families collapsed to a
+  badge per planet ("Kemik: 12 sectors, 3 colonized"), the Trojan clusters as labelled clouds
+  60 degrees ahead of and behind Kemik.
+- Interplanetary transfers: your trajectory, the next window countdown, the transfer arc.
+- Warp context: planets visibly moving along their orbits at high warp.
+
+Moving between bands is a continuous blend (fade and move, no pop): markers glide from their
+chart cells to their orbit positions, families shrink into badges.
+
+### Why this is honest
+
+- Close up, the chart is exactly right for what you do there: every contract, encounter and
+  field lives at its authored position inside its window.
+- Far out, positions are the true orbital ones.
+- The middle band shows, for each sector, both where it is charted and where it really is now,
+  and the thin arc between them makes the relationship obvious instead of hidden.
+
+### Selection and input
+
+- Selecting works through the game's own map clicks (the chart). The selection drives our
+  highlights at every zoom band (public SelectedSector / OnSelectionChanged).
+- Clicking bodies in the far bands is not possible (map input lives in assemblies mods cannot
+  reference): selection stays on the chart, which stays visible as a ghost footprint.
+- Worlds without sectors (the sandbox) get the same map with the chart band absent.
+
+### Style
+
+- One visual language across bands: thin distance-scaled lines, the game's sector colours for
+  colonization state, KSP conventions for orbits (you: yellow, targets: cyan, planets: white
+  rings, SOI: faint rings), labels only on hover-equivalents (selected sector, your ship,
+  planets) to avoid clutter.
 
 ## 6. Mapping the campaign onto a real system (decided: big warp, smart mapping)
 

@@ -315,6 +315,10 @@ public static class DevHarness
                 UnifiedMap.HideGameSectors = On(a[1]);
                 return "hide game sector mesh=" + UnifiedMap.HideGameSectors;
 
+            case "bands":
+                UnifiedMap.BandSections = On(a[1]);
+                return "band sections=" + UnifiedMap.BandSections;
+
             case "unified":
                 UnifiedMap.Enabled = On(a[1]);
                 return "unified map=" + UnifiedMap.Enabled;

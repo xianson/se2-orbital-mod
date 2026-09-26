@@ -29,6 +29,8 @@ namespace OrbitalMod;
 public static class UnifiedMap
 {
     public static bool Enabled = true;
+    /// <summary>Sectors drawn as band sections of their orbits (else: discs).</summary>
+    public static bool BandSections = true;
     public static double ZoomOutFactor = 6.0;
     public static string Status = "-";
 
@@ -160,11 +162,35 @@ public static class UnifiedMap
             double tokenR = dist * (si.OwnsPlanet ? 0.02 : 0.011);
             double discR = LerpD(chartR, tokenR, w12) * (si.Trojan ? 1 : 1 - w23 * 0.6);
             Vector3D centre = Lerp(cc, live, si.Trojan ? w23 : w12);
-            if (!(si.Trojan && w23 > 0.6))
-                Disc(b, centre, orient, discR, new ColorSRGB(col, sel ? 0.42f : 0.24f), sel ? Selected : col, W(sel ? 1.2 : 0.7));
+            if (!BandSections)
+            {
+                if (!(si.Trojan && w23 > 0.6))
+                    Disc(b, centre, orient, discR, new ColorSRGB(col, sel ? 0.42f : 0.24f), sel ? Selected : col, W(sel ? 1.2 : 0.7));
+            }
+            else if (!si.Trojan)
+            {
+                // BAND SECTIONS: a sector is a stretch of its orbit around its planet. Its angular
+                // span and radial thickness come from its charted size; it sits where the sector is
+                // now and turns with its orbit (inner ones faster: the Kepler shear is visible).
+                Vector3D P(double ang, double rr) => Fam(si.Host, new Vector3D(Math.Cos(ang) * rr, 0, Math.Sin(ang) * rr));
+                if (si.OwnsPlanet)
+                {
+                    // The planet's own sector: its near space, a full band around it.
+                    double rOut = si.R + sc.Area.Size * 0.15, rIn = Math.Max(si.R * 0.35, 1);
+                    BandArc(b, P, 0.5 * (rIn + rOut), 0, Math.PI, 0.5 * (rOut - rIn), new ColorSRGB(col, (sel ? 0.26f : 0.14f) * (float)(1 - w23)), new ColorSRGB(sel ? Selected : col, (float)(1 - w23)), W(sel ? 1.0 : 0.6), 96);
+                }
+                else
+                {
+                    double th = si.Theta0 + si.Omega * t;
+                    double half = Math.Max(0.08, Math.Min(0.6, 0.5 * sc.Area.Size / si.R));
+                    double hw = Math.Min(sc.Area.Size * 0.18, si.R * 0.09);
+                    float a = (float)(1 - w23 * 0.7);
+                    BandArc(b, P, si.R, th, half, hw, new ColorSRGB(col, (sel ? 0.5f : 0.34f) * a), new ColorSRGB(sel ? Selected : col, a), W(sel ? 1.2 : 0.7), 24);
+                }
+            }
 
             // Band 1: the live position as a marker with an arc back to the charted cell.
-            if (!si.OwnsPlanet && !si.Trojan && w12 < 0.5)
+            if (!BandSections && !si.OwnsPlanet && !si.Trojan && w12 < 0.5)
             {
                 double th0 = si.Theta0, th = si.Theta0 + si.Omega * t;
                 double sweep = Math.Min(th - th0, 2 * Math.PI);
@@ -181,9 +207,9 @@ public static class UnifiedMap
                 b.AddSphere(new WorldTransform(live, Quaternion.Identity), dist * 0.006, col, col, true);
             }
             // Band 2: the sector's orbit ring.
-            if (!si.OwnsPlanet && !si.Trojan && w12 > 0.2 && w23 < 0.8)
+            if (!si.OwnsPlanet && !si.Trojan && (BandSections ? w23 < 0.9 : w12 > 0.2 && w23 < 0.8))
             {
-                var ringCol = new ColorSRGB(sel ? Selected : Ring, (float)(Math.Min(1, (w12 - 0.2) * 2) * (1 - w23)));
+                var ringCol = new ColorSRGB(sel ? Selected : Ring, (float)((BandSections ? 0.35 : Math.Min(1, (w12 - 0.2) * 2)) * (1 - w23)));
                 Vector3D q = Fam(si.Host, new Vector3D(si.R, 0, 0));
                 for (int i = 1; i <= 96; i++)
                 {
@@ -194,6 +220,9 @@ public static class UnifiedMap
                 }
             }
             // Labels: sector names until the solar band; the selected one with its orbit.
+            if (BandSections && !si.Trojan && !si.OwnsPlanet)
+                centre = Fam(si.Host, new Vector3D(Math.Cos(si.Theta0 + si.Omega * t) * si.R, 0, Math.Sin(si.Theta0 + si.Omega * t) * si.R));
+            if (BandSections && si.Trojan && w23 < 0.3) continue;   // far away along the planet's orbit: shown in the solar band
             if (w23 < 0.6 || si.Trojan)
             {
                 string label = sc.Name;
@@ -374,6 +403,23 @@ public static class UnifiedMap
             b.AddTriangle(i0, o1, i1, fill, true);
             b.AddLine(i0, i1, edge, (float)width, true);
             b.AddLine(o0, o1, edge, (float)width, true);
+        }
+    }
+
+    /// <summary>A band section of an orbit: radius a, centre angle, half span, half width (P maps angle, radius to the map).</summary>
+    private static void BandArc(MeshBuilder b, Func<double, double, Vector3D> P, double a, double centre, double halfSpan, double hw,
+                                ColorSRGB fill, ColorSRGB edge, double width, int n)
+    {
+        for (int i = 0; i < n; i++)
+        {
+            double a0 = centre - halfSpan + 2 * halfSpan * i / n, a1 = centre - halfSpan + 2 * halfSpan * (i + 1) / n;
+            Vector3D i0 = P(a0, a - hw), o0 = P(a0, a + hw), i1 = P(a1, a - hw), o1 = P(a1, a + hw);
+            b.AddTriangle(i0, o0, o1, fill, true);
+            b.AddTriangle(i0, o1, i1, fill, true);
+            b.AddLine(i0, i1, edge, (float)width, true);
+            b.AddLine(o0, o1, edge, (float)width, true);
+            if (i == 0) b.AddLine(i0, o0, edge, (float)width, true);
+            if (i == n - 1 && halfSpan < Math.PI) b.AddLine(i1, o1, edge, (float)width, true);
         }
     }
 

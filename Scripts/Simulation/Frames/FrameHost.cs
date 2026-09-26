@@ -129,6 +129,7 @@ public static class FrameHost
                 {
                     if (_hsActive && !landed) vel = StepHighSpeed(ch, pos, vel, dt);
                     else if (!landed) vel = ApplyFictitious(ch, pos, vel, dt);
+                    if (!_hsActive && EncounterFrames.TryAdoptPlayer(id, pos)) { PublishObserver(camera.Position, reg, t); return; }
                     TryStow(session, ch, id, pos, _hsActive ? _hsVel : vel, t);
                 }
             }
@@ -147,6 +148,7 @@ public static class FrameHost
         else if (PlayerFrame != null && Observer.HasValue)
             OrbitDisplay.DrawFrameOrbit(session, camera, Observer.Value, PlayerFrame, reg, t);
         MapView.Tick(session, camera, t);
+        FrameMarkers.Tick(session, camera, t);
         OrbitalMap.Tick(session, t);
         SunDriver.Tick(session, camera.Position, t);
     }
@@ -228,7 +230,7 @@ public static class FrameHost
     private static void UpdatePlayerFrame(Keen.VRage.Core.Game.Systems.Session session, Entity ch, ProximityFrame f,
                                           Vector3D pos, Vector3D vel, double t, double dt)
     {
-        if (f.AnchorEntityId != _playerId)
+        if (f.AnchorEntityId != _playerId || f.IsEncounter)
         {
             UpdateRider(session, ch, f, pos, vel, t, dt);
             return;
@@ -578,6 +580,9 @@ public static class FrameHost
     }
 
     private static (string body, KeplerianElements el)? _pendingOrbit;
+
+    /// <summary>Harness: stow onto exactly this orbit on the next tick.</summary>
+    public static void SetPendingOrbit(string body, KeplerianElements el) => _pendingOrbit = (body, el);
 
     /// <summary>Elements for an Ap/Pe/inclination orbit, starting at apoapsis advanced by phaseDeg of mean anomaly.</summary>
     public static bool OrbitElements(string body, double apoAltKm, double periAltKm, double incDeg, double phaseDeg,

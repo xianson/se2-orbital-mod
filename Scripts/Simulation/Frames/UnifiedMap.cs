@@ -325,6 +325,16 @@ public static class UnifiedMap
 
     // ───────────────────────────── helpers ─────────────────────────────
 
+    /// <summary>Every sector's home (its place in the solar system), by sector name.</summary>
+    internal static Dictionary<string, SectorHomes.Home> HomesBySector(SectorsSessionComponent sectors, SystemRegistry reg)
+    {
+        var planets = new List<GravityBody>();
+        foreach (var body in reg.Root.Children) if (SystemHost.BeaconOf.ContainsKey(body.Name)) planets.Add(body);
+        var d = new Dictionary<string, SectorHomes.Home>();
+        foreach (var si in Classify(sectors, reg, planets)) if (si.Home != null) d[si.Sector.Name] = si.Home;
+        return d;
+    }
+
     private static List<SectorInfo> Classify(SectorsSessionComponent sectors, SystemRegistry reg, List<GravityBody> planets)
     {
         var list = new List<SectorInfo>();

@@ -307,6 +307,50 @@ public static class DevHarness
                 else SystemHost.DevAdvanceClock(D(a[1]) * 3600);
                 return $"universe clock t={SystemHost.Now / 3600:F1} h";
 
+            case "encounters":
+                Log.Default?.Info("[ORBIT-DEV] " + EncounterFrames.Describe());
+                return EncounterFrames.Describe().Replace((char)10, '|');
+
+            case "gps":
+                return FrameMarkers.Describe(session);
+
+            case "gpsat":
+            {
+                // gpsat <markerIndex> <encounterIndex> [offsetKm]: a copy of a marker at an encounter frame's berth.
+                SEAerospace.Frames.ProximityFrame ef;
+                lock (ServerFrames.FramesLock) ef = EncounterFrames.Nth((int)D(a[2]));
+                if (ef == null) return "no such encounter frame";
+                double off = a.Length > 3 ? D(a[3]) * 1000 : 0;
+                string nm = (EncounterFrames.SiteOf(ef.Id)?.Label ?? "Encounter") + " (test)";
+                return FrameMarkers.DevCloneAt(session, (int)D(a[1]), ef.BerthCenter + new Vector3D(off, 0, 0), nm);
+            }
+
+            case "devsite":
+                // devsite <gridId> <sector name...>: make a test site of a grid at that sector's centre (0 = pick one).
+                EncounterFrames.RequestDevSite((long)D(a[1]), string.Join(" ", a, 2, a.Length - 2));
+                return "devsite queued";
+
+            case "gotosite":
+            {
+                // gotosite <i> [behindKm]: put the player on the i-th encounter frame's orbit, this far behind it.
+                int idx = a.Length > 1 ? (int)D(a[1]) : 0;
+                double behind = a.Length > 2 ? D(a[2]) * 1000 : 6000;
+                lock (ServerFrames.FramesLock)
+                {
+                    var f = EncounterFrames.Nth(idx);
+                    if (f == null) return "no such encounter frame";
+                    double t = SystemHost.Now;
+                    var st = SEAerospace.Orbital.OrbitPropagation.StateAt(f.Elements, t);
+                    double dtb = behind / Math.Max(1, st.Velocity.Length());
+                    var sb = SEAerospace.Orbital.OrbitPropagation.StateAt(f.Elements, t - dtb);
+                    var el = CaptureMath.CaptureElements(sb, f.Elements.Mu, t);
+                    var pf = SystemHost.Frames.FindByMember(FrameHost.PlayerId);
+                    if (pf != null && !pf.IsEncounter) { pf.Elements = el; pf.ParentBodyName = f.ParentBodyName; pf.VirtualVelocity = sb.Velocity; return $"player frame #{pf.Id} -> {behind / 1000:F1} km behind encounter #{f.Id}"; }
+                    FrameHost.SetPendingOrbit(f.ParentBodyName, el);
+                    return $"stowing {behind / 1000:F1} km behind encounter #{f.Id} about {f.ParentBodyName}";
+                }
+            }
+
             case "sectororbits":
                 MapView.SectorOrbits = On(a[1]);
                 return "sectororbits=" + MapView.SectorOrbits;

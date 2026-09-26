@@ -45,7 +45,10 @@ public static class GridMembers
 
     internal static long Register(OrbitalGridComponent g)
     {
-        lock (_lock) { long id = ++_next; _byId[id] = g; return id; }
+        long nid;
+        lock (_lock) { nid = ++_next; _byId[nid] = g; }
+        EncounterFrames.OnGridRegistered(nid);
+        return nid;
     }
 
     internal static void Unregister(OrbitalGridComponent g)

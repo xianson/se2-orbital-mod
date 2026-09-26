@@ -113,6 +113,7 @@ public static class ServerFrames
             {
                 while (Attach.TryDequeue(out var req)) DoAttach(req);
                 while (GridOrbit.TryDequeue(out var go)) DoGridOrbit(go);
+                EncounterFrames.ServerTick(session, _tick);
                 var frames = new List<ProximityFrame>(SystemHost.Frames.Frames);
                 foreach (var f in frames) UpdateGridFrame(f, dt);
                 StepGridHighSpeed();
@@ -139,6 +140,7 @@ public static class ServerFrames
             Vector3D p = GridMembers.Position(g);
             if ((p - req.RefPos).Length() > AttachRadius) continue;
             if (GridMembers.IsConstrained(g)) continue;
+            if (EncounterFrames.IsNpc(g)) continue;   // NPCs keep their own world
             if (!SystemHost.Frames.AddMember(frame, g.Id)) continue;
             // A grid riding its conic (HighSpeed) has zero physical velocity: its true velocity is the
             // conic's. Leave HighSpeed first, or StepGridHighSpeed keeps dragging it off the berth.
@@ -172,6 +174,7 @@ public static class ServerFrames
             Vector3D pos = GridMembers.Position(g);
             if (!VoxelBerthRegistry.TryCellContaining(pos, reg, out string body, out Vector3D cell)) continue;
             if (SystemHost.Frames.FindByMember(g.Id) != null) continue;
+            if (EncounterFrames.IsNpc(g)) continue;   // NPCs: no relative-motion terms
             Chart c = Chart.Of(body, t);
             if (!c.Spin) continue;
             Vector3D r = pos - cell, v = GridMembers.Velocity(g);
@@ -201,6 +204,7 @@ public static class ServerFrames
             Vector3D pos = GridMembers.Position(g);
             if ((pos - PlayerPosition).Length() <= AttachRadius) continue;
             if (GridMembers.IsConstrained(g)) continue;
+            if (EncounterFrames.IsNpc(g)) continue;
             if (!VoxelBerthRegistry.TryCellContaining(pos, reg, out string body, out Vector3D cell))
             {
                 if (!OrbitalConfig.CaptureLegacySpace || !SystemHost.TryNearestCell(pos, out body, out cell)) continue;
@@ -288,6 +292,7 @@ public static class ServerFrames
                 var fb = frames[b];
                 if (SystemHost.Frames.Get(fb.Id) == null || !Finite(fb.Elements)) continue;
                 if (fa.ParentBodyName != fb.ParentBodyName) continue;
+                if (!EncounterFrames.ShouldScreen(fa, fb)) continue;
                 if (bandA && RadialBand(fb.Elements, out double peB, out double apB) && (apA + er < peB || apB + er < peA)) continue;
                 if (!FrameRails.CanMutateAt(fa.Elements, t) || !FrameRails.CanMutateAt(fb.Elements, t)) continue;
 
@@ -319,7 +324,8 @@ public static class ServerFrames
     private static void ExecuteMerge(ProximityFrame fa, ProximityFrame fb, StateVector sa, StateVector sb)
     {
         ProximityFrame host, inc; StateVector sHost, sInc;
-        if (FrameMass(fa) >= FrameMass(fb)) { host = fa; inc = fb; sHost = sa; sInc = sb; }
+        int pa = EncounterFrames.HostPriority(fa), pb = EncounterFrames.HostPriority(fb);
+        if (pa > pb || (pa == pb && FrameMass(fa) >= FrameMass(fb))) { host = fa; inc = fb; sHost = sa; sInc = sb; }
         else { host = fb; inc = fa; sHost = sb; sInc = sa; }
 
         // Anchors sit at their berths (pinned), so the incomer moves by berth-to-berth plus the
@@ -387,49 +393,65 @@ public static class ServerFrames
         }
         if (grids.Count == 0) return;
 
-        // Anchor election: keep a live grid anchor, else the heaviest grid (SE1 ElectAnchor).
+        // Anchor election: keep a live grid anchor, else the heaviest PLAYER grid (SE1 ElectAnchor).
+        // NPC grids never anchor, and an encounter frame has no anchor at all: its origin is the berth
+        // (the site, pinned) and its orbit is its own (a site's ephemeris, a procedural spawn's conic).
         OrbitalGridComponent anchor = null;
-        foreach (var g in grids) if (g.Id == f.AnchorEntityId) anchor = g;
-        if (anchor == null)
+        if (!f.IsEncounter)
         {
-            double best = -1;
-            foreach (var g in grids) { double m = GridMembers.Mass(g); if (m > best) { best = m; anchor = g; } }
-            Event($"frame #{f.Id}: anchor -> grid {anchor.Id} '{anchor.DisplayName}' ({best:F0} kg)");
-            f.AnchorEntityId = anchor.Id;
+            foreach (var g in grids) if (g.Id == f.AnchorEntityId && !EncounterFrames.IsNpc(g)) anchor = g;
+            bool playerAnchored = f.AnchorEntityId != 0 && !GridMembers.IsGridId(f.AnchorEntityId) && f.HasMember(f.AnchorEntityId);
+            if (anchor == null && !playerAnchored)
+            {
+                double best = -1;
+                foreach (var g in grids) { if (EncounterFrames.IsNpc(g)) continue; double m = GridMembers.Mass(g); if (m > best) { best = m; anchor = g; } }
+                if (anchor != null)
+                {
+                    Event($"frame #{f.Id}: anchor -> grid {anchor.Id} '{anchor.DisplayName}' ({best:F0} kg)");
+                    f.AnchorEntityId = anchor.Id;
+                }
+            }
         }
 
         double t = SystemHost.Now;
         StateVector cur = OrbitPropagation.StateAt(f.Elements, t);
         Vector3D A = Vector3D.Zero;
+        Vector3D anchorPos = f.BerthCenter;
 
-        // Anchor owner = server: pin + drain + fold.
-        Vector3D anchorPos = GridMembers.Position(anchor);
-        if ((anchorPos - f.BerthCenter).Length() > PinTolerance)
+        if (anchor != null)
         {
-            // Re-pin by shifting the WHOLE frame back (members keep their offsets; no rails change).
-            Vector3D shift = f.BerthCenter - anchorPos;
-            foreach (var g in grids) GridMembers.SetPosition(g, GridMembers.Position(g) + shift);
-            FrameHost.RequestShift(f.Id, shift);
-            anchorPos = f.BerthCenter;
+            // Anchor owner = server: pin + drain + fold.
+            anchorPos = GridMembers.Position(anchor);
+            if ((anchorPos - f.BerthCenter).Length() > PinTolerance)
+            {
+                // Re-pin by shifting the WHOLE frame back (members keep their offsets; no rails change).
+                Vector3D shift = f.BerthCenter - anchorPos;
+                foreach (var g in grids) GridMembers.SetPosition(g, GridMembers.Position(g) + shift);
+                FrameHost.RequestShift(f.Id, shift);
+                anchorPos = f.BerthCenter;
+            }
+            Vector3D vA = GridMembers.Velocity(anchor);
+            if (IsFinite(vA))
+            {
+                GridMembers.SetVelocity(anchor, Vector3D.Zero);
+                f.PendingDrainDv += vA;
+            }
+            var fold = FrameRails.FoldDrain(f, t, FrameHost.FoldThreshold, FrameHost.MaxApparentAccel * dt, ref cur, out Vector3D slice);
+            if (fold == FrameRails.FoldResult.Folded) A = slice / dt;
+            if (IsFinite(cur.Velocity)) f.VirtualVelocity = cur.Velocity;
+            AnchorAccel[f.Id] = A;
         }
-        Vector3D vA = GridMembers.Velocity(anchor);
-        if (IsFinite(vA))
-        {
-            GridMembers.SetVelocity(anchor, Vector3D.Zero);
-            f.PendingDrainDv += vA;
-        }
-        var fold = FrameRails.FoldDrain(f, t, FrameHost.FoldThreshold, FrameHost.MaxApparentAccel * dt, ref cur, out Vector3D slice);
-        if (fold == FrameRails.FoldResult.Folded) A = slice / dt;
-        if (IsFinite(cur.Velocity)) f.VirtualVelocity = cur.Velocity;
-        AnchorAccel[f.Id] = A;
+        else if (!f.IsEncounter && AnchorAccel.TryGetValue(f.Id, out var pa)) A = pa;   // the player anchors (client folds)
 
         // Other members: CW differential gravity minus the frame acceleration; split beyond the slot.
+        // NPC grids are Newtonian inside the frame: no relative-motion terms, and they never split off.
         double mu = f.Elements.Mu;
         Vector3D rA = cur.Position;
         Vector3D gA = Grav(rA, mu);
         foreach (var g in grids)
         {
             if (g == anchor) continue;
+            if (EncounterFrames.IsNpc(g)) continue;
             Vector3D rRel = GridMembers.Position(g) - anchorPos;
             if (rRel.Length() > SlotRadius)
             {
@@ -440,6 +462,7 @@ public static class ServerFrames
             if (IsFinite(accel)) GridMembers.AddVelocity(g, accel * dt);
         }
 
+        if (f.IsEncounter || anchor == null) return;   // encounter frames never arrive; a player-anchored frame arrives client-side
         FrameHost.TryReparent(f, t);
         TryMaterializeGrids(f, grids, anchor, t);
     }

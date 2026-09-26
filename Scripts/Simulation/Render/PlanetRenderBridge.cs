@@ -664,6 +664,19 @@ public static class PlanetRenderBridge
         return _renderAsm?.GetType(fullName) ?? typeof(Keen.VRage.Core.Render.RenderRuntimeDataType).Assembly.GetType(fullName);
     }
 
+    /// <summary>list.Add(item) on a collection type mod code cannot reference.</summary>
+    internal static bool CallAdd(object list, object item)
+    {
+        try
+        {
+            var m = list?.GetType().GetMethod("Add", new[] { item.GetType() }) ?? list?.GetType().GetMethod("Add");
+            if (m == null) return false;
+            m.Invoke(list, new[] { item });
+            return true;
+        }
+        catch (Exception e) { Log.Default?.Info("[ORBIT] CallAdd: " + (e.InnerException ?? e).Message); return false; }
+    }
+
     internal static object GetMember(object target, string name)
     {
         if (target == null) return null;

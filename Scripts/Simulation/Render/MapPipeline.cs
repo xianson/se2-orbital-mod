@@ -382,6 +382,41 @@ public static class MapPipeline
         }
     }
 
+    /// <summary>
+    /// A HUD marker for a frame-transferred GPS point: a ringed diamond, its name and distance; off
+    /// screen (or behind the camera) it sits on the screen edge in its true direction.
+    /// </summary>
+    public static void HudMarker(Vector3D world, string name, string distance, ColorSRGB color)
+    {
+        if (_batch == null || _drawLine == null || _cam == null) return;
+        try
+        {
+            var wt = _cam.Entity.Data.GetWorldTransform();
+            Vector3D fwd = (QuaternionD)wt.Orientation * Vector3D.Forward;
+            Vector2 size = ScreenSize, centre = size * 0.5f;
+            bool front = Vector3D.Dot(world - wt.Position, fwd) > 1e-6;
+            Vector2 s = _cam.WorldToScreenPoint(front ? world : wt.Position - (world - wt.Position));
+            bool edge = !front || s.X < 0 || s.Y < 0 || s.X > size.X || s.Y > size.Y;
+            if (edge)
+            {
+                Vector2 dir = s - centre;
+                if (!front) dir = -dir;
+                if (dir.LengthSquared() < 1e-6f) dir = new Vector2(0, 1);
+                float k = Math.Min((centre.X - 40) / Math.Max(1e-3f, Math.Abs(dir.X)), (centre.Y - 40) / Math.Max(1e-3f, Math.Abs(dir.Y)));
+                s = centre + dir * k;
+            }
+            var ps = _drawLine.GetParameters();
+            float r = 9f;
+            Vector2 up = new Vector2(0, -r), rt = new Vector2(r, 0);
+            var dia = new[] { s + up, s + rt, s - up, s - rt, s + up };
+            for (int i = 0; i < 4; i++) _drawLine.Invoke(_batch, new object[] { dia[i], dia[i + 1], color, 2f, ps[4].DefaultValue, 1f, false });
+            ScreenDot(s, 2.5f, color);
+            ScreenText(s + new Vector2(14, -14), name ?? "", color, 0.62f);
+            ScreenText(s + new Vector2(14, 4), distance + (edge ? "  >" : ""), new ColorSRGB(0.85f, 0.9f, 1f, 0.9f), 0.55f);
+        }
+        catch { }
+    }
+
     public static void UiEnd()
     {
         try { (_batch as IDisposable)?.Dispose(); } catch { }

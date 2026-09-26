@@ -49,6 +49,7 @@ public static class SavedState
             sb.Append("next ").Append(snap.NextFrameId).Append('\n');
             foreach (var fs in snap.Frames)
             {
+                if (EncounterFrames.IsTransient(fs.Id)) continue;   // sites are rebuilt from the world
                 sb.Append("frame ").Append(fs.Id).Append(' ').Append(Esc(fs.ParentBodyName))
                   .Append(' ').Append(D(fs.SemiMajorAxis)).Append(' ').Append(D(fs.Eccentricity))
                   .Append(' ').Append(D(fs.Inclination)).Append(' ').Append(D(fs.Raan))
@@ -74,6 +75,7 @@ public static class SavedState
                 sb.Append("hs ").Append(id).Append(' ').Append(Esc(body)).Append(' ').Append(El(el)).Append('\n');
                 Remember(ob, id);
             }
+            foreach (var k in FrameMarkers.HiddenKeys()) sb.Append("gpshid ").Append(Esc(k)).Append((char)10);
             ob.NamedEntities["state:" + sb] = self;
             Log.Default?.Info($"[ORBIT-FRAME] saved state captured: {snap.Frames.Count} frame(s), {sb.Length} chars, {ob.NamedEntities.Count} keys");
             if (FrameHost.PlayerId != 0) ob.NamedEntities["player:" + FrameHost.PlayerId.ToString(Inv)] = self;
@@ -93,6 +95,9 @@ public static class SavedState
     private static Pending _pending;
     private static double _pendingSince = -1;
     public static string LastRestore = "none";
+
+    /// <summary>No saved state waiting to be applied (frame ids are safe to hand out).</summary>
+    public static bool Idle => _pending == null;
 
     /// <summary>Called from the planets' [Init] on load (both planets carry the same state; first wins).</summary>
     public static void OnLoaded(EntityNameSessionComponentObjectBuilder b)
@@ -174,6 +179,9 @@ public static class SavedState
                         if (f != null) { frames++; members += ids.Count; }
                         break;
                     }
+                    case "gpshid":
+                        FrameMarkers.RestoreHidden(Unesc(p[1]));
+                        break;
                     case "hs":
                     {
                         long id = Map(long.Parse(p[1], Inv));

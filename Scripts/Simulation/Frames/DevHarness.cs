@@ -301,6 +301,16 @@ public static class DevHarness
                 return $"{n} sectors logged";
             }
 
+            case "clock":
+                // clock +<hours> | clock set <hours>
+                if (a[1].Equals("set", StringComparison.OrdinalIgnoreCase)) SystemHost.DevAdvanceClock(D(a[2]) * 3600 - SystemHost.Now);
+                else SystemHost.DevAdvanceClock(D(a[1]) * 3600);
+                return $"universe clock t={SystemHost.Now / 3600:F1} h";
+
+            case "sectororbits":
+                MapView.SectorOrbits = On(a[1]);
+                return "sectororbits=" + MapView.SectorOrbits;
+
             case "mapview":
                 MapView.Mode = (MapView.ViewMode)Enum.Parse(typeof(MapView.ViewMode), a[1], ignoreCase: true);
                 return $"mapview={MapView.Mode}";

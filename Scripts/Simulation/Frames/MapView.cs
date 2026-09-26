@@ -108,7 +108,11 @@ public static class MapView
         lock (ServerFrames.FramesLock)
         {
             if (system) DrawSystem(reg, mapPos, orient, map.MaxDistance, t);
-            else DrawLocal(reg, mapPos, orient, origin, scale, planetScale, t);
+            else
+            {
+                DrawLocal(reg, mapPos, orient, origin, scale, planetScale, t);
+                DrawSectorOrbits(session, map, sectors, mapPos, orient, origin, scale, t);
+            }
         }
         if (DiagCross)
         {
@@ -125,6 +129,96 @@ public static class MapView
     }
 
     // ───────────────────────────── local layer ─────────────────────────────
+
+
+    // ───────────────────────────── band 1: the chart coming alive ─────────────────────────────
+
+    /// <summary>Sectors farther than this from their planet go to its Trojan points (design section 6).</summary>
+    public const double TrojanThreshold = 8.0e6;   // m
+    public static bool SectorOrbits = true;
+    private static readonly ColorSRGB SectorColor = new ColorSRGB(0.45f, 0.85f, 1f);
+    private static readonly ColorSRGB SectorSelColor = new ColorSRGB(1f, 0.85f, 0.2f);
+    private static readonly ColorSRGB ArcColor = new ColorSRGB(0.35f, 0.6f, 0.8f);
+
+    /// <summary>
+    /// Each deep sector orbits its nearest planet at its charted distance, starting (t = 0) at its
+    /// charted bearing, so at the epoch the chart IS the system. Draw where each sector is now: a
+    /// marker on its orbit around the planet, a faint arc back to its charted cell, and for the
+    /// selected sector its whole orbit and period.
+    /// </summary>
+    private static void DrawSectorOrbits(Keen.VRage.Core.Game.Systems.Session session, ColonizationMapSessionComponent map,
+        SectorsSessionComponent sectors, Vector3D mapPos, Quaternion orient, Vector3D origin, double scale, double t)
+    {
+        if (!SectorOrbits || scale <= 0) return;
+        var reg = SystemHost.Registry;
+        Vector3D ToMap(Vector3D world) => ColonizationMapSessionComponent.WorldToMapPosition(world, mapPos, orient, origin, (float)scale);
+
+        Keen.VRage.Library.Utils.StringId? selected = null;
+        try
+        {
+            // MapSectorsRenderComponent derives from a type in VRage.Game.Client (not referenceable).
+            object renderer = PlanetRenderBridge.GetMember(map, "SectorsRenderer");
+            if (renderer != null && PlanetRenderBridge.GetMember(renderer, "SelectedSector") is Keen.VRage.Library.Utils.StringId sid) selected = sid;
+        }
+        catch { }
+
+        foreach (var sc in sectors.Sectors)
+        {
+            Vector3D c = sc.Area.Center;
+            // Host: the nearest planet (not a moon). Sectors that contain a planet are that planet's own.
+            string host = null; Vector3D hostC = default; double best = double.MaxValue; bool ownsPlanet = false;
+            foreach (var kv in SystemHost.BeaconOf)
+            {
+                var node = reg.Find(kv.Key);
+                if (node == null || node.Parent == null || node.Parent.Parent != null) continue;   // planets only
+                Vector3D pc = kv.Value.Center;
+                if (sc.Contains(pc)) ownsPlanet = true;
+                double d = (new Vector3D(c.X, pc.Y, c.Z) - pc).Length();
+                if (d < best) { best = d; host = kv.Key; hostC = pc; }
+            }
+            if (host == null || ownsPlanet) continue;
+            bool sel = selected.HasValue && selected.Value == Keen.VRage.Library.Utils.StringId.Get(sc.Name);
+            var color = sel ? SectorSelColor : SectorColor;
+            Vector3D chartMap = ToMap(c);
+
+            if (best > TrojanThreshold)
+            {
+                // A Trojan region: millions of km away along the planet's orbit, not on this chart.
+                _builder.AddText(chartMap, $"{sc.Name}: {host} Trojan", color, sel ? 0.55f : 0.4f);
+                continue;
+            }
+
+            double mu = reg.Find(host).Mu;
+            double r = best;
+            double omega = Math.Sqrt(mu / (r * r * r));
+            double theta0 = Math.Atan2(c.Z - hostC.Z, c.X - hostC.X);
+            double theta = theta0 + omega * t;
+            Vector3D At(double th) => ToMap(hostC + new Vector3D(Math.Cos(th) * r, 0, Math.Sin(th) * r));
+            Vector3D now = At(theta);
+
+            // Arc from the charted position to where it is now (at most one turn).
+            double swept = omega * t;
+            double sweep = Math.Min(Math.Abs(swept), 2 * Math.PI);
+            int n = Math.Max(2, (int)(sweep / (2 * Math.PI) * 96));
+            Vector3D prev = At(theta0);
+            for (int i = 1; i <= n; i++)
+            {
+                Vector3D p = At(theta0 + Math.Sign(swept) * sweep * i / n);
+                _builder.AddLine(prev, p, ArcColor, Width(prev, p, 0.6), true);
+                prev = p;
+            }
+            if (sel)
+            {
+                // The selected sector: its whole orbit.
+                Vector3D q = At(0);
+                for (int i = 1; i <= 128; i++) { Vector3D p = At(2 * Math.PI * i / 128); _builder.AddLine(q, p, SectorSelColor, Width(q, p, 0.8), true); q = p; }
+            }
+            double size = Math.Max(1e-4, (_cam - now).Length() * 0.006);
+            _builder.AddSphere(new WorldTransform(now, Quaternion.Identity), size, color, color, true);
+            double period = 2 * Math.PI / omega;
+            _builder.AddText(now, sel ? $"{sc.Name}  r {r / 1e6:F2} Mm  T {period / 3600:F1} h  v {Math.Sqrt(mu / r):F0} m/s" : sc.Name, color, sel ? 0.55f : 0.42f);
+        }
+    }
 
     private static void DrawLocal(SystemRegistry reg, Vector3D mapPos, Quaternion orient, Vector3D origin, double scale,
                                   double planetScale, double t)

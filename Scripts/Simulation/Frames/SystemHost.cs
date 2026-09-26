@@ -79,6 +79,9 @@ public static class SystemHost
         return WorldSunPeriod > 0 ? WorldSunPeriod : 0;
     }
 
+    /// <summary>DEV: jump the universe clock (rails, sectors, planets) forward or back.</summary>
+    public static void DevAdvanceClock(double seconds) { Now += seconds; }
+
     /// <summary>Load: continue the rails clock from the saved universe time.</summary>
     public static void RestoreClock(double t) { if (!double.IsNaN(t) && !double.IsInfinity(t)) Now = t; }
     /// <summary>Which clock drove the last advance ("game" = IGameTime, "wall" = fallback).</summary>

@@ -97,6 +97,14 @@ public partial class ServerPlanetBeacon : Component, IInSceneListener
     /// <summary>The server scene's session (set by the first server planet).</summary>
     public static Keen.VRage.Core.Game.Systems.Session ServerSession;
 
+    /// <summary>Load: the saved orbital state (frames, clock, HighSpeed conics). See <see cref="SavedState"/>.</summary>
+    [Keen.VRage.DCS.Annotations.Init]
+    private void InitState(Keen.Game2.Simulation.GameSystems.EntityNameSessionComponentObjectBuilder ob) => SavedState.OnLoaded(ob);
+
+    /// <summary>Save: every planet writes the same global state (the first one read on load wins).</summary>
+    [Keen.VRage.DCS.Annotations.Serializer]
+    private void SerializeState(Keen.Game2.Simulation.GameSystems.EntityNameSessionComponentObjectBuilder ob) => SavedState.Capture(ob, Entity);
+
     void IInSceneListener.OnAddedToScene()
     {
         ServerSession ??= Entity.GetSession();

@@ -92,6 +92,7 @@ public static class FrameHost
             _playerId = id;
             lock (ServerFrames.FramesLock)
             {
+                SavedState.TryApply(id);
                 if (ApplyServerRequests(session, ch, pos, t)) { PublishObserver(camera.Position, reg, t); return; }
                 var frame = frames.FindByMember(id);
                 PlayerFrame = frame;
@@ -336,6 +337,22 @@ public static class FrameHost
     private static double _mult = 1.0;
     private static Vector3D _hsVel;
     public static bool HighSpeedActive => _hsActive;
+    public static long PlayerId => _playerId;
+
+    /// <summary>Save: the player's HighSpeed conic, if riding one.</summary>
+    public static bool TryGetHighSpeed(out string body, out KeplerianElements el)
+    {
+        body = _hsBody; el = _hsEl;
+        return _hsActive && !string.IsNullOrEmpty(_hsBody);
+    }
+
+    /// <summary>Load: back onto the saved HighSpeed conic (the saved position is already on it).</summary>
+    public static void RestoreHighSpeed(string body, KeplerianElements el)
+    {
+        _hsBody = body; _hsEl = el; _hsActive = true; _wasInKeep = true;
+        var noDamp = new PlayerRequest { Dampeners = false };
+        ServerPlanetBeacon.PendingPlayer = noDamp;
+    }
     public static Vector3D HighSpeedVelocity => _hsVel;
     public static string HighSpeedElements => _hsActive ? $"a={_hsEl.SemiMajorAxis / 1000:F2}km,e={_hsEl.Eccentricity:F4}" : "-";
 

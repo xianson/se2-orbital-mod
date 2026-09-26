@@ -46,7 +46,15 @@ public class InjectPlanetComponents : Injections
 
         if (isServerPlanet)
         {
-            Add(prefab, typeof(ServerPlanetBeacon));
+            // Fixed component id + an object builder: the beacon carries the saved orbital state, so
+            // its id must be stable across loads (not derived from the composition size, which
+            // depends on what other mods inject).
+            Add(prefab, new Keen.VRage.DCS.Builders.EntityBuilder.ComponentBuildInfo
+            {
+                Type = typeof(ServerPlanetBeacon),
+                ComponentId = new System.Guid("0a7b17a1-5eed-4f00-8a11-0000000000b1"),
+                ObjectBuilder = new Keen.Game2.Simulation.GameSystems.EntityNameSessionComponentObjectBuilder(),
+            });
             _serverCount++;
             Log.Default?.Info($"[ORBIT] server planet prefab #{_serverCount}: '{prefab.DebugName}' +ServerPlanetBeacon");
         }

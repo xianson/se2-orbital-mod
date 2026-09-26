@@ -52,6 +52,9 @@ public static class SystemHost
     private static long _lastClockTicks;
 
     private static DateTime _lastGameTime;
+
+    /// <summary>Load: continue the rails clock from the saved universe time.</summary>
+    public static void RestoreClock(double t) { if (!double.IsNaN(t) && !double.IsInfinity(t)) Now = t; }
     /// <summary>Which clock drove the last advance ("game" = IGameTime, "wall" = fallback).</summary>
     public static string ClockSource = "-";
 

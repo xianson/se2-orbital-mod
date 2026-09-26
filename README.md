@@ -43,6 +43,13 @@ interaction shell, HighSpeed), ported. Verified in game with the harness:
   swallows a frame of gravity.
 - **Clock on game time:** the rails and the server's tidal integration run on IGameTime (synced
   client/server, follows game speed, pauses with the game), so the rails and the physics agree.
+- **Persistence:** frames, the rails clock and HighSpeed conics are saved with the world, on every
+  planet's beacon component (planets always exist). The builder is the engine's own
+  EntityNameSessionComponentObjectBuilder (string -> Entity): mod-defined builders cannot compile,
+  because the serializer generator always emits code needing System.Linq.Expressions. Member ids
+  are remapped through saved entity references. Verified: a frame with 5 grids and the player was
+  saved and reloaded intact (orbit, clock t=150, all members). The harness `save` only ever writes
+  the "Orbital Test World" copy.
 - **Lone grids** in a planet cell stow into their own frame when they leave the keep (or cross above
   the shell on an escaping arc), taking grids within 5 km along.
 - **Warp never skips an arrival:** the rails clock stops exactly at the earliest inbound shell
@@ -50,8 +57,7 @@ interaction shell, HighSpeed), ported. Verified in game with the harness:
 
 Remaining limits: local player only (client-driven; SP / listen host), HighSpeed thrust
 verified only as no false folds plus a harness kick (no real key press; grid thrust untested), legacy-space objects are not captured, radial (zero angular momentum) states are
-not captured, planets do not spin (no rotating surface chart), sun direction not driven, frames not
-persisted, relative motion of members is integrated at x1 while the rails warp.
+not captured, planets do not spin (no rotating surface chart), sun direction not driven, relative motion of members is integrated at x1 while the rails warp.
 
 ## Open items, highest value first
 

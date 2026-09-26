@@ -473,6 +473,17 @@ public static class ServerFrames
         Event($"ARRIVE grid frame #{fid} -> {node.Name}: {grids.Count} grid(s), r={cel.Position.Length() / 1000:F1} km |v|={speed:F0} m/s{(hs ? " -> HighSpeed" : "")}");
     }
 
+    /// <summary>Save: the grid HighSpeed conics. Caller holds FramesLock.</summary>
+    internal static List<(long id, string body, KeplerianElements el)> GridHighSpeedEntries()
+    {
+        var l = new List<(long, string, KeplerianElements)>();
+        foreach (var kv in _gridHighSpeed) l.Add((kv.Key, kv.Value.body, kv.Value.el));
+        return l;
+    }
+
+    /// <summary>Load: put a grid back on its HighSpeed conic.</summary>
+    internal static void RestoreGridHighSpeed(long id, string body, KeplerianElements el) => _gridHighSpeed[id] = (body, el);
+
     /// <summary>Grids above the cap in a planet cell ride their conic (analytic HighSpeed, as the player).</summary>
     private static void StepGridHighSpeed()
     {

@@ -31,6 +31,21 @@ namespace OrbitalMod;
 /// </summary>
 public static class DevHarness
 {
+    /// <summary>The only save the harness ever writes (a copy of the test world).</summary>
+    public const string TestWorldContainer = "Orbital Test World";
+
+    private static async void SaveAndLog(Keen.Game2.Simulation.Replication.IGameServer server)
+    {
+        try
+        {
+            var r = await server.TrySaveGame(TestWorldContainer);
+            Log.Default?.Info($"[ORBIT-DEV] save -> '{TestWorldContainer}': {r}");
+            LastSave = $"{DateTime.Now:HH:mm:ss} {r}";
+        }
+        catch (Exception e) { Log.Default?.Info($"[ORBIT-DEV] save failed: {e.Message}"); LastSave = "failed: " + e.Message; }
+    }
+    public static string LastSave = "none";
+
     public const double PollSeconds = 0.5;
 
     private static long _lastPoll;
@@ -191,6 +206,16 @@ public static class DevHarness
             case "hsfold":
                 FrameHost.HsThrustFold = On(a[1]);
                 return $"hsfold={FrameHost.HsThrustFold}";
+
+            case "save":
+            {
+                // ALWAYS into the test world's container, whatever world is loaded: the harness must
+                // never write a player's own save.
+                var server = ServerPlanetBeacon.ServerSession?.Get<Keen.Game2.Simulation.Replication.IGameServer>();
+                if (server == null) return "no IGameServer";
+                SaveAndLog(server);
+                return $"saving to '{TestWorldContainer}'";
+            }
 
             case "kick":
                 // kick <prograde m/s> [radial] [normal]  (HighSpeed only)
@@ -376,6 +401,7 @@ public static class DevHarness
     private static void WriteStatus(WorldTransform camera)
     {
         var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"restore {SavedState.LastRestore} | save {LastSave}");
         sb.AppendLine($"time {DateTime.Now:HH:mm:ss.fff} ticks/s client={TickRate.Client.PerSecond:F1} server={TickRate.Server.PerSecond:F1} rails t={SystemHost.Now:F1} x{SystemHost.Timescale} clock={SystemHost.ClockSource}");
         sb.AppendLine($"camera {camera.Position.X:F0} {camera.Position.Y:F0} {camera.Position.Z:F0}");
         sb.AppendLine($"physics gravityMultiplier client={_clientGravityMultiplier} server={ServerPlanetBeacon.ServerGravityMultiplier}");

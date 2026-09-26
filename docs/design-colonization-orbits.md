@@ -1,123 +1,105 @@
-# Fusing colonization with orbits: design
+# Fusing colonization with orbits: design (revision 2)
 
-Status: proposal, 2026-09-26. Nothing here is built yet.
+Status: proposal, 2026-09-26. Decision from the user: **a real solar system, no compromises.**
+Planets orbit the sun; nothing in the model is pinned for the game's convenience.
 
-## 1. The constraint that decides everything
+## 1. The consequence: the world is storage, not space
 
-Every colonization system is pinned to fixed world coordinates:
+Every colonization system is pinned to fixed world coordinates (sector areas, fast-travel
+fields, procedural encounter cells, contract targets, discovery triggers). Planets that really
+orbit the sun cannot stay in a fixed world layout: Verdure and Kemik have different periods, so
+their separation changes all the time. Therefore the SE2 world cannot be the solar system.
 
-| System | What is fixed |
-|---|---|
-| Sectors | Centre + weight; the polygon is a 2D power diagram on world X/Z. Infinite prisms in Y. |
-| Fast travel | Field transforms, computed once at init; destinations in world coordinates. |
-| Procedural encounters | Seeded 4096 m world cells; they materialise within 4 km of a player. |
-| Contracts | Targets placed once, in absolute coordinates, around the contract board. |
-| Discovery | Trigger volumes subscribed once (planet: its gravity reach; fields: their range). |
+It becomes what the frames design already makes it: **a set of windows.**
+- Each **planet cell** is a window on the space around a planet (built).
+- Each **conjunction berth** is a window on a ship in transit (built).
+- New: each **region cell** is a window on a piece of authored deep space: a colonization
+  sector's content (its fast-travel fields, contract boards, encounters), pinned where it is
+  authored, exactly as the planet cells are pinned where the planets are authored.
 
-So the world must stay a **fixed chart**. Planets cannot move in world space, and neither can
-sectors, fields or encounters. Orbits must live in a model that maps onto that chart, the same
-way the planet cells are already charts.
+The empty world space between windows means nothing any more. Nothing flies through it: you
+leave a window by stowing onto the rails and enter another by arrival. Because every window
+keeps its authored coordinates, everything the game pins in the world keeps working inside its
+window: sector membership, contract placement, encounter seeds, discovery, fields.
 
-## 2. The campaign in numbers (measured)
+## 2. The solar system
 
-- Map about 15,000 km across; 15 sectors; only 2 contain a planet.
-- Verdure and Kemik are 3,975 km apart; each has a moon about 200 km out (Palatine, Caligo).
-- The other 13 sectors are 3,000 to 11,000 km from any body.
-- With the world's gravity multiplier, each planet has mu = 7.8e10 m^3/s^2:
+- The star at the root; planets on real heliocentric orbits; moons on real orbits around their
+  planets (built: Palatine around Verdure, Caligo around Kemik).
+- **Region cells get real orbits too.** A deep-space sector is a real place in the system. The
+  physically honest homes, all stable:
+  - **Trojan clusters** at a planet's L4/L5 (60 degrees ahead of or behind it on its orbit);
+  - **belt regions** on their own heliocentric orbits between or beyond the planets;
+  - **high planetary orbits** for sectors that belong to a planet (inside its SOI).
+- The authored campaign layout says which sectors are near which planet; that decides each
+  region's home (see section 6).
 
-| Distance from the pair | Gravity | Circular speed | Period |
-|---|---|---|---|
-| 5,000 km | 0.006 m/s^2 | about 175 m/s | about 2 days |
-| 10,000 km | 0.0016 m/s^2 | about 125 m/s | about 6 days |
+## 3. Travel is orbital, always
 
-- Escape from Verdure's surface: about 1.57 km/s. Speed caps do not matter: ships in frames
-  carry any velocity on the rails.
+- Leaving any window (planet, region, berth) is a stow onto the rails; arriving is a crossing
+  of the target window's shell, with the exact state. Built for planets; region cells reuse it
+  with a region radius instead of a planet shell.
+- Deep space is conjunction space: ships coast on conics about the deepest SOI (patched
+  conics, SOI reparenting: built), with warp.
+- Transfers between planets are real Hohmann/Lambert transfers with **launch windows**: the
+  planets move, so when you leave decides how much it costs and how long it takes.
+- Speed caps are irrelevant: ships in frames carry any velocity on the rails.
 
-## 3. The chart: which frame is "the world"?
+## 4. Colonization gameplay on real orbits
 
-Real physics says Verdure and Kemik would orbit each other every 35 h. The world cannot move
-them. Two honest options:
+1. **Fast travel becomes transfers.** A fast-travel lane between two fields is a transfer
+   between two windows. "Travel" computes the transfer for now (Lambert, built in the core),
+   shows cost and duration, and puts the ship on it with warp to arrival. The graph of lanes
+   the campaign draws stays the graph of allowed routes; the physics decides when and at what
+   cost. Vanilla's instant teleport is replaced (it would jump between windows, skipping the
+   solar system).
+2. **Launch windows as gameplay.** Routes open and close as the planets and regions move. A
+   colonized sector's field can hold a lane service that departs at the next window.
+3. **Reachability as progression.** Each route has a delta-v at the current window. Far regions
+   need better engines as well as contracts. The map shades what your ship can reach now.
+4. **Orbital contracts.** Targets can be given real orbits within a window (salvage a derelict
+   on a drift, intercept a cargo ship, deliver into a capture orbit).
+5. **Encounters stay authored.** Procedural and static encounters live in their region window
+   at their authored coordinates. Cargo ships get real trajectories.
 
-**A. Fixed-centres chart (recommended default).** The world is an inertial frame in which both
-planets are fixed attractors (Euler's two-fixed-centres problem). Not strictly physical (the
-pair should circle each other), but:
-- Authored content "at rest" feels only the true weak pull: about 10 km of drift per hour at
-  10,000 km, easily hidden by keeping unpiloted, far-away content on rails (KSP packing).
-- Energy is conserved: E = v^2/2 - mu/r1 - mu/r2. Reachability is a clean number.
+## 5. Display
 
-**B. Rotating chart (realism option).** The world co-rotates with the binary (35 h), which is
-exactly the frame in which both planets really are at rest: the circular restricted three-body
-problem, with Lagrange points and Jacobi zero-velocity curves. The catch: anything at rest in
-the chart feels centrifugal force, 0.025 m/s^2 at 10,000 km, about 150 km of drift per hour. A
-parked ship is really moving at about 500 m/s inertially and must station-keep. Correct, but
-hostile to the authored campaign.
+Two maps, each honest about what it is:
+- **The orbital map is the truth:** the sun, planets and moons at their real positions, every
+  region at its real position, sector boundaries drawn around each region, your orbit and
+  planned transfers, launch-window countdowns. This is the KSP map, with the colonization
+  sectors on it.
+- **The colonization map becomes the network:** the authored layout stays as a schematic
+  (like a subway map), with the orbital data overlaid on its lanes: next window, delta-v,
+  duration. Its geometry can no longer be physical, because real positions change every hour.
+  (Moving the sectors on it to real positions is possible through public setters, but sector
+  membership uses the same coordinates, so the content would fall out of its own sectors.)
 
-Both keep the planet cells as local windows (Kepler inside about 240 km, where the other
-planet's tidal pull is about 1/2000 of local gravity) and put the star far away (sun direction).
+## 6. Mapping the campaign onto a real system
 
-## 4. Deep space: in-place frames
-
-The world is big enough, so deep space needs no berths. A ship leaving a planet cell into deep
-space becomes an **in-place frame**: its world position follows its trajectory each tick (like
-HighSpeed today), members keep their offsets, and physics velocity stays near zero. Because the
-chart is 1:1:
-- when your trajectory passes an encounter, you are physically there (it materialises within
-  4 km as usual);
-- sector membership, discovery triggers and fast-travel fields just work;
-- warp advances the trajectory; a proximity lock (as SE-Aerospace's crunch window) drops to x1
-  before you pass within a few km of any grid, field or encounter.
-
-Trajectories in deep space are numerically propagated (two attractors, not a conic), with
-analytic Kepler inside the cells as now. The core already has the rendezvous kit (closest
-approach, Lambert, intercept planner) to build on.
-
-## 5. Gameplay fusion
-
-1. **Sectors as orbital regions.** Each sector gets an energy (and, in the rotating option, a
-   Jacobi) threshold: the energy needed to reach its centre from a colonized sector. The map
-   shades sectors you can reach with your ship's current delta-v. Colonization progress and
-   delta-v progression become the same curve: the far sectors need better engines, not only
-   contracts.
-2. **Fast travel becomes transfers.** A fast-travel lane becomes a precomputed transfer
-   trajectory between two fields. "Travel" puts your ship on that trajectory with warp to
-   arrival: time passes, and fuel is spent for the departure and arrival burns (or free when
-   both ends are colonized, as a lane service). Vanilla instant travel stays an option.
-3. **Contracts in orbit.** Targets can be placed on real trajectories (a frame on the rails)
-   instead of a static point: salvage a derelict on a slow drift, intercept a cargo ship,
-   deliver into a capture orbit. The existing target placement gives the start point; the
-   mod gives it a velocity.
-4. **Encounters.** Procedural encounters stay put in the chart (on rails while no player is
-   near), so the authored layout survives. Cargo ships, which spawn around the player, get real
-   trajectories and become interceptable.
-5. **Colonized sectors as infrastructure.** A colonized sector's capital or fast-travel field
-   can act as a station: a place where warp is allowed to x1000, where transfers are planned,
-   and where a lane service departs.
-
-## 6. Display
-
-The colonization map becomes the system map (one scale, no second layer):
-- the planets and moons as today, the moons' orbits drawn around their planets;
-- your trajectory propagated ahead (hours to days), with where it crosses each sector and its
-  closest approaches to fields and encounters ("Oblivara in 6 h 20 m, 3.1 km from field");
-- reachable-sector shading from your energy; transfer lanes with their delta-v and duration;
-- zoomed in on a planet: the orbit, apsides and keep ring as now;
-- option B only: Lagrange points and zero-velocity curves.
+The campaign layout (15 sectors over about 15,000 km, two planets 3,975 km apart) is a
+snapshot, not a physical system. We choose:
+- **The system's scale:** where Verdure and Kemik orbit (today's model: 160,000 km and
+  100,000 km from a small star). Larger orbits mean longer transfers and more warp.
+- **Each sector's home:** for example, sectors nearest Verdure become Verdure Trojans or high
+  Verdure orbits, those nearest Kemik likewise, the outermost ones a belt beyond Kemik.
+- **Region radius:** the window around each sector's content (sectors are 1,000 to 2,500 km
+  across; the window can cover the authored content, not the whole polygon).
 
 ## 7. Phases
 
-1. **Campaign chart.** When the world has sectors, build the fixed-centres model from the real
-   layout (pair, moons, far star) instead of the invented heliocentric one. The sandbox world
-   keeps the invented system.
-2. **Deep-space in-place frames** with numerical trajectories, warp with proximity lock, and
-   the arrival back into planet cells.
-3. **Display:** trajectory prediction on the colonization map, sector crossings, closest
-   approaches.
-4. **Gameplay hooks:** reachability shading, fast travel as transfers, orbital contract
+1. **Region cells:** a pinned window per deep-space sector, with a model orbit; stow and
+   arrival for region windows; legacy space outside every window is no longer flyable.
+2. **Transfers:** Lambert planning between windows, launch windows, warp to arrival; fast
+   travel replaced by transfers along the campaign's lanes.
+3. **Orbital map with sectors:** regions and sector outlines at true positions, planned
+   transfers, window countdowns. Colonization map overlay: per-lane window, cost, duration.
+4. **Gameplay:** reachability shading, lane services at colonized fields, orbital contract
    targets, interceptable cargo ships.
-5. **Option B** (rotating chart) behind a setting.
 
 ## 8. Open decisions
 
-- Fixed-centres (gentle, authored content stays put) or rotating (true physics, station-keeping)?
-- Should fast travel cost time and fuel, or stay instant with the transfer only drawn?
-- Should far sectors require delta-v (a real progression gate) or only show it?
+- System scale (transfer times against warp).
+- Home of each deep-space sector (Trojans, belts, high planetary orbits).
+- Fast travel: fully replaced by transfers, or transfers plus an optional "skip" that spends
+  the transfer's time and fuel instantly.

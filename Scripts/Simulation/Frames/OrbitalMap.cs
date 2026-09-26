@@ -30,6 +30,9 @@ public static class OrbitalMap
     public static double Size = 5000.0;   // big: the diorama sits thousands of km from the origin (float precision)
     public static double Bearing = 30, Elevation = 55, ZoomFactor = 1.8;
     public static double SpinDegPerSec = 0;   // slow turntable for screenshots / idle
+    /// <summary>Turntable when opened from the Map tab: no player camera controls yet (the map's input
+    /// actions live in an assembly mods cannot reference), so a slow orbit gives the view depth.</summary>
+    public static double AutoSpinDegPerSec = 4;
     public static bool AutoWithMapTab = true;
     public static string Status = "off";
 
@@ -39,7 +42,8 @@ public static class OrbitalMap
     private static readonly Dictionary<string, PlanetRenderBridge.Proxy> _globes = new Dictionary<string, PlanetRenderBridge.Proxy>();
     private static Vector3D _anchor;
     private static bool _manual;
-    private static bool _shotUi = true;   // opened by command (not by the Map tab)
+    private static bool _shotUi = true;
+    private static long _lastSpin;   // opened by command (not by the Map tab)
     private const int PathPoints = 180;
 
     private static readonly ColorSRGB PlayerColor = new ColorSRGB(1f, 0.85f, 0.1f);
@@ -86,14 +90,17 @@ public static class OrbitalMap
         if (AutoWithMapTab && !_manual)
         {
             bool tab = MapTabOpen(session) && !ColonizationMapAvailable(session);
-            if (tab && !Active) Open(manual: false);
+            if (tab && !Active) { Open(manual: false); SpinDegPerSec = AutoSpinDegPerSec; }
             else if (!tab && Active) Close(session);
         }
         if (!Active || !SystemHost.Built) return;
 
         _builder ??= CreateBuilder(session);
         if (_builder == null) { Status = "no mesh builder"; return; }
-        if (SpinDegPerSec != 0) Bearing = (Bearing + SpinDegPerSec / 60.0) % 360;
+        long nowTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+        double wdt = _lastSpin == 0 ? 0 : (nowTicks - _lastSpin) / (double)System.Diagnostics.Stopwatch.Frequency;
+        _lastSpin = nowTicks;
+        if (SpinDegPerSec != 0 && wdt > 0 && wdt < 0.5) Bearing = (Bearing + SpinDegPerSec * wdt) % 360;
         SpecCam.Orbit(_anchor, Size * ZoomFactor, Bearing, Elevation);
 
         var reg = SystemHost.Registry;

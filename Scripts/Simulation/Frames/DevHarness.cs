@@ -311,6 +311,14 @@ public static class DevHarness
                 MapView.SectorOrbits = On(a[1]);
                 return "sectororbits=" + MapView.SectorOrbits;
 
+            case "hidesectors":
+                UnifiedMap.HideGameSectors = On(a[1]);
+                return "hide game sector mesh=" + UnifiedMap.HideGameSectors;
+
+            case "unified":
+                UnifiedMap.Enabled = On(a[1]);
+                return "unified map=" + UnifiedMap.Enabled;
+
             case "mapview":
                 MapView.Mode = (MapView.ViewMode)Enum.Parse(typeof(MapView.ViewMode), a[1], ignoreCase: true);
                 return $"mapview={MapView.Mode}";

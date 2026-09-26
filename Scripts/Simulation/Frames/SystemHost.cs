@@ -23,11 +23,11 @@ namespace OrbitalMod;
 public static class SystemHost
 {
     /// <summary>Synthetic star: mu = g * R^2 = 28 * (6000 km)^2 ~ 1.0e15 (SampleSystems.Sol).</summary>
-    public const double StarSurfaceGravity = 28.0;
-    public const double StarRadius = 6.0e6;
+    public const double StarSurfaceGravity = 20.0;   // mu = g R^2 = 2e17
+    public const double StarRadius = 1.0e8;
     /// <summary>First planet's orbit around the star, and the spacing factor for the next ones.</summary>
-    public const double FirstOrbit = 1.0e8;
-    public const double OrbitSpacing = 1.6;
+    public const double FirstOrbit = 5.0e9;
+    public const double OrbitSpacing = 1.5;
     /// <summary>Atmosphere height as a fraction of r0 (SE2 planets expose no clean atmosphere top).</summary>
     public const double AtmosphereFraction = 0.10;
     /// <summary>Wait this long after the last beacon appears before building (all planets loaded).</summary>
@@ -68,6 +68,7 @@ public static class SystemHost
 
     /// <summary>The world's sun period (seconds, 0 = its sun does not rotate); set by the client host.</summary>
     public static double WorldSunPeriod;
+    public static readonly string[] PlanetOrder = { "Verdure", "Kemik" };
     public const double MoonMaxDistance = 1.0e6;   // m
     public const double MoonMassRatio = 10.0;
     public static int MoonCount;
@@ -158,7 +159,9 @@ public static class SystemHost
     private static void Build(List<PlanetBeacon> beacons, double mult)
     {
         // Stable order: by name, so every build (and every client) agrees.
-        beacons.Sort((a, b) => string.CompareOrdinal(DevHarness.PlanetName(a), DevHarness.PlanetName(b)));
+        // Stable order: the known planets first (Verdure inside Kemik), then by name, so every build agrees.
+        int Rank(PlanetBeacon p) { int i = Array.IndexOf(PlanetOrder, DevHarness.PlanetName(p)); return i < 0 ? PlanetOrder.Length : i; }
+        beacons.Sort((a, b) => { int r = Rank(a).CompareTo(Rank(b)); return r != 0 ? r : string.CompareOrdinal(DevHarness.PlanetName(a), DevHarness.PlanetName(b)); });
 
         var def = new SystemDefinition { Name = "SE2World", EpochSeconds = 0.0 };
         def.Bodies.Add(new BodyDefinition

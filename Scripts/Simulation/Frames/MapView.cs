@@ -81,7 +81,7 @@ public static class MapView
     {
         var map = Map(session);
         Visible = map != null && map.IsVisible;
-        if (map == null || !map.IsVisible || !SystemHost.Built) { Clear(); Status = map == null ? "no map component" : "map closed"; return; }
+        if (map == null || !map.IsVisible || !SystemHost.Built) { if (map != null) UnifiedMap.RestoreGame(map); MapGlobes.HideAll(); Clear(); Status = map == null ? "no map component" : "map closed"; return; }
         SectorsSessionComponent sectors = null;
         try { sectors = session.SessionComponents.TryGet<SectorsSessionComponent>(); } catch { }
         if (sectors == null) { Status = "no sectors component"; return; }
@@ -105,7 +105,10 @@ public static class MapView
         bool system = Mode == ViewMode.System || (Mode == ViewMode.Auto && zoom >= SystemZoomFraction);
 
         var reg = SystemHost.Registry;
-        lock (ServerFrames.FramesLock)
+        bool unified;
+        lock (ServerFrames.FramesLock) unified = UnifiedMap.Draw(session, _builder, map, sectors, camera.Position, mapPos, orient, t);
+        if (unified) { Status = UnifiedMap.Status; }
+        else lock (ServerFrames.FramesLock)
         {
             if (system) DrawSystem(reg, mapPos, orient, map.MaxDistance, t);
             else
@@ -125,7 +128,7 @@ public static class MapView
         }
         _builder.Commit();
         _drew = true;
-        Status = $"{(system ? "SYSTEM" : "LOCAL")} zoom={zoom:F2} dist={dist:F3} scale={scale:E2} planetScale={planetScale:F1}";
+        if (!unified) Status = $"{(system ? "SYSTEM" : "LOCAL")} zoom={zoom:F2} dist={dist:F3} scale={scale:E2} planetScale={planetScale:F1}";
     }
 
     // ───────────────────────────── local layer ─────────────────────────────

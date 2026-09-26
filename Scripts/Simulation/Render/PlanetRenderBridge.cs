@@ -616,6 +616,42 @@ public static class PlanetRenderBridge
         return false;
     }
 
+    /// <summary>Show or hide a game render component's model (its RenderModelEntity's Visible flag).</summary>
+    public static void SetRenderComponentVisible(object renderComponent, bool visible)
+    {
+        if (renderComponent == null || !ResolveRender()) return;
+        // Only on a change, and only on a valid model: the call is replayed on the render thread,
+        // where a bad id is fatal (seen in game: a root entity behind a render component crashed it).
+        if (_rcVisible.TryGetValue(renderComponent, out bool was) && was == visible) return;
+        try
+        {
+            object model = GetMember(renderComponent, "RenderModelEntity");
+            if (model == null || !(GetMember(model, "IsValid") is bool ok) || !ok) return;
+            string modelType = model.GetType().Name;
+            if (modelType != "ModelEntity") { WarnOnce("rc-type", "render component model is " + modelType + "; not toggled"); return; }
+            model.GetType().GetMethod("SetRenderFlagsState")?.Invoke(model, new[] { Enum.ToObject(_renderFlagsType, 0x1), (object)visible });
+            _rcVisible[renderComponent] = visible;
+        }
+        catch (Exception e) { WarnOnce("rc-vis", $"render component visibility failed: {Inner(e)}"); }
+    }
+
+    private static readonly Dictionary<object, bool> _rcVisible = new Dictionary<object, bool>();
+
+    /// <summary>
+    /// Scale a colonization-map object (MapObjectRenderComponent.UpdateScale, the engine's own path).
+    /// multiplier &lt;= 0 restores its configured scale. Used to hide the game's globes safely.
+    /// </summary>
+    public static void ScaleMapObject(object mapObject, float multiplier)
+    {
+        if (mapObject == null) return;
+        try
+        {
+            float m = multiplier > 0 ? multiplier : (GetMember(mapObject, "_scale") is float s ? s : 1f);
+            mapObject.GetType().GetMethod("UpdateScale")?.Invoke(mapObject, new object[] { m });
+        }
+        catch (Exception e) { WarnOnce("mapobj-scale", $"map object scale failed: {Inner(e)}"); }
+    }
+
     internal static object GetMember(object target, string name)
     {
         if (target == null) return null;

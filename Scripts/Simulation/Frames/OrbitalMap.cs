@@ -61,6 +61,15 @@ public static class OrbitalMap
         if (h != null && h.HasProxyModel) _pendingHandles.Add((h, center));
     }
 
+    /// <summary>A body's render handles (matched to its cell centre), or null.</summary>
+    public static PlanetRenderBridge.PlanetHandles HandlesFor(string body)
+    {
+        if (_handles.TryGetValue(body, out var h)) return h;
+        if (VoxelBerthRegistry.TryGetCell(body, SystemHost.Registry, out Vector3D cell))
+            foreach (var ph in _pendingHandles) if ((ph.center - cell).Length() < 1000) { _handles[body] = ph.h; return ph.h; }
+        return null;
+    }
+
     public static string Open(bool manual = true)
     {
         if (Active) return "orbital map already open";

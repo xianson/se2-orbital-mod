@@ -26,10 +26,11 @@ public static class CleanMap
     public const double SolarZoom = 2.2;       // u (camera distance / original max) where the view switches
     public static double MeshRebuildSeconds = 0.5;
 
-    static readonly ColorSRGB Line = new ColorSRGB(0.60f, 0.72f, 0.88f, 0.55f);
+    static readonly ColorSRGB Line = new ColorSRGB(0.60f, 0.72f, 0.88f, 0.28f);
     static readonly ColorSRGB LineSel = new ColorSRGB(1.00f, 0.85f, 0.30f, 0.95f);
     static readonly ColorSRGB You = new ColorSRGB(1.00f, 0.80f, 0.15f, 1f);
     static readonly ColorSRGB Text = new ColorSRGB(0.94f, 0.97f, 1.00f, 1f);
+    static readonly ColorSRGB BeltLine = new ColorSRGB(0.75f, 0.68f, 0.55f, 0.22f);
     static readonly ColorSRGB Dim = new ColorSRGB(0.70f, 0.78f, 0.88f, 0.9f);
 
     public sealed class Band
@@ -85,7 +86,7 @@ public static class CleanMap
             if (ok)
             {
                 MapPipeline.ColourSection(sectorsRenderer, SunPart, new ColorSRGB(1f, 0.78f, 0.35f, 0.95f), new ColorSRGB(1f, 0.93f, 0.6f, 1f));
-                MapPipeline.ColourSection(sectorsRenderer, BeltPart, new ColorSRGB(0.20f, 0.18f, 0.15f, 0.25f), new ColorSRGB(0.55f, 0.50f, 0.42f, 0.5f));
+                MapPipeline.ColourSection(sectorsRenderer, BeltPart, new ColorSRGB(0.10f, 0.09f, 0.08f, 0.12f), new ColorSRGB(0.40f, 0.36f, 0.30f, 0.30f));
             }
             _lastKey = key; _lastMesh = now;
             Status = ok ? $"{key} parts={parts.Count}" : $"{key} mesh failed: {MapPipeline.LastError}";
@@ -130,7 +131,6 @@ public static class CleanMap
         foreach (var moon in planet.Children)
         {
             if (!SystemHost.BeaconOf.ContainsKey(moon.Name)) continue;
-            Circle(W, fit * 0.17, Line, 1.5f);
             Vector3D mp = moon.StateInParentAt(t).Position;
             Vector3D ml = L(Math.Atan2(mp.Y, mp.X), fit * 0.17);
             MapGlobes.Use(moon.Name, W(ml), planetR * 0.32, globes);
@@ -143,13 +143,12 @@ public static class CleanMap
             switch (h.Kind)
             {
                 case SectorHomes.Kind.OwnPlanet:
-                    parts.Add(Annulus(bd.Name, 0, Math.PI, planetR * 1.25, fit * 0.23));
-                    MapPipeline.Text(W(new Vector3D(0, 0, -fit * 0.25)), bd.Name, Dim, 0.6f);
+                    parts.Add(Annulus(bd.Name, 0, Math.PI, planetR * 1.35, planetR * 1.55));
                     break;
                 case SectorHomes.Kind.Ellipse:
                 {
                     double rr = R(h.A);
-                    Circle(W, rr, bd.Selected ? LineSel : Line, bd.Selected ? 2.5f : 1.5f);
+                    if (bd.Selected) Circle(W, rr, LineSel, 2f);
                     SectorHomes.Rel(h, planet, t, out var rel);
                     double ang = Math.Atan2(rel.Y, rel.X);
                     parts.Add(Annulus(bd.Name, ang, 0.20, rr - fit * 0.028, rr + fit * 0.028));
@@ -166,16 +165,6 @@ public static class CleanMap
                     Vector3D centreRel = radial * (h.Kind == SectorHomes.Kind.L1 ? -rH : rH);
                     Vector3D centreL = Lv(centreRel);
                     double loopScale = fit * 0.05 / (SectorHomes.LyapunovKappa * SectorHomes.LyapunovAmplitude * rH);
-                    Vector3D prev = default;
-                    for (int i = 0; i <= 72; i++)
-                    {
-                        SectorHomes.Rel(h, planet, t + T * i / 72, out var r);
-                        Vector3D d = r - centreRel;
-                        Vector3D p = W(centreL + new Vector3D(d.X, 0, d.Y) * loopScale);
-                        if (i > 0) MapPipeline.Line(prev, p, bd.Selected ? LineSel : Line, 1.5f);
-                        prev = p;
-                    }
-                    MapPipeline.Text(W(centreL), h.Kind.ToString(), Dim, 0.55f);
                     SectorHomes.Rel(h, planet, t, out var now);
                     Vector3D dn = now - centreRel;
                     Vector3D nl = centreL + new Vector3D(dn.X, 0, dn.Y) * loopScale;
@@ -213,22 +202,25 @@ public static class CleanMap
     {
         var root = reg.Root;
         double outer = SectorHomes.RingAU * 1.05 * SystemHost.AU;
-        double k = SolarRadius / outer;
-        Vector3D S(Vector3D helio) => new Vector3D(helio.X, 0, helio.Y) * k;
+        // Display radius: compressed (r^0.55) so the inner planets are not crammed against the sun;
+        // order and angles are true, the physics stays proportional.
+        double Rs(double r) => SolarRadius * Math.Pow(Math.Max(0, r) / outer, 0.55);
+        Vector3D S(Vector3D helio) { double r = Math.Sqrt(helio.X * helio.X + helio.Y * helio.Y); double f = r > 0 ? Rs(r) / r : 0; return new Vector3D(helio.X * f, 0, helio.Y * f); }
 
         // The sun: a warm disc (its own section, coloured below), and its name.
         parts.Add(Annulus(SunPart, 0, Math.PI, 0, SolarRadius * 0.045));
         MapPipeline.Text(W(new Vector3D(0, 0, SolarRadius * 0.085)), "Sun", Text, 0.85f);
 
         // The belt: a torus of its own, and its sectors as band sections on it.
-        double b0 = SectorHomes.BeltInnerAU * SystemHost.AU * k, b1 = SectorHomes.BeltOuterAU * SystemHost.AU * k;
-        parts.Add(Annulus(BeltPart, 0, Math.PI, b0, b1));
-        MapPipeline.Text(W(new Vector3D(0, 0, -(b1 + SolarRadius * 0.04))), "Main belt", Dim, 0.7f);
+        double b0 = Rs(SectorHomes.BeltInnerAU * SystemHost.AU), b1 = Rs(SectorHomes.BeltOuterAU * SystemHost.AU);
+        // The belt: just its two edges, faint (a filled torus dominated the view).
+        Circle(W, b0, BeltLine, 1f);
+        Circle(W, b1, BeltLine, 1f);
         foreach (var bd in bands)
         {
             if (bd.Home.Kind != SectorHomes.Kind.Belt) continue;
             Vector3D hp = SectorHomes.HelioBelt(bd.Home, root.Mu, t);
-            double ang = Math.Atan2(hp.Y, hp.X), r = hp.Length() * k;
+            double ang = Math.Atan2(hp.Y, hp.X), r = Rs(hp.Length());
             parts.Add(Annulus(bd.Name, ang, 0.07, r - SolarRadius * 0.035, r + SolarRadius * 0.035));
             MapPipeline.Text(W(new Vector3D(Math.Cos(ang) * (r + SolarRadius * 0.085), 0, Math.Sin(ang) * (r + SolarRadius * 0.085))), bd.Name, bd.Selected ? LineSel : Text, 0.72f);
         }
@@ -238,8 +230,8 @@ public static class CleanMap
         {
             if (bd.Home.Kind != SectorHomes.Kind.Ring) continue;
             Vector3D hp = SectorHomes.HelioRing(bd.Home, root.Mu, t);
-            double ang = Math.Atan2(hp.Y, hp.X), r = hp.Length() * k;
-            Circle(W, r, bd.Selected ? LineSel : Line, 1.8f);
+            double ang = Math.Atan2(hp.Y, hp.X), r = Rs(hp.Length());
+            Circle(W, r, bd.Selected ? LineSel : Line, 1.2f);
             parts.Add(Annulus(bd.Name, ang, 0.09, r - SolarRadius * 0.04, r + SolarRadius * 0.04));
             MapPipeline.Text(W(new Vector3D(Math.Cos(ang) * (r + SolarRadius * 0.09), 0, Math.Sin(ang) * (r + SolarRadius * 0.09))), bd.Name, bd.Selected ? LineSel : Text, 0.8f);
         }
@@ -252,20 +244,19 @@ public static class CleanMap
             var path = OrbitSampler.SamplePath(el, 160);
             if (path.Points != null)
                 for (int i = 0; i < path.Points.Length; i++)
-                    MapPipeline.Line(W(S(path.Points[i])), W(S(path.Points[(i + 1) % path.Points.Length])), Line, 1.8f);
+                    MapPipeline.Line(W(S(path.Points[i])), W(S(path.Points[(i + 1) % path.Points.Length])), Line, 1.2f);
             Vector3D hp = p.StateInParentAt(t).Position;
             Vector3D c = S(hp);
             var own = bands.Find(b => b.Host == p.Name && b.Home.Kind == SectorHomes.Kind.OwnPlanet);
             if (own != null)
             {
-                var disc = Annulus(own.Name, 0, Math.PI, 0, SolarRadius * 0.07);
+                var disc = Annulus(own.Name, 0, Math.PI, SolarRadius * 0.045, SolarRadius * 0.055);
                 for (int q = 0; q < disc.TriVerts.Count; q++) disc.TriVerts[q] += (Vector3)c;
                 parts.Add(disc);
             }
             MapGlobes.Use(p.Name, W(c), SolarRadius * 0.03, globes);
             int n = 0; foreach (var bd in bands) if (bd.Host == p.Name && bd.Home.Kind != SectorHomes.Kind.OwnPlanet) n++;
             MapPipeline.Text(W(c + new Vector3D(0, 0, SolarRadius * 0.11)), p.Name, p.Name == playerPlanet ? You : Text, 0.9f);
-            MapPipeline.Text(W(c + new Vector3D(0, 0, SolarRadius * 0.155)), $"{n} sector{(n == 1 ? "" : "s")}{(p.Name == playerPlanet ? "  -  you are here" : "")}", Dim, 0.62f);
         }
     }
 

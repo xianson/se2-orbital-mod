@@ -249,6 +249,7 @@ public static class MapPipeline
     // ───────────────────────────── UI layer ─────────────────────────────
 
     private static object _batch;
+    private static readonly List<BoundingBox2> _placed = new List<BoundingBox2>();
     private static MethodInfo _drawLine, _drawString;
     private static object _font;
     private static Keen.Game2.Client.GameSystems.CameraSystems.CameraComponent _cam;
@@ -256,6 +257,7 @@ public static class MapPipeline
     public static bool UiBegin(Keen.VRage.Core.Game.Systems.Session session, object mapConfiguration)
     {
         _batch = null;
+        _placed.Clear();
         try
         {
             _cam = SpecCam.CameraOf(session);
@@ -305,13 +307,44 @@ public static class MapPipeline
         if (_batch == null || _drawString == null || _font == null || !Screen(at, out var s)) return;
         try
         {
-            var measure = _font.GetType().GetMethod("MeasureString", new[] { typeof(string) });
-            Vector2 size = measure != null ? (Vector2)measure.Invoke(_font, new object[] { text }) * scale : Vector2.Zero;
+            Vector2 size = Vector2.Zero;
+            foreach (var m in _font.GetType().GetMethods())
+            {
+                if (m.Name != "MeasureString" || m.ReturnType != typeof(Vector2)) continue;
+                var ps = m.GetParameters();
+                if (ps.Length == 0 || ps[0].ParameterType != typeof(string)) continue;
+                var args = new object[ps.Length];
+                args[0] = text;
+                for (int q = 1; q < ps.Length; q++) args[q] = ps[q].HasDefaultValue ? ps[q].DefaultValue : (ps[q].ParameterType.IsValueType ? Activator.CreateInstance(ps[q].ParameterType) : null);
+                try { size = (Vector2)m.Invoke(_font, args) * scale; } catch { }
+                if (size.X > 0) break;
+            }
+            if (size.X <= 0) size = new Vector2(text.Length * 12f * scale, 22f * scale);   // estimate
+            // No overlapping labels (first placed wins): zoom in to reveal the rest.
+            var box = new BoundingBox2(s - size * 0.5f - new Vector2(4, 2), s + size * 0.5f + new Vector2(4, 2));
+            foreach (var placed in _placed) if (placed.Intersects(box)) return;
+            _placed.Add(box);
             var shadow = new ColorSRGB(0f, 0f, 0f, 0.8f);
             _drawString.Invoke(_batch, new object[] { _font, s - size * 0.5f + new Vector2(1.5f, 1.5f), shadow, text, scale, false, null, 0f });
             _drawString.Invoke(_batch, new object[] { _font, s - size * 0.5f, color, text, scale, false, null, 0f });
         }
         catch { }
+    }
+
+    /// <summary>A fixed-size ring on screen around a world point (a marker for bodies too small to see at true size).</summary>
+    public static void ScreenRing(Vector3D at, float radiusPx, ColorSRGB color, float width)
+    {
+        if (_batch == null || _drawLine == null || !Screen(at, out var c)) return;
+        var ps = _drawLine.GetParameters();
+        const int n = 24;
+        Vector2 prev = c + new Vector2(radiusPx, 0);
+        for (int i = 1; i <= n; i++)
+        {
+            double a = 2 * Math.PI * i / n;
+            Vector2 p = c + new Vector2((float)(Math.Cos(a) * radiusPx), (float)(Math.Sin(a) * radiusPx));
+            _drawLine.Invoke(_batch, new object[] { prev, p, color, width, ps[4].DefaultValue, 1f, false });
+            prev = p;
+        }
     }
 
     public static void UiEnd()

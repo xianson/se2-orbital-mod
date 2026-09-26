@@ -147,8 +147,10 @@ public static class FrameHost
         if (OrbitalMap.Active || MapView.Visible) OrbitDisplay.Clear();
         else if (PlayerFrame != null && Observer.HasValue)
             OrbitDisplay.DrawFrameOrbit(session, camera, Observer.Value, PlayerFrame, reg, t);
+        MapInput.Poll();
         MapView.Tick(session, camera, t);
         FrameMarkers.Tick(session, camera, t);
+        Maneuvers.HudTick(session, camera, t);
         OrbitalMap.Tick(session, t);
         SunDriver.Tick(session, camera.Position, t);
     }

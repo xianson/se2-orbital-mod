@@ -160,6 +160,9 @@ public static class CleanMap
                 : b.Host == focus && b.Home.Kind != SectorHomes.Kind.Belt && b.Home.Kind != SectorHomes.Kind.Ring);
             if (!solar && planet != null) DrawSystem(parts, bands, reg, planet, t, playerPlanet, playerRel, playerOrbit, globes, W);
             else DrawSolar(parts, bands, reg, t, playerPlanet, globes, W);
+            string selName = null;
+            foreach (var bd in bands) if (bd.Selected) selName = bd.Name;
+            if (_toMap != null && ManeuverEditor) Maneuvers.MapDraw(_toMap, W, _limit, t, Mouse, selName);
         }
         finally { if (ui) MapPipeline.UiEnd(); }
 
@@ -298,6 +301,8 @@ public static class CleanMap
 
         Vector3D porg = planet.OriginInRoot(t).Position;
         Overlay(r => Lv(r - porg), fit * 1.02, W, t, reg);
+        _toMap = (r, tt) => Lv(r - planet.OriginInRoot(tt).Position);
+        _limit = fit * 1.02;
 
         MapPipeline.PickName = null;
         // You.
@@ -385,11 +390,18 @@ public static class CleanMap
         }
         MapPipeline.PickName = null;
         Overlay(r => S(r), SolarRadius * 1.02, W, t, reg);
+        _toMap = (r, tt) => S(r);
+        _limit = SolarRadius * 1.02;
     }
 
     // ───────────────────────────── encounters and GPS (both views) ─────────────────────────────
 
     private static Keen.VRage.Core.Game.Systems.Session _session;
+    private static Func<Vector3D, double, Vector3D> _toMap;
+    private static double _limit;
+    /// <summary>The mouse (screen px) for this frame's editors.</summary>
+    public static Vector2 Mouse;
+    public static bool ManeuverEditor = true;
     static readonly ColorSRGB EncColor = new ColorSRGB(1.00f, 0.55f, 0.25f, 0.85f);
 
     /// <summary>

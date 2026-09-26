@@ -75,6 +75,7 @@ public static class SavedState
                 sb.Append("hs ").Append(id).Append(' ').Append(Esc(body)).Append(' ').Append(El(el)).Append('\n');
                 Remember(ob, id);
             }
+            foreach (var nl in Maneuvers.SaveLines()) sb.Append(nl).Append((char)10);
             foreach (var k in FrameMarkers.HiddenKeys()) sb.Append("gpshid ").Append(Esc(k)).Append((char)10);
             ob.NamedEntities["state:" + sb] = self;
             Log.Default?.Info($"[ORBIT-FRAME] saved state captured: {snap.Frames.Count} frame(s), {sb.Length} chars, {ob.NamedEntities.Count} keys");
@@ -179,6 +180,9 @@ public static class SavedState
                         if (f != null) { frames++; members += ids.Count; }
                         break;
                     }
+                    case "node":
+                        Maneuvers.Restore(P(p[1]), P(p[2]), P(p[3]), P(p[4]));
+                        break;
                     case "gpshid":
                         FrameMarkers.RestoreHidden(Unesc(p[1]));
                         break;

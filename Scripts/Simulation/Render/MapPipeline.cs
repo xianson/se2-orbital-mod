@@ -359,6 +359,33 @@ public static class MapPipeline
         for (int i = 0; i < 4; i++) _drawLine.Invoke(_batch, new object[] { d[i], d[i + 1], color, width, ps[4].DefaultValue, 1f, false });
     }
 
+    /// <summary>A world point on screen (false behind the camera).</summary>
+    public static bool ToScreen(Vector3D world, out Vector2 s) { s = default; return _cam != null && Screen(world, out s); }
+
+    /// <summary>A screen-space line (px).</summary>
+    public static void ScreenLine(Vector2 a, Vector2 b, ColorSRGB color, float width)
+    {
+        if (_batch == null || _drawLine == null) return;
+        var ps = _drawLine.GetParameters();
+        _drawLine.Invoke(_batch, new object[] { a, b, color, width, ps[4].DefaultValue, 1f, false });
+    }
+
+    /// <summary>A screen-space circle (px).</summary>
+    public static void ScreenCircle(Vector2 c, float r, ColorSRGB color, float width)
+    {
+        if (_batch == null || _drawLine == null) return;
+        var ps = _drawLine.GetParameters();
+        const int n = 20;
+        Vector2 prev = c + new Vector2(r, 0);
+        for (int i = 1; i <= n; i++)
+        {
+            double a = 2 * Math.PI * i / n;
+            Vector2 p = c + new Vector2((float)(Math.Cos(a) * r), (float)(Math.Sin(a) * r));
+            _drawLine.Invoke(_batch, new object[] { prev, p, color, width, ps[4].DefaultValue, 1f, false });
+            prev = p;
+        }
+    }
+
     /// <summary>Screen resolution in pixels.</summary>
     public static Vector2 ScreenSize => _cam != null ? new Vector2(_cam.Resolution.X, _cam.Resolution.Y) : new Vector2(1920, 1080);
 
@@ -409,23 +436,25 @@ public static class MapPipeline
             Vector2 size = ScreenSize, centre = size * 0.5f;
             bool front = Vector3D.Dot(world - wt.Position, fwd) > 1e-6;
             Vector2 s = _cam.WorldToScreenPoint(front ? world : wt.Position - (world - wt.Position));
-            bool edge = !front || s.X < 0 || s.Y < 0 || s.X > size.X || s.Y > size.Y;
+            float mx = size.X * 0.12f, my = size.Y * 0.14f;   // clear of the HUD panels in the corners
+            bool edge = !front || s.X < mx || s.Y < my || s.X > size.X - mx || s.Y > size.Y - my;
             if (edge)
             {
                 Vector2 dir = s - centre;
                 if (!front) dir = -dir;
                 if (dir.LengthSquared() < 1e-6f) dir = new Vector2(0, 1);
-                float k = Math.Min((centre.X - 40) / Math.Max(1e-3f, Math.Abs(dir.X)), (centre.Y - 40) / Math.Max(1e-3f, Math.Abs(dir.Y)));
-                s = centre + dir * k;
+                float ax = centre.X - mx, ay = centre.Y - my;   // on an ellipse, as the game clamps its markers
+                s = centre + dir * (1f / (float)Math.Sqrt(dir.X * dir.X / (ax * ax) + dir.Y * dir.Y / (ay * ay)));
             }
             var ps = _drawLine.GetParameters();
-            float r = 9f;
+            float u = Math.Max(1f, size.Y / 1080f);
+            float r = 9f * u;
             Vector2 up = new Vector2(0, -r), rt = new Vector2(r, 0);
             var dia = new[] { s + up, s + rt, s - up, s - rt, s + up };
-            for (int i = 0; i < 4; i++) _drawLine.Invoke(_batch, new object[] { dia[i], dia[i + 1], color, 2f, ps[4].DefaultValue, 1f, false });
-            ScreenDot(s, 2.5f, color);
-            ScreenText(s + new Vector2(14, -14), name ?? "", color, 0.62f);
-            ScreenText(s + new Vector2(14, 4), distance + (edge ? "  >" : ""), new ColorSRGB(0.85f, 0.9f, 1f, 0.9f), 0.55f);
+            for (int i = 0; i < 4; i++) _drawLine.Invoke(_batch, new object[] { dia[i], dia[i + 1], color, 2f * u, ps[4].DefaultValue, 1f, false });
+            ScreenDot(s, 2.5f * u, color);
+            ScreenText(s + new Vector2(14, -14) * u, name ?? "", color, 0.62f * u);
+            ScreenText(s + new Vector2(14, 4) * u, distance + (edge ? "  >" : ""), new ColorSRGB(0.85f, 0.9f, 1f, 0.9f), 0.55f * u);
         }
         catch { }
     }

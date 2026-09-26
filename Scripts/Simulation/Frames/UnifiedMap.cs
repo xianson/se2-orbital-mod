@@ -114,6 +114,7 @@ public static class UnifiedMap
             // The game's sector renderer draws OUR model now: keep it visible.
             PlanetRenderBridge.SetRenderComponentVisible(PlanetRenderBridge.GetMember(map, "SectorsRenderer"), true);
             var usedGlobes = new HashSet<string>();
+            if (TryMouse(map, out var mouseNow)) CleanMap.Mouse = mouseNow;
             CleanMap.Draw(session, PlanetRenderBridge.GetMember(map, "SectorsRenderer"), PlanetRenderBridge.GetMember(map, "_configuration"),
                           bands, reg, mapPos, orient, u, t, youPlanet, youRel, youOrbit, usedGlobes);
             MapGlobes.End(usedGlobes);
@@ -415,14 +416,26 @@ public static class UnifiedMap
     /// becomes the game's hovered sector (its own click handler then selects it, with its side panel,
     /// highlight and contracts). The game's own raycast against its Voronoi collider is off meanwhile.
     /// </summary>
+    private static bool TryMouse(ColonizationMapSessionComponent map, out Vector2 mouse)
+    {
+        mouse = default;
+        try
+        {
+            object win = PlanetRenderBridge.GetMember(PlanetRenderBridge.GetMember(map, "_windows"), "Window");
+            if (!(PlanetRenderBridge.GetMember(win, "ClientMousePosition") is Vector2 m)) return false;
+            if (DevMouse.HasValue) { var sz = MapPipeline.ScreenSize; m = new Vector2(DevMouse.Value.X * sz.X, DevMouse.Value.Y * sz.Y); }
+            mouse = m;
+            return true;
+        }
+        catch { return false; }
+    }
+
     private static void ApplyPick(ColonizationMapSessionComponent map)
     {
         try
         {
-            object win = PlanetRenderBridge.GetMember(PlanetRenderBridge.GetMember(map, "_windows"), "Window");
-            if (!(PlanetRenderBridge.GetMember(win, "ClientMousePosition") is Vector2 mouse)) return;
-            if (DevMouse.HasValue) { var sz = MapPipeline.ScreenSize; mouse = new Vector2(DevMouse.Value.X * sz.X, DevMouse.Value.Y * sz.Y); }
-            string name = MapPipeline.ResolvePick(mouse, 14f);
+            if (!TryMouse(map, out var mouse)) return;
+            string name = Maneuvers.ClaimsMouse ? null : MapPipeline.ResolvePick(mouse, 14f);
             CleanMap.Hovered = name;
             int idx = -1;
             if (name != null && PlanetRenderBridge.GetMember(PlanetRenderBridge.GetMember(map, "SectorsRenderer"), "SectorIds") is System.Collections.IList ids)

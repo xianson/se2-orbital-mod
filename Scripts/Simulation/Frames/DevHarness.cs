@@ -325,6 +325,64 @@ public static class DevHarness
                 return FrameMarkers.DevCloneAt(session, (int)D(a[1]), ef.BerthCenter + new Vector3D(off, 0, 0), nm);
             }
 
+            case "node":
+            {
+                // node add <minFromNow> <pro> <nor> <rad> | node clear | node list | node select <i>
+                double tn = SystemHost.Now;
+                switch (a.Length > 1 ? a[1] : "list")
+                {
+                    case "add":
+                        Maneuvers.Restore(tn + D(a[2]) * 60, a.Length > 3 ? D(a[3]) : 0, a.Length > 4 ? D(a[4]) : 0, a.Length > 5 ? D(a[5]) : 0);
+                        return Maneuvers.Describe(tn);
+                    case "clear":
+                        lock (Maneuvers.Nodes) Maneuvers.Nodes.Clear();
+                        Maneuvers.Selected = null;
+                        return "nodes cleared";
+                    case "select":
+                    {
+                        var l = new List<Maneuvers.Node>(); lock (Maneuvers.Nodes) l.AddRange(Maneuvers.Nodes);
+                        l.Sort((x, y) => x.T.CompareTo(y.T));
+                        int i = (int)D(a[2]);
+                        Maneuvers.Selected = i >= 0 && i < l.Count ? l[i] : null;
+                        return Maneuvers.Describe(tn);
+                    }
+                    case "pull":   // node pull <P|R|N|AN|RO|RI> <px> <seconds>
+                        Maneuvers.DevPull(a[2], D(a[3]), D(a[4]));
+                        return "pulling " + a[2];
+                    case "clickat":   // node clickat <minFromNow>
+                        Maneuvers.DevClickAt(D(a[2]));
+                        return "click queued";
+                    case "rclick":   // node rclick <i>
+                        Maneuvers.DevRightClickNode((int)D(a[2]));
+                        return "right-click queued";
+                    default:
+                        return Maneuvers.Describe(tn) + " | " + Maneuvers.Status;
+                }
+            }
+
+            case "framedv":
+            {
+                // framedv <prograde m/s>: a burn on the player's rails frame (as thrust folded into it)
+                lock (ServerFrames.FramesLock)
+                {
+                    var pf = FrameHost.PlayerFrame;
+                    if (pf == null) return "player not framed";
+                    double tt = SystemHost.Now;
+                    var st = SEAerospace.Orbital.OrbitPropagation.StateAt(pf.Elements, tt);
+                    var v = st.Velocity + Vector3D.Normalize(st.Velocity) * D(a[1]);
+                    pf.Elements = CaptureMath.CaptureElements(new SEAerospace.Orbital.StateVector(st.Position, v), pf.Elements.Mu, tt);
+                    pf.VirtualVelocity = v;
+                    return $"frame #{pf.Id} +{a[1]} m/s prograde";
+                }
+            }
+
+            case "devbtn":
+                // devbtn left down|up|off | devbtn right click|off
+                if (a[1] == "left") MapInput.DevLeft = a[2] == "off" ? (bool?)null : a[2] == "down";
+                else if (a[2] == "click") MapInput.DevRightClick();
+                else MapInput.DevRight = null;
+                return $"devbtn {a[1]} {a[2]}";
+
             case "pickat":
                 // pickat <fx> <fy> | pickat off: a mouse position for the map pick (screen fractions)
                 if (a[1] == "off") { UnifiedMap.DevMouse = null; return "pickat off"; }

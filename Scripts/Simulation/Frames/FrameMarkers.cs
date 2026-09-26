@@ -81,7 +81,8 @@ public static class FrameMarkers
         if (_proxies.Count > 0 && !MapView.Visible && !OrbitalMap.Active) Draw(session);
     }
 
-    private static void Draw(Keen.VRage.Core.Game.Systems.Session session)
+    /// <summary>Open a HUD draw batch in the map's font (the caller ends it with MapPipeline.UiEnd).</summary>
+    public static bool BeginHud(Keen.VRage.Core.Game.Systems.Session session)
     {
         object config = null;
         try
@@ -90,7 +91,12 @@ public static class FrameMarkers
             if (map != null) config = PlanetRenderBridge.GetMember(map, "_configuration");
         }
         catch { }
-        if (!MapPipeline.UiBegin(session, config)) return;
+        return MapPipeline.UiBegin(session, config);
+    }
+
+    private static void Draw(Keen.VRage.Core.Game.Systems.Session session)
+    {
+        if (!BeginHud(session)) return;
         try
         {
             foreach (var p in _proxies)

@@ -13,7 +13,7 @@ namespace OrbitalMod;
 /// </summary>
 public static class SpecCam
 {
-    public enum Target { None, Fixed, Planet, Player, Map, Point, Sun }
+    public enum Target { None, Fixed, Planet, Player, Map, Point, Sun, MapBody }
     private static Target _target;
     private static string _planet;
     private static double _dist, _bearing, _elev;
@@ -38,6 +38,10 @@ public static class SpecCam
 
     /// <summary>From the player, look straight at where the model says the sun is.</summary>
     public static string Sun() { _target = Target.Sun; return "spectator: looking at the model sun"; }
+
+    /// <summary>Frame a planet globe on the colonization map (distance in map units).</summary>
+    public static string MapBody(string body, double dist, double bearingDeg, double elevDeg)
+    { _target = Target.MapBody; _planet = body; _dist = dist; _bearing = bearingDeg; _elev = elevDeg; return $"spectator: map globe {body}"; }
 
     public static string Off(Keen.VRage.Core.Game.Systems.Session session)
     {
@@ -65,6 +69,9 @@ public static class SpecCam
                 look = p.Value; break;
             case Target.Player: look = playerPos; break;
             case Target.Point: look = _fixedLook; break;
+            case Target.MapBody:
+                if (!MapView.GlobePos.TryGetValue(_planet, out look)) { Status = "no map globe " + _planet; return; }
+                break;
             case Target.Sun:
             {
                 Vector3D sd = SunDriver.DirectionToSun;

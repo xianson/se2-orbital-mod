@@ -31,6 +31,12 @@ public static class MapView
     /// <summary>Zoom fraction (0 = closest, 1 = farthest) above which Auto shows the system layer.</summary>
     public static double SystemZoomFraction = 0.7;
     public static string Status = "map closed";
+    public static bool DiagCross;
+    /// <summary>The map globe model's own radius (1.03 units): globes render at radius x this.</summary>
+    public const double GlobeModelRadius = 1.03;
+    /// <summary>Last map-space position of each body's globe (for the spectator camera).</summary>
+    public static readonly Dictionary<string, Vector3D> GlobePos = new Dictionary<string, Vector3D>();
+    public static bool Visible { get; private set; }
 
     private static MeshBuilder _builder;
     private static bool _drew;
@@ -74,6 +80,7 @@ public static class MapView
     public static void Tick(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera, double t)
     {
         var map = Map(session);
+        Visible = map != null && map.IsVisible;
         if (map == null || !map.IsVisible || !SystemHost.Built) { Clear(); Status = map == null ? "no map component" : "map closed"; return; }
         SectorsSessionComponent sectors = null;
         try { sectors = session.SessionComponents.TryGet<SectorsSessionComponent>(); } catch { }
@@ -85,6 +92,10 @@ public static class MapView
         _cam = camera.Position;
         Vector3D mapPos = map.MapEntity.Data.GetWorldTransform().Position;
         Quaternion orient = map.Orientation;
+        // Vertices relative to the map: the diorama is ~1 m across, hundreds of km from the origin,
+        // where float positions only resolve centimetres (orbit rings collapsed; seen in game).
+        _builder.SetPrimitiveOffset(mapPos);
+        _builder.UpdateEntityTransform(new WorldTransform(mapPos));   // the batch sits at the offset
         Vector3D origin = sectors.MapWorldPosition;
         double scale = sectors.MapWorldScale;
         double planetScale = PlanetScale(map);
@@ -98,6 +109,15 @@ public static class MapView
         {
             if (system) DrawSystem(reg, mapPos, orient, map.MaxDistance, t);
             else DrawLocal(reg, mapPos, orient, origin, scale, planetScale, t);
+        }
+        if (DiagCross)
+        {
+            // DEV: a bright cross at the map entity, 0.5 map units each way, plus a sphere.
+            var red = new ColorSRGB(1f, 0.1f, 0.1f);
+            _builder.AddLine(mapPos - Rot(orient, new Vector3D(0.5, 0, 0)), mapPos + Rot(orient, new Vector3D(0.5, 0, 0)), red, true);
+            _builder.AddLine(mapPos - Rot(orient, new Vector3D(0, 0, 0.5)), mapPos + Rot(orient, new Vector3D(0, 0, 0.5)), red, false);
+            _builder.AddLine(mapPos, mapPos + Rot(orient, new Vector3D(0, 0.5, 0)), red, (float)0.01, false);
+            _builder.AddSphere(new WorldTransform(mapPos, Quaternion.Identity), 0.05, red, red, false);
         }
         _builder.Commit();
         _drew = true;
@@ -115,12 +135,14 @@ public static class MapView
         {
             if (body.IsRoot || !VoxelBerthRegistry.TryGetCell(body.Name, reg, out Vector3D cell)) continue;
             Vector3D globe = ColonizationMapSessionComponent.WorldToMapPosition(cell, mapPos, orient, origin, (float)scale);
+            GlobePos[body.Name] = globe;
             var def = reg.FindDefinition(body.Name);
             double R = def?.RadiusMeters ?? 0;
-            Vector3D ToMap(Vector3D rel) => globe + Rot(orient, rel * k);
+            // Laid flat on the map plane (the map is a flat chart; KSP's map does the same): (x, y, z) -> (x, z, y).
+            Vector3D ToMap(Vector3D rel) => globe + Rot(orient, new Vector3D(rel.X, rel.Z, rel.Y) * k * GlobeModelRadius);
 
             // Keep ring: where the frames take over (the planet's local space ends).
-            if (def != null) Ring(globe, orient, PlanetBerths.KeepRadius(def) * k, SoiColor);
+            if (def != null) Ring(globe, orient, PlanetBerths.KeepRadius(def) * k * GlobeModelRadius, SoiColor);
 
             foreach (var f in SystemHost.Frames.Frames)
             {
@@ -213,7 +235,7 @@ public static class MapView
         for (int i = 0; i < seg; i++)
         {
             Vector3D a = toMap(pts[i]), b = toMap(pts[(i + 1) % n]);
-            if (IsFinite(a) && IsFinite(b)) _builder.AddLine(a, b, color, Width(a, b, 1.0), false);
+            if (IsFinite(a) && IsFinite(b)) _builder.AddLine(a, b, color, Width(a, b, 1.0), true);
         }
     }
 
@@ -226,7 +248,7 @@ public static class MapView
         {
             double a = 2 * Math.PI * i / n;
             Vector3D p = center + Rot(orient, new Vector3D(Math.Cos(a), 0, Math.Sin(a)) * radius);
-            if (i > 0) _builder.AddLine(prev, p, color, Width(prev, p, 0.6), false);
+            if (i > 0) _builder.AddLine(prev, p, color, Width(prev, p, 0.6), true);
             prev = p;
         }
     }

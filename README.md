@@ -57,6 +57,16 @@ interaction shell, HighSpeed), ported. Verified in game with the harness:
   planet you orbit (its textured map globe, keep ring, every frame's orbit with Ap/Pe, "you + N
   grids") or the whole system (sun, planet globes on heliocentric orbits, SOI rings). Where the
   colonization map exists, orbits are also drawn over it (MapView). Screenshots 09-11.
+- **Campaign (colonization) map overlay:** in worlds with sectors (a new SurvivalNOFTUE game, 15
+  sectors) the orbits draw on SE2's own map: zoomed in, the orbit around the planet's globe (screenshot
+  13); zoomed out, the star system over the sectors (14). Vertices are offset to the map entity
+  (MeshBuilder.SetPrimitiveOffset + UpdateEntityTransform): the map is ~1 m across hundreds of km from
+  the origin, where float positions only resolve centimetres.
+- **Moons:** a body within 1000 km of one 10x heavier orbits it (campaign: Palatine around Verdure,
+  Caligo around Kemik); overlapping planet cells go to the nearest centre; each body's gravity reach
+  stops short of its neighbours' SOI.
+- **Constrained grids are never moved:** teleporting one body of a constrained pair (landing gear,
+  connectors) broke Havok's constraint migration and hung the server; attach and lone-grid stow skip them.
 - **Spectator camera (harness):** `cam planet|player|map ...` overrides the render camera
   (CameraComponent.SetTransformOverride) and rebuilds the proxies for that viewpoint. Screenshot 12.
 - **Total partition incl. legacy space (opt-in):** with `OrbitalConfig.CaptureLegacySpace` (harness

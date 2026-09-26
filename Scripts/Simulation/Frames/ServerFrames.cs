@@ -138,6 +138,7 @@ public static class ServerFrames
             if (SystemHost.Frames.FindByMember(g.Id) != null) continue;
             Vector3D p = GridMembers.Position(g);
             if ((p - req.RefPos).Length() > AttachRadius) continue;
+            if (GridMembers.IsConstrained(g)) continue;
             if (!SystemHost.Frames.AddMember(frame, g.Id)) continue;
             // A grid riding its conic (HighSpeed) has zero physical velocity: its true velocity is the
             // conic's. Leave HighSpeed first, or StepGridHighSpeed keeps dragging it off the berth.
@@ -199,6 +200,7 @@ public static class ServerFrames
             if (SystemHost.Frames.FindByMember(g.Id) != null) continue;
             Vector3D pos = GridMembers.Position(g);
             if ((pos - PlayerPosition).Length() <= AttachRadius) continue;
+            if (GridMembers.IsConstrained(g)) continue;
             if (!VoxelBerthRegistry.TryCellContaining(pos, reg, out string body, out Vector3D cell))
             {
                 if (!OrbitalConfig.CaptureLegacySpace || !SystemHost.TryNearestCell(pos, out body, out cell)) continue;
@@ -222,7 +224,7 @@ public static class ServerFrames
             double shell = PlanetBerths.ShellRadius(def);
             double keep = PlanetBerths.KeepRadius(def);
             if (d < shell * PlanetBerths.StowShellMargin) continue;
-            var elBody = FrameMath.CaptureElements(new StateVector(rel, vel), node.Mu, t);
+            var elBody = CaptureMath.CaptureElements(new StateVector(rel, vel), node.Mu, t);
             if (d < keep && (!IsFinite(elBody.SemiMajorAxis) ||
                              !FrameRails.EscapesShell(elBody, t, shell, keep, FrameHost.MaterializeLead))) continue;
 
@@ -230,7 +232,7 @@ public static class ServerFrames
             Vector3D cel = borg.Position + rel;
             GravityBody parent = reg.Root.DeepestSoiContaining(cel, t) ?? node;
             StateVector porg = parent.OriginInRoot(t);
-            var el = FrameMath.CaptureElements(new StateVector(cel - porg.Position, borg.Velocity + vel - porg.Velocity), parent.Mu, t);
+            var el = CaptureMath.CaptureElements(new StateVector(cel - porg.Position, borg.Velocity + vel - porg.Velocity), parent.Mu, t);
             if (!IsFinite(el.SemiMajorAxis) || !IsFinite(el.MeanMotion)) continue;
             var frame = SystemHost.Frames.CreateFrame(parent.Name, el, g.Id);
             if (frame == null) continue;
@@ -445,7 +447,7 @@ public static class ServerFrames
     /// <summary>SE1 ExecuteSplits: the member becomes its own frame from its celestial state.</summary>
     private static void SplitGrid(ProximityFrame f, OrbitalGridComponent g, StateVector cur, Vector3D rRel, Vector3D vRel, double t)
     {
-        var el = FrameMath.CaptureElements(new StateVector(cur.Position + rRel, cur.Velocity + vRel), f.Elements.Mu, t);
+        var el = CaptureMath.CaptureElements(new StateVector(cur.Position + rRel, cur.Velocity + vRel), f.Elements.Mu, t);
         if (!IsFinite(el.SemiMajorAxis) || !IsFinite(el.MeanMotion)) return;
         var nf = SystemHost.Frames.SplitOff(f, g.Id, f.ParentBodyName, el);
         if (nf == null) return;
@@ -494,7 +496,7 @@ public static class ServerFrames
             if (hs)
             {
                 GridMembers.SetVelocity(g, Vector3D.Zero);
-                var el = FrameMath.CaptureElements(new StateVector(cel.Position + off, cel.Velocity + vRel), node.Mu, epoch);
+                var el = CaptureMath.CaptureElements(new StateVector(cel.Position + off, cel.Velocity + vRel), node.Mu, epoch);
                 if (IsFinite(el.SemiMajorAxis)) _gridHighSpeed[g.Id] = (node.Name, el);
             }
             else GridMembers.SetVelocity(g, chart.VelFromInertial(cel.Position + off, cel.Velocity + vRel));
@@ -539,7 +541,7 @@ public static class ServerFrames
                 // Grid thrust in HighSpeed: fold the frame's thrust impulse into the conic (as the player's).
                 var node = reg.Find(kv.Value.body);
                 StateVector s0 = OrbitPropagation.StateAt(el, t);
-                var el2 = node != null ? FrameMath.CaptureElements(new StateVector(s0.Position, s0.Velocity + thrust), node.Mu, t) : el;
+                var el2 = node != null ? CaptureMath.CaptureElements(new StateVector(s0.Position, s0.Velocity + thrust), node.Mu, t) : el;
                 if (IsFinite(el2.SemiMajorAxis) && IsFinite(el2.MeanMotion)) { el = el2; refold.Add((kv.Key, kv.Value.body, el2)); }
             }
             StateVector st = OrbitPropagation.StateAt(el, t);

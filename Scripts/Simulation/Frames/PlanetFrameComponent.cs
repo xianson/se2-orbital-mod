@@ -169,7 +169,7 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
             if (_beacon != null && _beacon.GravityReach > 0) { _law = _beacon.Gravity; _gravityReach = _beacon.GravityReach; }
             try { _law.Multiplier = session.Get<Keen.VRage.Physics.IPhysics>().GravityMultiplier; } catch { }
             PlanetRenderBridge.TickTerrain(_handles);
-            if (FrameHost.PlayerFrame == null && !OrbitalMap.Active) OrbitDisplay.Consider(this, session, camera, center, _handles.Radius, _law, _planetName);
+            if (FrameHost.PlayerFrame == null && !OrbitalMap.Active && !MapView.Visible) OrbitDisplay.Consider(this, session, camera, center, _handles.Radius, _law, _planetName);
 
             // FRAMES MODE (the SE-Aerospace model): the observer is in a planet cell or a conjunction.
             if (TickFramesMode(camera, distance)) return;

@@ -7,7 +7,12 @@ if (Test-Path "$PSScriptRoot\orbital-only.flag") {
     $a = $args0 -replace '"-projectPaths:', ('"-projectPaths:' + $orb + ';')
 }
 if (Test-Path "$PSScriptRoot\no-orbital.flag") { $a = $args0 }
-if (Test-Path "$PSScriptRoot\world.txt") { $w = (Get-Content "$PSScriptRoot\world.txt" -Raw).Trim(); $a = $a -replace '"-start:[^"]*"', ('"-start:' + $w + '"') }
+if (Test-Path "$PSScriptRoot\world.txt") {
+    $w = (Get-Content "$PSScriptRoot\world.txt" -Raw).Trim()
+    # "content:<folder>" starts a NEW game from a shipped world (GameData\Vanilla\Worlds\<folder>).
+    if ($w.StartsWith('content:')) { $a = $a -replace '"-start:[^"]*"', ('"-startContent:' + $w.Substring(8) + '"') }
+    else { $a = $a -replace '"-start:[^"]*"', ('"-start:' + $w + '"') }
+}
 $game = 'C:\Program Files (x86)\Steam\steamapps\common\SpaceEngineers2\Game2'
 Set-Content -Path "$PSScriptRoot\last-launch-args.txt" -Value $a
 Start-Process -FilePath "$game\SpaceEngineers2.exe" -ArgumentList $a -WorkingDirectory $game

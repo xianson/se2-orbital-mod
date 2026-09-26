@@ -68,6 +68,9 @@ public static class SystemHost
 
     /// <summary>The world's sun period (seconds, 0 = its sun does not rotate); set by the client host.</summary>
     public static double WorldSunPeriod;
+    public const double MoonMaxDistance = 1.0e6;   // m
+    public const double MoonMassRatio = 10.0;
+    public static int MoonCount;
 
     private static double PlanetDay()
     {
@@ -164,12 +167,47 @@ public static class SystemHost
         double a = FirstOrbit;
         double anomaly = 0;
         BeaconOf.Clear();
+        var nameOf = new Dictionary<PlanetBeacon, string>();
         foreach (var b in beacons)
         {
             string name = DevHarness.PlanetName(b);
             if (BeaconOf.ContainsKey(name)) name = name + "_" + BeaconOf.Count;
             BeaconOf[name] = b;
+            nameOf[b] = name;
+        }
+        // Moons: a body within MoonMaxDistance of one at least MoonMassRatio heavier orbits the
+        // nearest such body (SE2's Palatine sits 229 km from Verdure, Caligo 195 km from Kemik).
+        double Mu(PlanetBeacon p) => p.OriginalGravity.G0 * mult * p.OriginalGravity.R0 * p.OriginalGravity.R0;
+        var parentOf = new Dictionary<PlanetBeacon, PlanetBeacon>();
+        foreach (var m in beacons)
+        {
+            PlanetBeacon best = null; double bestD = MoonMaxDistance;
+            foreach (var p in beacons)
+            {
+                if (p == m || Mu(p) < MoonMassRatio * Mu(m)) continue;
+                double d = (p.Center - m.Center).Length();
+                if (d < bestD) { bestD = d; best = p; }
+            }
+            if (best != null) parentOf[m] = best;
+        }
+        MoonCount = parentOf.Count;
+        foreach (var b in beacons)
+        {
+            string name = nameOf[b];
             var law = b.OriginalGravity;
+            if (parentOf.TryGetValue(b, out var host))
+            {
+                def.Bodies.Add(new BodyDefinition
+                {
+                    Name = name, Parent = nameOf[host], HasOrbit = true,
+                    SemiMajorAxisMeters = (b.Center - host.Center).Length(), Eccentricity = 0.0, MeanAnomalyAtEpochDeg = 0,
+                    SurfaceGravityMps2 = law.G0 * mult, RadiusMeters = law.R0,
+                    HasAtmosphere = true, AtmosphereHeightMeters = law.R0 * AtmosphereFraction,
+                    RotationPeriodSeconds = PlanetDay(),
+                    ParkSubtype = "SE2:" + name,
+                });
+                continue;
+            }
             def.Bodies.Add(new BodyDefinition
             {
                 Name = name, Parent = "Star", HasOrbit = true,
@@ -208,6 +246,16 @@ public static class SystemHost
             var node = reg.Find(kv.Key);
             var bdef = reg.FindDefinition(kv.Key);
             double reach = Math.Min(node.SoiRadius, alloc.SlotRadius);
+            // Stop short of every neighbour's own sphere of influence: standing on a moon you feel
+            // the moon (the planet's pull is the frame's free fall, not a constant tug).
+            foreach (var other in BeaconOf)
+            {
+                if (other.Key == kv.Key) continue;
+                var on = reg.Find(other.Key);
+                double gap = (other.Value.Center - kv.Value.Center).Length() - Math.Min(on.SoiRadius, alloc.SlotRadius);
+                if (gap > 0) reach = Math.Min(reach, gap);
+            }
+            reach = Math.Max(reach, PlanetBerths.KeepRadius(bdef));
             kv.Value.PendingGravity = new GravityRequest { Falloff = 2f, Reach = (float)reach };
             Log.Default?.Info($"[ORBIT] body {kv.Key}: mu={node.Mu:E3} soi={node.SoiRadius / 1000:F0} km " +
                               $"shell={PlanetBerths.ShellRadius(bdef) / 1000:F1} km keep={PlanetBerths.KeepRadius(bdef) / 1000:F1} km " +

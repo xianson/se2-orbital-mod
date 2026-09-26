@@ -103,6 +103,8 @@ public static class OrbitalMap
         if (SpinDegPerSec != 0 && wdt > 0 && wdt < 0.5) Bearing = (Bearing + SpinDegPerSec * wdt) % 360;
         SpecCam.Orbit(_anchor, Size * ZoomFactor, Bearing, Elevation);
 
+        _builder.SetPrimitiveOffset(_anchor);
+        _builder.UpdateEntityTransform(new WorldTransform(_anchor));
         var reg = SystemHost.Registry;
         string focus = ResolveFocus(reg);
         var used = new HashSet<string>();

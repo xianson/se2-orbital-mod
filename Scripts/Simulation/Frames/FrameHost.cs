@@ -61,7 +61,7 @@ public static class FrameHost
         if (!VoxelBerthRegistry.TryCellContaining(_lastPos, reg, out string b, out _) || b != body) return false;
         var ch = Chart.Of(body, t);
         Vector3D lr = _lastPos - cell;
-        el = FrameMath.CaptureElements(new StateVector(ch.ToInertial(lr), ch.VelToInertial(lr, _lastVel)), node.Mu, t);
+        el = CaptureMath.CaptureElements(new StateVector(ch.ToInertial(lr), ch.VelToInertial(lr, _lastVel)), node.Mu, t);
         return IsFinite(el.SemiMajorAxis) && IsFinite(el.MeanMotion);
     }
     /// <summary>The local player's conjunction frame, if framed.</summary>
@@ -143,7 +143,7 @@ public static class FrameHost
             Event($"warp x{SystemHost.Timescale} -> x1 (player is materialized; warp is rails-only)");
             SystemHost.Timescale = 1.0;
         }
-        if (OrbitalMap.Active) OrbitDisplay.Clear();
+        if (OrbitalMap.Active || MapView.Visible) OrbitDisplay.Clear();
         else if (PlayerFrame != null && Observer.HasValue)
             OrbitDisplay.DrawFrameOrbit(session, camera, Observer.Value, PlayerFrame, reg, t);
         MapView.Tick(session, camera, t);
@@ -166,6 +166,7 @@ public static class FrameHost
             _hsActive = false;
             _wasInKeep = false;
             StartTeleport(session, pf.BerthCenter, Vector3D.Zero, t);
+            // Unconstrained grids within the attach radius come along (constrained ones never move: Havok).
             ServerFrames.Attach.Enqueue(new ServerFrames.AttachRequest { FrameId = pf.Id, RefPos = pos, RefVel = vel, Berth = pf.BerthCenter });
             Event($"STOW (orbit command) -> frame #{pf.Id} about {pb}: a={pel.SemiMajorAxis / 1000:F1} km e={pel.Eccentricity:F3}");
             return;
@@ -194,7 +195,7 @@ public static class FrameHost
         double keep = PlanetBerths.KeepRadius(def);
         Debug += $" cell={body} d={d / 1000:F1}km shell={shell / 1000:F1} keep={keep / 1000:F1}";
 
-        KeplerianElements elBody = FrameMath.CaptureElements(new StateVector(rel, vel), node.Mu, t);
+        KeplerianElements elBody = CaptureMath.CaptureElements(new StateVector(rel, vel), node.Mu, t);
         if (d < keep)
         {
             _wasInKeep = true;
@@ -208,7 +209,7 @@ public static class FrameHost
 
         GravityBody parent = reg.Root.DeepestSoiContaining(cel, t) ?? node;
         StateVector porg = parent.OriginInRoot(t);
-        var el = FrameMath.CaptureElements(new StateVector(cel - porg.Position, celVel - porg.Velocity), parent.Mu, t);
+        var el = CaptureMath.CaptureElements(new StateVector(cel - porg.Position, celVel - porg.Velocity), parent.Mu, t);
         if (!IsFinite(el.SemiMajorAxis) || !IsFinite(el.MeanMotion)) return;
 
         var frame = SystemHost.Frames.CreateFrame(parent.Name, el, id);
@@ -276,7 +277,7 @@ public static class FrameHost
         if (IsFinite(acc) && acc.LengthSquared() > 1e-10) SetVelocity(ch, vel + acc * dt);
         if (rRel.Length() > ServerFrames.SlotRadius)
         {
-            var el = FrameMath.CaptureElements(new StateVector(cur.Position + rRel, cur.Velocity + vel), mu, t);
+            var el = CaptureMath.CaptureElements(new StateVector(cur.Position + rRel, cur.Velocity + vel), mu, t);
             if (!IsFinite(el.SemiMajorAxis)) return;
             var nf = SystemHost.Frames.SplitOff(f, _playerId, f.ParentBodyName, el);
             if (nf == null) return;
@@ -302,7 +303,7 @@ public static class FrameHost
         GravityBody now = reg.Root.DeepestSoiContaining(cel.Position, t);
         if (now == null || now == parent) return;
         StateVector norg = now.OriginInRoot(t);
-        var el = FrameMath.CaptureElements(new StateVector(cel.Position - norg.Position, cel.Velocity - norg.Velocity), now.Mu, t);
+        var el = CaptureMath.CaptureElements(new StateVector(cel.Position - norg.Position, cel.Velocity - norg.Velocity), now.Mu, t);
         if (!IsFinite(el.SemiMajorAxis) || !IsFinite(el.MeanMotion)) return;
         Event($"SOI {f.ParentBodyName} -> {now.Name} (frame #{f.Id}, a={el.SemiMajorAxis / 1000:F0} km e={el.Eccentricity:F3})");
         f.ParentBodyName = now.Name;
@@ -415,7 +416,7 @@ public static class FrameHost
     {
         var node = SystemHost.Registry?.Find(body);
         if (node == null) { _hsActive = false; return; }
-        _hsEl = FrameMath.CaptureElements(new StateVector(relPos, relVel), node.Mu, t);
+        _hsEl = CaptureMath.CaptureElements(new StateVector(relPos, relVel), node.Mu, t);
         _hsBody = body;
         _hsVel = relVel;
         _hsActive = IsFinite(_hsEl.SemiMajorAxis);
@@ -486,7 +487,7 @@ public static class FrameHost
         }
         if (!HsThrustFold || !IsFinite(dv) || dv.LengthSquared() < 1e-12) return;
         StateVector st = OrbitPropagation.StateAt(_hsEl, t);
-        var el = FrameMath.CaptureElements(new StateVector(st.Position, st.Velocity + dv), node.Mu, t);
+        var el = CaptureMath.CaptureElements(new StateVector(st.Position, st.Velocity + dv), node.Mu, t);
         if (!IsFinite(el.SemiMajorAxis) || !IsFinite(el.MeanMotion)) return;
         _hsEl = el;
         HsFolds++;

@@ -140,6 +140,27 @@ public static class GridMembers
         return Vector3D.Zero;
     }
 
+    /// <summary>
+    /// True when the grid is held by a physics constraint (landing gear, connector, rotor, merge...).
+    /// Teleporting one body of a constrained pair breaks Havok's constraint migration (seen in game:
+    /// "Body was not migrated properly" assertion and a hung server thread), so such grids are not
+    /// moved into frames on their own.
+    /// </summary>
+    public static bool IsConstrained(OrbitalGridComponent g)
+    {
+        try
+        {
+            var physics = g.Session?.Get<Keen.VRage.Physics.IPhysics>();
+            if (physics == null || !physics.HasBody(g.Entity.DEntity)) return false;
+            using (var buf = new Keen.VRage.Library.Memory.Buffer<Keen.VRage.DCS.Accessors.DEntity>(Keen.VRage.Library.Memory.Allocator.Pool, "OrbitalConstrained"))
+            {
+                physics.GetDirectlyConnectedBodies(g.Entity.DEntity, buf);
+                return buf.Count > 0;
+            }
+        }
+        catch { return true; }   // unknown: be safe, do not move it
+    }
+
     /// <summary>Move the grid (orientation kept), the way the engine's own admin teleport does.</summary>
     public static bool SetPosition(OrbitalGridComponent g, Vector3D p)
     {

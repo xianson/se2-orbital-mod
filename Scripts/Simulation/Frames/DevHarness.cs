@@ -34,12 +34,12 @@ public static class DevHarness
     /// <summary>The only save the harness ever writes (a copy of the test world).</summary>
     public const string TestWorldContainer = "Orbital Test World";
 
-    private static async void SaveAndLog(Keen.Game2.Simulation.Replication.IGameServer server)
+    private static async void SaveAndLog(Keen.Game2.Simulation.Replication.IGameServer server, string target)
     {
         try
         {
-            var r = await server.TrySaveGame(TestWorldContainer);
-            Log.Default?.Info($"[ORBIT-DEV] save -> '{TestWorldContainer}': {r}");
+            var r = await server.TrySaveGame(target);
+            Log.Default?.Info($"[ORBIT-DEV] save -> '{target}': {r}");
             LastSave = $"{DateTime.Now:HH:mm:ss} {r}";
         }
         catch (Exception e) { Log.Default?.Info($"[ORBIT-DEV] save failed: {e.Message}"); LastSave = "failed: " + e.Message; }
@@ -58,6 +58,7 @@ public static class DevHarness
     public static void Poll(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera)
     {
         if (!OrbitalConfig.DevHarness) return;
+        _statusSession = session;
         try
         {
             SpecCam.Tick(session, name => { var pl = FindPlanet(name); return pl != null ? PlanetWorldPos(pl) : (Vector3D?)null; },
@@ -224,8 +225,10 @@ public static class DevHarness
                 // never write a player's own save.
                 var server = ServerPlanetBeacon.ServerSession?.Get<Keen.Game2.Simulation.Replication.IGameServer>();
                 if (server == null) return "no IGameServer";
-                SaveAndLog(server);
-                return $"saving to '{TestWorldContainer}'";
+                string target = a.Length > 1 ? string.Join(" ", a, 1, a.Length - 1) : TestWorldContainer;
+                if (!target.StartsWith("Orbital Test", StringComparison.Ordinal)) return "refused: the harness only saves to 'Orbital Test...' worlds";
+                SaveAndLog(server, target);
+                return $"saving to '{target}'";
             }
 
             case "cam":
@@ -236,6 +239,7 @@ public static class DevHarness
                     case "planet": return SpecCam.Planet(a[2], D(a[3]), a.Length > 4 ? D(a[4]) : 0, a.Length > 5 ? D(a[5]) : 30);
                     case "player": return SpecCam.Player(D(a[2]), a.Length > 3 ? D(a[3]) : 0, a.Length > 4 ? D(a[4]) : 30);
                     case "sun": return SpecCam.Sun();
+                    case "mapbody": return SpecCam.MapBody(a[2], D(a[3]), a.Length > 4 ? D(a[4]) : 0, a.Length > 5 ? D(a[5]) : 60);
                     case "map": return SpecCam.Map(D(a[2]), a.Length > 3 ? D(a[3]) : 0, a.Length > 4 ? D(a[4]) : 60);
                 }
                 return "cam off|planet|player|map";
@@ -271,9 +275,17 @@ public static class DevHarness
                 }
                 return "omap on|off|focus|size|view|spin|auto";
 
+            case "mapdiag":
+                MapView.DiagCross = On(a[1]);
+                return "mapdiag=" + MapView.DiagCross;
+
             case "mapview":
                 MapView.Mode = (MapView.ViewMode)Enum.Parse(typeof(MapView.ViewMode), a[1], ignoreCase: true);
                 return $"mapview={MapView.Mode}";
+
+            case "shotui":
+                PlanetRenderBridge.ShotWithoutUi = !On(a[1]);
+                return $"screenshots with UI={On(a[1])}";
 
             case "kick":
                 // kick <prograde m/s> [radial] [normal]  (HighSpeed only)
@@ -450,18 +462,29 @@ public static class DevHarness
         string file = s.Replace('/', '\\');
         int slash = file.LastIndexOf('\\');
         file = slash >= 0 ? file.Substring(slash + 1) : file;
-        int cut = file.IndexOf("MapVisual", StringComparison.OrdinalIgnoreCase);
-        return cut > 0 ? file.Substring(0, cut) : file;
+        foreach (string tag in new[] { "ColonizationMapPlanetVisual", "_ColonizationMap", "ColonizationMap", "MapVisual" })
+        {
+            int cut = file.IndexOf(tag, StringComparison.OrdinalIgnoreCase);
+            if (cut > 0) { file = file.Substring(0, cut); break; }
+        }
+        return file.TrimEnd('_', '.', ' ');
     }
 
     private static double PlanetRadius(PlanetBeacon p) => p.Gravity.R0 > 0 ? p.Gravity.R0 : 0;
 
+    private static Keen.VRage.Core.Game.Systems.Session _statusSession;
     private static void WriteStatus(WorldTransform camera)
     {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"restore {SavedState.LastRestore} | save {LastSave}");
         sb.AppendLine($"mapview {MapView.Mode}: {MapView.Status} | omap {OrbitalMap.Status} | cam {SpecCam.Status}");
         sb.AppendLine($"sun {SunDriver.Status}");
+        try
+        {
+            var session = _statusSession; var sec = session?.SessionComponents.TryGet<Keen.Game2.Simulation.GameSystems.Colonization.SectorsSessionComponent>();
+            sb.AppendLine($"colonization sectors={(sec != null ? sec.Sectors.Count.ToString() : "none")} mapVisible={MapView.Map(session)?.IsVisible}");
+        }
+        catch (Exception e) { sb.AppendLine("colonization ? " + e.Message); }
         try
         {
             var vb = SystemHost.Registry?.Find("Verdure");

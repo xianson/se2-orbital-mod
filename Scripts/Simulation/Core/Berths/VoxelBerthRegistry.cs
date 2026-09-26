@@ -125,15 +125,22 @@ namespace SEAerospace
             if (reg == null) return false;
             EnsureMapping(reg);
             double r = _alloc.SlotRadius;
+            // Pinned cells can overlap (SE2 moons sit inside their planet's slot radius): the
+            // nearest center wins, which splits the overlap down the middle.
+            double best = r * r;
+            bool found = false;
             foreach (KeyValuePair<string, Vector3D> pin in _pinned)
             {
-                if (Vector3D.DistanceSquared(worldPos, pin.Value) <= r * r)
+                double d2 = Vector3D.DistanceSquared(worldPos, pin.Value);
+                if (d2 <= best)
                 {
+                    best = d2;
                     body = pin.Key;
                     center = pin.Value;
-                    return true;
+                    found = true;
                 }
             }
+            if (found) return true;
             foreach (KeyValuePair<string, int> kv in _slotOf)
             {
                 Vector3D c = _alloc.SlotCenter(kv.Value);

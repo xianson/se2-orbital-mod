@@ -539,7 +539,7 @@ public static class CleanMap
         if (MapPipeline.ToScreen(wc, out var sc))
             foreach (var ax in new[] { new Vector3D(radiusLocal, 0, 0), new Vector3D(0, 0, radiusLocal) })
                 if (MapPipeline.ToScreen(W(centre + ax), out var se)) rpx = Math.Max(rpx, (se - sc).Length());
-        MapPipeline.ScreenRing(wc, Math.Max(rpx * 1.25f + 4f, minPx), col, width);
+        MapPipeline.ScreenRing(wc, Math.Max(rpx + 1.5f, minPx), col, width);   // snug on the limb
     }
 
     private static void Circle(Func<Vector3D, Vector3D> W, double r, ColorSRGB col, float px)

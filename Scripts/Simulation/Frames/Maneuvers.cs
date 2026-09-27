@@ -249,7 +249,7 @@ public static class Maneuvers
                 float rpx = 0;
                 foreach (var ax in new[] { Vector3D.UnitX, Vector3D.UnitY })
                     if (MapPipeline.ToScreen(W(Loc(nb, ax * R, tp)), out var es)) rpx = Math.Max(rpx, (es - gs).Length());
-                rpx = Math.Max(rpx * 1.3f + 3f * u, 9f * u);   // padded round the body, never smaller than the old marker
+                rpx = Math.Max(rpx + 1.5f * u, 9f * u);   // snug on the body, never smaller than the old marker
                 MapPipeline.ScreenCircle(gs, rpx, new ColorSRGB(col.R, col.G, col.B, 0.55f), 1.3f * u);
                 HudPanel.TagAt(gs + new Vector2(rpx + 6f * u, 0), nb.Name, col, u, diamond: false);
             }

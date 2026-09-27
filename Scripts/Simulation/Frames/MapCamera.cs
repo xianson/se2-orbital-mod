@@ -20,6 +20,8 @@ public static class MapCamera
     public static string Status = "-";
     /// <summary>A pan or orbit is in progress: the map's own clicks and hovers stand aside.</summary>
     public static bool Dragging => _mode != Mode.None;
+    /// <summary>A drag ended this frame: its button release is not a click.</summary>
+    public static bool DragEnded;
     /// <summary>The zoom: the game's camera distance to its focus (0 when not driving the camera).</summary>
     public static double Distance;
     /// <summary>Where the camera looks on the map plane (world), while driving the camera.</summary>
@@ -30,7 +32,24 @@ public static class MapCamera
     private static QuaternionD _mapQ = QuaternionD.Identity;
 
     /// <summary>Centre the view on a point of the map (world); from the next frame.</summary>
-    public static void PanTo(Vector3D world) { if (Focus.HasValue) _pan = world - _focusGame; }
+    public static void PanTo(Vector3D world, bool smooth = false)
+    {
+        if (!Focus.HasValue) return;
+        if (smooth) _panGoal = world - _focusGame;
+        else { _pan = world - _focusGame; _panGoal = null; }
+    }
+
+    /// <summary>Glide the zoom to a camera distance (on top of the game's wheel zoom, which still works).</summary>
+    public static void ZoomTo(double dist)
+    {
+        if (_map == null || !(dist > 0)) return;
+        PlanetRenderBridge.SetMapTargetDistance(_map, (float)Math.Clamp(dist, _map.MinDistance, _map.MaxDistance));
+    }
+    private static ColonizationMapSessionComponent _map;
+
+    private static Vector3D? _panGoal;
+    private static double _lastWall;
+    public const double MinZoomDistance = 0.08;   // closer, the globes clip at the camera's near plane
 
     private enum Mode { None, Pan, Orbit }
     private static Mode _mode;
@@ -62,6 +81,16 @@ public static class MapCamera
         double d = Vector3D.Dot(mapPos - g.Position, up) / den;
         if (!(d > 0)) { Status = "camera faces away"; return; }
         Vector3D focusGame = g.Position + gf * d;
+        // Glides (focus on a body): ease the pan and the zoom toward their goals.
+        double wall = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+        double dt = _lastWall > 0 ? Math.Min(0.1, wall - _lastWall) : 0; _lastWall = wall;
+        double ease = 1 - Math.Exp(-dt * 7);
+        if (_panGoal.HasValue)
+        {
+            _pan += (_panGoal.Value - _pan) * ease;
+            if ((_panGoal.Value - _pan).Length() < 1e-5) { _pan = _panGoal.Value; _panGoal = null; }
+        }
+        _map = map;
         if (DevZoom > 0) d = DevZoom;   // DEV: a set zoom instead of the game's wheel
         if (!_init)
         {
@@ -72,6 +101,7 @@ public static class MapCamera
         }
 
         // Mouse drags.
+        var modeBefore = _mode;
         bool l = MapInput.Left, r = MapInput.Right, m = MapInput.Middle;
         if (haveMouse)
         {
@@ -109,9 +139,11 @@ public static class MapCamera
                     Vector3D fwd = Math.Sin(_yaw) * east + Math.Cos(_yaw) * north;
                     double tilt = Math.Max(0.35, Math.Sin(_pitch));   // screen-up covers more ground when tilted
                     _pan += (-dm.X * right + dm.Y / tilt * fwd) * k;
+                    _panGoal = null;
                 }
             }
         }
+        DragEnded = modeBefore != Mode.None && _mode == Mode.None;
         if (!l) _lArmed = false;
         if (!r) _rArmed = false;
         if (!m) _mArmed = false;
@@ -137,6 +169,7 @@ public static class MapCamera
     public static void Release(Keen.VRage.Core.Game.Systems.Session session)
     {
         _mode = Mode.None; _init = false; Distance = 0; Focus = null;
+        _panGoal = null; _lastWall = 0; _map = null;
         if (!_overridden) return;
         _overridden = false;
         try { var cam = SpecCam.CameraOf(session); cam?.SetTransformOverride(null); cam?.SetNextTransitionNonSmooth(); } catch { }
@@ -150,6 +183,6 @@ public static class MapCamera
         if (a.Length > 3 && a[1] == "pan") { _pan = new Vector3D(double.Parse(a[2]), 0, double.Parse(a[3])); return "pan " + _pan; }
         if (a.Length > 2 && a[1] == "zoom") { DevZoom = double.Parse(a[2]); return "map zoom " + DevZoom; }
         if (a.Length > 2) { _yaw = double.Parse(a[1]) * Math.PI / 180; _pitch = Math.Clamp(double.Parse(a[2]) * Math.PI / 180, MinPitch, MaxPitch); _init = true; }
-        return "map camera: " + Status + " | view " + CleanMap.Status + " focus " + CleanMap.ViewFocus;
+        return "map camera: " + Status + " | view " + CleanMap.Status + " focus " + CleanMap.ViewFocus + " | click " + CleanMap.ClickDebug;
     }
 }

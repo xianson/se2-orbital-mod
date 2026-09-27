@@ -563,6 +563,37 @@ public static class PlanetRenderBridge
         catch (Exception e) { return "stats: " + e.Message; }
     }
 
+    /// <summary>
+    /// Zoom the colonization map's own camera to a distance: its private CameraData.TargetDistance, and
+    /// its CameraNeedsUpdateTag so it eases there itself (the same as its wheel zoom does). The wheel
+    /// keeps working from there.
+    /// </summary>
+    public static bool SetMapTargetDistance(object map, float distance)
+    {
+        try
+        {
+            Type mt = map.GetType();
+            Type cd = mt.GetNestedType("CameraData", BindingFlags.NonPublic | BindingFlags.Public);
+            Type tag = mt.GetNestedType("CameraNeedsUpdateTag", BindingFlags.NonPublic | BindingFlags.Public);
+            object data = mt.GetProperty("Data", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(map);
+            if (cd == null || tag == null || data == null) return false;
+            MethodInfo get = null, set = null;
+            foreach (var m in data.GetType().GetMethods())
+            {
+                if (!m.IsGenericMethodDefinition) continue;
+                if (m.Name == "Get" && m.GetParameters().Length == 0) get = m;
+                if (m.Name == "Set" && m.GetParameters().Length == 1) set = m;
+            }
+            if (get == null || set == null) return false;
+            object v = get.MakeGenericMethod(cd).Invoke(data, null);
+            cd.GetField("TargetDistance").SetValue(v, distance);
+            set.MakeGenericMethod(cd).Invoke(data, new[] { v });
+            set.MakeGenericMethod(tag).Invoke(data, new[] { Activator.CreateInstance(tag) });
+            return true;
+        }
+        catch (Exception e) { WarnOnce("map-zoom", "map zoom failed: " + Inner(e)); return false; }
+    }
+
     public static string EngineScreenshot(string name)
     {
         try

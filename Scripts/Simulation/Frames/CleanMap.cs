@@ -185,13 +185,28 @@ public static class CleanMap
     }
 
     /// <summary>The sector list: grouped, numbered, state dot, name, where; on the right, below the game's index box.</summary>
+    static readonly ColorSRGB PanelFill = new ColorSRGB(0.02f, 0.05f, 0.07f, 0.78f);
+    static readonly ColorSRGB RowHover = new ColorSRGB(0.30f, 0.55f, 0.65f, 0.22f);
+
+    /// <summary>The list's screen area (last frame): a click there goes to a row.</summary>
+    private static BoundingBox2 _listBox;
+    /// <summary>Where each sector's marker was drawn (world), for centring on it.</summary>
+    private static readonly Dictionary<string, Vector3D> _markerAt = new Dictionary<string, Vector3D>();
+
+    /// <summary>
+    /// The sector list, as a panel in the game's style: group headers, one row per sector (number,
+    /// state dot, name, where), the hovered row lit, the selected one marked with a bar. A click on a
+    /// row selects it (the game's own click) and the map glides to it.
+    /// </summary>
     static void DrawList(List<Band> ordered, Func<Band, bool> expanded, Func<Band, bool> listed)
     {
         ordered = ordered.FindAll(b => listed(b));
         Vector2 scr = MapPipeline.ScreenSize;
         float k = MapPipeline.TextScale;   // rows and columns grow with the text
-        float x = scr.X * 0.775f, y = scr.Y * 0.27f, line = scr.Y * 0.0275f * k, scale = 0.78f;
-        float y0 = y;
+        float x = scr.X * 0.782f, y = scr.Y * 0.27f, line = scr.Y * 0.0275f * k, scale = 0.78f;
+        float x0 = scr.X * 0.777f, x1 = scr.X * 0.975f;
+        // Lay out first (the panel goes behind), then draw.
+        var rows = new List<(Band b, bool header, string text, float y)>();
         string group = null;
         foreach (var b in ordered)
         {
@@ -200,24 +215,75 @@ public static class CleanMap
             {
                 if (group != null) y += line * 0.35f;
                 int count = ordered.FindAll(o => Group(o) == g).Count;
-                bool open = expanded(b);
-                MapPipeline.ScreenText(new Vector2(x, y), open ? g.ToUpperInvariant() : $"{g.ToUpperInvariant()}  ({count})", Dim, scale * 0.85f);
+                rows.Add((b, true, expanded(b) ? g.ToUpperInvariant() : $"{g.ToUpperInvariant()}  ({count})", y));
                 y += line;
                 group = g;
             }
             if (!expanded(b)) continue;
-            var c = b.Selected ? LineSel : Text;
-            MapPipeline.PickName = b.Name;
-            MapPipeline.ScreenText(new Vector2(x, y), b.Number.ToString(), Dim, scale);
-            MapPipeline.ScreenDot(new Vector2(x + scr.Y * 0.030f * k, y + line * 0.42f), 4.5f, StateColor(b));
-            MapPipeline.ScreenText(new Vector2(x + scr.Y * 0.045f * k, y), b.Name, c, scale);
-            MapPipeline.ScreenText(new Vector2(x + scr.Y * 0.19f * k, y), Where(b), Dim, scale * 0.85f);
-            MapPipeline.PickName = null;
+            rows.Add((b, false, null, y));
             y += line;
         }
-        MapPipeline.Reserve(new Vector2(x - scr.Y * 0.012f, y0 - line * 0.3f), new Vector2(scr.X, y + line * 0.3f));
+        if (rows.Count == 0) return;
+        float top = rows[0].y - line * 0.4f, bottom = y + line * 0.2f;
+        MapPipeline.ScreenRect(new Vector2(x0, top), new Vector2(x1, bottom), PanelFill);
+        _listBox = new BoundingBox2(new Vector2(x0, top), new Vector2(x1, bottom));
+        foreach (var r in rows)
+        {
+            if (r.header) { MapPipeline.ScreenText(new Vector2(x, r.y), r.text, Dim, scale * 0.85f); continue; }
+            var b = r.b;
+            var rowMin = new Vector2(x0, r.y - line * 0.12f); var rowMax = new Vector2(x1, r.y + line * 0.88f);
+            if (b.Name == Hovered) MapPipeline.ScreenRect(rowMin, rowMax, RowHover);
+            if (b.Selected) MapPipeline.ScreenRect(rowMin, new Vector2(x0 + 3f, rowMax.Y), LineSel);
+            var c = b.Selected ? LineSel : Text;
+            MapPipeline.PickName = b.Name;
+            MapPipeline.ScreenText(new Vector2(x, r.y), b.Number.ToString(), Dim, scale);
+            MapPipeline.ScreenDot(new Vector2(x + scr.Y * 0.030f * k, r.y + line * 0.42f), 4.5f, StateColor(b));
+            MapPipeline.ScreenText(new Vector2(x + scr.Y * 0.045f * k, r.y), b.Name, c, scale);
+            MapPipeline.ScreenText(new Vector2(x + scr.Y * 0.19f * k, r.y), Fit(Where(b), x1 - (x + scr.Y * 0.19f * k) - 6f, scale * 0.85f), Dim, scale * 0.85f);
+            MapPipeline.PickName = null;
+        }
+        MapPipeline.Reserve(new Vector2(x0, top), new Vector2(scr.X, bottom));
     }
 
+    /// <summary>The text, cut with an ellipsis to fit a width (px) at a scale.</summary>
+    static string Fit(string text, float width, float scale)
+    {
+        if (string.IsNullOrEmpty(text) || MapPipeline.MeasureText(text, scale).X <= width) return text;
+        for (int n = text.Length - 1; n > 0; n--)
+        {
+            string t = text.Substring(0, n).TrimEnd() + "...";
+            if (MapPipeline.MeasureText(t, scale).X <= width) return t;
+        }
+        return "";
+    }
+
+    /// <summary>A click on a list row: glide the map to that sector (the game selects it on the same click).</summary>
+    static void ListInput(Func<Vector3D, Vector3D> W)
+    {
+        if (!MapInput.LeftReleased || MapCamera.DragEnded || Hovered == null) return;
+        if (_listBox.Contains(Mouse) != ContainmentType.Contains) return;
+        CentreOn(Hovered);
+    }
+
+    /// <summary>Glide the view to a sector's marker (in this view).</summary>
+    public static void CentreOn(string sector)
+    {
+        if (sector != null && _markerAt.TryGetValue(sector, out var at)) MapCamera.PanTo(at, smooth: true);
+    }
+
+    /// <summary>
+    /// A line of the controls, in the map's open area above the game's own hint bar: what the mouse can
+    /// do where it is (on a maneuver, on the path, or on the map).
+    /// </summary>
+    static void Hints()
+    {
+        var scr = MapPipeline.ScreenSize;
+        string h;
+        if (Maneuvers.OnGizmo) h = "Drag a handle to change the burn   \u00b7   Drag the node along the path   \u00b7   Right-click: options";
+        else if (!double.IsNaN(Maneuvers.HoverT)) h = "Click: add a maneuver here   \u00b7   Right-click: options   \u00b7   Drag: pan";
+        else h = "Drag: pan   \u00b7   Right-drag: orbit   \u00b7   Wheel: zoom   \u00b7   Double-click a body: focus   \u00b7   Right-click: menu   \u00b7   .  ,  /  warp";
+        MapPipeline.ScreenText(new Vector2(scr.X * 0.265f, scr.Y * 0.905f), h, Dim, 0.62f);
+    }
 
     private static double _lastMesh;
     private static string _lastKey;
@@ -237,6 +303,7 @@ public static class CleanMap
         focus ??= playerPlanet;
         var planet = focus != null ? reg.Find(focus) : null;
         ZoomTransition(solar, planet, reg, t, W, mapPos);
+        _hits.Clear(); _crumbs.Clear();
         if (!solar && ViewFocus != null) planet = reg.Find(ViewFocus) ?? planet;
         focus = planet?.Name ?? focus;
         _viewBody = !solar && planet != null && planet.Parent != null ? planet : null;
@@ -258,6 +325,10 @@ public static class CleanMap
             foreach (var bd in bands) if (bd.Selected) selName = bd.Name;
             if (_toMap != null && ManeuverEditor) Maneuvers.MapDraw(_toMap, W, _limit, t, Mouse, selName, solar ? null : planet?.Name);
             if (ManeuverEditor) ContextMenu(bands, t);
+            _lastW = W; _lastSolar = solar;
+            FocusInput(reg, t, W, solar);
+            ListInput(W);
+            Hints();
         }
         finally { if (ui) MapPipeline.UiEnd(); }
 
@@ -307,6 +378,8 @@ public static class CleanMap
         // apoapsis); anything beyond the frame (the L1/L2 sectors) is pinned to the edge.
         double frame = rH * 0.2;
         foreach (var b in ell) frame = Math.Max(frame, b.Home.A * (1 + b.Home.E));
+        // A moon's reach is small next to its own size: frame at least a few radii, or it fills the view.
+        frame = Math.Max(frame, 8 * (reg.FindDefinition(planet.Name)?.RadiusMeters ?? 0));
         double scaleSys = fit / (frame * 1.15);
         double R(double r) => Math.Max(0, r) * scaleSys;
         Vector3D L(double ang, double r) => new Vector3D(Math.Cos(ang) * r, 0, Math.Sin(ang) * r);
@@ -317,6 +390,7 @@ public static class CleanMap
         double planetR = (pdef?.RadiusMeters ?? 6e4) * scaleSys;      // true size
         MapGlobes.Use(planet.Name, W(Vector3D.Zero), planetR, globes);
         BodyRing(W, Vector3D.Zero, planetR, 9f, Text, 1.5f);
+        Hit(planet, W(Vector3D.Zero), W(new Vector3D(planetR, 0, 0)), 9f);
         MapPipeline.Text(W(new Vector3D(0, 0, LabelGap(W, Vector3D.Zero, planetR, 9f, fit * 0.05))), planet.Name, Text, 0.9f);
         foreach (var moon in planet.Children)
         {
@@ -325,6 +399,7 @@ public static class CleanMap
             Vector3D ml = Lv(mp);
             MapGlobes.Use(moon.Name, W(ml), (reg.FindDefinition(moon.Name)?.RadiusMeters ?? 2e4) * scaleSys, globes);
             BodyRing(W, ml, (reg.FindDefinition(moon.Name)?.RadiusMeters ?? 2e4) * scaleSys, 5f, Dim, 1.2f);
+            Hit(moon, W(ml), W(ml + new Vector3D((reg.FindDefinition(moon.Name)?.RadiusMeters ?? 2e4) * scaleSys, 0, 0)), 5f);
             MapPipeline.Text(W(ml + new Vector3D(0, 0, LabelGap(W, ml, (reg.FindDefinition(moon.Name)?.RadiusMeters ?? 2e4) * scaleSys, 5f, fit * 0.035))), moon.Name, Dim, 0.6f);
         }
 
@@ -439,6 +514,7 @@ public static class CleanMap
         // The sun: a warm disc (its own section, coloured below), and its name.
         parts.Add(Annulus(SunPart, 0, Math.PI, 0, Math.Max(SystemHost.StarRadius * SolarRadius / outer, SolarRadius * 0.004)));   // true size
         BodyRing(W, Vector3D.Zero, SystemHost.StarRadius * SolarRadius / outer, 10f, new ColorSRGB(1f, 0.85f, 0.4f, 0.9f), 1.5f);
+        Hit(root, W(Vector3D.Zero), W(new Vector3D(SystemHost.StarRadius * SolarRadius / outer, 0, 0)), 10f);
         MapPipeline.Text(W(new Vector3D(0, 0, SolarRadius * 0.085)), StarName, Text, 0.85f);
 
         // The belt: a torus of its own, and its sectors as band sections on it.
@@ -489,6 +565,7 @@ public static class CleanMap
             }
             MapGlobes.Use(p.Name, W(c), (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, globes);   // true size
             BodyRing(W, c, (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, 8f, p.Name == playerPlanet ? You : Text, 1.5f);
+            Hit(p, W(c), W(c + new Vector3D((reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, 0, 0)), 8f);
             int n = 0; foreach (var bd in bands) if (bd.Host == p.Name && bd.Home.Kind != SectorHomes.Kind.OwnPlanet) n++;
             MapPipeline.Text(W(c + new Vector3D(0, 0, SolarRadius * 0.045)), p.Name, p.Name == playerPlanet ? You : Text, 0.9f);
         }
@@ -534,6 +611,13 @@ public static class CleanMap
             items.Add(new MapMenu.Item("Add maneuver", () => Maneuvers.AddNodeAt(T)));
             if (hasNodes) items.Add(new MapMenu.Item("Remove all maneuvers", Maneuvers.ClearAll));
         }
+        else if (Hovered != null)
+        {
+            string sec = Hovered;
+            title = sec;
+            items.Add(new MapMenu.Item("Centre on " + sec, () => CentreOn(sec)));
+            if (hasNodes) items.Add(new MapMenu.Item("Remove all maneuvers", Maneuvers.ClearAll));
+        }
         else if (hasNodes)
             items.Add(new MapMenu.Item("Remove all maneuvers", Maneuvers.ClearAll));
         if (items.Count > 0) { MapMenu.Show(Mouse + new Vector2(4f * u, 4f * u), title, items); Maneuvers.ClaimsMouse = true; }
@@ -556,18 +640,104 @@ public static class CleanMap
     /// Where you are looking and where you are, at the top of the map's open area: "Delfos › Kemik",
     /// then your ship's situation (the orbit's Pe / Ap, or on the ground).
     /// </summary>
+    // ---- focus (as KSP: double-click a body, or click the breadcrumb) ----
+
+    private static readonly List<(GravityBody b, Vector2 s, float r)> _hits = new List<(GravityBody, Vector2, float)>();
+    private static readonly List<(GravityBody b, BoundingBox2 box)> _crumbs = new List<(GravityBody, BoundingBox2)>();
+    private static double _lastClick; private static Vector2 _lastClickAt;
+    /// <summary>A body being flown to: the zoom-in switch opens it, whatever is under the cursor.</summary>
+    private static GravityBody _glide;
+    private static bool _glideToStar;
+
+    /// <summary>A body drawn this frame, clickable within its drawn size (or its ring when smaller).</summary>
+    static void Hit(GravityBody b, Vector3D centre, Vector3D edge, float ringPx)
+    {
+        if (!MapPipeline.ToScreen(centre, out var sc)) return;
+        float r = MapPipeline.ToScreen(edge, out var se) ? (se - sc).Length() : 0f;
+        float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        _hits.Add((b, sc, Math.Max(r, ringPx * u) + 8f * u));
+    }
+
+    private static Func<Vector3D, Vector3D> _lastW; private static bool _lastSolar;
+    public static string ClickDebug = "";
+
+    /// <summary>DEV: focus a body as a double-click on it would.</summary>
+    public static string DevFocus(string name)
+    {
+        var reg = SystemHost.Registry; var b = reg?.Find(name) ?? (name == StarName ? reg?.Root : null);
+        if (b == null || _lastW == null) return "no body / map not drawn";
+        FocusOn(b, reg, SystemHost.Now, _lastW, _lastSolar);
+        return "focus " + name;
+    }
+
+    static void FocusInput(SystemRegistry reg, double t, Func<Vector3D, Vector3D> W, bool solar)
+    {
+        if (MapInput.LeftReleased)
+        {
+            float nd = float.MaxValue; string nn = null;
+            foreach (var h in _hits) { float d = (h.s - Mouse).Length(); if (d < nd) { nd = d; nn = h.b.Name + $"(r{h.r:F0})"; } }
+            ClickDebug = $"release at {Mouse} drag={MapCamera.DragEnded} gizmo={Maneuvers.OnGizmo} menu={MapMenu.Open} hits={_hits.Count} nearest {nn} {nd:F0}px";
+        }
+        if (!MapInput.LeftReleased || MapCamera.DragEnded || Maneuvers.OnGizmo || MapMenu.Open) return;
+        foreach (var c in _crumbs)
+            if (c.box.Contains(Mouse) == ContainmentType.Contains) { FocusOn(c.b, reg, t, W, solar); return; }
+        double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+        bool dbl = now - _lastClick < 0.4 && (Mouse - _lastClickAt).Length() < 10f;
+        _lastClick = dbl ? 0 : now; _lastClickAt = Mouse;
+        if (!dbl) return;
+        GravityBody best = null; float bd = float.MaxValue;
+        foreach (var h in _hits) { float d = (h.s - Mouse).Length(); if (d <= h.r && d < bd) { bd = d; best = h.b; } }
+        if (best != null) FocusOn(best, reg, t, W, solar);
+    }
+
+    /// <summary>Fly the view to a body: the star (system view), a planet or a moon (its own view).</summary>
+    public static void FocusOn(GravityBody b, SystemRegistry reg, double t, Func<Vector3D, Vector3D> W, bool solar)
+    {
+        double baseMax = Math.Max(1e-3, UnifiedMap.BaseMax);
+        if (b.Parent == null)
+        {
+            if (solar) MapCamera.PanTo(W(Vector3D.Zero), smooth: true);
+            else { _glideToStar = true; MapCamera.ZoomTo(SolarZoom * 1.3 * baseMax); }
+            return;
+        }
+        if (solar)
+        {
+            var top = b; while (top.Parent != null && top.Parent.Parent != null) top = top.Parent;
+            _glide = b;
+            MapCamera.PanTo(W(SolarLocal(top, t)), smooth: true);
+            MapCamera.ZoomTo(SolarZoom * 0.5 * baseMax);
+            return;
+        }
+        bool same = ViewFocus == b.Name || (_viewBody != null && _viewBody == b);
+        ViewFocus = b.Name;
+        MapCamera.PanTo(W(Vector3D.Zero), smooth: same);
+    }
+
     static void Title(GravityBody view, string playerPlanet, KeplerianElements? orbit)
     {
         var scr = MapPipeline.ScreenSize;
         var at = new Vector2(scr.X * 0.265f, scr.Y * 0.125f);
-        string path = StarName;
-        if (view != null)
+        // The breadcrumb: each part a click target (up to the star, down to what is in view).
+        var chain = new List<GravityBody>();
+        for (var b = view; b != null; b = b.Parent) chain.Insert(0, b);
+        if (chain.Count == 0 && SystemHost.Registry?.Root != null) chain.Add(SystemHost.Registry.Root);
+        float x = at.X;
+        for (int i = 0; i < chain.Count; i++)
         {
-            var chain = new List<string>();
-            for (var b = view; b != null && b.Parent != null; b = b.Parent) chain.Insert(0, b.Name);
-            path += "  ›  " + string.Join("  ›  ", chain);
+            string name = chain[i].Parent == null ? StarName : chain[i].Name;
+            var size = MapPipeline.MeasureText(name, 1.05f);
+            var box = new BoundingBox2(new Vector2(x, at.Y), new Vector2(x + size.X, at.Y + size.Y));
+            bool last = i == chain.Count - 1;
+            bool hot = !last && box.Contains(Mouse) == ContainmentType.Contains;
+            MapPipeline.ScreenText(new Vector2(x, at.Y), name, hot ? LineSel : last ? Text : Dim, 1.05f);
+            if (!last) _crumbs.Add((chain[i], box));
+            x += size.X;
+            if (!last)
+            {
+                float gap = 10f * Math.Max(1f, scr.Y / 1080f);   // the font drops leading spaces: gaps in pixels
+                x += gap; MapPipeline.ScreenText(new Vector2(x, at.Y), ">", Dim, 1.05f); x += MapPipeline.MeasureText(">", 1.05f).X + gap;
+            }
         }
-        MapPipeline.ScreenText(at, path, Text, 1.05f);
         MapPipeline.Reserve(at - new Vector2(4, 4), at + new Vector2(scr.X * 0.3f, scr.Y * 0.09f));
         string you;
         if (FrameHost.PlayerFrame == null && FrameHost.Grounded && playerPlanet != null) you = $"You: on {playerPlanet}";
@@ -618,11 +788,13 @@ public static class CleanMap
         if (solar)
         {
             var top = planet; while (top?.Parent != null && top.Parent.Parent != null) top = top.Parent;
-            if (top != null && top.Parent != null) MapCamera.PanTo(W(SolarLocal(top, t)));
+            if (_glideToStar) { _glideToStar = false; MapCamera.PanTo(W(Vector3D.Zero)); }
+            else if (top != null && top.Parent != null) MapCamera.PanTo(W(SolarLocal(top, t)));
         }
         else
         {
             if (!MapCamera.Focus.HasValue) return;
+            if (_glide != null) { ViewFocus = _glide.Name; _glide = null; MapCamera.PanTo(W(Vector3D.Zero)); return; }
             Vector3D f = MapCamera.Focus.Value;
             GravityBody best = null; double bd = double.MaxValue;
             // The planet under the cursor (within 60 px), else the one nearest the middle of the view.
@@ -772,6 +944,7 @@ public static class CleanMap
     /// <summary>Where a sector is now on its orbit: a ringed dot in its state colour.</summary>
     static void Marker(Vector3D world, Band b)
     {
+        _markerAt[b.Name] = world;
         var c = b.Selected ? LineSel : StateColor(b);
         if (Quiet(b)) { MapPipeline.ScreenRing(world, 5f, HudPanel.Alpha(c, 0.5f), 1.4f); MapPipeline.ScreenRing(world, 2f, HudPanel.Alpha(c, 0.5f), 2f); return; }
         MapPipeline.ScreenRing(world, 8f, c, 2f);

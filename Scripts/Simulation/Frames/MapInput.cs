@@ -26,6 +26,9 @@ public static class MapInput
     public static bool? DevLeft, DevRight;
     private static bool _devRightClick;
     public static void DevRightClick() => _devRightClick = true;
+    private static int _devDbl;
+    /// <summary>DEV: a left double-click (down, up, down, up on successive frames).</summary>
+    public static void DevDoubleClick() => _devDbl = 1;
 
     /// <summary>Once per frame, before anything reads the buttons.</summary>
     public static void Poll()
@@ -50,6 +53,7 @@ public static class MapInput
         try { if (_mouse != null) { l = _mouse.GetDigitalState(MouseInputs.Left); r = _mouse.GetDigitalState(MouseInputs.Right); mid = _mouse.GetDigitalState(MouseInputs.Middle); } }
         catch { _mouse = null; }
         if (DevLeft.HasValue) l = DevLeft.Value;
+        if (_devDbl > 0) { l = _devDbl % 2 == 1; if (++_devDbl > 5) _devDbl = 0; }
         if (DevRight.HasValue) r = DevRight.Value;
         if (_devRightClick) { r = !_r; _devRightClick = _r; }   // one frame down, then up
         LeftPressed = l && !_l; LeftReleased = !l && _l;

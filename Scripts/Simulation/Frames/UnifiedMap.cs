@@ -36,6 +36,8 @@ public static class UnifiedMap
     public static string Status = "-";
 
     private static float _baseMax = -1, _baseMin = -1;
+    /// <summary>The game's original farthest map zoom (the unit of CleanMap's zoom u).</summary>
+    public static double BaseMax => _baseMax;
     private static bool _gameHidden, _labelsHidden;
 
     // Colours: the colonization states, KSP conventions for orbits.

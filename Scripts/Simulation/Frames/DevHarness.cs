@@ -530,6 +530,14 @@ public static class DevHarness
                 DebugPanel.DevOpen = true;
                 return "debug panel toggled";
 
+            case "dblclick":   // dblclick <x> <y>: screen fractions
+                UnifiedMap.DevMouse = new Vector2((float)D(a[1]), (float)D(a[2]));
+                MapInput.DevDoubleClick();
+                return "double-click queued";
+
+            case "focus":
+                return CleanMap.DevFocus(a[1]);
+
             case "mapcamon":
                 MapCamera.Enabled = On(a[1]);
                 return "map camera " + MapCamera.Enabled;

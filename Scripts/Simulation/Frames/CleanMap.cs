@@ -329,6 +329,7 @@ public static class CleanMap
             FocusInput(reg, t, W, solar);
             ListInput(W);
             Hints();
+            WarpBar.DrawMap(Mouse);
         }
         finally { if (ui) MapPipeline.UiEnd(); }
 
@@ -713,6 +714,13 @@ public static class CleanMap
         MapCamera.PanTo(W(Vector3D.Zero), smooth: same);
     }
 
+    /// <summary>A breadcrumb part's size: the font's measure, but never under ~8 px a character per unit
+    /// scale (the measure comes out short at high resolutions, and parts ran together).</summary>
+    static Vector2 CrumbSize(string text)
+    {
+        return MapPipeline.MeasureText(text, 1.05f);   // (now never short)
+    }
+
     static void Title(GravityBody view, string playerPlanet, KeplerianElements? orbit)
     {
         var scr = MapPipeline.ScreenSize;
@@ -725,7 +733,7 @@ public static class CleanMap
         for (int i = 0; i < chain.Count; i++)
         {
             string name = chain[i].Parent == null ? StarName : chain[i].Name;
-            var size = MapPipeline.MeasureText(name, 1.05f);
+            var size = CrumbSize(name);
             var box = new BoundingBox2(new Vector2(x, at.Y), new Vector2(x + size.X, at.Y + size.Y));
             bool last = i == chain.Count - 1;
             bool hot = !last && box.Contains(Mouse) == ContainmentType.Contains;
@@ -735,7 +743,7 @@ public static class CleanMap
             if (!last)
             {
                 float gap = 10f * Math.Max(1f, scr.Y / 1080f);   // the font drops leading spaces: gaps in pixels
-                x += gap; MapPipeline.ScreenText(new Vector2(x, at.Y), ">", Dim, 1.05f); x += MapPipeline.MeasureText(">", 1.05f).X + gap;
+                x += gap; MapPipeline.ScreenText(new Vector2(x, at.Y), ">", Dim, 1.05f); x += CrumbSize(">").X + gap;
             }
         }
         MapPipeline.Reserve(at - new Vector2(4, 4), at + new Vector2(scr.X * 0.3f, scr.Y * 0.09f));

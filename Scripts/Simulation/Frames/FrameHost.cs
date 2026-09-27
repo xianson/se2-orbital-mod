@@ -184,6 +184,7 @@ public static class FrameHost
         Guard("Maneuvers.HudTick", () => Maneuvers.HudTick(session, camera, t));
         Guard("AutoBurn.Tick", () => AutoBurn.Tick(session, t));
         Guard("OrbitHud.Draw", () => OrbitHud.Draw(session));
+        Guard("WarpBar", () => WarpBar.DrawHud(session));
         Guard("OrbitalMap.Tick", () => OrbitalMap.Tick(session, t));
         Guard("SunDriver.Tick", () => SunDriver.Tick(session, camera.Position, t));
     }

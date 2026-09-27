@@ -402,8 +402,12 @@ public static class MapPipeline
     {
         scale *= TextScale;   // as ScreenText draws it
         if (_font == null || string.IsNullOrEmpty(text)) return new Vector2((text?.Length ?? 0) * 12f * scale, 22f * scale);
+        // Never under ~8 px a character and 20 px a line per unit scale at 1080p: the font's own
+        // measure comes out short at high resolutions (4K: labels and bars ran together).
+        float u = Math.Max(1f, ScreenSize.Y / 1080f);
+        var est = new Vector2(text.Length * 8.2f * scale * u, 20f * scale * u);
         var v = Measure(text) * scale;
-        return v.X > 0 ? v : new Vector2(text.Length * 12f * scale, 22f * scale);
+        return new Vector2(Math.Max(v.X, est.X), Math.Max(v.Y, est.Y));
     }
 
     /// <summary>A screen-space line (px).</summary>

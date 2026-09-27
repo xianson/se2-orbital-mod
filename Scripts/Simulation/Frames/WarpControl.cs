@@ -28,6 +28,15 @@ public static class WarpControl
         Say($"Warp ×{Levels[i]:N0}");
     }
 
+    /// <summary>Warp at level i (the warp bar's arrows): x1 always; faster only on rails.</summary>
+    public static void SetLevel(int i)
+    {
+        i = Math.Clamp(i, 0, Levels.Length - 1);
+        if (i > 0 && FrameHost.PlayerFrame == null) { SystemHost.Timescale = 1; Say("Needs rails: leave the planet's space first"); return; }
+        SystemHost.Timescale = Levels[i];
+        Say($"Warp ×{Levels[i]:N0}");
+    }
+
     public static Keen.VRage.Core.Game.Systems.Session Session;
     public static void Say(string s) { Notice = s; _noticeUntil = Wall() + 5.0; if (Session != null) GameUi.Toast(Session, "warp", "Time warp", s, 3); }
     static double Wall() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;

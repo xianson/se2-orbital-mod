@@ -115,7 +115,7 @@ public static class Maneuvers
             applied.Add(new Applied { Node = n, Body = body, Before = st, Dv = dv, After = after });
             el = after; tc = n.T; planned = true;
         }
-        double horizon = el.IsElliptic && IsFinite(el.Period) ? Math.Min(el.Period * 1.02, 5 * 86400.0) : 2 * 86400.0;
+        double horizon = el.IsElliptic && IsFinite(el.Period) ? Math.Min(el.Period * 1.02, 10 * 86400.0) : 10 * 86400.0;   // long enough for a transfer
         var tail = PatchedConic.Propagate(body, OrbitPropagation.StateAt(el, tc), tc, horizon, 8, 256);
         if (tail != null) foreach (var a in tail) legs.Add(new Leg { Body = a.Body, El = a.Elements, T0 = a.StartTime, T1 = Math.Min(a.EndTime, tc + horizon), Planned = planned });
         return legs.Count > 0;
@@ -141,7 +141,7 @@ public static class Maneuvers
     /// toMap maps a sun-centred model position at time t to the map's local frame; W local to world.
     /// </summary>
     public static void MapDraw(Func<Vector3D, double, Vector3D> toMap, Func<Vector3D, Vector3D> W, double limit,
-                               double t, Vector2 mouse, string selectedSector)
+                               double t, Vector2 mouse, string selectedSector, string focusBody)
     {
         ClaimsMouse = false;
         float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);   // sizes are for 1080p
@@ -152,11 +152,44 @@ public static class Maneuvers
         double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
         double dt = _lastFrame > 0 ? Math.Min(0.1, now - _lastFrame) : 0; _lastFrame = now;
         if (!Trajectory(t, out var legs, out var applied)) { Status = "no trajectory"; return; }
+        HudPanel.BeginLabels();
 
-        // Sample the trajectory on screen (for drawing the plan and for picking).
-        var samples = new List<Sample>();
-        foreach (var l in legs)
+        // The PATCHED trajectory: each patch (an arc about one body) in its own colour, drawn about its
+        // body. About the view's body, or the sun, at true time; about any other body (an encounter),
+        // about that body where it will be when the trajectory gets there (KSP's encounter ghost).
+        var anchor = new Dictionary<GravityBody, double>();
+        foreach (var l in legs) if (!anchor.ContainsKey(l.Body)) anchor[l.Body] = Math.Max(t, l.T0);
+        // A ghost-pinned arc is mapped at its pin time as a whole: the view's own centre moves too (Kemik
+        // runs about 2.4 km/s round the sun), and mixing times would smear the arc across the map.
+        bool Live(GravityBody b) => b.IsRoot || b.Name == focusBody;
+        // Each pass about a body has its own ghost: pinned where that body is when that pass begins.
+        double PinT(GravityBody b, double tk)
         {
+            if (Live(b)) return tk;
+            double pin = double.NaN;
+            for (int q = 0; q < legs.Count; q++)
+            {
+                if (legs[q].Body != b) continue;
+                int s0 = q; while (s0 > 0 && legs[s0 - 1].Body == b) s0--;   // start of this pass
+                if (tk >= legs[q].T0 - 1e-6 && tk <= legs[q].T1 + 1e-6) return Math.Max(t, legs[s0].T0);
+                if (double.IsNaN(pin)) pin = Math.Max(t, legs[s0].T0);
+            }
+            return double.IsNaN(pin) ? tk : pin;
+        }
+        Vector3D Place(GravityBody b, Vector3D rel, double tk) => b.OriginInRoot(PinT(b, tk)).Position + rel;
+        Vector3D Loc(GravityBody b, Vector3D rel, double tk) => toMap(Place(b, rel, tk), PinT(b, tk));
+        Vector3D LegLoc(Leg l, double tk) => Loc(l.Body, OrbitPropagation.StateAt(l.El, tk).Position, tk);
+
+        var samples = new List<Sample>();
+        int patch = 0;
+        var legColour = new List<ColorSRGB>();
+        for (int li = 0; li < legs.Count; li++)
+        {
+            var l = legs[li];
+            if (li > 0 && l.Body != legs[li - 1].Body) patch++;
+            var col = PatchColors[patch % PatchColors.Length];
+            legColour.Add(col);
+            bool drawn = !(li == 0 && !l.Planned && l.Body.Name == focusBody);   // the map draws your current orbit
             double span = l.T1 - l.T0;
             if (!(span > 0)) continue;
             int n = Math.Max(8, Math.Min(240, (int)(span / Math.Max(1, (legs[legs.Count - 1].T1 - t)) * 360)));
@@ -164,12 +197,36 @@ public static class Maneuvers
             for (int k = 0; k <= n; k++)
             {
                 double tk = l.T0 + span * k / n;
-                Vector3D loc = toMap(RootAt(l, tk), tk);
-                if (Math.Sqrt(loc.X * loc.X + loc.Z * loc.Z) > limit * 1.3) { hp = false; continue; }
+                Vector3D loc = LegLoc(l, tk);
+                if (Math.Sqrt(loc.X * loc.X + loc.Z * loc.Z) > limit * 1.04) { hp = false; continue; }
                 if (!MapPipeline.ToScreen(W(loc), out var s)) { hp = false; continue; }
                 samples.Add(new Sample { T = tk, S = s, Planned = l.Planned });
-                if (hp && l.Planned && (k % 2 == 0)) MapPipeline.ScreenLine(prev, s, PlanColor, 2f);   // dashed
+                if (hp && drawn)
+                {
+                    if (l.Planned) MapPipeline.ScreenDashed(prev, s, col, 2f * u, u);
+                    else MapPipeline.ScreenLine(prev, s, col, 2f * u);
+                }
                 prev = s; hp = true;
+            }
+        }
+
+        // Patch points: where the trajectory leaves one SOI for another.
+        for (int li = 1; li < legs.Count; li++)
+        {
+            var pa = legs[li - 1]; var nb = legs[li].Body;
+            if (nb == pa.Body) continue;
+            double tp = legs[li].T0;
+            Vector3D loc = LegLoc(pa, tp);
+            if (!MapPipeline.ToScreen(W(loc), out var sp)) continue;
+            var col = legColour[li];
+            MapPipeline.ScreenCircle(sp, 5f * u, col, 2f * u);
+            bool escape = nb == pa.Body.Parent;
+            // An encounter: the body where it will be, named (the ghost the arc is drawn about).
+            if (!escape && !nb.IsRoot && nb.Name != focusBody && MapPipeline.ToScreen(W(Loc(nb, Vector3D.Zero, tp)), out var gs))
+            {
+                MapPipeline.ScreenCircle(gs, 11f * u, new ColorSRGB(col.R, col.G, col.B, 0.6f), 1.5f * u);
+                MapPipeline.ScreenCircle(gs, 3f * u, new ColorSRGB(col.R, col.G, col.B, 0.6f), 2f * u);
+                HudPanel.TagAt(gs + new Vector2(14f * u, 0), nb.Name, col, u, diamond: false);
             }
         }
 
@@ -177,7 +234,7 @@ public static class Maneuvers
         var nodeScreen = new List<(Node n, Vector2 s, Applied a)>();
         foreach (var a in applied)
         {
-            Vector3D loc = toMap(a.Body.OriginInRoot(a.Node.T).Position + a.Before.Position, a.Node.T);
+            Vector3D loc = Loc(a.Body, a.Before.Position, a.Node.T);
             if (!MapPipeline.ToScreen(W(loc), out var s)) continue;
             nodeScreen.Add((a.Node, s, a));
             bool sel = a.Node == Selected;
@@ -189,15 +246,16 @@ public static class Maneuvers
         var handles = new List<(Vector2 at, Vector2 dir, int axis, double sign, string label, ColorSRGB c)>();
         var selA = applied.Find(a => a.Node == Selected);
         Vector2 selS = default;
-        if (Selected != null && selA.Node != null && nodeScreen.Exists(x => x.n == Selected))
+        bool edit = focusBody != null;   // the solar view shows nodes; editing is in a planet's view
+        if (edit && Selected != null && selA.Node != null && nodeScreen.Exists(x => x.n == Selected))
         {
             selS = nodeScreen.Find(x => x.n == Selected).s;
             Axes(selA.Before, out var P, out var N, out var R);
-            Vector3D rootAt = selA.Body.OriginInRoot(Selected.T).Position + selA.Before.Position;
+            Vector3D relAt = selA.Before.Position;
             Vector2 Dir(Vector3D v)
             {
                 double eps = Math.Max(1.0, selA.Before.Position.Length() * 0.01);
-                Vector3D a0 = toMap(rootAt, Selected.T), a1 = toMap(rootAt + v * eps, Selected.T);
+                Vector3D a0 = Loc(selA.Body, relAt, Selected.T), a1 = Loc(selA.Body, relAt + v * eps, Selected.T);
                 if (!MapPipeline.ToScreen(W(a0), out var s0) || !MapPipeline.ToScreen(W(a1), out var s1)) return Vector2.Zero;
                 var d = s1 - s0;
                 return d.LengthSquared() > 1e-4f ? Vector2.Normalize(d) : Vector2.Zero;
@@ -235,6 +293,7 @@ public static class Maneuvers
             float d = (a + ab * k - mouse).Length();
             if (d < bestD && Math.Abs(samples[i].T - samples[i - 1].T) < 3600 * 12) { bestD = d; hoverT = samples[i - 1].T + (samples[i].T - samples[i - 1].T) * k; }
         }
+        if (!edit) { hoverNode = null; hoverT = double.NaN; }
         ClaimsMouse = _drag != Drag.None || hoverHandle >= 0 || hoverNode != null || !double.IsNaN(hoverT);
 
         if (_drag == Drag.Handle && Selected != null)
@@ -274,24 +333,45 @@ public static class Maneuvers
             if (Selected == hoverNode) Selected = null;
         }
 
-        // Draw the handles (after the drag moved things) and the selected node's readout.
-        foreach (var (at, dir, axis, sign, label, c) in handles)
+        // The handles: KSP's navball symbols on arms from the node; the one under the mouse (or being
+        // pulled) is highlighted and named.
+        for (int i = 0; i < handles.Count; i++)
         {
-            MapPipeline.ScreenCircle(at, 7f * u, c, 2f * u);
-            MapPipeline.ScreenText(at + new Vector2(9, -9) * u, label, c, 0.5f * u);
+            var (at, dir, axis, sign, label, c) = handles[i];
+            bool hot = i == hoverHandle || (_drag == Drag.Handle && _axis == axis && _sign == sign);
+            Vector2 tip = at;
+            if (_drag == Drag.Handle && _axis == axis && _sign == sign) tip = _anchor + _dir * Math.Max(0f, Vector2.Dot(mouse - _anchor, _dir));
+            MapPipeline.ScreenLine(selS + dir * 11f * u, tip - dir * 9f * u, new ColorSRGB(c.R, c.G, c.B, hot ? 0.9f : 0.45f), (hot ? 2f : 1.3f) * u);
+            Icon(label, tip, c, hot, u);
+            // The component on this axis, beyond the handle it points along (P shows + prograde,
+            // R shows retrograde): the number reads along the node's own axes.
+            double comp = axis == 0 ? Selected.Pro : axis == 1 ? Selected.Nor : Selected.Rad;
+            bool mine = sign > 0 ? comp > 0.05 : comp < -0.05;
+            if (mine || hot)
+            {
+                string txt = hot && !mine ? HandleName(label) : $"{Math.Abs(comp):F1} m/s";
+                var ts = MapPipeline.MeasureText(txt, 0.5f * u);
+                Vector2 p0 = tip + dir * (16f * u);
+                // centre the text on the axis beyond the icon
+                Vector2 lp = p0 + new Vector2(dir.X < -0.3f ? -ts.X : dir.X > 0.3f ? 0 : -ts.X * 0.5f, dir.Y > 0.3f ? ts.Y * 0.5f : dir.Y < -0.3f ? -ts.Y * 0.5f : 0);
+                HudPanel.LabelAt(lp, txt, c, u);
+            }
         }
         if (Selected != null && selS != default)
         {
             double dvm = Math.Sqrt(Selected.Pro * Selected.Pro + Selected.Nor * Selected.Nor + Selected.Rad * Selected.Rad);
-            string when = Clock(Selected.T - t);
             double left = selA.Dv.Length();
-            MapPipeline.ScreenText(selS + new Vector2(30, 34) * u, Math.Abs(left - dvm) > 0.05 ? $"{left:F1} of {dvm:F1} m/s left   in {when}" : $"{dvm:F1} m/s   in {when}", NodeColor, 0.55f * u);
-            MapPipeline.ScreenText(selS + new Vector2(30, 52) * u, $"P {Selected.Pro:F1}  N {Selected.Nor:F1}  R {Selected.Rad:F1}", NodeColor, 0.48f * u);
-            string orbit = OrbitText(selA);
-            if (orbit != null) MapPipeline.ScreenText(selS + new Vector2(30, 68) * u, orbit, NodeColor, 0.48f * u);
+            string head = (Math.Abs(left - dvm) > 0.05 ? $"{left:F1} of {dvm:F1} m/s" : $"{dvm:F1} m/s") + "   in " + Clock(Selected.T - t);
+            string after = OrbitText(selA);
+            // Beside the node, away from the prograde arm.
+            Vector2 side = handles.Count > 0 ? -Vector2.Normalize(handles[0].dir + handles[4].dir) : new Vector2(1, 0);
+            Vector2 tp0 = selS + side * (70f * u);
+            if (side.X < 0) tp0.X -= MapPipeline.MeasureText(head, 0.5f * u).X;
+            HudPanel.LabelAt(tp0, head, NodeColor, u);
+            if (after != null) HudPanel.LabelAt(tp0 + new Vector2(0, 22f * u), after, new ColorSRGB(0.75f, 0.85f, 0.95f, 1f), u);
         }
         else if (!double.IsNaN(hoverT) && _drag == Drag.None)
-            MapPipeline.ScreenText(mouse + new Vector2(14, 10) * u, $"add node  (in {Clock(hoverT - t)})", PlanColor, 0.5f * u);
+            HudPanel.TagAt(mouse + new Vector2(16f * u, 14f * u), $"Add maneuver  (in {Clock(hoverT - t)})", PlanColor, u, diamond: false);
 
         // Closest approach to the selected sector's site along the whole trajectory.
         if (selectedSector != null) ClosestTo(selectedSector, legs, toMap, W, limit, t);
@@ -303,9 +383,9 @@ public static class Maneuvers
         if (a.Node == null) return null;
         var el = a.After;
         double R = SystemHost.Registry?.FindDefinition(a.Body.Name)?.RadiusMeters ?? 0;
-        if (!el.IsElliptic) return $"escape {a.Body.Name}  e {el.Eccentricity:F2}";
+        if (!el.IsElliptic) return $"After: escape {a.Body.Name}";
         double pe = el.SemiMajorAxis * (1 - el.Eccentricity) - R, ap = el.SemiMajorAxis * (1 + el.Eccentricity) - R;
-        return $"{a.Body.Name}: Pe {pe / 1000:N0} km  Ap {ap / 1000:N0} km";
+        return $"After: Pe {HudPanel.Km(pe)}   Ap {HudPanel.Km(ap)}";
     }
 
     private static void ClosestTo(string sector, List<Leg> legs, Func<Vector3D, double, Vector3D> toMap, Func<Vector3D, Vector3D> W, double limit, double t)
@@ -336,7 +416,8 @@ public static class Maneuvers
             MapPipeline.ScreenCircle(sb, 5f, TgtColor, 2f);
             MapPipeline.ScreenLine(sa, sb, TgtColor, 1.2f);
             string d = best >= 1e4 ? $"{best / 1000:N0} km" : $"{best / 1000:F1} km";
-            MapPipeline.ScreenText(sb + new Vector2(10, 6), $"closest {d}  in {Clock(bt - t)}", TgtColor, 0.5f);
+            float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+            HudPanel.TagAt(sb + new Vector2(8f * u, 10f * u), $"Closest {d}  in {Clock(bt - t)}", TgtColor, u, diamond: false);
         }
     }
 
@@ -346,6 +427,60 @@ public static class Maneuvers
         if (s < 0) return "-" + Clock(-s);
         var ts = TimeSpan.FromSeconds(s);
         return ts.TotalDays >= 1 ? $"{(int)ts.TotalDays}d {ts.Hours}h" : ts.TotalHours >= 1 ? $"{(int)ts.TotalHours}h {ts.Minutes:D2}m" : $"{ts.Minutes}:{ts.Seconds:D2}";
+    }
+
+    static readonly ColorSRGB[] PatchColors =
+    {
+        new ColorSRGB(0.35f, 0.90f, 1.00f, 0.95f), new ColorSRGB(1.00f, 0.62f, 0.25f, 0.95f),
+        new ColorSRGB(0.85f, 0.50f, 1.00f, 0.95f), new ColorSRGB(0.55f, 1.00f, 0.55f, 0.95f),
+    };
+
+    static string HandleName(string l) => l switch
+    {
+        "P" => "Prograde", "R" => "Retrograde", "N" => "Normal", "AN" => "Anti-normal", "RO" => "Radial out", "RI" => "Radial in", _ => l,
+    };
+
+    /// <summary>KSP's navball symbols, drawn with screen lines.</summary>
+    static void Icon(string kind, Vector2 c, ColorSRGB col, bool hot, float u)
+    {
+        float r = (hot ? 10f : 8.5f) * u, w = (hot ? 2.4f : 1.8f) * u, t = 5f * u;
+        void L(Vector2 a, Vector2 b) => MapPipeline.ScreenLine(c + a, c + b, col, w);
+        void Tri(float s, bool up)
+        {
+            float k = up ? 1 : -1;
+            Vector2 a = new Vector2(0, -r * k * s), b = new Vector2(r * 0.87f * s, r * 0.5f * k * s), d = new Vector2(-r * 0.87f * s, r * 0.5f * k * s);
+            L(a, b); L(b, d); L(d, a);
+        }
+        // a dark disc behind, so it reads over orbit lines
+        MapPipeline.ScreenRect(c - new Vector2(r, r * 0.7f), c + new Vector2(r, r * 0.7f), new ColorSRGB(0.02f, 0.045f, 0.07f, 0.55f));
+        switch (kind)
+        {
+            case "P":   // circle, dot, three ticks (top, left, right)
+                MapPipeline.ScreenCircle(c, r, col, w); MapPipeline.ScreenCircle(c, 1.6f * u, col, 2.4f * u);
+                L(new Vector2(0, -r), new Vector2(0, -r - t)); L(new Vector2(-r, 0), new Vector2(-r - t, 0)); L(new Vector2(r, 0), new Vector2(r + t, 0));
+                break;
+            case "R":   // circle with an X, three ticks
+                MapPipeline.ScreenCircle(c, r, col, w);
+                float q = r * 0.62f;
+                L(new Vector2(-q, -q), new Vector2(q, q)); L(new Vector2(-q, q), new Vector2(q, -q));
+                L(new Vector2(0, -r), new Vector2(0, -r - t)); L(new Vector2(-r * 0.7f, r * 0.7f), new Vector2(-(r + t) * 0.7f, (r + t) * 0.7f)); L(new Vector2(r * 0.7f, r * 0.7f), new Vector2((r + t) * 0.7f, (r + t) * 0.7f));
+                break;
+            case "N":   // triangle, dot
+                Tri(1f, true); MapPipeline.ScreenCircle(c, 1.6f * u, col, 2.4f * u);
+                break;
+            case "AN":  // triangle with its vertices extended
+                Tri(0.8f, true);
+                L(new Vector2(0, -r * 0.8f), new Vector2(0, -r - t)); L(new Vector2(r * 0.7f, r * 0.4f), new Vector2((r + t) * 0.87f, (r + t) * 0.5f)); L(new Vector2(-r * 0.7f, r * 0.4f), new Vector2(-(r + t) * 0.87f, (r + t) * 0.5f));
+                break;
+            case "RO":  // circle, four spokes out
+                MapPipeline.ScreenCircle(c, r * 0.8f, col, w);
+                for (int i = 0; i < 4; i++) { double a = Math.PI / 4 + i * Math.PI / 2; var d = new Vector2((float)Math.Cos(a), (float)Math.Sin(a)); L(d * r * 0.8f, d * (r + t)); }
+                break;
+            case "RI":  // circle, four spokes in
+                MapPipeline.ScreenCircle(c, r, col, w);
+                for (int i = 0; i < 4; i++) { double a = Math.PI / 4 + i * Math.PI / 2; var d = new Vector2((float)Math.Cos(a), (float)Math.Sin(a)); L(d * r, d * r * 0.35f); }
+                break;
+        }
     }
 
     // ── harness: drive the editor's own paths (a test shell cannot move the real mouse) ──
@@ -459,6 +594,28 @@ public static class Maneuvers
         lock (Nodes) Nodes.Add(new Node { T = t, Pro = pro, Nor = nor, Rad = rad });
     }
 
+    /// <summary>DEV: search node time x prograde delta-v for a trajectory that enters `body`'s SOI; keep the first found.</summary>
+    public static string DevFindEncounter(string body, double t)
+    {
+        if (!Base(t, out var b0, out var el)) return "no orbit";
+        double period = el.IsElliptic ? el.Period : 3600;
+        lock (Nodes) Nodes.Clear();
+        var n = new Node();
+        lock (Nodes) Nodes.Add(n);
+        for (double dv = -5; dv >= -150; dv -= 5)
+            for (double dt = 120; dt < period; dt += 120)
+            {
+                n.T = t + dt; n.Pro = dv; n.Nor = 0; n.Rad = 0; n.Edit();
+                if (Trajectory(t, out var legs, out _) && legs.Exists(l => l.Body.Name == body))
+                {
+                    Selected = n;
+                    return $"encounter {body}: node in {Clock(dt)} prograde {dv:F0} m/s";
+                }
+            }
+        lock (Nodes) Nodes.Remove(n);
+        return "no encounter found";
+    }
+
     public static string Describe(double t)
     {
         var sb = new System.Text.StringBuilder();
@@ -467,7 +624,20 @@ public static class Maneuvers
         int i = 0;
         foreach (var n in nodes) sb.Append($"[{i++}] in {Clock(n.T - t)} P {n.Pro:F1} N {n.Nor:F1} R {n.Rad:F1}{(n == Selected ? " (selected)" : "")}; ");
         if (NextBurn(t, out var nx, out var rem, out _)) sb.Append($"next burn left {rem.Length():F2} m/s; ");
-        if (Trajectory(t, out _, out var ap)) foreach (var a in ap) { var o = OrbitText(a); if (o != null) sb.Append("after: " + o + "; "); }
+        if (Trajectory(t, out var lg, out var ap))
+        {
+            foreach (var a in ap) { var o = OrbitText(a); if (o != null) sb.Append(o + "; "); }
+            sb.Append("patches: ");
+            string last = null;
+            foreach (var l in lg) if (l.Body.Name != last) { sb.Append(last == null ? l.Body.Name : " > " + l.Body.Name); last = l.Body.Name; }
+            sb.Append("; ");
+            foreach (var l in lg)
+            {
+                double rmax = 0;
+                for (int k = 0; k <= 40; k++) { double tk = l.T0 + (l.T1 - l.T0) * k / 40; rmax = Math.Max(rmax, OrbitPropagation.StateAt(l.El, tk).Position.Length()); }
+                sb.Append($"[{l.Body.Name} {Clock(l.T0 - t)}..{Clock(l.T1 - t)} rmax {rmax / 1000:F0} km e {l.El.Eccentricity:F2}{(l.Planned ? " plan" : "")}] ");
+            }
+        }
         return sb.Length > 0 ? sb.ToString() : "no nodes";
     }
 

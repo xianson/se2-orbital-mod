@@ -346,6 +346,8 @@ public static class DevHarness
                         Maneuvers.Selected = i >= 0 && i < l.Count ? l[i] : null;
                         return Maneuvers.Describe(tn);
                     }
+                    case "findenc":   // node findenc <body>
+                        return Maneuvers.DevFindEncounter(a[2], tn);
                     case "pull":   // node pull <P|R|N|AN|RO|RI> <px> <seconds>
                         Maneuvers.DevPull(a[2], D(a[3]), D(a[4]));
                         return "pulling " + a[2];

@@ -104,7 +104,7 @@ public static class OrbitDisplay
         if (speed < MinSpeed || mu <= 0)
         {
             LastReadout = $"{name}: alt {(d - radius) / 1000:F1} km, v {speed:F1} m/s — no orbit (at rest) [{fit}]";
-            DrawText(camera, LastReadout);
+            OrbitHud.Current = null;   // at rest: no orbit to show
             _builder.Commit();
             _drewLastFrame = true;
             return;
@@ -143,7 +143,14 @@ public static class OrbitDisplay
         LastReadout = $"{name}: alt {(d - radius) / 1000:F1} km  v {speed:F0} m/s\n" +
                       $"a {el.SemiMajorAxis / 1000:F1} km  e {el.Eccentricity:F3}  i {el.Inclination * 180 / Math.PI:F1}°\n" +
                       $"Pe {pe / 1000:F1} km{(pe < 0 ? " (IMPACT)" : "")}  {ap}\n{fit}";
-        DrawText(camera, LastReadout);
+        OrbitHud.Current = new OrbitHud.Readout
+        {
+            Body = name, Mode = SystemHost.Timescale > 1 ? $"Free flight   warp ×{SystemHost.Timescale:F0}" : "Free flight",
+            Alt = d - radius, Speed = speed, Pe = pe, Ap = el.IsElliptic ? el.ApoapsisRadius - radius : 0,
+            Period = el.IsElliptic ? el.Period : 0, IncDeg = el.Inclination * 180 / Math.PI, Escape = !el.IsElliptic,
+            PeWorld = center + chart.FromInertial(OrbitSampler.PositionAtTrueAnomaly(el, 0)),
+            ApWorld = el.IsElliptic ? center + chart.FromInertial(OrbitSampler.PositionAtTrueAnomaly(el, Math.PI)) : (Vector3D?)null,
+        };
         _builder.Commit();
         _drewLastFrame = true;
     }
@@ -186,18 +193,16 @@ public static class OrbitDisplay
         {
             StateVector now = OrbitPropagation.StateAt(el, t);
             double rad0 = def != null ? def.RadiusMeters : 0;
-            void Mark(Vector3D cel, string text)
+            void Mark(Vector3D cel)
             {
                 Vector3D w = SEAerospace.PlanetBerths.WorldFromCelestial(obs, parentOrg + cel);
-                double size = Math.Max(50, (w - camera.Position).Length() * 0.006);
+                double size = Math.Max(50, (w - camera.Position).Length() * 0.004);
                 _builder.AddSphere(new WorldTransform(w, Quaternion.Identity), size, color, color, true);
-                _builder.AddText(w, text, color, 0.6f);
             }
-            if (IsFiniteV(now.Position)) Mark(now.Position, "ship");
             if (el.IsElliptic)
             {
-                Mark(OrbitSampler.PositionAtTrueAnomaly(el, 0), $"Pe {(el.PeriapsisRadius - rad0) / 1000:F0} km");
-                Mark(OrbitSampler.PositionAtTrueAnomaly(el, Math.PI), $"Ap {(el.ApoapsisRadius - rad0) / 1000:F0} km");
+                Mark(OrbitSampler.PositionAtTrueAnomaly(el, 0));
+                Mark(OrbitSampler.PositionAtTrueAnomaly(el, Math.PI));
             }
         }
         double radius = def != null ? def.RadiusMeters : 0;
@@ -206,7 +211,15 @@ public static class OrbitDisplay
         LastReadout = $"frame #{frame.Id} around {frame.ParentBodyName}: alt {(cur.Position.Length() - radius) / 1000:F1} km  v {cur.Velocity.Length():F0} m/s\n" +
                       $"a {el.SemiMajorAxis / 1000:F1} km  e {el.Eccentricity:F3}  i {el.Inclination * 180 / Math.PI:F1}°\n" +
                       $"Pe {(el.PeriapsisRadius - radius) / 1000:F1} km  {ap}\nrails (warp x{SystemHost.Timescale:F0})";
-        DrawText(camera, LastReadout);
+        OrbitHud.Current = new OrbitHud.Readout
+        {
+            Body = frame.ParentBodyName, Mode = SystemHost.Timescale > 1 ? $"On rails   warp ×{SystemHost.Timescale:F0}" : "On rails",
+            Alt = cur.Position.Length() - radius, Speed = cur.Velocity.Length(),
+            Pe = el.PeriapsisRadius - radius, Ap = el.IsElliptic ? el.ApoapsisRadius - radius : 0,
+            Period = el.IsElliptic ? el.Period : 0, IncDeg = el.Inclination * 180 / Math.PI, Escape = !el.IsElliptic,
+            PeWorld = SEAerospace.PlanetBerths.WorldFromCelestial(obs, parentOrg + OrbitSampler.PositionAtTrueAnomaly(el, 0)),
+            ApWorld = el.IsElliptic ? SEAerospace.PlanetBerths.WorldFromCelestial(obs, parentOrg + OrbitSampler.PositionAtTrueAnomaly(el, Math.PI)) : (Vector3D?)null,
+        };
         _builder.Commit();
         _drewLastFrame = true;
     }
@@ -244,6 +257,7 @@ public static class OrbitDisplay
         if (_builder != null && _drewLastFrame) _builder.Commit();
         _drewLastFrame = false;
         LastReadout = null;
+        OrbitHud.Current = null;
     }
 
     private static MeshBuilder CreateBuilder(Keen.VRage.Core.Game.Systems.Session session)

@@ -90,3 +90,22 @@ planet. `PatchedConic` already previews the result.
   map does not select a sector.
 - Saved: `node T pro nor rad` lines (re-targeted from the loaded orbit).
 - Harness: `node add/list/select/clear/pull/clickat/rclick`, `framedv`, `devbtn`.
+
+## Patched conics on the map, handles, HUD (round 2)
+
+- The whole trajectory is drawn as patches, one colour each. A patch about the view's body, or
+  the sun, is drawn at true time. A patch about any other body (an encounter) is drawn about a
+  ghost of that body where it is when that pass begins, and the whole pass is mapped at that pin
+  time: the view's centre moves too (Kemik runs about 2.4 km/s round the sun), and mixing times
+  smeared a Caligo pass across the map. Each pass gets its own ghost, labelled with the body's
+  name. SOI crossings are marked. The tail runs up to 10 days (a transfer fits).
+- Handles are KSP's navball symbols (prograde: circle, dot, three ticks; retrograde: circle with
+  an X; normal / anti-normal: triangles; radial out / in: circles with spokes out / in) on arms
+  from the node, highlighted and named on hover. Each component's number sits on its axis,
+  beyond the handle it points along (P shows prograde, R retrograde, ...). A compact tag by the
+  node: delta-v (what is left when partly burnt), time to go, the orbit after.
+- Editing is in a planet's view; the solar view shows the nodes and the patched path.
+- Labels step down clear of each other.
+- In flight: the old 3D debug text is gone. An ORBIT panel (the game's UI font: altitude, speed,
+  periapsis / apoapsis, period, inclination, free flight / on rails and warp) and Pe / Ap tags.
+- Harness: `node findenc <body>` searches a node time and retrograde burn for an encounter.

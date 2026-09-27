@@ -162,7 +162,7 @@ public static class CleanMap
             else DrawSolar(parts, bands, reg, t, playerPlanet, globes, W);
             string selName = null;
             foreach (var bd in bands) if (bd.Selected) selName = bd.Name;
-            if (_toMap != null && ManeuverEditor) Maneuvers.MapDraw(_toMap, W, _limit, t, Mouse, selName);
+            if (_toMap != null && ManeuverEditor) Maneuvers.MapDraw(_toMap, W, _limit, t, Mouse, selName, solar ? null : planet?.Name);
         }
         finally { if (ui) MapPipeline.UiEnd(); }
 

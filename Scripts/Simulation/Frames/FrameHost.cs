@@ -151,6 +151,7 @@ public static class FrameHost
         MapView.Tick(session, camera, t);
         FrameMarkers.Tick(session, camera, t);
         Maneuvers.HudTick(session, camera, t);
+        OrbitHud.Draw(session);
         OrbitalMap.Tick(session, t);
         SunDriver.Tick(session, camera.Position, t);
     }

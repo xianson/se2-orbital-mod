@@ -362,6 +362,46 @@ public static class MapPipeline
     /// <summary>A world point on screen (false behind the camera).</summary>
     public static bool ToScreen(Vector3D world, out Vector2 s) { s = default; return _cam != null && Screen(world, out s); }
 
+    /// <summary>A filled screen rectangle (a line as thick as the box is tall).</summary>
+    public static void ScreenRect(Vector2 min, Vector2 max, ColorSRGB fill)
+    {
+        if (_batch == null || _drawLine == null) return;
+        var ps = _drawLine.GetParameters();
+        float h = max.Y - min.Y, y = (min.Y + max.Y) * 0.5f;
+        _drawLine.Invoke(_batch, new object[] { new Vector2(min.X, y), new Vector2(max.X, y), fill, h, ps[4].DefaultValue, 1f, false });
+    }
+
+    /// <summary>A dashed screen-space line (the batch's own dashing).</summary>
+    public static void ScreenDashed(Vector2 a, Vector2 b, ColorSRGB color, float width, float dashScale = 1f)
+    {
+        if (_batch == null || _drawLine == null) return;
+        var ps = _drawLine.GetParameters();
+        object dash = Enum.ToObject(ps[4].ParameterType, 1);
+        _drawLine.Invoke(_batch, new object[] { a, b, color, width, dash, dashScale, false });
+    }
+
+    /// <summary>Size of a text in the UI font at a scale (px).</summary>
+    public static Vector2 MeasureText(string text, float scale)
+    {
+        if (_font == null || string.IsNullOrEmpty(text)) return new Vector2((text?.Length ?? 0) * 12f * scale, 22f * scale);
+        try
+        {
+            foreach (var m in _font.GetType().GetMethods())
+            {
+                if (m.Name != "MeasureString" || m.ReturnType != typeof(Vector2)) continue;
+                var ps = m.GetParameters();
+                if (ps.Length == 0 || ps[0].ParameterType != typeof(string)) continue;
+                var args = new object[ps.Length];
+                args[0] = text;
+                for (int q = 1; q < ps.Length; q++) args[q] = ps[q].HasDefaultValue ? ps[q].DefaultValue : (ps[q].ParameterType.IsValueType ? Activator.CreateInstance(ps[q].ParameterType) : null);
+                var v = (Vector2)m.Invoke(_font, args) * scale;
+                if (v.X > 0) return v;
+            }
+        }
+        catch { }
+        return new Vector2(text.Length * 12f * scale, 22f * scale);
+    }
+
     /// <summary>A screen-space line (px).</summary>
     public static void ScreenLine(Vector2 a, Vector2 b, ColorSRGB color, float width)
     {

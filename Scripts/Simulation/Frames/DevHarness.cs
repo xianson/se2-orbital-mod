@@ -366,6 +366,39 @@ public static class DevHarness
                 // route <sector name...>: auto-plan to that sector's site (as the map's button)
                 return RoutePlanner.Start(string.Join(" ", a, 1, a.Length - 1));
 
+            case "seat":
+                // seat <grid name>: the local character into that grid's nearest cockpit
+                return DevFlight.Seat(session, a.Length > 1 ? string.Join(" ", a, 1, a.Length - 1) : null) + " | " + DevFlight.Status;
+
+            case "burn":
+                return DevFlight.Burn(a.Length > 1 ? D(a[1]) : 60);
+
+            case "seats":
+                return DevFlight.ListSeats(session, FrameHost.PlayerPosition);
+
+            case "thrust":
+                // thrust <x> <y> <z> <seconds>: hold a pilot command on the seated grid (x right, y up, z back)
+                return DevFlight.Thrust(new Vector3((float)D(a[1]), (float)D(a[2]), (float)D(a[3])), D(a[4]));
+
+            case "flight":
+                return $"seated={FrameHost.Seated} frame={(FrameHost.PlayerFrame != null ? "#" + FrameHost.PlayerFrame.Id : "-")} {DevFlight.Status} | {DevFlight.Info}";
+
+            case "floaters":
+            {
+                // floaters: every floating object (server) and its distance from each planet centre
+                var srv = ServerPlanetBeacon.ServerSession;
+                var sb = new System.Text.StringBuilder();
+                int n = 0;
+                foreach (var e in srv.GetEntitiesOfType<Keen.Game2.Simulation.WorldObjects.FloatingObjects.FloatingObjectComponent>())
+                {
+                    var p = e.Data.GetWorldTransform().Position;
+                    string near = ""; double nd = double.MaxValue;
+                    foreach (var b in PlanetBeacons.All()) { double d = (b.Center - p).Length(); if (d < nd) { nd = d; near = PlanetName(b); } }
+                    if (n++ < 12) sb.Append($"{ServerPlanetBeacon.Fmt(p)} {nd / 1000:F1} km from {near}; ");
+                }
+                return $"{n} floating object(s): {sb}";
+            }
+
             case "freegrids":
                 ServerFrames.DevFreeGrids = true;
                 return "free grid census queued (see log)";

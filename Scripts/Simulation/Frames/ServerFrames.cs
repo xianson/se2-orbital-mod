@@ -116,6 +116,7 @@ public static class ServerFrames
                 while (Attach.TryDequeue(out var req)) DoAttach(req);
                 while (GridOrbit.TryDequeue(out var go)) DoGridOrbit(go);
                 EncounterFrames.ServerTick(session, _tick);
+                DevFlight.ServerTick();
                 var frames = new List<ProximityFrame>(SystemHost.Frames.Frames);
                 foreach (var f in frames) UpdateGridFrame(f, dt);
                 StepGridHighSpeed();
@@ -217,7 +218,9 @@ public static class ServerFrames
             if (!g.IsServer || !GridMembers.IsDynamic(g)) continue;
             if (SystemHost.Frames.FindByMember(g.Id) != null) continue;
             Vector3D pos = GridMembers.Position(g);
-            if ((pos - PlayerPosition).Length() <= AttachRadius) continue;
+            // Grids near a player on foot go with the player's own stow. A seated player's stow does
+            // not run: the ship they fly stows here (and they with it, as its child).
+            if (!FrameHost.Seated && (pos - PlayerPosition).Length() <= AttachRadius) continue;
             if (GridMembers.IsConstrained(g)) continue;
             if (EncounterFrames.IsNpc(g)) continue;
             if (!VoxelBerthRegistry.TryCellContaining(pos, reg, out string body, out Vector3D cell))

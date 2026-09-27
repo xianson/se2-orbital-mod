@@ -62,6 +62,8 @@ public static class Maneuvers
 
     /// <summary>The next burn, one line for the orbit card (null when none).</summary>
     public static string BurnLine;
+    /// <summary>The next burn's direction (world axes) and what is left (m/s), from the last HUD tick.</summary>
+    public static Vector3D BurnDirWorld; public static double BurnLeft;
     public const double WarpLead = 30.0;      // s: warp stops this long before a node
     public const double DoneDv = 0.1;         // m/s
     public static string Status = "";
@@ -687,7 +689,7 @@ public static class Maneuvers
     public static void HudTick(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera, double t)
     {
         _session = session;
-        if (Nodes.Count == 0) { BurnLine = null; return; }
+        if (Nodes.Count == 0) { BurnLine = null; BurnLeft = 0; return; }
         // Nodes left in the past without being flown stay until deleted; a flown one completes.
         if (!NextBurn(t, out var node, out var rem, out var body)) return;
         double left = rem.Length();
@@ -700,6 +702,7 @@ public static class Maneuvers
         }
         Vector3D dirW = rem / left;
         if (FrameHost.PlayerFrame == null && FrameHost.ObserverPlanet != null) dirW = Chart.Of(FrameHost.ObserverPlanet, t).FromInertial(dirW);
+        BurnDirWorld = dirW; BurnLeft = left;
         Accel = MaxAccel(session);
         double burn = Accel > 1e-3 ? left / Accel : double.NaN;
         double start = node.T - (IsFinite(burn) ? burn * 0.5 : 0);   // start half the burn early (as KSP)

@@ -158,6 +158,7 @@ public static class FrameHost
         else if (PlayerFrame != null && Observer.HasValue)
             OrbitDisplay.DrawFrameOrbit(session, camera, Observer.Value, PlayerFrame, reg, t);
         MapInput.Poll();
+        DevFlight.ClientTick(session);
         WarpControl.Session = session;
         WarpControl.Tick();
         RoutePlanner.Session = session;

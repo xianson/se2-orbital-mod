@@ -60,17 +60,6 @@ public static class Maneuvers
 
     public static void ClearAll() { lock (Nodes) Nodes.Clear(); Selected = null; }
 
-    /// <summary>Type an axis value exactly (the game's numeric dialog).</summary>
-    public static void EditAxis(Keen.VRage.Core.Game.Systems.Session session, Node node, int axis)
-    {
-        double cur = axis == 0 ? node.Pro : axis == 1 ? node.Nor : node.Rad;
-        string name = axis == 0 ? "Prograde" : axis == 1 ? "Normal" : "Radial";
-        GameUi.NumberDialog(session, $"{name} delta-v (m/s, negative for the opposite way)", cur, v =>
-        {
-            if (axis == 0) node.Pro = v; else if (axis == 1) node.Nor = v; else node.Rad = v;
-            node.Edit();
-        });
-    }
     /// <summary>The next burn, one line for the orbit card (null when none).</summary>
     public static string BurnLine;
     public const double WarpLead = 30.0;      // s: warp stops this long before a node
@@ -359,8 +348,6 @@ public static class Maneuvers
         }
 
         _lastHandles.Clear(); foreach (var h in handles) _lastHandles.Add((h.label, h.at, h.dir));
-        var clickRects = new List<(Vector2 min, Vector2 max, int axis, double sign)>(_valueRects); _valueRects.Clear();
-        int hoverValue = clickRects.FindIndex(b => mouse.X >= b.min.X && mouse.X <= b.max.X && mouse.Y >= b.min.Y && mouse.Y <= b.max.Y);
         _lastSamples = samples;
         _lastNodes.Clear(); foreach (var ns in nodeScreen) _lastNodes.Add((ns.n, ns.s));
 
@@ -381,7 +368,7 @@ public static class Maneuvers
         }
         if (!edit) { hoverNode = null; hoverT = double.NaN; }
         HoverNode = hoverNode; HoverT = hoverT;
-        ClaimsMouse = _drag != Drag.None || hoverHandle >= 0 || hoverNode != null || !double.IsNaN(hoverT) || hoverValue >= 0;
+        ClaimsMouse = _drag != Drag.None || hoverHandle >= 0 || hoverNode != null || !double.IsNaN(hoverT);
 
         if (_drag == Drag.Handle && Selected != null)
         {
@@ -401,18 +388,6 @@ public static class Maneuvers
         {
             if (!lDown) _drag = Drag.None;
             else if (!double.IsNaN(hoverT) && hoverT > t + 5) { Selected.T = hoverT; Selected.Edit(); }
-        }
-        else if (lPressed && hoverValue >= 0 && Selected != null && _session != null)
-        {
-            var (_, _, ax, sg) = clickRects[hoverValue];
-            var node = Selected;
-            double cur = ax == 0 ? node.Pro : ax == 1 ? node.Nor : node.Rad;
-            string name = ax == 0 ? "Prograde" : ax == 1 ? "Normal" : "Radial";
-            GameUi.NumberDialog(_session, $"{name} delta-v (m/s, negative for the opposite way)", cur, v =>
-            {
-                if (ax == 0) node.Pro = v; else if (ax == 1) node.Nor = v; else node.Rad = v;
-                node.Edit();
-            });
         }
         else if (lPressed)
         {
@@ -444,10 +419,8 @@ public static class Maneuvers
             if (mine || hot)
             {
                 // Centred on the axis, a fixed gap beyond the icon: the labels fan out with the handles.
-                // Click the number to type it exactly (the game's numeric dialog).
                 string txt = hot && !mine ? HandleName(label) : $"{Math.Abs(comp):F1}";
-                var box = AxisLabel(tip, dir, 11f * u, txt, c, u);
-                if (mine) _valueRects.Add((box.min, box.max, axis, sign));
+                AxisLabel(tip, dir, 11f * u, txt, c, u);
             }
         }
         if (Selected != null && selS != default)
@@ -670,7 +643,6 @@ public static class Maneuvers
     }
     private static Vector2 _devAt, _devDir;
     private static Keen.VRage.Core.Game.Systems.Session _session;
-    private static readonly List<(Vector2 min, Vector2 max, int axis, double sign)> _valueRects = new List<(Vector2, Vector2, int, double)>();
 
     // ───────────────────────────── flying a node (HUD) ─────────────────────────────
 

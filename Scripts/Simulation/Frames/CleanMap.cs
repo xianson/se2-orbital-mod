@@ -495,9 +495,6 @@ public static class CleanMap
             title = "Maneuver  ·  in " + Maneuvers.Clock(node.T - t);
             Maneuvers.Selected = node;
             items.Add(new MapMenu.Item("Remove maneuver", () => Maneuvers.Delete(node, false)));
-            items.Add(new MapMenu.Item("Prograde…", () => Maneuvers.EditAxis(session, node, 0)));
-            items.Add(new MapMenu.Item("Normal…", () => Maneuvers.EditAxis(session, node, 1)));
-            items.Add(new MapMenu.Item("Radial…", () => Maneuvers.EditAxis(session, node, 2)));
         }
         else if (!double.IsNaN(ht))
         {

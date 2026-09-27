@@ -337,6 +337,19 @@ public static class Maneuvers
             }
         }
 
+        // Sector crossings: where the path comes within the merge range of a sector's site (you arrive
+        // there, by conjunction) and where it leaves the site's bubble again.
+        foreach (var c in SectorCrossings(t, legs))
+        {
+            if (!Live(c.Leg.Body)) continue;
+            Vector3D loc = LegLoc(c.Leg, c.T);
+            if (Math.Sqrt(loc.X * loc.X + loc.Z * loc.Z) > limit * 1.04 || !MapPipeline.ToScreen(W(loc), out var cs) || !InMapArea(cs)) continue;
+            var cc = c.Entry ? SectorIn : SectorOut;
+            MapPipeline.ScreenCircle(cs, 5f * u, cc, 1.8f * u);
+            MapPipeline.ScreenCircle(cs, 1.5f * u, cc, 2.5f * u);
+            HudPanel.TagAt(cs + new Vector2(10f * u, 0), $"{c.Name} {(c.Entry ? "Entry" : "Exit")}", cc, u, diamond: false);
+        }
+
         // Nodes on screen.
         var nodeScreen = new List<(Node n, Vector2 s, Applied a)>();
         foreach (var a in applied)
@@ -550,6 +563,60 @@ public static class Maneuvers
         if (s < 0) return "-" + Clock(-s);
         var ts = TimeSpan.FromSeconds(s);
         return ts.TotalDays >= 1 ? $"{(int)ts.TotalDays}d {ts.Hours}h" : ts.TotalHours >= 1 ? $"{(int)ts.TotalHours}h {ts.Minutes:D2}m" : $"{ts.Minutes}:{ts.Seconds:D2}";
+    }
+
+    static readonly ColorSRGB SectorIn = new ColorSRGB(0.45f, 1.00f, 0.55f, 1f);
+    static readonly ColorSRGB SectorOut = new ColorSRGB(0.70f, 0.85f, 0.75f, 0.9f);
+
+    public struct Crossing { public string Name; public double T; public bool Entry; public Leg Leg; }
+    private static List<Crossing> _cross = new List<Crossing>();
+    private static double _crossAt = -1; private static string _crossSig;
+
+    /// <summary>
+    /// When the path comes within the merge range (10 km) of a sector's site, and when it is 20 km away
+    /// again (the split range), on every leg about the site's own body. Recomputed at most once a
+    /// second, or when the plan changes.
+    /// </summary>
+    public static List<Crossing> SectorCrossings(double t, List<Leg> legs)
+    {
+        double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+        string sig = _cSig;
+        if (sig == _crossSig && now - _crossAt < 1.0) return _cross;
+        _crossSig = sig; _crossAt = now;
+        var list = new List<Crossing>();
+        const double enter = 10000, leave = ServerFrames.SlotRadius;
+        foreach (var site in EncounterFrames.Sites)
+        {
+            foreach (var l in legs)
+            {
+                double span = l.T1 - l.T0;
+                if (!(span > 0)) continue;
+                int n = Math.Min(600, Math.Max(60, (int)(span / 20)));
+                double Dist(double tk)
+                {
+                    if (!EncounterFrames.Ephemeris(site, tk, out var p, out var rel) || p != l.Body) return double.MaxValue;
+                    return (OrbitPropagation.StateAt(l.El, tk).Position - rel.Position).Length();
+                }
+                double Cross(double a, double b, double level)
+                {
+                    for (int k = 0; k < 30; k++) { double m = 0.5 * (a + b); if ((Dist(a) < level) == (Dist(m) < level)) a = m; else b = m; }
+                    return 0.5 * (a + b);
+                }
+                double prevT = l.T0, prevD = Dist(prevT);
+                bool inside = prevD < enter;
+                for (int k = 1; k <= n; k++)
+                {
+                    double tk = l.T0 + span * k / n, d = Dist(tk);
+                    if (d == double.MaxValue) { prevT = tk; prevD = d; continue; }
+                    if (!inside && d < enter && prevD >= enter) { list.Add(new Crossing { Name = site.Label, T = Cross(prevT, tk, enter), Entry = true, Leg = l }); inside = true; }
+                    else if (inside && d > leave && prevD <= leave) { list.Add(new Crossing { Name = site.Label, T = Cross(prevT, tk, leave), Entry = false, Leg = l }); inside = false; }
+                    prevT = tk; prevD = d;
+                }
+            }
+        }
+        list.Sort((a, b) => a.T.CompareTo(b.T));
+        _cross = list;
+        return list;
     }
 
     static readonly ColorSRGB[] PatchColors =

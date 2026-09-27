@@ -331,7 +331,7 @@ public static class CleanMap
                         pv = pp;
                     }
                     Marker(W(L(ang, rr)), bd);
-                    if (!Quiet(bd)) MapPipeline.Text(W(L(ang, rr + fit * 0.055)), $"{bd.Number}  {bd.Name}", bd.Selected ? LineSel : Text, 0.72f);
+                    MapPipeline.Text(W(L(ang, rr + fit * 0.055)), $"{bd.Number}  {bd.Name}", Quiet(bd) ? QuietText : bd.Selected ? LineSel : Text, Quiet(bd) ? 0.72f * 0.85f : 0.72f);
                     break;
                 }
                 case SectorHomes.Kind.L1:
@@ -353,7 +353,7 @@ public static class CleanMap
                         // Beyond the frame: pinned to the edge in its true direction, with its true distance.
                         Vector3D edgeP = nl * (fit * 1.02 / nlLen);
                         MapPipeline.ScreenRing(W(edgeP), 5f, Dim, 1.2f);
-                        if (!Quiet(bd)) MapPipeline.Text(W(edgeP * 1.07), $"{bd.Number} >", bd.Selected ? LineSel : Dim, 0.62f);
+                        MapPipeline.Text(W(edgeP * 1.07), $"{bd.Number} >", Quiet(bd) ? QuietText : bd.Selected ? LineSel : Dim, Quiet(bd) ? 0.62f * 0.85f : 0.62f);
                         break;
                     }
                     double ang = Math.Atan2(nl.Z, nl.X), rr = Math.Sqrt(nl.X * nl.X + nl.Z * nl.Z);
@@ -367,7 +367,7 @@ public static class CleanMap
                         lv = lp;
                     }
                     Marker(W(nl), bd);
-                    if (!Quiet(bd)) MapPipeline.Text(W(nl + new Vector3D(0, 0, fit * 0.05)), $"{bd.Number}  {bd.Name}", bd.Selected ? LineSel : Text, 0.72f);
+                    MapPipeline.Text(W(nl + new Vector3D(0, 0, fit * 0.05)), $"{bd.Number}  {bd.Name}", Quiet(bd) ? QuietText : bd.Selected ? LineSel : Text, Quiet(bd) ? 0.72f * 0.85f : 0.72f);
                     break;
                 }
             }
@@ -426,7 +426,7 @@ public static class CleanMap
             double ang = Math.Atan2(hp.Y, hp.X), r = Rs(hp.Length());
             Circle(W, r, OrbitColor(bd), bd.Selected ? 2.4f : 1.8f);
             Marker(W(new Vector3D(Math.Cos(ang) * r, 0, Math.Sin(ang) * r)), bd);
-            if (!Quiet(bd)) MapPipeline.Text(W(new Vector3D(Math.Cos(ang) * (r + SolarRadius * 0.06), 0, Math.Sin(ang) * (r + SolarRadius * 0.06))), $"{bd.Number}  {bd.Name}", bd.Selected ? LineSel : Text, 0.72f);
+            MapPipeline.Text(W(new Vector3D(Math.Cos(ang) * (r + SolarRadius * 0.06), 0, Math.Sin(ang) * (r + SolarRadius * 0.06))), $"{bd.Number}  {bd.Name}", Quiet(bd) ? QuietText : bd.Selected ? LineSel : Text, Quiet(bd) ? 0.72f * 0.85f : 0.72f);
         }
 
         // Sectors with their own orbit (a planet-like ring): the full orbit line and the band section.
@@ -438,7 +438,7 @@ public static class CleanMap
             double ang = Math.Atan2(hp.Y, hp.X), r = Rs(hp.Length());
             Circle(W, r, OrbitColor(bd), bd.Selected ? 2.4f : 1.8f);
             Marker(W(new Vector3D(Math.Cos(ang) * r, 0, Math.Sin(ang) * r)), bd);
-            if (!Quiet(bd)) MapPipeline.Text(W(new Vector3D(Math.Cos(ang) * (r + SolarRadius * 0.06), 0, Math.Sin(ang) * (r + SolarRadius * 0.06))), $"{bd.Number}  {bd.Name}", bd.Selected ? LineSel : Text, 0.8f);
+            MapPipeline.Text(W(new Vector3D(Math.Cos(ang) * (r + SolarRadius * 0.06), 0, Math.Sin(ang) * (r + SolarRadius * 0.06))), $"{bd.Number}  {bd.Name}", Quiet(bd) ? QuietText : bd.Selected ? LineSel : Text, Quiet(bd) ? 0.8f * 0.85f : 0.8f);
         }
 
         // The planets: orbit line, the globe, and the planet's own sector as a circular section around it.
@@ -618,13 +618,14 @@ public static class CleanMap
     /// <summary>The sector under the mouse (from the last frame's pick).</summary>
     public static string Hovered;
 
-    /// <summary>Planning a maneuver: the sectors step back (faint, unlabelled) unless selected or hovered.</summary>
+    /// <summary>Planning a maneuver: the sectors step back (dimmer orbit, smaller dim label) unless selected or hovered.</summary>
     static bool Planning => ManeuverEditor && Maneuvers.Nodes.Count > 0;
+    static readonly ColorSRGB QuietText = new ColorSRGB(0.72f, 0.78f, 0.86f, 0.62f);
     static bool Quiet(Band b) => Planning && !b.Selected && b.Name != Hovered;
 
     static ColorSRGB OrbitColor(Band b)
     {
-        if (Quiet(b)) { var q = StateColor(b); return new ColorSRGB(q.R, q.G, q.B, 0.16f); }
+        if (Quiet(b)) { var q = StateColor(b); return new ColorSRGB(q.R, q.G, q.B, 0.40f); }
         if (b.Selected) return LineSel;
         if (b.Name == Hovered) { var h = StateColor(b); return new ColorSRGB(Math.Min(1f, h.R + 0.25f), Math.Min(1f, h.G + 0.25f), Math.Min(1f, h.B + 0.25f), 1f); }
         var c = StateColor(b);
@@ -635,7 +636,7 @@ public static class CleanMap
     static void Marker(Vector3D world, Band b)
     {
         var c = b.Selected ? LineSel : StateColor(b);
-        if (Quiet(b)) { MapPipeline.ScreenRing(world, 2.5f, new ColorSRGB(c.R, c.G, c.B, 0.35f), 2.5f); return; }
+        if (Quiet(b)) { MapPipeline.ScreenRing(world, 5f, new ColorSRGB(c.R, c.G, c.B, 0.5f), 1.4f); MapPipeline.ScreenRing(world, 2f, new ColorSRGB(c.R, c.G, c.B, 0.5f), 2f); return; }
         MapPipeline.ScreenRing(world, 8f, c, 2f);
         MapPipeline.ScreenRing(world, 3.5f, c, 3.5f);
     }

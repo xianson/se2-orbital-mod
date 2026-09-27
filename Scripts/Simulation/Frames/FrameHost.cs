@@ -62,7 +62,23 @@ public static class FrameHost
         var ch = Chart.Of(body, t);
         Vector3D lr = _lastPos - cell;
         el = CaptureMath.CaptureElements(new StateVector(ch.ToInertial(lr), ch.VelToInertial(lr, _lastVel)), node.Mu, t);
-        return IsFinite(el.SemiMajorAxis) && IsFinite(el.MeanMotion);
+        if (!IsFinite(el.SemiMajorAxis) || !IsFinite(el.MeanMotion)) return false;
+        // On the ground, or a hop that never climbs well clear of it, is not an orbit: no orbit is
+        // drawn and there is nothing to plan from (standing still, it is a fall to the planet's centre).
+        Grounded = IsGrounded(body, el);
+        return !Grounded;
+    }
+
+    /// <summary>The last local trajectory asked for was ground-bound (see TryGetLocalOrbit).</summary>
+    public static bool Grounded;
+
+    /// <summary>Periapsis inside the planet and apoapsis under max(15 km, 20% of its radius) above the surface.</summary>
+    public static bool IsGrounded(string body, KeplerianElements el)
+    {
+        double r = SystemHost.Registry?.FindDefinition(body)?.RadiusMeters ?? 0;
+        if (!(r > 0)) return false;
+        double ap = el.IsElliptic ? el.SemiMajorAxis * (1 + el.Eccentricity) : double.PositiveInfinity;
+        return el.PeriapsisRadius < r && ap < r + Math.Max(15000, 0.2 * r);
     }
     /// <summary>The local player's conjunction frame, if framed.</summary>
     public static ProximityFrame PlayerFrame;

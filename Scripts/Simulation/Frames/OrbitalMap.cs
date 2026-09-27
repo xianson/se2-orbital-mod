@@ -156,7 +156,7 @@ public static class OrbitalMap
         Vector3D Map(Vector3D cel) => _anchor + new Vector3D(cel.X, cel.Z, cel.Y) * k;
 
         _builder.AddSphere(new WorldTransform(_anchor, Quaternion.Identity), Size * 0.04, StarColor, StarColor, true);
-        _builder.AddText(_anchor + new Vector3D(0, Size * 0.08, 0), "Sun", StarColor, 1.2f);
+        _builder.AddText(_anchor + new Vector3D(0, Size * 0.08, 0), CleanMap.StarName, StarColor, 1.2f);
         foreach (var b in root.Children)
         {
             var el = OrbitalMath.ToElements(b.StateInParentAt(t), root.Mu, t);

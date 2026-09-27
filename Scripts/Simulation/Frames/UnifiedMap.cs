@@ -151,7 +151,7 @@ public static class UnifiedMap
         if (w23 > 0.02)
         {
             b.AddSphere(new WorldTransform(sunPos, Quaternion.Identity), dist * 0.022 * w23, Sun, Sun, true);
-            b.AddText(sunPos + Rot(new Vector3D(0, dist * 0.03, 0)), "Sun", new ColorSRGB(Sun, (float)w23), 0.6f);
+            b.AddText(sunPos + Rot(new Vector3D(0, dist * 0.03, 0)), CleanMap.StarName, new ColorSRGB(Sun, (float)w23), 0.6f);
             foreach (var p in planets)
             {
                 var el = OrbitalMath.ToElements(p.StateInParentAt(t), reg.Root.Mu, t);
@@ -505,6 +505,13 @@ public static class UnifiedMap
                 // The game's globe labels would stay behind at the charted positions: hide them too.
                 try { v.GetType().GetMethod("SetLabelVisible")?.Invoke(v, new object[] { visible }); } catch { }
             }
+        // The game's star (Delfos) too: our system view draws it at the centre.
+        object star = PlanetRenderBridge.GetMember(map, "_mainStar");
+        if (star != null)
+        {
+            PlanetRenderBridge.ScaleMapObject(star, visible ? 0f : 1e-4f);
+            try { star.GetType().GetMethod("SetLabelVisible")?.Invoke(star, new object[] { visible }); } catch { }
+        }
     }
 
     private static void StringIdSel(ColonizationMapSessionComponent map, out Keen.VRage.Library.Utils.StringId? sel)

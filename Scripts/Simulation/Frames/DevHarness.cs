@@ -58,7 +58,7 @@ public static class DevHarness
     public static void Poll(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera)
     {
         if (!OrbitalConfig.DevHarness) return;
-        _statusSession = session;
+        _statusSession = session; _lastCamera = camera;
         try
         {
             SpecCam.Tick(session, name => { var pl = FindPlanet(name); return pl != null ? PlanetWorldPos(pl) : (Vector3D?)null; },
@@ -101,6 +101,15 @@ public static class DevHarness
         {
             Log.Default?.Warning($"[ORBIT-DEV] poll failed: {e.Message}");
         }
+    }
+
+    private static WorldTransform _lastCamera;
+
+    /// <summary>Run one harness command now (the debug panel's entries), as the file-driven poll would.</summary>
+    public static string Run(Keen.VRage.Core.Game.Systems.Session session, string line)
+    {
+        try { return Execute(session, _lastCamera, line); }
+        catch (Exception e) { return "ERROR " + e.Message; }
     }
 
     private static string Execute(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera, string line)
@@ -510,6 +519,20 @@ public static class DevHarness
             case "bands":
                 UnifiedMap.BandSections = On(a[1]);
                 return "band sections=" + UnifiedMap.BandSections;
+
+            case "perf":   // GPU / render / main thread ms (average/max since the last stats log)
+                return PlanetRenderBridge.FrameStats(session) + $" | mapcam {MapCamera.Enabled}: {MapCamera.Status}";
+            case "meshrebuild":
+                CleanMap.MeshRebuildSeconds = D(a[1]);
+                return $"sector mesh rebuild every {CleanMap.MeshRebuildSeconds} s";
+
+            case "debugpanel":
+                DebugPanel.DevOpen = true;
+                return "debug panel toggled";
+
+            case "mapcamon":
+                MapCamera.Enabled = On(a[1]);
+                return "map camera " + MapCamera.Enabled;
 
             case "mapcam":
                 return MapCamera.Dev(a);

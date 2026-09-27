@@ -22,6 +22,12 @@ public static class MapCamera
     public static bool Dragging => _mode != Mode.None;
     /// <summary>The zoom: the game's camera distance to its focus (0 when not driving the camera).</summary>
     public static double Distance;
+    /// <summary>Where the camera looks on the map plane (world), while driving the camera.</summary>
+    public static Vector3D? Focus;
+    private static Vector3D _focusGame;
+
+    /// <summary>Centre the view on a point of the map (world); from the next frame.</summary>
+    public static void PanTo(Vector3D world) { if (Focus.HasValue) _pan = world - _focusGame; }
 
     private enum Mode { None, Pan, Orbit }
     private static Mode _mode;
@@ -110,7 +116,9 @@ public static class MapCamera
         if (_pan.Length() > lim) _pan = _pan * (lim / _pan.Length());
 
         // The camera: about the focus, at the game's distance, from our angle.
+        _focusGame = focusGame;
         Vector3D focus = focusGame + _pan;
+        Focus = focus;
         Vector3D dir = Vector3D.Normalize(Math.Cos(_pitch) * (Math.Sin(_yaw) * east + Math.Cos(_yaw) * north) - Math.Sin(_pitch) * up);
         Vector3D camUp = Vector3D.Normalize(Vector3D.Cross(Vector3D.Cross(dir, up), dir));
         var wt = new WorldTransform(focus - dir * d, Quaternion.CreateFromForwardUp((Vector3)dir, (Vector3)camUp));
@@ -122,7 +130,7 @@ public static class MapCamera
     /// <summary>The map closed (or the camera is someone else's): hand the camera back and start fresh next time.</summary>
     public static void Release(Keen.VRage.Core.Game.Systems.Session session)
     {
-        _mode = Mode.None; _init = false; Distance = 0;
+        _mode = Mode.None; _init = false; Distance = 0; Focus = null;
         if (!_overridden) return;
         _overridden = false;
         try { var cam = SpecCam.CameraOf(session); cam?.SetTransformOverride(null); cam?.SetNextTransitionNonSmooth(); } catch { }

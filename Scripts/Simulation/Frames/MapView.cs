@@ -81,12 +81,12 @@ public static class MapView
     {
         var map = Map(session);
         Visible = map != null && map.IsVisible;
-        if (map == null || !map.IsVisible || !SystemHost.Built) { MapCamera.Release(session); if (map != null) UnifiedMap.RestoreGame(map); MapGlobes.HideAll(); Clear(); Status = map == null ? "no map component" : "map closed"; return; }
+        if (map == null || !map.IsVisible || !SystemHost.Built) { MapCamera.Release(session); CleanMap.ResetView(); if (map != null) UnifiedMap.RestoreGame(map); MapGlobes.HideAll(); Clear(); Status = map == null ? "no map component" : "map closed"; return; }
         SectorsSessionComponent sectors = null;
         try { sectors = session.SessionComponents.TryGet<SectorsSessionComponent>(); } catch { }
         if (sectors == null) { Status = "no sectors component"; return; }
 
-        FrameHost.Guard("MapCamera", () => { bool hm = UnifiedMap.TryMouse(map, out var mm); MapCamera.Tick(session, map, hm, mm); });
+        FrameHost.Guard("MapCamera", () => { bool hm = UnifiedMap.TryMouse(map, out var mm); MapCamera.Tick(session, map, hm, mm); if (hm) DebugPanel.Tick(session, mm); });
 
         _builder ??= CreateBuilder(session);
         if (_builder == null) { Status = "no mesh builder"; return; }
@@ -275,7 +275,7 @@ public static class MapView
         Vector3D ToMap(Vector3D cel) => center + Rot(orient, new Vector3D(cel.X, cel.Z, cel.Y) * k);
 
         _builder.AddSphere(new WorldTransform(center, Quaternion.Identity), 0.012 * maxDistance, StarColor, StarColor, true);
-        _builder.AddText(center + Rot(orient, new Vector3D(0, 0.03 * maxDistance, 0)), root.Name == "Star" ? "Sun" : root.Name, TextColor, 0.6f);
+        _builder.AddText(center + Rot(orient, new Vector3D(0, 0.03 * maxDistance, 0)), root.Name == "Star" ? CleanMap.StarName : root.Name, TextColor, 0.6f);
 
         foreach (var b in root.Children)
         {

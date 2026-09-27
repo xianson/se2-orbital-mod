@@ -23,8 +23,17 @@ public static class CleanMap
     public static string Focus = "auto";
     public const double SystemRadius = 0.80;   // map units (fills most of the view at the map's default zoom)
     public const double SolarRadius = 1.90;
+    /// <summary>The system's star, as the game names it.</summary>
+    public const string StarName = "Delfos";
     public const double SolarZoom = 2.2;       // u (camera distance / original max) where the view switches
-    public static double MeshRebuildSeconds = 0.5;
+    /// <summary>
+    /// The sector mesh is rebuilt when the view changes, and for motion at most this often (wall
+    /// seconds) and only once the sectors have moved (MeshRebuildSimSeconds of game time). Each rebuild
+    /// swaps a new model into the game's renderer; doing that twice a second piled up GPU load.
+    /// </summary>
+    public static double MeshRebuildSeconds = 5.0;
+    public static double MeshRebuildSimSeconds = 600.0;
+    private static double _lastMeshSimT = double.NaN;
 
     static readonly ColorSRGB Line = new ColorSRGB(0.60f, 0.72f, 0.88f, 0.28f);
     static readonly ColorSRGB LineSel = new ColorSRGB(1.00f, 0.85f, 0.30f, 0.95f);
@@ -176,8 +185,9 @@ public static class CleanMap
     }
 
     /// <summary>The sector list: grouped, numbered, state dot, name, where; on the right, below the game's index box.</summary>
-    static void DrawList(List<Band> ordered, Func<Band, bool> expanded)
+    static void DrawList(List<Band> ordered, Func<Band, bool> expanded, Func<Band, bool> listed)
     {
+        ordered = ordered.FindAll(b => listed(b));
         Vector2 scr = MapPipeline.ScreenSize;
         float x = scr.X * 0.775f, y = scr.Y * 0.27f, line = scr.Y * 0.0275f, scale = 0.78f;
         string group = null;
@@ -218,10 +228,14 @@ public static class CleanMap
         Vector3D W(Vector3D local) => mapPos + (QuaternionD)orient * local;
         _session = session;
         bool solar = u >= SolarZoom;
-        string focus = Focus != "auto" ? Focus : null;
+        string focus = Focus != "auto" ? Focus : ViewFocus;
         if (focus == null) foreach (var bd in bands) if (bd.Selected && bd.Home.Kind != SectorHomes.Kind.OwnPlanet) focus = bd.Host;
         focus ??= playerPlanet;
         var planet = focus != null ? reg.Find(focus) : null;
+        ZoomTransition(solar, planet, reg, t, W, mapPos);
+        if (!solar && ViewFocus != null) planet = reg.Find(ViewFocus) ?? planet;
+        focus = planet?.Name ?? focus;
+        _viewBody = !solar && planet != null && planet.Parent != null ? planet : null;
 
         var parts = new List<MapPipeline.Part>();
         var ordered = Ordered(bands);
@@ -230,7 +244,9 @@ public static class CleanMap
         {
             DrawList(ordered, b => solar
                 ? b.Home.Kind == SectorHomes.Kind.Belt || b.Home.Kind == SectorHomes.Kind.Ring || b.Selected
-                : b.Host == focus && b.Home.Kind != SectorHomes.Kind.Belt && b.Home.Kind != SectorHomes.Kind.Ring);
+                : b.Host == focus && b.Home.Kind != SectorHomes.Kind.Belt && b.Home.Kind != SectorHomes.Kind.Ring,
+                // A planet's view lists that planet's sectors only; the system view lists them all.
+                b => solar || b.Host == focus || b.Selected);
             if (!solar && planet != null && planet.Parent != null) DrawSystem(parts, bands, reg, planet, t, playerPlanet, playerRel, playerOrbit, globes, W);
             else DrawSolar(parts, bands, reg, t, playerPlanet, globes, W);
             string selName = null;
@@ -255,7 +271,8 @@ public static class CleanMap
         // The mesh changes only when the view changes, or every MeshRebuildSeconds (motion).
         double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
         string key = solar ? "solar" : "sys:" + focus;
-        if (key != _lastKey || now - _lastMesh > MeshRebuildSeconds)
+        bool moved = double.IsNaN(_lastMeshSimT) || Math.Abs(t - _lastMeshSimT) > MeshRebuildSimSeconds;
+        if (key != _lastKey || (moved && now - _lastMesh > MeshRebuildSeconds))
         {
             bool ok = MapPipeline.ShowParts(sectorsRenderer, parts);
             if (ok)
@@ -263,7 +280,7 @@ public static class CleanMap
                 MapPipeline.ColourSection(sectorsRenderer, SunPart, new ColorSRGB(1f, 0.78f, 0.35f, 0.95f), new ColorSRGB(1f, 0.93f, 0.6f, 1f));
                 MapPipeline.ColourSection(sectorsRenderer, BeltPart, new ColorSRGB(0.10f, 0.09f, 0.08f, 0.12f), new ColorSRGB(0.40f, 0.36f, 0.30f, 0.30f));
             }
-            _lastKey = key; _lastMesh = now;
+            _lastKey = key; _lastMesh = now; _lastMeshSimT = t;
             Status = ok ? $"{key} parts={parts.Count}" : $"{key} mesh failed: {MapPipeline.LastError}";
         }
     }
@@ -411,7 +428,7 @@ public static class CleanMap
         // The sun: a warm disc (its own section, coloured below), and its name.
         parts.Add(Annulus(SunPart, 0, Math.PI, 0, Math.Max(SystemHost.StarRadius * SolarRadius / outer, SolarRadius * 0.004)));   // true size
         BodyRing(W, Vector3D.Zero, SystemHost.StarRadius * SolarRadius / outer, 10f, new ColorSRGB(1f, 0.85f, 0.4f, 0.9f), 1.5f);
-        MapPipeline.Text(W(new Vector3D(0, 0, SolarRadius * 0.085)), "Sun", Text, 0.85f);
+        MapPipeline.Text(W(new Vector3D(0, 0, SolarRadius * 0.085)), StarName, Text, 0.85f);
 
         // The belt: a torus of its own, and its sectors as band sections on it.
         double b0 = Rs(SectorHomes.BeltInnerAU * SystemHost.AU), b1 = Rs(SectorHomes.BeltOuterAU * SystemHost.AU);
@@ -522,6 +539,55 @@ public static class CleanMap
     /// their orbit and where they are now. GPS markers: at their true place (frame-transferred), pinned to
     /// the edge when beyond the view. toLocal maps a sun-centred model position to the map.
     /// </summary>
+    /// <summary>The planet the zoom took you to (zooming in over it); null until a zoom chooses one.</summary>
+    public static string ViewFocus;
+    private static bool? _wasSolar;
+
+    /// <summary>
+    /// Zooming keeps your place: out of a planet's view, the system view opens centred on that planet;
+    /// into the system view, the planet nearest the middle of the view opens (centred).
+    /// </summary>
+    private static void ZoomTransition(bool solar, GravityBody planet, SystemRegistry reg, double t, Func<Vector3D, Vector3D> W, Vector3D mapPos)
+    {
+        bool? was = _wasSolar; _wasSolar = solar;
+        if (was == null || was.Value == solar || reg?.Root == null) return;
+        if (solar)
+        {
+            var top = planet; while (top?.Parent != null && top.Parent.Parent != null) top = top.Parent;
+            if (top != null && top.Parent != null) MapCamera.PanTo(W(SolarLocal(top, t)));
+        }
+        else
+        {
+            if (!MapCamera.Focus.HasValue) return;
+            Vector3D f = MapCamera.Focus.Value;
+            GravityBody best = null; double bd = double.MaxValue;
+            foreach (var b in reg.Root.Children)
+            {
+                double d = (W(SolarLocal(b, t)) - f).Length();
+                if (d < bd) { bd = d; best = b; }
+            }
+            if (best != null) ViewFocus = best.Name;
+            MapCamera.PanTo(W(Vector3D.Zero));
+        }
+    }
+
+    /// <summary>Where a body (a planet about the sun) sits in the system view, in map-local units.</summary>
+    public static Vector3D SolarLocal(GravityBody b, double t)
+    {
+        double outer = SectorHomes.RingAU * 1.05 * SystemHost.AU;
+        Vector3D h = b.OriginInRoot(t).Position;
+        double r = Math.Sqrt(h.X * h.X + h.Y * h.Y);
+        double f = r > 0 ? SolarRadius * r / outer / r : 0;
+        return new Vector3D(h.X * f, 0, h.Y * f);
+    }
+
+    /// <summary>The map closed: the next opening starts from where you are.</summary>
+    public static void ResetView() { ViewFocus = null; _wasSolar = null; }
+
+    /// <summary>The planet the view is about (null: the system view). Only its own things are drawn.</summary>
+    private static GravityBody _viewBody;
+    static bool InView(GravityBody b) { if (_viewBody == null) return true; for (; b != null; b = b.Parent) if (b == _viewBody) return true; return false; }
+
     private static void Overlay(Func<Vector3D, Vector3D> toLocal, double limit, Func<Vector3D, Vector3D> W, double t, SystemRegistry reg)
     {
         long player = FrameHost.PlayerId;
@@ -534,7 +600,7 @@ public static class CleanMap
                 var site = EncounterFrames.SiteOf(f.Id);
                 if (site != null && site.Anchor) continue;
                 var parent = reg.Find(f.ParentBodyName);
-                if (parent == null) continue;
+                if (parent == null || !InView(parent)) continue;
                 Vector3D porg = parent.OriginInRoot(t).Position;
                 var el = f.Elements;
                 double T = el.IsElliptic && IsFinite(el.Period) ? el.Period : 6 * 3600.0;

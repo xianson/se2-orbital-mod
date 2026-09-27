@@ -535,6 +535,34 @@ public static class PlanetRenderBridge
     /// <summary>Engine screenshots leave out the 2D UI (HUD, terminal); 3D labels stay.</summary>
     public static bool ShotWithoutUi = true;
 
+    /// <summary>DEV: the render stats (ms, average/max over the current stats window): GPU, render thread, main thread.</summary>
+    public static string FrameStats(Keen.VRage.Core.Game.Systems.Session session)
+    {
+        try
+        {
+            Assembly render = null;
+            foreach (Assembly a in AppDomain.CurrentDomain.GetAssemblies()) if (a.GetName().Name == "VRage.Render") { render = a; break; }
+            Type t = render?.GetType("Keen.VRage.Render.SessionComponents.StatsRecorderSessionComponent");
+            if (t == null) return "no stats type";
+            object comps = session.SessionComponents;
+            MethodInfo tryGet = null;
+            foreach (var m in comps.GetType().GetMethods()) if (m.Name == "TryGet" && m.IsGenericMethodDefinition && m.GetParameters().Length == 0) { tryGet = m; break; }
+            object rec = tryGet?.MakeGenericMethod(t).Invoke(comps, null);
+            object st = rec?.GetType().GetProperty("ImmediateStats")?.GetValue(rec);
+            if (st == null) return "no stats";
+            string F(string field)
+            {
+                FieldInfo f = st.GetType().GetField(field);
+                object v = f.GetValue(st);   // a boxed copy: Calculate works on the copy (shares the buffer)
+                v.GetType().GetMethod("Calculate").Invoke(v, null);
+                double avg = (double)v.GetType().GetProperty("Average").GetValue(v), max = (double)v.GetType().GetProperty("Max").GetValue(v);
+                return $"{avg:F1}/{max:F0}";
+            }
+            return $"gpu {F("GpuTimeWork")} render {F("RenderThreadTimeWork")} main {F("MainThreadTime")} ms (avg/max)";
+        }
+        catch (Exception e) { return "stats: " + e.Message; }
+    }
+
     public static string EngineScreenshot(string name)
     {
         try

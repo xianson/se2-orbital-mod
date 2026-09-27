@@ -346,6 +346,15 @@ public static class DevHarness
                         Maneuvers.Selected = i >= 0 && i < l.Count ? l[i] : null;
                         return Maneuvers.Describe(tn);
                     }
+                    case "auto":   // node auto <i> on|off
+                    {
+                        var l = new List<Maneuvers.Node>(); lock (Maneuvers.Nodes) l.AddRange(Maneuvers.Nodes);
+                        l.Sort((x, y) => x.T.CompareTo(y.T));
+                        int i = (int)D(a[2]);
+                        if (i < 0 || i >= l.Count) return "no such node";
+                        l[i].Auto = a.Length < 4 || On(a[3]);
+                        return $"node {i} auto-burn {(l[i].Auto ? "on" : "off")}";
+                    }
                     case "findarr":   // node findarr <body> <peMinKm> <peMaxKm>: a pass whose periapsis radius is in the window
                         return Maneuvers.DevFindArrival(a[2], tn, D(a[3]) * 1000, D(a[4]) * 1000);
                     case "findenc":   // node findenc <body>

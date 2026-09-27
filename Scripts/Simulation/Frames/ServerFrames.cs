@@ -117,6 +117,7 @@ public static class ServerFrames
                 while (GridOrbit.TryDequeue(out var go)) DoGridOrbit(go);
                 EncounterFrames.ServerTick(session, _tick);
                 DevFlight.ServerTick();
+                DevFlight.ServerCommandTick();
                 var frames = new List<ProximityFrame>(SystemHost.Frames.Frames);
                 foreach (var f in frames) UpdateGridFrame(f, dt);
                 StepGridHighSpeed();

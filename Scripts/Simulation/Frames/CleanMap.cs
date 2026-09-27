@@ -494,6 +494,7 @@ public static class CleanMap
         {
             title = "Maneuver  ·  in " + Maneuvers.Clock(node.T - t);
             Maneuvers.Selected = node;
+            items.Add(new MapMenu.Item(node.Auto ? "Auto-burn: on" : "Auto-burn: off", () => node.Auto = !node.Auto));
             items.Add(new MapMenu.Item("Remove maneuver", () => Maneuvers.Delete(node, false)));
         }
         else if (!double.IsNaN(ht))

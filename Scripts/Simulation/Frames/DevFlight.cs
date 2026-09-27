@@ -75,6 +75,52 @@ public static class DevFlight
     }
 
     /// <summary>Hold a thrust command (grid-local: x right, y up, z backward; each -1..1) for seconds.</summary>
+    /// <summary>The harness is holding its own command.</summary>
+    public static bool Busy => _until > 0;
+
+    private static Vector3D _cmdDir; private static double _cmdK; private static bool _cmdOn;
+
+    /// <summary>
+    /// Thrust along a world direction at a fraction k of full (0 = stop): the seated grid's
+    /// thrusters (server) or the jetpack (client), as the grid-local / character-local vector a
+    /// pilot's keys would write.
+    /// </summary>
+    public static void Command(Keen.VRage.Core.Game.Systems.Session session, Vector3D dirWorld, double k)
+    {
+        _cmdDir = dirWorld; _cmdK = k; _cmdOn = k > 0 && dirWorld.LengthSquared() > 1e-9;
+        if (!FrameHost.Seated)
+        {
+            var ch = FrameHost.PlayerCharacter(session);
+            if (ch != null) try { ch.Data.Set(new ControlData { Movement = _cmdOn ? Local(ch.Data.GetWorldTransform().Orientation, dirWorld, k) : Vector3.Zero, Rotation = Vector3.Zero }); } catch { }
+        }
+    }
+
+    private static Vector3 Local(Quaternion q, Vector3D dirWorld, double k)
+    {
+        Vector3D local = Vector3D.Transform(dirWorld, Quaternion.Inverse(q));
+        double m = Math.Max(Math.Abs(local.X), Math.Max(Math.Abs(local.Y), Math.Abs(local.Z)));
+        return m > 1e-6 ? new Vector3((float)(local.X / m), (float)(local.Y / m), (float)(local.Z / m)) * (float)k : Vector3.Zero;
+    }
+
+    /// <summary>Server tick: a seated pilot's command goes to the grid they sit in.</summary>
+    private static bool _cmdWasOn;
+    public static void ServerCommandTick()
+    {
+        if (!FrameHost.Seated || (!_cmdOn && !_cmdWasOn) || Busy) return;
+        OrbitalGridComponent best = null; double bd = 100;
+        foreach (var g in GridMembers.All())
+        {
+            if (!g.IsServer) continue;
+            double d = (GridMembers.Position(g) - FrameHost.PlayerPosition).Length();
+            if (d < bd && GridMembers.Mass(g) > 500) { bd = d; best = g; }
+        }
+        _cmdWasOn = _cmdOn;
+        if (best == null) return;
+        var mv = _cmdOn ? Local(best.Entity.Data.GetWorldTransform().Orientation, _cmdDir, _cmdK) : Vector3.Zero;
+        _move = mv;
+        Write(best.Entity, _cmdOn);
+    }
+
     private static bool _burn;
     private static double _burnMin;
 

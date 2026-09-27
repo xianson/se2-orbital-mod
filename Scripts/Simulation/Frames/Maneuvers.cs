@@ -33,6 +33,7 @@ public static class Maneuvers
     {
         public double T; public double Pro, Nor, Rad;
         public bool Dirty = true;               // re-target on the next trajectory pass
+        public bool Auto;                       // fly it automatically at the burn start
         public string TBody; public KeplerianElements TAfter;
         public void Edit() => Dirty = true;
     }
@@ -155,7 +156,7 @@ public static class Maneuvers
             {
                 Axes(st, out var P, out var N, out var R);
                 dv = P * n.Pro + N * n.Nor + R * n.Rad;
-                after = OrbitalMath.ToElements(new StateVector(st.Position, st.Velocity + dv), body.Mu, Tn);
+                after = FiniteBurn(body, el, tc, Tn, st, dv);
                 if (!IsFinite(after.SemiMajorAxis)) return true;
                 n.TAfter = after; n.TBody = body.Name; n.Dirty = false;
             }
@@ -778,8 +779,8 @@ public static class Maneuvers
         BurnDirWorld = dirW; BurnLeft = left;
         Accel = MaxAccel(session);
         double burn = Accel > 1e-3 ? left / Accel : double.NaN;
-        double start = node.T - (IsFinite(burn) ? burn * 0.5 : 0);   // start half the burn early (as KSP)
-        BurnLine = $"Next burn {left:F1} m/s" + (IsFinite(burn) ? (burn < 60 ? $" ({Math.Max(1, burn):F0} s)" : $" ({Clock(burn)})") : "")
+        double start = BurnStart(node);   // half the burn before the node (as KSP)
+        BurnLine = (AutoBurn.Flying ? "Auto-burning " : node.Auto ? "Auto-burn " : "Next burn ") + $"{left:F1} m/s" + (IsFinite(burn) ? (burn < 60 ? $" ({Math.Max(1, burn):F0} s)" : $" ({Clock(burn)})") : "")
                    + (start > t ? $"   ·   in {Clock(start - t)}" : "   ·   now");
         if (MapView.Visible || OrbitalMap.Active) return;
         if (!FrameMarkers.BeginHud(session)) return;
@@ -794,6 +795,44 @@ public static class Maneuvers
             HudPanel.LabelAt(s + new Vector2(16f * u, 0), $"{left:F1} m/s", PlanColor, u);
         }
         finally { MapPipeline.UiEnd(); }
+    }
+
+    /// <summary>
+    /// The burn as it really flies: constant thrust at the ship's acceleration along the planned delta-v
+    /// (fixed in inertial space, as KSP), centred on the node, integrated through the body's gravity
+    /// (RK4). Short or unknown-thrust burns are impulsive (the difference is negligible).
+    /// </summary>
+    private static KeplerianElements FiniteBurn(GravityBody body, KeplerianElements coast, double tc, double Tn, StateVector atNode, Vector3D dv)
+    {
+        double mag = dv.Length(), a = Accel;
+        double tau = a > 0.01 ? mag / a : 0;
+        if (tau < 2.0 || mag < 1e-6)
+            return OrbitalMath.ToElements(new StateVector(atNode.Position, atNode.Velocity + dv), body.Mu, Tn);
+        double t0 = Math.Max(tc, Tn - tau / 2);
+        var s = OrbitPropagation.StateAt(coast, t0);
+        Vector3D d = dv / mag;
+        double mu = body.Mu;
+        Vector3D Acc(Vector3D r) { double rr = r.Length(); return r * (-mu / (rr * rr * rr)) + d * a; }
+        int steps = Math.Max(20, Math.Min(2000, (int)Math.Ceiling(tau / 0.5)));
+        double h = tau / steps;
+        Vector3D x = s.Position, v = s.Velocity;
+        for (int i = 0; i < steps; i++)
+        {
+            Vector3D k1v = Acc(x), k1x = v;
+            Vector3D k2v = Acc(x + k1x * (h / 2)), k2x = v + k1v * (h / 2);
+            Vector3D k3v = Acc(x + k2x * (h / 2)), k3x = v + k2v * (h / 2);
+            Vector3D k4v = Acc(x + k3x * h), k4x = v + k3v * h;
+            x += (k1x + 2 * k2x + 2 * k3x + k4x) * (h / 6);
+            v += (k1v + 2 * k2v + 2 * k3v + k4v) * (h / 6);
+        }
+        return OrbitalMath.ToElements(new StateVector(x, v), mu, t0 + tau);
+    }
+
+    /// <summary>When the next burn starts: half its duration before the node.</summary>
+    public static double BurnStart(Node n)
+    {
+        double mag = Math.Sqrt(n.Pro * n.Pro + n.Nor * n.Nor + n.Rad * n.Rad);
+        return Accel > 0.01 ? n.T - 0.5 * mag / Accel : n.T;
     }
 
     /// <summary>The acceleration the player can make (m/s²): the best-facing max thrust over the mass of

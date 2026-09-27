@@ -304,14 +304,14 @@ public static class Maneuvers
             MapPipeline.ScreenCircle(sp, 3.5f * u, col, 2f * u);
             bool escape = nb == pa.Body.Parent;
             // Where the crossing really is (about the view's body): marked and named after the body
-            // entered (Caligo going in, Kemik coming out, Sun on an escape).
+            // crossed: "Caligo Entry" going in, "Caligo Escape" coming out, "Kemik Escape" to the sun.
             {
                 Vector3D tl = toMap(RootAt(pa, tp), tp);
                 if (Math.Sqrt(tl.X * tl.X + tl.Z * tl.Z) <= limit * 1.04 && MapPipeline.ToScreen(W(tl), out var st) && InMapArea(st))
                 {
                     MapPipeline.ScreenCircle(st, 5f * u, col, 2f * u);
                     MapPipeline.ScreenCircle(st, 1.5f * u, col, 2.5f * u);
-                    HudPanel.TagAt(st + new Vector2(10f * u, 0), nb.IsRoot ? "Sun" : nb.Name, col, u, diamond: false);
+                    HudPanel.TagAt(st + new Vector2(10f * u, 0), escape ? $"{pa.Body.Name} Escape" : $"{nb.Name} Entry", col, u, diamond: false);
                 }
             }
             // An encounter: the body where it will be, named (the ghost the arc is drawn about).

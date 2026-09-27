@@ -70,7 +70,7 @@ public static class UnifiedMap
         var reg = SystemHost.Registry;
         Vector3D origin = sectors.MapWorldPosition;
         float scale = sectors.MapWorldScale;
-        double dist = (cam - mapPos).Length();
+        double dist = MapCamera.Distance > 0 ? MapCamera.Distance : (cam - mapPos).Length();   // the zoom, not where a pan has taken the camera
         double u = dist / Math.Max(1e-6, _baseMax);
         double w12 = Smooth(1.0, 2.0, u), w23 = Smooth(2.5, 3.5, u);
         Vector3D C(Vector3D world) => ColonizationMapSessionComponent.WorldToMapPosition(world, mapPos, orient, origin, scale);
@@ -416,7 +416,7 @@ public static class UnifiedMap
     /// becomes the game's hovered sector (its own click handler then selects it, with its side panel,
     /// highlight and contracts). The game's own raycast against its Voronoi collider is off meanwhile.
     /// </summary>
-    private static bool TryMouse(ColonizationMapSessionComponent map, out Vector2 mouse)
+    public static bool TryMouse(ColonizationMapSessionComponent map, out Vector2 mouse)
     {
         mouse = default;
         try
@@ -435,7 +435,7 @@ public static class UnifiedMap
         try
         {
             if (!TryMouse(map, out var mouse)) return;
-            string name = Maneuvers.ClaimsMouse ? null : MapPipeline.ResolvePick(mouse, 14f);
+            string name = Maneuvers.ClaimsMouse || MapCamera.Dragging ? null : MapPipeline.ResolvePick(mouse, 14f);
             CleanMap.Hovered = name;
             int idx = -1;
             if (name != null && PlanetRenderBridge.GetMember(PlanetRenderBridge.GetMember(map, "SectorsRenderer"), "SectorIds") is System.Collections.IList ids)

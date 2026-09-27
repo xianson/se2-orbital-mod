@@ -159,7 +159,8 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
             if (SpecCam.Current.HasValue) camera = SpecCam.Current.Value; // DEV spectator: build proxies for its viewpoint
             double mult = 1;
             try { mult = session.Get<Keen.VRage.Physics.IPhysics>().GravityMultiplier; } catch { }
-            FrameHost.Tick(session, camera, mult); // once per frame (clock-deduped)
+            try { FrameHost.Tick(session, camera, mult); } // once per frame (clock-deduped)
+            catch (Exception ex) { FrameHost.Fault("FrameHost", ex); }
 
             if (_handles == null && !TrySetup()) return;
 

@@ -81,10 +81,12 @@ public static class MapView
     {
         var map = Map(session);
         Visible = map != null && map.IsVisible;
-        if (map == null || !map.IsVisible || !SystemHost.Built) { if (map != null) UnifiedMap.RestoreGame(map); MapGlobes.HideAll(); Clear(); Status = map == null ? "no map component" : "map closed"; return; }
+        if (map == null || !map.IsVisible || !SystemHost.Built) { MapCamera.Release(session); if (map != null) UnifiedMap.RestoreGame(map); MapGlobes.HideAll(); Clear(); Status = map == null ? "no map component" : "map closed"; return; }
         SectorsSessionComponent sectors = null;
         try { sectors = session.SessionComponents.TryGet<SectorsSessionComponent>(); } catch { }
         if (sectors == null) { Status = "no sectors component"; return; }
+
+        FrameHost.Guard("MapCamera", () => { bool hm = UnifiedMap.TryMouse(map, out var mm); MapCamera.Tick(session, map, hm, mm); });
 
         _builder ??= CreateBuilder(session);
         if (_builder == null) { Status = "no mesh builder"; return; }

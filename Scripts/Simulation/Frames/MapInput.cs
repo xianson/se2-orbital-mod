@@ -17,7 +17,9 @@ public static class MapInput
     private static readonly Dictionary<int, bool> _keys = new Dictionary<int, bool>(), _keysPrev = new Dictionary<int, bool>();
     private static double _lastLookup = -10;
     private static bool _l, _r;
-    public static bool Left, LeftPressed, LeftReleased, Right, RightPressed;
+    public static bool Left, LeftPressed, LeftReleased, Right, RightPressed, Middle;
+    /// <summary>The right button is orbiting the map camera: its release is not a click.</summary>
+    public static bool RightDragged;
     public static string Status = "no mouse";
 
     /// <summary>DEV: button overrides (null = the real device).</summary>
@@ -44,15 +46,17 @@ public static class MapInput
             }
             catch (Exception e) { Status = "no mouse: " + e.Message; }
         }
-        bool l = false, r = false;
-        try { if (_mouse != null) { l = _mouse.GetDigitalState(MouseInputs.Left); r = _mouse.GetDigitalState(MouseInputs.Right); } }
+        bool l = false, r = false, mid = false;
+        try { if (_mouse != null) { l = _mouse.GetDigitalState(MouseInputs.Left); r = _mouse.GetDigitalState(MouseInputs.Right); mid = _mouse.GetDigitalState(MouseInputs.Middle); } }
         catch { _mouse = null; }
         if (DevLeft.HasValue) l = DevLeft.Value;
         if (DevRight.HasValue) r = DevRight.Value;
         if (_devRightClick) { r = !_r; _devRightClick = _r; }   // one frame down, then up
         LeftPressed = l && !_l; LeftReleased = !l && _l;
-        RightPressed = r && !_r;
-        Left = l; Right = r;
+        // A right click is a release without an orbit drag (the press may start one).
+        RightPressed = !r && _r && !RightDragged;
+        if (!r) RightDragged = false;
+        Left = l; Right = r; Middle = mid;
         _l = l; _r = r;
         _keysPrev.Clear(); foreach (var kv in _keys) _keysPrev[kv.Key] = kv.Value;
         _keys.Clear();

@@ -273,7 +273,7 @@ public static class Maneuvers
             // and thin: it joins the path before the encounter to the path after it.
             if (drawn && !Live(l.Body))
             {
-                var faint = new ColorSRGB(col.R, col.G, col.B, 0.55f);
+                var faint = HudPanel.Alpha(col, 0.55f);
                 Vector2 pv = default; bool hv = false;
                 for (int k = 0; k <= n; k++)
                 {
@@ -289,7 +289,7 @@ public static class Maneuvers
         if (applied.Count > 0 && Base(t, out var bb, out var bel) && bel.IsElliptic && IsFinite(bel.Period))
         {
             double t0 = applied[0].Node.T, t1 = t + bel.Period;
-            var faint = new ColorSRGB(YouColor.R, YouColor.G, YouColor.B, 0.22f);
+            var faint = HudPanel.Alpha(YouColor, 0.22f);
             Vector2 pv = default; bool hv = false;
             for (int k = 0; k <= 96 && t0 < t1; k++)
             {
@@ -333,7 +333,7 @@ public static class Maneuvers
                 foreach (var ax in new[] { Vector3D.UnitX, Vector3D.UnitY })
                     if (MapPipeline.ToScreen(W(Loc(nb, ax * R, tp)), out var es)) rpx = Math.Max(rpx, (es - gs).Length());
                 rpx = Math.Max(rpx + 1.5f * u, 9f * u);   // snug on the body, never smaller than the old marker
-                MapPipeline.ScreenCircle(gs, rpx, new ColorSRGB(col.R, col.G, col.B, 0.55f), 1.3f * u);
+                MapPipeline.ScreenCircle(gs, rpx, HudPanel.Alpha(col, 0.55f), 1.3f * u);
                 HudPanel.TagAt(gs + new Vector2(rpx + 6f * u, 0), nb.Name, col, u, diamond: false);
             }
         }
@@ -451,14 +451,15 @@ public static class Maneuvers
         }
 
         // The handles: KSP's navball symbols on arms from the node; the one under the mouse (or being
-        // pulled) is highlighted and named.
+        // pulled) is highlighted and named. A click this frame may have cleared or removed the node.
+        if (Selected == null) handles.Clear();
         for (int i = 0; i < handles.Count; i++)
         {
             var (at, dir, axis, sign, label, c) = handles[i];
             bool hot = i == hoverHandle || (_drag == Drag.Handle && _axis == axis && _sign == sign);
             Vector2 tip = at;
             if (_drag == Drag.Handle && _axis == axis && _sign == sign) tip = _anchor + _dir * Math.Max(0f, Vector2.Dot(mouse - _anchor, _dir));
-            MapPipeline.ScreenLine(selS + dir * 10f * u, tip - dir * 8f * u, new ColorSRGB(c.R, c.G, c.B, hot ? 0.8f : 0.28f), (hot ? 1.6f : 1f) * u);
+            MapPipeline.ScreenLine(selS + dir * 10f * u, tip - dir * 8f * u, HudPanel.Alpha(c, hot ? 0.8f : 0.28f), (hot ? 1.6f : 1f) * u);
             Icon(label, tip, c, hot, u);
             // The component on this axis, beyond the handle it points along (P shows + prograde,
             // R shows retrograde): the number reads along the node's own axes.

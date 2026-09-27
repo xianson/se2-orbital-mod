@@ -54,7 +54,7 @@ public static class SectorHomes
     }
 
     /// <summary>Hill radius: the L1/L2 distance from the planet.</summary>
-    public static double HillRadius(GravityBody planet) =>
+    public static double HillRadius(GravityBody planet) => planet.Parent == null ? double.PositiveInfinity :
         planet.StateInParentAt(0).Position.Length() * Math.Pow(planet.Mu / (3 * planet.Parent.Mu), 1.0 / 3.0);
 
     /// <summary>Position relative to the planet at time t (ecliptic x, y), or false for L4/L5 (use HelioTrojan).</summary>

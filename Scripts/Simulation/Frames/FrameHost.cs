@@ -157,19 +157,19 @@ public static class FrameHost
         if (OrbitalMap.Active || MapView.Visible) OrbitDisplay.Clear();
         else if (PlayerFrame != null && Observer.HasValue)
             OrbitDisplay.DrawFrameOrbit(session, camera, Observer.Value, PlayerFrame, reg, t);
-        MapInput.Poll();
-        DevFlight.ClientTick(session);
+        Guard("MapInput.Poll", () => MapInput.Poll());
+        Guard("DevFlight.ClientTick", () => DevFlight.ClientTick(session));
         WarpControl.Session = session;
-        WarpControl.Tick();
+        Guard("WarpControl.Tick", () => WarpControl.Tick());
         RoutePlanner.Session = session;
-        RoutePlanner.Tick(SystemHost.Now);
-        MapView.Tick(session, camera, t);
-        FrameMarkers.Tick(session, camera, t);
-        Maneuvers.HudTick(session, camera, t);
-        AutoBurn.Tick(session, t);
-        OrbitHud.Draw(session);
-        OrbitalMap.Tick(session, t);
-        SunDriver.Tick(session, camera.Position, t);
+        Guard("RoutePlanner.Tick", () => RoutePlanner.Tick(SystemHost.Now));
+        Guard("MapView.Tick", () => MapView.Tick(session, camera, t));
+        Guard("FrameMarkers.Tick", () => FrameMarkers.Tick(session, camera, t));
+        Guard("Maneuvers.HudTick", () => Maneuvers.HudTick(session, camera, t));
+        Guard("AutoBurn.Tick", () => AutoBurn.Tick(session, t));
+        Guard("OrbitHud.Draw", () => OrbitHud.Draw(session));
+        Guard("OrbitalMap.Tick", () => OrbitalMap.Tick(session, t));
+        Guard("SunDriver.Tick", () => SunDriver.Tick(session, camera.Position, t));
     }
 
     // ───────────────────────────── stow (planet cell -> conjunction) ─────────────────────────────
@@ -851,6 +851,28 @@ public static class FrameHost
             if (abs < t) abs += Math.Ceiling((t - abs) / period) * period;
         }
         return abs;
+    }
+
+    /// <summary>
+    /// Runs one part of the frame so that a fault in it is logged and skipped, not thrown into the
+    /// game's job (which would crash the game and send a crash report). Each fault is logged with its
+    /// stack the first few times, then counted.
+    /// </summary>
+    public static void Guard(string name, Action a)
+    {
+        try { a(); }
+        catch (Exception ex) { Fault(name, ex); }
+    }
+
+    private static readonly Dictionary<string, int> _faults = new Dictionary<string, int>();
+    public static string LastFault = "";
+
+    public static void Fault(string name, Exception ex)
+    {
+        string key = name + ":" + ex.GetType().Name + ":" + ex.TargetSite?.Name;
+        _faults.TryGetValue(key, out int n); _faults[key] = ++n;
+        LastFault = $"{DateTime.Now:HH:mm:ss} {name}: {ex.GetType().Name}: {ex.Message} (x{n})";
+        if (n <= 3 || n % 1000 == 0) Log.Default?.Error($"[ORBIT-FAULT] {name} (x{n}): {ex}");
     }
 
     private static void Event(string s)

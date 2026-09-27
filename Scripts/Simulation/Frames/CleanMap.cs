@@ -231,7 +231,7 @@ public static class CleanMap
             DrawList(ordered, b => solar
                 ? b.Home.Kind == SectorHomes.Kind.Belt || b.Home.Kind == SectorHomes.Kind.Ring || b.Selected
                 : b.Host == focus && b.Home.Kind != SectorHomes.Kind.Belt && b.Home.Kind != SectorHomes.Kind.Ring);
-            if (!solar && planet != null) DrawSystem(parts, bands, reg, planet, t, playerPlanet, playerRel, playerOrbit, globes, W);
+            if (!solar && planet != null && planet.Parent != null) DrawSystem(parts, bands, reg, planet, t, playerPlanet, playerRel, playerOrbit, globes, W);
             else DrawSolar(parts, bands, reg, t, playerPlanet, globes, W);
             string selName = null;
             foreach (var bd in bands) if (bd.Selected) selName = bd.Name;
@@ -545,7 +545,7 @@ public static class CleanMap
                     if (!IsFinite(st.Position.X) || !IsFinite(st.Position.Y)) { havePrev = false; continue; }
                     Vector3D p = toLocal(porg + st.Position);
                     bool inView = Math.Sqrt(p.X * p.X + p.Z * p.Z) <= limit * 1.3;
-                    if (havePrev && inView) MapPipeline.Line(W(prev), W(p), new ColorSRGB(EncColor.R, EncColor.G, EncColor.B, 0.55f), 1.4f);
+                    if (havePrev && inView) MapPipeline.Line(W(prev), W(p), HudPanel.Alpha(EncColor, 0.55f), 1.4f);
                     prev = p; havePrev = inView;
                 }
                 var now = OrbitPropagation.StateAt(el, t);
@@ -626,18 +626,18 @@ public static class CleanMap
 
     static ColorSRGB OrbitColor(Band b)
     {
-        if (Quiet(b)) { var q = StateColor(b); return new ColorSRGB(q.R, q.G, q.B, 0.40f); }
+        if (Quiet(b)) { var q = StateColor(b); return HudPanel.Alpha(q, 0.40f); }
         if (b.Selected) return LineSel;
-        if (b.Name == Hovered) { var h = StateColor(b); return new ColorSRGB(Math.Min(1f, h.R + 0.25f), Math.Min(1f, h.G + 0.25f), Math.Min(1f, h.B + 0.25f), 1f); }
+        if (b.Name == Hovered) { var h = StateColor(b); return new ColorSRGB((byte)Math.Min(255, h.R + 64), (byte)Math.Min(255, h.G + 64), (byte)Math.Min(255, h.B + 64), (byte)255); }
         var c = StateColor(b);
-        return new ColorSRGB(c.R, c.G, c.B, 0.75f);
+        return HudPanel.Alpha(c, 0.75f);
     }
 
     /// <summary>Where a sector is now on its orbit: a ringed dot in its state colour.</summary>
     static void Marker(Vector3D world, Band b)
     {
         var c = b.Selected ? LineSel : StateColor(b);
-        if (Quiet(b)) { MapPipeline.ScreenRing(world, 5f, new ColorSRGB(c.R, c.G, c.B, 0.5f), 1.4f); MapPipeline.ScreenRing(world, 2f, new ColorSRGB(c.R, c.G, c.B, 0.5f), 2f); return; }
+        if (Quiet(b)) { MapPipeline.ScreenRing(world, 5f, HudPanel.Alpha(c, 0.5f), 1.4f); MapPipeline.ScreenRing(world, 2f, HudPanel.Alpha(c, 0.5f), 2f); return; }
         MapPipeline.ScreenRing(world, 8f, c, 2f);
         MapPipeline.ScreenRing(world, 3.5f, c, 3.5f);
     }

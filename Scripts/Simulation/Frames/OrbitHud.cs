@@ -7,6 +7,9 @@ namespace OrbitalMod;
 /// <summary>A HUD panel in the game's UI font: dark box, accent rule, title, label / value rows.</summary>
 public static class HudPanel
 {
+    /// <summary>The colour at another opacity (ColorSRGB's channels are bytes).</summary>
+    public static ColorSRGB Alpha(ColorSRGB c, float a) => new ColorSRGB(c.R, c.G, c.B, (byte)Math.Clamp((int)(a * 255f + 0.5f), 0, 255));
+
     static readonly ColorSRGB Bg = new ColorSRGB(0.02f, 0.045f, 0.07f, 0.80f);
     static readonly ColorSRGB Accent = new ColorSRGB(0.96f, 0.62f, 0.18f, 1f);
     static readonly ColorSRGB Title = new ColorSRGB(0.95f, 0.97f, 1f, 1f);

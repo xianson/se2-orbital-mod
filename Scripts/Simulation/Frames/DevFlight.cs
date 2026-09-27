@@ -87,11 +87,11 @@ public static class DevFlight
     /// </summary>
     public static void Command(Keen.VRage.Core.Game.Systems.Session session, Vector3D dirWorld, double k)
     {
-        _cmdDir = dirWorld; _cmdK = k; _cmdOn = k > 0 && dirWorld.LengthSquared() > 1e-9;
+        _cmdDir = dirWorld; _cmdK = k; _cmdOn = dirWorld.LengthSquared() > 1e-9;   // k = 0: turn only
         if (!FrameHost.Seated)
         {
             var ch = FrameHost.PlayerCharacter(session);
-            if (ch != null) try { ch.Data.Set(new ControlData { Movement = _cmdOn ? Local(ch.Data.GetWorldTransform().Orientation, dirWorld, k) : Vector3.Zero, Rotation = Vector3.Zero }); } catch { }
+            if (ch != null) try { ch.Data.Set(new ControlData { Movement = _cmdOn && k > 0 ? Local(ch.Data.GetWorldTransform().Orientation, dirWorld, k) : Vector3.Zero, Rotation = Vector3.Zero }); } catch { }
         }
     }
 
@@ -102,8 +102,16 @@ public static class DevFlight
         return m > 1e-6 ? new Vector3((float)(local.X / m), (float)(local.Y / m), (float)(local.Z / m)) * (float)k : Vector3.Zero;
     }
 
-    /// <summary>Server tick: a seated pilot's command goes to the grid they sit in.</summary>
+    /// <summary>
+    /// Server tick: a seated pilot's command goes to the grid they sit in, as a pilot would fly it:
+    /// the ship turns so its strongest thrust axis points along the burn (see ClientTick: the
+    /// steering is the pilot's own, written on the client), and that axis fires only once aligned.
+    /// </summary>
     private static bool _cmdWasOn;
+    public static string Attitude = "";
+    public const double AlignDeg = 3.0;
+    public static bool Aligned;
+
     public static void ServerCommandTick()
     {
         if (!FrameHost.Seated || (!_cmdOn && !_cmdWasOn) || Busy) return;
@@ -116,9 +124,51 @@ public static class DevFlight
         }
         _cmdWasOn = _cmdOn;
         if (best == null) return;
-        var mv = _cmdOn ? Local(best.Entity.Data.GetWorldTransform().Orientation, _cmdDir, _cmdK) : Vector3.Zero;
-        _move = mv;
-        Write(best.Entity, _cmdOn);
+        var e = best.Entity;
+        _serverPos = GridMembers.Position(best);
+        if (!_cmdOn)
+        {
+            _move = Vector3.Zero; Write(e, false); Aligned = false; Attitude = ""; _steer = false;
+            return;
+        }
+        var q = e.Data.GetWorldTransform().Orientation;
+        Vector3 uLocal = MainAxis(e, out float force);
+        double ang = Turn(q, uLocal, _cmdDir, out _, out _);
+        Aligned = ang * 180 / Math.PI <= AlignDeg;
+        _move = Aligned && _cmdK > 0 ? uLocal * (float)_cmdK : Vector3.Zero;
+        Write(e, Aligned && _cmdK > 0);
+        _steer = true; _steerAxis = uLocal;
+        Attitude = $"{ang * 180 / Math.PI:F1} deg off, {(Aligned ? "aligned" : "turning")} ({_steerMode}), axis {uLocal} {force / 1000:F0} kN";
+    }
+
+    /// <summary>
+    /// The shortest turn taking the grid-local axis (at orientation q) onto a world direction, roll
+    /// left free: its angle (rad), the target orientation, and the turn's world axis.
+    /// </summary>
+    private static double Turn(Quaternion q, Vector3 axisLocal, Vector3D dirWorld, out Quaternion target, out Vector3D turnAxis)
+    {
+        Vector3D u = Vector3D.Transform((Vector3D)axisLocal, q);
+        Vector3D b = Vector3D.Normalize(dirWorld);
+        double ang = Math.Acos(Math.Clamp(Vector3D.Dot(u, b), -1, 1));
+        target = q; turnAxis = Vector3D.Zero;
+        if (ang < 1e-4) return ang;
+        Vector3D axis = Vector3D.Cross(u, b);
+        if (axis.LengthSquared() < 1e-12) axis = Math.Abs(u.X) < 0.9 ? Vector3D.Cross(u, Vector3D.UnitX) : Vector3D.Cross(u, Vector3D.UnitY);
+        turnAxis = Vector3D.Normalize(axis);
+        target = Quaternion.Normalize(Quaternion.CreateFromAxisAngle((Vector3)turnAxis, (float)ang) * q);
+        return ang;
+    }
+
+    /// <summary>The grid's strongest thrust direction (grid-local unit axis) and its force (N).</summary>
+    public static Vector3 MainAxis(Entity e, out float force)
+    {
+        force = 0; var axis = new Vector3(0, 0, -1);
+        if (!e.Data.TryGet<Keen.Game2.Simulation.WorldObjects.Shared.Movement.MaxThrustData>(out var mt)) return axis;
+        var p = mt.Regular.Positive; var n = mt.Regular.Negative;
+        float[] f = { p.X, n.X, p.Y, n.Y, p.Z, n.Z };
+        Vector3[] ax = { new Vector3(1, 0, 0), new Vector3(-1, 0, 0), new Vector3(0, 1, 0), new Vector3(0, -1, 0), new Vector3(0, 0, 1), new Vector3(0, 0, -1) };
+        for (int i = 0; i < 6; i++) if (f[i] > force) { force = f[i]; axis = ax[i]; }
+        return axis;
     }
 
     private static bool _burn;
@@ -180,9 +230,47 @@ public static class DevFlight
     private static Vector3D _serverPos;
     private static Entity _client;
 
-    /// <summary>Every frame on the client tick: the same on the client copy (a piloted grid simulates there).</summary>
+    /// <summary>
+    /// Every frame on the client tick: the same on the client copy (a piloted grid simulates there,
+    /// and its steering data syncs from the client). The ship is turned as the pilot turns it: in the
+    /// cockpit's reticle mode by moving the target orientation the cockpit already keeps (as the
+    /// game's own fast travel does; that data belongs to the cockpit and is never added or removed
+    /// here), otherwise by the target angular velocity the mouse would write.
+    /// </summary>
+    private static bool _steer; private static Vector3 _steerAxis; private static string _steerMode = "-";
+    public const double TurnRate = 0.6;   // rad/s, the most the angular mode asks for
+
     public static void ClientTick(Keen.VRage.Core.Game.Systems.Session session)
     {
+        if (_cmdOn && FrameHost.Seated && !Busy)
+        {
+            if (_client == null || (_client.Data.GetWorldTransform().Position - _serverPos).Length() > 50)
+            {
+                _client = null; double bd = 50;
+                foreach (var ce in session.GetEntitiesOfType<Keen.Game2.Simulation.WorldObjects.CubeGrids.CubeGridComponent>())
+                {
+                    double d = (ce.Data.GetWorldTransform().Position - _serverPos).Length();
+                    if (d < bd && ce.Data.Has<Keen.Game2.Simulation.WorldObjects.Shared.Movement.MaxThrustData>()) { bd = d; _client = ce; }
+                }
+            }
+            if (_client != null)
+            {
+                try
+                {
+                    if (_steer) Steer(_client);
+                    Write(_client, Aligned && _cmdK > 0);
+                }
+                catch (Exception ex) { Attitude = "steer: " + ex.Message; }
+            }
+        }
+        else if (_steerMode == "angular" && _client != null)
+        {
+            // Hand the stick back: stop the turn we asked for (the cockpit writes it again on input).
+            try { if (_client.Data.Has<AngularControlData>()) _client.Data.Set(new AngularControlData { TargetAngularVelocity = Vector3.Zero }); } catch { }
+            try { Write(_client, false); } catch { }
+            _steerMode = "-";
+        }
+        else if (_steerMode != "-" && _client != null) { try { Write(_client, false); } catch { } _steerMode = "-"; }
         if (_gridId == -1 && _until > 0)
         {
             // On foot: the jetpack reads the character's ControlData (the same vector a player's keys write).
@@ -217,6 +305,27 @@ public static class DevFlight
             }
         }
         if (_client != null) Write(_client, Wall() < _until);
+    }
+
+    private static void Steer(Entity e)
+    {
+        var q = e.Data.GetWorldTransform().Orientation;
+        double ang = Turn(q, _steerAxis, _cmdDir, out var target, out var axisW);
+        if (e.Data.TryGet<TargetControlData>(out var tcd))
+        {
+            // Reticle mode: the cockpit re-aims from this each frame; only the orientation is ours.
+            tcd.TargetOrientation = target;
+            e.Data.Set(tcd);
+            _steerMode = "reticle";
+        }
+        else
+        {
+            // Angular mode: a rate toward the target, slowing into it (grid-local, rad/s).
+            double rate = Math.Min(TurnRate, 1.5 * ang);
+            Vector3D local = Vector3D.Transform(axisW * rate, Quaternion.Inverse(q));
+            e.Data.Set(new AngularControlData { TargetAngularVelocity = (Vector3)local });
+            _steerMode = "angular";
+        }
     }
 
     private static void Write(Entity e, bool on)

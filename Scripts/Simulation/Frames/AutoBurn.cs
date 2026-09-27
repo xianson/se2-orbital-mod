@@ -14,17 +14,22 @@ public static class AutoBurn
 {
     public static string Status = "";
     public static bool Flying { get; private set; }
+    public const double AlignLead = 30.0;   // s: turn to the burn this long before it starts
 
     public static void Tick(Keen.VRage.Core.Game.Systems.Session session, double t)
     {
         var node = NextArmed();
-        bool fly = node != null && t >= Maneuvers.BurnStart(node) && Maneuvers.BurnLeft >= Maneuvers.DoneDv
-                   && SystemHost.Timescale <= 1.0 && !DevFlight.Busy;
+        double start = node != null ? Maneuvers.BurnStart(node) : double.NaN;
+        bool active = node != null && t >= start - AlignLead && Maneuvers.BurnLeft >= Maneuvers.DoneDv
+                      && SystemHost.Timescale <= 1.0 && !DevFlight.Busy;
+        bool fly = active;
         if (fly)
         {
-            if (!Flying) { Flying = true; GameUi.Toast(session, "burn", "Auto-burn", $"Burning {Maneuvers.BurnLeft:F1} m/s", 4); }
-            DevFlight.Command(session, Maneuvers.BurnDirWorld, Math.Max(0.25, Math.Min(1.0, Maneuvers.BurnLeft / 5.0)));
-            Status = $"burning, {Maneuvers.BurnLeft:F1} m/s left";
+            bool burning = t >= start;
+            if (!Flying) { Flying = true; GameUi.Toast(session, "burn", "Auto-burn", burning ? $"Burning {Maneuvers.BurnLeft:F1} m/s" : "Turning to the burn", 4); }
+            // Turn first (seated: the gyros bring the main thrust axis onto the burn), thrust from the start.
+            DevFlight.Command(session, Maneuvers.BurnDirWorld, burning ? Math.Max(0.25, Math.Min(1.0, Maneuvers.BurnLeft / 5.0)) : 0.0);
+            Status = burning ? $"burning, {Maneuvers.BurnLeft:F1} m/s left" : $"turning, burn in {Maneuvers.Clock(start - t)}";
         }
         else if (Flying)
         {

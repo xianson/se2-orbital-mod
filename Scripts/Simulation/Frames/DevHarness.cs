@@ -392,7 +392,7 @@ public static class DevHarness
                 return DevFlight.Thrust(new Vector3((float)D(a[1]), (float)D(a[2]), (float)D(a[3])), D(a[4]));
 
             case "flight":
-                return $"seated={FrameHost.Seated} frame={(FrameHost.PlayerFrame != null ? "#" + FrameHost.PlayerFrame.Id : "-")} {DevFlight.Status} | {DevFlight.Info}";
+                return $"seated={FrameHost.Seated} frame={(FrameHost.PlayerFrame != null ? "#" + FrameHost.PlayerFrame.Id : "-")} {DevFlight.Status} | auto: {AutoBurn.Status} | {DevFlight.Attitude} | {DevFlight.Info}";
 
             case "floaters":
             {

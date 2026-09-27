@@ -43,6 +43,7 @@ public static class Maneuvers
     public const double DoneDv = 0.1;         // m/s
     public static string Status = "";
 
+    static readonly ColorSRGB YouColor = new ColorSRGB(1.00f, 0.80f, 0.15f, 1f);
     static readonly ColorSRGB PlanColor = new ColorSRGB(0.35f, 0.90f, 1.00f, 0.9f);
     static readonly ColorSRGB NodeColor = new ColorSRGB(0.35f, 0.90f, 1.00f, 1f);
     static readonly ColorSRGB ProColor = new ColorSRGB(0.85f, 0.95f, 0.30f, 1f);
@@ -189,7 +190,11 @@ public static class Maneuvers
             if (li > 0 && l.Body != legs[li - 1].Body) patch++;
             var col = PatchColors[patch % PatchColors.Length];
             legColour.Add(col);
-            bool drawn = !(li == 0 && !l.Planned && l.Body.Name == focusBody);   // the map draws your current orbit
+            bool planning = applied.Count > 0;
+            // Without nodes the map draws your orbit; with nodes, your orbit up to the first node
+            // is drawn here (gold) and the rest of it faint, and the plan takes over from the node.
+            bool drawn = planning || !(li == 0 && !l.Planned && l.Body.Name == focusBody);
+            if (planning && !l.Planned) col = YouColor;
             double span = l.T1 - l.T0;
             if (!(span > 0)) continue;
             int n = Math.Max(8, Math.Min(240, (int)(span / Math.Max(1, (legs[legs.Count - 1].T1 - t)) * 360)));
@@ -204,9 +209,24 @@ public static class Maneuvers
                 if (hp && drawn)
                 {
                     if (l.Planned) MapPipeline.ScreenDashed(prev, s, col, 2f * u, u);
-                    else MapPipeline.ScreenLine(prev, s, col, 2f * u);
+                    else MapPipeline.ScreenLine(prev, s, col, 2.2f * u);
                 }
                 prev = s; hp = true;
+            }
+        }
+
+        if (applied.Count > 0 && Base(t, out var bb, out var bel) && bel.IsElliptic && IsFinite(bel.Period))
+        {
+            double t0 = applied[0].Node.T, t1 = t + bel.Period;
+            var faint = new ColorSRGB(YouColor.R, YouColor.G, YouColor.B, 0.22f);
+            Vector2 pv = default; bool hv = false;
+            for (int k = 0; k <= 96 && t0 < t1; k++)
+            {
+                double tk = t0 + (t1 - t0) * k / 96;
+                Vector3D loc = Loc(bb, OrbitPropagation.StateAt(bel, tk).Position, tk);
+                if (Math.Sqrt(loc.X * loc.X + loc.Z * loc.Z) > limit * 1.04 || !MapPipeline.ToScreen(W(loc), out var sp)) { hv = false; continue; }
+                if (hv) MapPipeline.ScreenLine(pv, sp, faint, 1.2f * u);
+                pv = sp; hv = true;
             }
         }
 
@@ -219,14 +239,13 @@ public static class Maneuvers
             Vector3D loc = LegLoc(pa, tp);
             if (!MapPipeline.ToScreen(W(loc), out var sp)) continue;
             var col = legColour[li];
-            MapPipeline.ScreenCircle(sp, 5f * u, col, 2f * u);
+            MapPipeline.ScreenCircle(sp, 3.5f * u, col, 2f * u);
             bool escape = nb == pa.Body.Parent;
             // An encounter: the body where it will be, named (the ghost the arc is drawn about).
             if (!escape && !nb.IsRoot && nb.Name != focusBody && MapPipeline.ToScreen(W(Loc(nb, Vector3D.Zero, tp)), out var gs))
             {
-                MapPipeline.ScreenCircle(gs, 11f * u, new ColorSRGB(col.R, col.G, col.B, 0.6f), 1.5f * u);
-                MapPipeline.ScreenCircle(gs, 3f * u, new ColorSRGB(col.R, col.G, col.B, 0.6f), 2f * u);
-                HudPanel.TagAt(gs + new Vector2(14f * u, 0), nb.Name, col, u, diamond: false);
+                MapPipeline.ScreenCircle(gs, 9f * u, new ColorSRGB(col.R, col.G, col.B, 0.45f), 1.2f * u);
+                HudPanel.TagAt(gs + new Vector2(12f * u, 0), nb.Name, col, u, diamond: false);
             }
         }
 
@@ -265,7 +284,7 @@ public static class Maneuvers
             if (dr == Vector2.Zero) dr = new Vector2(-dp.Y, dp.X);
             // Normal is out of the map plane from above: its handles sit on the diagonals.
             Vector2 dn = Vector2.Normalize(dp + dr), dan = -dn;
-            float d0 = 46f * u;
+            float d0 = 48f * u;
             handles.Add((selS + dp * d0, dp, 0, +1, "P", ProColor));
             handles.Add((selS - dp * d0, -dp, 0, -1, "R", ProColor));
             handles.Add((selS + dn * d0, dn, 1, +1, "N", NorColor));
@@ -341,7 +360,7 @@ public static class Maneuvers
             bool hot = i == hoverHandle || (_drag == Drag.Handle && _axis == axis && _sign == sign);
             Vector2 tip = at;
             if (_drag == Drag.Handle && _axis == axis && _sign == sign) tip = _anchor + _dir * Math.Max(0f, Vector2.Dot(mouse - _anchor, _dir));
-            MapPipeline.ScreenLine(selS + dir * 11f * u, tip - dir * 9f * u, new ColorSRGB(c.R, c.G, c.B, hot ? 0.9f : 0.45f), (hot ? 2f : 1.3f) * u);
+            MapPipeline.ScreenLine(selS + dir * 10f * u, tip - dir * 8f * u, new ColorSRGB(c.R, c.G, c.B, hot ? 0.8f : 0.28f), (hot ? 1.6f : 1f) * u);
             Icon(label, tip, c, hot, u);
             // The component on this axis, beyond the handle it points along (P shows + prograde,
             // R shows retrograde): the number reads along the node's own axes.
@@ -349,26 +368,46 @@ public static class Maneuvers
             bool mine = sign > 0 ? comp > 0.05 : comp < -0.05;
             if (mine || hot)
             {
-                string txt = hot && !mine ? HandleName(label) : $"{Math.Abs(comp):F1} m/s";
-                var ts = MapPipeline.MeasureText(txt, 0.5f * u);
-                Vector2 p0 = tip + dir * (16f * u);
-                // centre the text on the axis beyond the icon
-                Vector2 lp = p0 + new Vector2(dir.X < -0.3f ? -ts.X : dir.X > 0.3f ? 0 : -ts.X * 0.5f, dir.Y > 0.3f ? ts.Y * 0.5f : dir.Y < -0.3f ? -ts.Y * 0.5f : 0);
-                HudPanel.LabelAt(lp, txt, c, u);
+                // Centred on the axis, a fixed gap beyond the icon: the labels fan out with the handles.
+                string txt = hot && !mine ? HandleName(label) : $"{Math.Abs(comp):F1}";
+                AxisLabel(tip, dir, 11f * u, txt, c, u);
             }
         }
         if (Selected != null && selS != default)
         {
             double dvm = Math.Sqrt(Selected.Pro * Selected.Pro + Selected.Nor * Selected.Nor + Selected.Rad * Selected.Rad);
             double left = selA.Dv.Length();
-            string head = (Math.Abs(left - dvm) > 0.05 ? $"{left:F1} of {dvm:F1} m/s" : $"{dvm:F1} m/s") + "   in " + Clock(Selected.T - t);
-            string after = OrbitText(selA);
-            // Beside the node, away from the prograde arm.
-            Vector2 side = handles.Count > 0 ? -Vector2.Normalize(handles[0].dir + handles[4].dir) : new Vector2(1, 0);
-            Vector2 tp0 = selS + side * (70f * u);
-            if (side.X < 0) tp0.X -= MapPipeline.MeasureText(head, 0.5f * u).X;
-            HudPanel.LabelAt(tp0, head, NodeColor, u);
-            if (after != null) HudPanel.LabelAt(tp0 + new Vector2(0, 22f * u), after, new ColorSRGB(0.75f, 0.85f, 0.95f, 1f), u);
+            string head = (Math.Abs(left - dvm) > 0.05 ? $"{left:F1} / {dvm:F1} m/s" : $"{dvm:F1} m/s") + "  ·  " + Clock(Selected.T - t);
+            // In the widest gap between the handles (below the node when it can), clear of them all.
+            Vector2 gap = new Vector2(0, 1);
+            if (handles.Count > 0)
+            {
+                var angs = new List<double>();
+                foreach (var h in handles) angs.Add(Math.Atan2(h.dir.Y, h.dir.X));
+                angs.Sort();
+                double bestScore = double.MinValue;
+                for (int q = 0; q < angs.Count; q++)
+                {
+                    double a0 = angs[q], a1 = q + 1 < angs.Count ? angs[q + 1] : angs[0] + 2 * Math.PI;
+                    double mid = (a0 + a1) * 0.5, width = a1 - a0;
+                    double score = width + 0.35 * Math.Sin(mid);   // wide first, then downward (screen y grows down)
+                    if (score > bestScore) { bestScore = score; gap = new Vector2((float)Math.Cos(mid), (float)Math.Sin(mid)); }
+                }
+            }
+            AxisLabel(selS, gap, 58f * u, head, NodeColor, u);
+            // The orbit after the burn: its periapsis and apoapsis marked on the plan itself.
+            var aft = selA.After;
+            if (aft.IsElliptic && selA.Body.Name == focusBody)
+            {
+                double R = SystemHost.Registry?.FindDefinition(selA.Body.Name)?.RadiusMeters ?? 0;
+                void Apsis(double nu, string name, double rad)
+                {
+                    Vector3D loc = Loc(selA.Body, OrbitSampler.PositionAtTrueAnomaly(aft, nu), Selected.T);
+                    if (MapPipeline.ToScreen(W(loc), out var ps)) HudPanel.TagAt(ps, $"{name} {HudPanel.Km(rad - R)}", PlanColor, u);
+                }
+                Apsis(0, "Pe", aft.PeriapsisRadius);
+                Apsis(Math.PI, "Ap", aft.ApoapsisRadius);
+            }
         }
         else if (!double.IsNaN(hoverT) && _drag == Drag.None)
             HudPanel.TagAt(mouse + new Vector2(16f * u, 14f * u), $"Add maneuver  (in {Clock(hoverT - t)})", PlanColor, u, diamond: false);
@@ -435,6 +474,15 @@ public static class Maneuvers
         new ColorSRGB(0.85f, 0.50f, 1.00f, 0.95f), new ColorSRGB(0.55f, 1.00f, 0.55f, 0.95f),
     };
 
+    /// <summary>A label centred on an axis from a point, its near edge `gap` beyond it.</summary>
+    static void AxisLabel(Vector2 from, Vector2 dir, float gap, string text, ColorSRGB c, float u)
+    {
+        var ts = MapPipeline.MeasureText(text, 0.5f * u);
+        float ext = Math.Abs(dir.X) * ts.X * 0.5f + Math.Abs(dir.Y) * ts.Y * 0.5f;   // half the box along the axis
+        Vector2 centre = from + dir * (gap + ext + 4f * u);
+        HudPanel.LabelAt(centre - new Vector2(ts.X * 0.5f, 0), text, c, u);
+    }
+
     static string HandleName(string l) => l switch
     {
         "P" => "Prograde", "R" => "Retrograde", "N" => "Normal", "AN" => "Anti-normal", "RO" => "Radial out", "RI" => "Radial in", _ => l,
@@ -443,7 +491,7 @@ public static class Maneuvers
     /// <summary>KSP's navball symbols, drawn with screen lines.</summary>
     static void Icon(string kind, Vector2 c, ColorSRGB col, bool hot, float u)
     {
-        float r = (hot ? 10f : 8.5f) * u, w = (hot ? 2.4f : 1.8f) * u, t = 5f * u;
+        float r = (hot ? 8f : 6.5f) * u, w = (hot ? 2.2f : 1.6f) * u, t = 3.5f * u;
         void L(Vector2 a, Vector2 b) => MapPipeline.ScreenLine(c + a, c + b, col, w);
         void Tri(float s, bool up)
         {
@@ -451,8 +499,6 @@ public static class Maneuvers
             Vector2 a = new Vector2(0, -r * k * s), b = new Vector2(r * 0.87f * s, r * 0.5f * k * s), d = new Vector2(-r * 0.87f * s, r * 0.5f * k * s);
             L(a, b); L(b, d); L(d, a);
         }
-        // a dark disc behind, so it reads over orbit lines
-        MapPipeline.ScreenRect(c - new Vector2(r, r * 0.7f), c + new Vector2(r, r * 0.7f), new ColorSRGB(0.02f, 0.045f, 0.07f, 0.55f));
         switch (kind)
         {
             case "P":   // circle, dot, three ticks (top, left, right)
@@ -602,7 +648,9 @@ public static class Maneuvers
         lock (Nodes) Nodes.Clear();
         var n = new Node();
         lock (Nodes) Nodes.Add(n);
-        for (double dv = -5; dv >= -150; dv -= 5)
+        for (int step = 1; step <= 60; step++)
+        {
+            double dv = (step % 2 == 1 ? 1 : -1) * 5 * ((step + 1) / 2);   // +5, -5, +10, -10, ...
             for (double dt = 120; dt < period; dt += 120)
             {
                 n.T = t + dt; n.Pro = dv; n.Nor = 0; n.Rad = 0; n.Edit();
@@ -612,6 +660,7 @@ public static class Maneuvers
                     return $"encounter {body}: node in {Clock(dt)} prograde {dv:F0} m/s";
                 }
             }
+        }
         lock (Nodes) Nodes.Remove(n);
         return "no encounter found";
     }

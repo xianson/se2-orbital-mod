@@ -78,7 +78,10 @@ public static class SystemHost
     public static readonly string[] PlanetOrder = { "Verdure", "Kemik" };
 
     /// <summary>Palatine plays the Moon (384,400 km x k); other moons keep their charted distance (Caligo is Phobos-like).</summary>
-    private static double MoonOrbit(string name, double charted) => name == "Palatine" ? 3.844e8 * K * OrbitScale : charted;
+    /// <summary>Caligo's charted distance (~195 km) sat it almost on Kemik; three times out (~585 km) it reads as a moon.</summary>
+    public const double CaligoOrbitFactor = 3.0;
+    private static double MoonOrbit(string name, double charted) =>
+        name == "Palatine" ? 3.844e8 * K * OrbitScale : name == "Caligo" ? charted * CaligoOrbitFactor : charted;
     private static double MoonEccentricity(string name) => name == "Palatine" ? 0.0549 : 0.015;
     private static double PlanetEccentricity(string name) => name == "Verdure" ? 0.0167 : name == "Kemik" ? 0.0934 : 0.02;
     public const double MoonMaxDistance = 1.0e6;   // m
@@ -281,7 +284,14 @@ public static class SystemHost
             {
                 if (other.Key == kv.Key) continue;
                 var on = reg.Find(other.Key);
-                double gap = (other.Value.Center - kv.Value.Center).Length() - Math.Min(on.SoiRadius, alloc.SlotRadius);
+                // The neighbour's claim on the world between us: its SOI, but at least its own keep and
+                // at most what my keep leaves. (A moon moved out in the model, e.g. Caligo x3, keeps its
+                // charted spot in the world: its model SOI can exceed the world gap.)
+                double sep = (other.Value.Center - kv.Value.Center).Length();
+                double onKeep = PlanetBerths.KeepRadius(reg.FindDefinition(other.Key));
+                double claim = Math.Min(on.SoiRadius, alloc.SlotRadius);
+                claim = Math.Max(onKeep, Math.Min(claim, sep - PlanetBerths.KeepRadius(bdef)));
+                double gap = sep - claim;
                 if (gap > 0) reach = Math.Min(reach, gap);
             }
             reach = Math.Max(reach, PlanetBerths.KeepRadius(bdef));

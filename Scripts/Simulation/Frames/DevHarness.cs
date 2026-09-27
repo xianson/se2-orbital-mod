@@ -366,6 +366,10 @@ public static class DevHarness
                 // route <sector name...>: auto-plan to that sector's site (as the map's button)
                 return RoutePlanner.Start(string.Join(" ", a, 1, a.Length - 1));
 
+            case "freegrids":
+                ServerFrames.DevFreeGrids = true;
+                return "free grid census queued (see log)";
+
             case "ui":
                 return "gameui: " + (GameUi.LastError.Length > 0 ? GameUi.LastError : "ok");
 

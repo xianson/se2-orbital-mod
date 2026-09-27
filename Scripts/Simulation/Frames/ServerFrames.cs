@@ -55,6 +55,8 @@ public static class ServerFrames
 
     /// <summary>DEV: zero every dynamic server grid's linear velocity on the next server tick.</summary>
     public static volatile bool StopAllGrids;
+    /// <summary>DEV: log every dynamic player grid and whether it is held by a constraint.</summary>
+    public static volatile bool DevFreeGrids;
 
     // ── requests from the client half ──
     /// <summary>RefVel is inertial; Body (null = no chart) and Time give the chart the grids' velocities convert from.</summary>
@@ -124,6 +126,19 @@ public static class ServerFrames
         }
 
         if (_tick % 30 == 0) BuildSnapshot();
+        if (DevFreeGrids)
+        {
+            DevFreeGrids = false;
+            int n = 0;
+            foreach (var g in GridMembers.All())
+            {
+                if (!g.IsServer || !GridMembers.IsDynamic(g) || EncounterFrames.IsNpc(g)) continue;
+                bool held = GridMembers.IsConstrained(g);
+                Log.Default?.Info($"[ORBIT-DEV] grid {g.Id} '{g.DisplayName}' dynamic m={GridMembers.Mass(g):F0} kg constrained={held} at {ServerPlanetBeacon.Fmt(GridMembers.Position(g))} {CellR(GridMembers.Position(g))}");
+                if (!held) n++;
+            }
+            Log.Default?.Info($"[ORBIT-DEV] free grids: {n}");
+        }
     }
 
     // ───────────────────────────── attach (grids join a stowing player) ─────────────────────────────

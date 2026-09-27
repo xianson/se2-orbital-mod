@@ -489,35 +489,25 @@ public static class CleanMap
         bool hasNodes = Maneuvers.Nodes.Count > 0;
         var node = Maneuvers.HoverNode;
         double ht = Maneuvers.HoverT;
-        string sector = node == null && double.IsNaN(ht) ? MapPipeline.ResolvePick(Mouse, 14f) : null;
         var session = _session;
         if (node != null)
         {
             title = "Maneuver  ·  in " + Maneuvers.Clock(node.T - t);
             Maneuvers.Selected = node;
+            items.Add(new MapMenu.Item("Remove maneuver", () => Maneuvers.Delete(node, false)));
             items.Add(new MapMenu.Item("Prograde…", () => Maneuvers.EditAxis(session, node, 0)));
             items.Add(new MapMenu.Item("Normal…", () => Maneuvers.EditAxis(session, node, 1)));
             items.Add(new MapMenu.Item("Radial…", () => Maneuvers.EditAxis(session, node, 2)));
-            items.Add(new MapMenu.Item("Delete maneuver", () => Maneuvers.Delete(node, false)));
-            items.Add(new MapMenu.Item("Delete this and later", () => Maneuvers.Delete(node, true)));
         }
         else if (!double.IsNaN(ht))
         {
             double T = ht;
             title = "Trajectory  ·  in " + Maneuvers.Clock(T - t);
-            items.Add(new MapMenu.Item("Add maneuver here", () => Maneuvers.AddNodeAt(T)));
-            if (hasNodes) items.Add(new MapMenu.Item("Clear route", Maneuvers.ClearAll));
-        }
-        else if (sector != null)
-        {
-            var b = bands.Find(x => x.Name == sector);
-            title = sector;
-            bool can = b != null && b.Home.Kind != SectorHomes.Kind.OwnPlanet;
-            items.Add(new MapMenu.Item(RoutePlanner.Busy ? "Planning…" : "Plan route here", () => RoutePlanner.Start(sector), can && !RoutePlanner.Busy));
-            if (hasNodes) items.Add(new MapMenu.Item("Clear route", Maneuvers.ClearAll));
+            items.Add(new MapMenu.Item("Add maneuver", () => Maneuvers.AddNodeAt(T)));
+            if (hasNodes) items.Add(new MapMenu.Item("Remove all maneuvers", Maneuvers.ClearAll));
         }
         else if (hasNodes)
-            items.Add(new MapMenu.Item("Clear route", Maneuvers.ClearAll));
+            items.Add(new MapMenu.Item("Remove all maneuvers", Maneuvers.ClearAll));
         if (items.Count > 0) { MapMenu.Show(Mouse + new Vector2(4f * u, 4f * u), title, items); Maneuvers.ClaimsMouse = true; }
     }
 

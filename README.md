@@ -1,8 +1,46 @@
 # Orbital Mod (SE2)
 
 Orbital mechanics for Space Engineers 2, the SE2 counterpart of the SE1 project at
-`D:\SE-Aerospace`. Status as of 2026-09-25, SE2 **2.4.0.77**. Separate from the Aerodynamics Mod on purpose:
+`D:\SE-Aerospace`. Status as of 2026-09-27, SE2 **2.4.0.77**. Separate from the Aerodynamics Mod on purpose:
 the two share almost nothing, and players can run either alone.
+
+## Playing it (2026-09-27)
+
+**The system.** Verdure and Kemik orbit the sun (SE-Aerospace's scale rule, then orbits a further
+10x smaller: Verdure's year ~3.6 days, Kemik's ~6.8, a transfer ~2.5 days). Palatine orbits Verdure
+at ~380 km; Caligo orbits Kemik at ~585 km (3x its charted distance). The colonization sectors are
+places in this system: orbits about their planet, L1/L2 loops, the belt, the Byblos ring.
+
+**Getting somewhere.** Leave a planet's space and your orbit goes on the rails. Every sector is a
+site on its orbit; when your orbit meets it (a conjunction) you arrive there, at your true relative
+position and speed, and the game spawns that sector's encounters around you. Brown-dwarf killing
+fields are kept clear. Fast travel is untouched.
+
+**Keys.** `.` faster time warp, `,` slower, `/` back to x1 (rails only; warp stops by itself at
+arrivals and before a burn).
+
+**Map (terminal Map tab).**
+- Left click a sector's orbit, marker or list row: select it (the game's side panel).
+- The list gives each sector a quick guide from your orbit: delta-v and trip time.
+- Your trajectory is drawn patched-conic: each SOI in its own colour, encounters around a ghost of
+  the body where you meet it, periapsis / apoapsis tagged.
+- Right click the trajectory: **Add maneuver**. Right click a maneuver: **Remove maneuver**, or type
+  prograde / normal / radial exactly (the game's number dialog). Right click anywhere: remove all.
+- A selected maneuver has six navball handles: drag one to add delta-v along it (the further you
+  pull, the faster); drag the maneuver along the trajectory to move it; click a handle's number to
+  type it.
+
+**In flight.** The game's notification card shows your orbit (altitude, speed, periapsis /
+apoapsis, period, warp) and the next burn (delta-v, burn time, time to start). A navball marker
+points along the burn; the countdown runs to half the burn before the node; the node completes
+when what is left is under 0.1 m/s. GPS markers in another place (another planet, a sector) are
+drawn in their true direction with the true distance.
+
+**Encounters.** Encounters live on orbits too: close spawns stay with you, far ones get an orbit of
+their own; NPC ships fly plain Newtonian inside their frame.
+
+Design notes: docs/design-colonization-orbits.md, docs/design-encounter-frames.md,
+docs/design-maneuver-nodes.md.
 
 ## Frames and rails (the SE-Aerospace design) - verified in game 2026-09-25
 
@@ -98,8 +136,10 @@ verified only as no false folds plus a harness kick (no real key press; grid thr
    server half, so it works in single player and on a listen host. A dedicated server needs the
    player's frame logic server-side and a server-to-client command channel for character moves
    (characters are client-authoritative). No dedicated server is installed here to test with.
-2. **Orbital map controls.** The map is hands-free (auto focus, auto framing, turntable): the map
-   screen's input actions live in an assembly mods cannot reference.
+2. **A piloted ship through the whole loop** (take off, rails, plan, burn with thrusters, arrive by
+   conjunction). Everything above is verified with the character; seated players now get their
+   grid's frame (observer, warp, planning), but no one has flown it yet. Also the map editor with a
+   real mouse (verified through the harness only).
 3. **Real key-press test of HighSpeed thrust** (jetpack and piloted grids). Folding is verified with
    no false folds and a harness kick only.
 4. **Proxy fidelity.** The map globe is low-poly and pale, with no atmosphere rim.
@@ -107,3 +147,8 @@ verified only as no false folds plus a harness kick (no real key press; grid thr
    decide whether a world without the mod's first load should be patched automatically.
 6. **Warp and member motion.** While the rails warp, members' relative motion runs at x1 (as KSP
    keeps vessels on rails); fine for coasting, not for long warps of loose formations.
+7. **Ship shipping checklist.** `PlanetFrameComponent.DevHarness` must be false in a release build.
+8. **Old map code.** `Frames/OrbitalMap.cs`, `Frames/MapView.cs` and the band path in
+   `Frames/UnifiedMap.cs` are superseded by the clean map (gated off); removing them waits on a go-ahead.
+9. **Route planner** (`RoutePlanner.cs`: same-SOI intercepts, interplanetary porkchop + Newton
+   shooting + capture) is kept but not in the UI (harness `route <sector>`).

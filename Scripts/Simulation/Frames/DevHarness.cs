@@ -366,15 +366,22 @@ public static class DevHarness
                 // route <sector name...>: auto-plan to that sector's site (as the map's button)
                 return RoutePlanner.Start(string.Join(" ", a, 1, a.Length - 1));
 
-            case "planclick":
-                CleanMap._devPlanClick = true;
-                return "plan button queued";
-
             case "ui":
                 return "gameui: " + (GameUi.LastError.Length > 0 ? GameUi.LastError : "ok");
 
             case "numdialog":
                 return GameUi.NumberDialog(session, "Test (m/s)", 12.5, v => Log.Default?.Info($"[ORBIT-DEV] numdialog -> {v}")) ? "dialog open" : "dialog failed: " + GameUi.LastError;
+
+            case "rclickat":
+                // rclickat <fx> <fy>: right click at a screen fraction (the map's context menu)
+                UnifiedMap.DevMouse = new Vector2((float)D(a[1]), (float)D(a[2]));
+                MapInput.DevRightClick();
+                return $"right click at {a[1]},{a[2]}";
+
+            case "menu":
+                // menu <i>: choose item i of the open context menu
+                MapMenu.DevChoose((int)D(a[1]));
+                return "menu " + a[1];
 
             case "key":
                 // key <period|comma|slash>: press a warp key for one frame

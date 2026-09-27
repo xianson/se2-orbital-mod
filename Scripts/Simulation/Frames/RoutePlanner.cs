@@ -55,14 +55,60 @@ public static class RoutePlanner
         if (!StateOnTrajectory(t, from, out var b, out var me) || b != body) return Say((prefix ?? "") + "no state to plan the approach from");
         if (!EncounterFrames.Ephemeris(site, from, out var sp, out var srel) || sp != body) return Say((prefix ?? "") + "the site is not about " + body.Name + " then");
         var siteEl = CaptureMath.CaptureElements(srel, body.Mu, from);
-        var plan = InterceptPlanner.Plan(me, siteEl, body.Mu, from, RendezvousParams.Default,
-                                         new InterceptOptions { MatchArrivalVelocity = true });
-        if (plan == null || plan.Status != PlanStatus.Ok || plan.Maneuvers == null || plan.Maneuvers.Count == 0)
-            return Say((prefix ?? "") + "no intercept found");
+        // Several ways in (cheapest, fastest, no phasing, shorter / longer windows); each is checked on
+        // the full patched trajectory, and one that does not pass through a moon (or the ground) on
+        // the way is preferred. The core planner itself only knows one body.
+        double P = siteEl.IsElliptic ? siteEl.Period : 3 * 3600;
+        var options = new List<InterceptOptions>
+        {
+            new InterceptOptions { MatchArrivalVelocity = true },
+            new InterceptOptions { MatchArrivalVelocity = true, Objective = InterceptObjective.Fastest },
+            new InterceptOptions { MatchArrivalVelocity = true, ConsiderPhasing = false },
+            new InterceptOptions { MatchArrivalVelocity = true, HorizonSeconds = 0.75 * P },
+            new InterceptOptions { MatchArrivalVelocity = true, HorizonSeconds = 3 * P },
+            new InterceptOptions { MatchArrivalVelocity = true, Objective = InterceptObjective.Fastest, ConsiderPhasing = false, HorizonSeconds = 0.75 * P },
+        };
+        List<Maneuvers.Node> keep;
+        lock (Maneuvers.Nodes) keep = new List<Maneuvers.Node>(Maneuvers.Nodes);
+        double R = SystemHost.Registry?.FindDefinition(body.Name)?.RadiusMeters ?? 0;
+        (ManeuverPlan plan, double cost, string issue) best = (null, double.MaxValue, null);
+        foreach (var o in options)
+        {
+            ManeuverPlan pl;
+            try { pl = InterceptPlanner.Plan(me, siteEl, body.Mu, from, RendezvousParams.Default, o); } catch { continue; }
+            if (pl == null || pl.Status != PlanStatus.Ok || pl.Maneuvers == null || pl.Maneuvers.Count == 0) continue;
+            lock (Maneuvers.Nodes) { Maneuvers.Nodes.Clear(); Maneuvers.Nodes.AddRange(keep); }
+            foreach (var m in pl.Maneuvers) AddWorldDv(t, from + m.TimeFromNowSeconds, m.DeltaV);
+            string issue = Hazard(t, body, from, pl.Arrival.ArrivalTime, R);
+            double cost = pl.TotalDeltaV + (issue != null ? 1e6 : 0);
+            if (cost < best.cost) best = (pl, cost, issue);
+        }
+        lock (Maneuvers.Nodes) { Maneuvers.Nodes.Clear(); Maneuvers.Nodes.AddRange(keep); }
+        Maneuvers.Selected = null;
+        var plan = best.plan;
+        if (plan == null) return Say((prefix ?? "") + "no intercept found");
         double total = 0;
         foreach (var m in plan.Maneuvers) { AddWorldDv(t, from + m.TimeFromNowSeconds, m.DeltaV); total += m.Magnitude; }
         var arr = plan.Arrival;
-        return Say((prefix ?? "") + $"{plan.Maneuvers.Count} burn(s), {total:N0} m/s; arrive in {Maneuvers.Clock(arr.ArrivalTime - t)}, {Km(arr.MissDistance)} off");
+        return Say((prefix ?? "") + $"{plan.Maneuvers.Count} burn(s), {total:N0} m/s; arrive in {Maneuvers.Clock(arr.ArrivalTime - t)}"
+                   + (best.issue != null ? $"  (warning: {best.issue})" : ""));
+    }
+
+    /// <summary>What the noded trajectory runs into between from and arrive: a moon's SOI, or the ground.</summary>
+    private static string Hazard(double t, GravityBody body, double from, double arrive, double radius)
+    {
+        if (!Maneuvers.Trajectory(t, out var legs, out _)) return null;
+        foreach (var l in legs)
+        {
+            if (l.T1 < from || l.T0 > arrive + 60) continue;
+            if (l.Body != body) return "passes " + l.Body.Name;
+            if (l.El.PeriapsisRadius < radius + 2000)
+            {
+                double tp = l.T0 + OrbitPropagation.TimeToPeriapsis(OrbitPropagation.AtTime(l.El, l.T0));
+                if (tp >= l.T0 && tp <= Math.Min(l.T1, arrive)) return "dips into " + body.Name;
+            }
+        }
+        return null;
     }
 
     // ───────────────────────────── interplanetary ─────────────────────────────

@@ -39,6 +39,38 @@ public static class Maneuvers
 
     public static readonly List<Node> Nodes = new List<Node>();   // lock(Nodes)
     public static Node Selected;
+    /// <summary>Under the mouse this frame (for the context menu): a node, or a time on the trajectory.</summary>
+    public static Node HoverNode; public static double HoverT = double.NaN;
+
+    public static void AddNodeAt(double T)
+    {
+        var n = new Node { T = T };
+        lock (Nodes) Nodes.Add(n);
+        Selected = n;
+    }
+
+    public static void Delete(Node n, bool andLater)
+    {
+        lock (Nodes)
+        {
+            if (andLater) Nodes.RemoveAll(x => x.T >= n.T); else Nodes.Remove(n);
+        }
+        if (Selected != null && !Nodes.Contains(Selected)) Selected = null;
+    }
+
+    public static void ClearAll() { lock (Nodes) Nodes.Clear(); Selected = null; }
+
+    /// <summary>Type an axis value exactly (the game's numeric dialog).</summary>
+    public static void EditAxis(Keen.VRage.Core.Game.Systems.Session session, Node node, int axis)
+    {
+        double cur = axis == 0 ? node.Pro : axis == 1 ? node.Nor : node.Rad;
+        string name = axis == 0 ? "Prograde" : axis == 1 ? "Normal" : "Radial";
+        GameUi.NumberDialog(session, $"{name} delta-v (m/s, negative for the opposite way)", cur, v =>
+        {
+            if (axis == 0) node.Pro = v; else if (axis == 1) node.Nor = v; else node.Rad = v;
+            node.Edit();
+        });
+    }
     /// <summary>The next burn, one line for the orbit card (null when none).</summary>
     public static string BurnLine;
     public const double WarpLead = 30.0;      // s: warp stops this long before a node
@@ -171,6 +203,7 @@ public static class Maneuvers
         DevStep(ref mouse, u);
         bool lDown = _devLeft ?? MapInput.Left, lPressed = _devPressed || (_devLeft == null && MapInput.LeftPressed);
         bool rPressed = _devRight || MapInput.RightPressed;
+        if (MapMenu.Open) { lPressed = false; rPressed = false; }   // the context menu has the clicks
         _devPressed = false; _devRight = false;
         double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
         double dt = _lastFrame > 0 ? Math.Min(0.1, now - _lastFrame) : 0; _lastFrame = now;
@@ -219,7 +252,10 @@ public static class Maneuvers
             if (planning && !l.Planned) col = YouColor;
             double span = l.T1 - l.T0;
             if (!(span > 0)) continue;
-            int n = Math.Max(8, Math.Min(240, (int)(span / Math.Max(1, (legs[legs.Count - 1].T1 - t)) * 360)));
+            // One lap of each conic is enough (later laps retrace it), drawn finely.
+            bool ownConic = l.Body.Name == focusBody || !l.Body.IsRoot;
+            if (ownConic && l.El.IsElliptic && IsFinite(l.El.Period) && span > l.El.Period) span = l.El.Period;
+            int n = Math.Max(24, Math.Min(200, (int)(160 * Math.Min(1.0, span / (l.El.IsElliptic && IsFinite(l.El.Period) ? l.El.Period : span)))));
             Vector2 prev = default; bool hp = false;
             for (int k = 0; k <= n; k++)
             {
@@ -264,7 +300,8 @@ public static class Maneuvers
             MapPipeline.ScreenCircle(sp, 3.5f * u, col, 2f * u);
             bool escape = nb == pa.Body.Parent;
             // An encounter: the body where it will be, named (the ghost the arc is drawn about).
-            if (!escape && !nb.IsRoot && nb.Name != focusBody && MapPipeline.ToScreen(W(Loc(nb, Vector3D.Zero, tp)), out var gs) && InMapArea(gs))
+            bool moonAtSolarScale = focusBody == null && nb.Parent != null && !nb.Parent.IsRoot;   // too small to tell apart there
+            if (!escape && !nb.IsRoot && nb.Name != focusBody && !moonAtSolarScale && MapPipeline.ToScreen(W(Loc(nb, Vector3D.Zero, tp)), out var gs) && InMapArea(gs))
             {
                 // The ghost ring: padded round the body's true size on the map (its radius mapped like everything else).
                 double R = SystemHost.Registry?.FindDefinition(nb.Name)?.RadiusMeters ?? 0;
@@ -343,6 +380,7 @@ public static class Maneuvers
             if (d < bestD && Math.Abs(samples[i].T - samples[i - 1].T) < 3600 * 12) { bestD = d; hoverT = samples[i - 1].T + (samples[i].T - samples[i - 1].T) * k; }
         }
         if (!edit) { hoverNode = null; hoverT = double.NaN; }
+        HoverNode = hoverNode; HoverT = hoverT;
         ClaimsMouse = _drag != Drag.None || hoverHandle >= 0 || hoverNode != null || !double.IsNaN(hoverT) || hoverValue >= 0;
 
         if (_drag == Drag.Handle && Selected != null)
@@ -387,11 +425,6 @@ public static class Maneuvers
                 Selected = n;
             }
             else Selected = null;
-        }
-        if (rPressed && hoverNode != null)
-        {
-            lock (Nodes) Nodes.Remove(hoverNode);
-            if (Selected == hoverNode) Selected = null;
         }
 
         // The handles: KSP's navball symbols on arms from the node; the one under the mouse (or being
@@ -623,7 +656,13 @@ public static class Maneuvers
             {
                 var l = new List<(Node n, Vector2 s)>(_lastNodes); l.Sort((a, b) => a.n.T.CompareTo(b.n.T));
                 int i = (int)_devPx;
-                if (i >= 0 && i < l.Count) { mouse = l[i].s; _devRight = true; }
+                if (i >= 0 && i < l.Count)
+                {
+                    // Right-click it through the map's own path: the mouse there, and a right press.
+                    var sz = MapPipeline.ScreenSize;
+                    UnifiedMap.DevMouse = new Vector2(l[i].s.X / sz.X, l[i].s.Y / sz.Y);
+                    MapInput.DevRightClick();
+                }
                 _devOp = null;
                 return;
             }

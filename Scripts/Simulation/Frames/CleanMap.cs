@@ -83,10 +83,84 @@ public static class CleanMap
     static string StateText(Band b) => b.State == Keen.Game2.Simulation.GameSystems.Colonization.SectorColonizationState.Colonized ? "colonized"
         : b.State == Keen.Game2.Simulation.GameSystems.Colonization.SectorColonizationState.Unlocked ? "open" : "locked";
 
-    static string Where(Band b) => b.Home.Kind switch
+    static string Where(Band b)
+    {
+        string place = WherePlace(b);
+        string est = Estimate(b);
+        return est != null ? $"{place}  ·  {est}" : place;
+    }
+
+    private static readonly Dictionary<string, (string text, double at)> _est = new Dictionary<string, (string, double)>();
+
+    /// <summary>
+    /// A quick guide from your orbit (Hohmann, circular): delta-v and trip time to the sector's home.
+    /// Same planet: the two-burn transfer. Another planet: escape + heliocentric transfer + capture at the
+    /// home's radius. A heliocentric home (belt, ring, L4/L5): escape + transfer + velocity match. The
+    /// Plan route button computes the real thing.
+    /// </summary>
+    static string Estimate(Band b)
+    {
+        double now = Wall();
+        if (_est.TryGetValue(b.Name, out var c) && now - c.at < 2.0) return c.text;
+        string txt = null;
+        try
+        {
+            double t = SystemHost.Now;
+            var reg = SystemHost.Registry;
+            if (Maneuvers.Base(t, out var body, out var el) && reg != null && b.Home.Kind != SectorHomes.Kind.OwnPlanet)
+            {
+                double r1 = el.IsElliptic ? el.SemiMajorAxis : OrbitPropagation.StateAt(el, t).Position.Length();
+                double Hohmann(double mu, double ra, double rb, out double tof)
+                {
+                    double at = (ra + rb) / 2;
+                    tof = Math.PI * Math.Sqrt(at * at * at / mu);
+                    return Math.Abs(Math.Sqrt(mu / ra) * (Math.Sqrt(2 * rb / (ra + rb)) - 1)) + Math.Abs(Math.Sqrt(mu / rb) * (1 - Math.Sqrt(2 * ra / (ra + rb))));
+                }
+                double dv = double.NaN, tt = 0;
+                var host = reg.Find(b.Host);
+                bool helioHome = b.Home.Kind == SectorHomes.Kind.Belt || b.Home.Kind == SectorHomes.Kind.Ring || b.Home.Kind == SectorHomes.Kind.L4 || b.Home.Kind == SectorHomes.Kind.L5;
+                if (!helioHome && host == body && b.Home.Kind == SectorHomes.Kind.Ellipse)
+                    dv = Hohmann(body.Mu, r1, b.Home.A, out tt);
+                else if (!helioHome && host == body)   // L1 / L2: out to the Hill radius
+                    dv = Hohmann(body.Mu, r1, SectorHomes.HillRadius(body), out tt);
+                else if (body.Parent != null && body.Parent.IsRoot && host != null)
+                {
+                    var root = body.Parent;
+                    double rB = body.StateInParentAt(t).Position.Length();
+                    double rT = helioHome ? HomeHelioRadius(b, host) : host.StateInParentAt(t).Position.Length();
+                    double at = (rB + rT) / 2;
+                    tt = Math.PI * Math.Sqrt(at * at * at / root.Mu);
+                    double vB = Math.Sqrt(root.Mu / rB), vT = Math.Sqrt(root.Mu / rT);
+                    double vinfD = Math.Abs(Math.Sqrt(root.Mu * (2 / rB - 1 / at)) - vB), vinfA = Math.Abs(vT - Math.Sqrt(root.Mu * (2 / rT - 1 / at)));
+                    double ej = Math.Sqrt(vinfD * vinfD + 2 * body.Mu / r1) - Math.Sqrt(body.Mu / r1);
+                    double arr;
+                    if (helioHome) arr = vinfA;
+                    else
+                    {
+                        double rc = b.Home.Kind == SectorHomes.Kind.Ellipse ? b.Home.A : (reg.FindDefinition(host.Name)?.RadiusMeters ?? 6e4) + 150e3;
+                        arr = Math.Sqrt(vinfA * vinfA + 2 * host.Mu / rc) - Math.Sqrt(host.Mu / rc);
+                    }
+                    dv = ej + arr;
+                }
+                if (!double.IsNaN(dv)) txt = $"~{dv:N0} m/s, {Maneuvers.Clock(tt)}";
+            }
+        }
+        catch { }
+        _est[b.Name] = (txt, now);
+        return txt;
+    }
+
+    static double HomeHelioRadius(Band b, GravityBody host) => b.Home.Kind switch
+    {
+        SectorHomes.Kind.Belt => (SectorHomes.BeltInnerAU + SectorHomes.BeltOuterAU) * 0.5 * SystemHost.AU,
+        SectorHomes.Kind.Ring => SectorHomes.RingAU * SystemHost.AU,
+        _ => host.StateInParentAt(SystemHost.Now).Position.Length(),   // Trojans share the planet's orbit
+    };
+
+    static string WherePlace(Band b) => b.Home.Kind switch
     {
         SectorHomes.Kind.OwnPlanet => "near space",
-        SectorHomes.Kind.Ellipse => $"{b.Home.A / 1000:N0} km, {PeriodText(b)}",
+        SectorHomes.Kind.Ellipse => $"{b.Home.A / 1000:N0} km",
         SectorHomes.Kind.L1 => "L1", SectorHomes.Kind.L2 => "L2", SectorHomes.Kind.L4 => "L4", SectorHomes.Kind.L5 => "L5",
         SectorHomes.Kind.Belt => $"{SectorHomes.BeltInnerAU:F1}-{SectorHomes.BeltOuterAU:F1} AU",
         SectorHomes.Kind.Ring => $"{SectorHomes.RingAU:F1} AU",
@@ -126,7 +200,6 @@ public static class CleanMap
             MapPipeline.ScreenDot(new Vector2(x + scr.Y * 0.030f, y + line * 0.42f), 4.5f, StateColor(b));
             MapPipeline.ScreenText(new Vector2(x + scr.Y * 0.045f, y), b.Name, c, scale);
             MapPipeline.ScreenText(new Vector2(x + scr.Y * 0.19f, y), Where(b), Dim, scale * 0.85f);
-            MapPipeline.ScreenText(new Vector2(x + scr.Y * 0.30f, y), StateText(b), StateColor(b), scale * 0.85f);
             MapPipeline.PickName = null;
             y += line;
         }
@@ -163,7 +236,7 @@ public static class CleanMap
             string selName = null;
             foreach (var bd in bands) if (bd.Selected) selName = bd.Name;
             if (_toMap != null && ManeuverEditor) Maneuvers.MapDraw(_toMap, W, _limit, t, Mouse, selName, solar ? null : planet?.Name);
-            if (ManeuverEditor) RouteButtons(selName, bands, t);
+            if (ManeuverEditor) ContextMenu(bands, t);
         }
         finally { if (ui) MapPipeline.UiEnd(); }
 
@@ -398,37 +471,56 @@ public static class CleanMap
     // ───────────────────────────── encounters and GPS (both views) ─────────────────────────────
 
     private static Keen.VRage.Core.Game.Systems.Session _session;
-    private static double _statusUntil;
 
     /// <summary>
-    /// Plan a route to the selected sector (auto nodes), or clear the nodes: two buttons at the foot of
-    /// the map, with the planner's result under them.
+    /// Right click on the map: what is under the mouse decides the menu. A node: edit its axes exactly,
+    /// delete it (or it and the later ones). The trajectory: add a maneuver there. A sector (orbit,
+    /// marker, list row): plan a route to it. Anywhere with a route: clear it.
     /// </summary>
-    private static void RouteButtons(string selName, List<Band> bands, double t)
+    private static void ContextMenu(List<Band> bands, double t)
     {
-        var sz = MapPipeline.ScreenSize;
-        float u = Math.Max(1f, sz.Y / 1080f);
-        Band sel = bands.Find(b => b.Name == selName);
-        bool can = sel != null && sel.Home.Kind != SectorHomes.Kind.OwnPlanet;
-        Vector2 bs = new Vector2(250f * u, 34f * u);
-        Vector2 at = new Vector2(sz.X * 0.5f - bs.X - 6f * u, sz.Y * 0.86f);
-        string label = RoutePlanner.Busy ? $"Planning…  {RoutePlanner.Progress}%" : can ? $"Plan route  ›  {sel.Name}" : "Select a sector to plan";
-        bool hot = HudPanel.Button(at, bs, label, Mouse, u, can && !RoutePlanner.Busy);
+        float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        bool rp = MapInput.RightPressed;
+        if (MapMenu.Draw(Mouse, MapInput.LeftPressed, rp, u)) { Maneuvers.ClaimsMouse = true; return; }
+        if (MapMenu.Open) { Maneuvers.ClaimsMouse = true; return; }
+        if (!rp) return;
+        var items = new List<MapMenu.Item>();
+        string title = null;
         bool hasNodes = Maneuvers.Nodes.Count > 0;
-        Vector2 at2 = new Vector2(sz.X * 0.5f + 6f * u, at.Y);
-        bool hot2 = HudPanel.Button(at2, new Vector2(150f * u, bs.Y), "Clear route", Mouse, u, hasNodes);
-        if (hot || hot2) Maneuvers.ClaimsMouse = true;
-        if (MapInput.LeftPressed || _devPlanClick)
+        var node = Maneuvers.HoverNode;
+        double ht = Maneuvers.HoverT;
+        string sector = node == null && double.IsNaN(ht) ? MapPipeline.ResolvePick(Mouse, 14f) : null;
+        var session = _session;
+        if (node != null)
         {
-            if ((hot || _devPlanClick) && can && !RoutePlanner.Busy) { RoutePlanner.Start(sel.Name); _statusUntil = Wall() + 12; }
-            else if (hot2 && hasNodes) { lock (Maneuvers.Nodes) Maneuvers.Nodes.Clear(); Maneuvers.Selected = null; RoutePlanner.Status = ""; }
+            title = "Maneuver  ·  in " + Maneuvers.Clock(node.T - t);
+            Maneuvers.Selected = node;
+            items.Add(new MapMenu.Item("Prograde…", () => Maneuvers.EditAxis(session, node, 0)));
+            items.Add(new MapMenu.Item("Normal…", () => Maneuvers.EditAxis(session, node, 1)));
+            items.Add(new MapMenu.Item("Radial…", () => Maneuvers.EditAxis(session, node, 2)));
+            items.Add(new MapMenu.Item("Delete maneuver", () => Maneuvers.Delete(node, false)));
+            items.Add(new MapMenu.Item("Delete this and later", () => Maneuvers.Delete(node, true)));
         }
-        _devPlanClick = false;
-
+        else if (!double.IsNaN(ht))
+        {
+            double T = ht;
+            title = "Trajectory  ·  in " + Maneuvers.Clock(T - t);
+            items.Add(new MapMenu.Item("Add maneuver here", () => Maneuvers.AddNodeAt(T)));
+            if (hasNodes) items.Add(new MapMenu.Item("Clear route", Maneuvers.ClearAll));
+        }
+        else if (sector != null)
+        {
+            var b = bands.Find(x => x.Name == sector);
+            title = sector;
+            bool can = b != null && b.Home.Kind != SectorHomes.Kind.OwnPlanet;
+            items.Add(new MapMenu.Item(RoutePlanner.Busy ? "Planning…" : "Plan route here", () => RoutePlanner.Start(sector), can && !RoutePlanner.Busy));
+            if (hasNodes) items.Add(new MapMenu.Item("Clear route", Maneuvers.ClearAll));
+        }
+        else if (hasNodes)
+            items.Add(new MapMenu.Item("Clear route", Maneuvers.ClearAll));
+        if (items.Count > 0) { MapMenu.Show(Mouse + new Vector2(4f * u, 4f * u), title, items); Maneuvers.ClaimsMouse = true; }
     }
 
-    /// <summary>DEV: press the plan button (the selected sector) on the next frame.</summary>
-    public static bool _devPlanClick;
     static double Wall() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
     private static Func<Vector3D, double, Vector3D> _toMap;
     private static double _limit;

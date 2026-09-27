@@ -244,8 +244,14 @@ public static class Maneuvers
             // An encounter: the body where it will be, named (the ghost the arc is drawn about).
             if (!escape && !nb.IsRoot && nb.Name != focusBody && MapPipeline.ToScreen(W(Loc(nb, Vector3D.Zero, tp)), out var gs))
             {
-                MapPipeline.ScreenCircle(gs, 9f * u, new ColorSRGB(col.R, col.G, col.B, 0.45f), 1.2f * u);
-                HudPanel.TagAt(gs + new Vector2(12f * u, 0), nb.Name, col, u, diamond: false);
+                // The ghost at the body's true size on the map (its radius mapped like everything else).
+                double R = SystemHost.Registry?.FindDefinition(nb.Name)?.RadiusMeters ?? 0;
+                float rpx = 0;
+                foreach (var ax in new[] { Vector3D.UnitX, Vector3D.UnitY })
+                    if (MapPipeline.ToScreen(W(Loc(nb, ax * R, tp)), out var es)) rpx = Math.Max(rpx, (es - gs).Length());
+                rpx = Math.Max(rpx, 2f * u);
+                MapPipeline.ScreenCircle(gs, rpx, new ColorSRGB(col.R, col.G, col.B, 0.55f), 1.3f * u);
+                HudPanel.TagAt(gs + new Vector2(rpx + 6f * u, 0), nb.Name, col, u, diamond: false);
             }
         }
 

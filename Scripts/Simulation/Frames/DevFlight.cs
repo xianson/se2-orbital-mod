@@ -76,18 +76,20 @@ public static class DevFlight
 
     /// <summary>Hold a thrust command (grid-local: x right, y up, z backward; each -1..1) for seconds.</summary>
     private static bool _burn;
+    private static double _burnMin;
 
     /// <summary>DEV: fly the next burn with translation thrust along the marker until it completes (or seconds).</summary>
     public static string Burn(double seconds)
     {
         var r = Thrust(Vector3.Zero, seconds);
-        _burn = true;
+        _burn = true; _burnMin = 0;
         return "burn: " + r;
     }
 
     public static string Thrust(Vector3 move, double seconds)
     {
         _burn = false;
+        if (!FrameHost.Seated) { _move = move; _until = Wall() + seconds; _gridId = -1; return $"jetpack thrust {move} for {seconds:F0} s"; }
         // The grid you sat into (named at `seat`), else the heaviest one within 100 m of you.
         OrbitalGridComponent best = _seatGrid != 0 ? GridMembers.Get(_seatGrid) : null; double bm = best != null ? GridMembers.Mass(best) : -1;
         if (best == null)
@@ -107,7 +109,7 @@ public static class DevFlight
     /// <summary>Every frame on the server tick: write the command while it lasts.</summary>
     public static void ServerTick()
     {
-        if (_gridId == 0 || _until <= 0) return;
+        if (_gridId <= 0 || _until <= 0) return;
         var g = GridMembers.Get(_gridId);
         bool on = Wall() < _until;
         if (g == null) { _until = 0; return; }
@@ -135,7 +137,30 @@ public static class DevFlight
     /// <summary>Every frame on the client tick: the same on the client copy (a piloted grid simulates there).</summary>
     public static void ClientTick(Keen.VRage.Core.Game.Systems.Session session)
     {
-        if (_gridId == 0 || _until <= 0) return;
+        if (_gridId == -1 && _until > 0)
+        {
+            // On foot: the jetpack reads the character's ControlData (the same vector a player's keys write).
+            var ch = FrameHost.PlayerCharacter(session);
+            bool on = Wall() < _until;
+            if (_burn)
+            {
+                if (Maneuvers.Nodes.Count == 0 || Maneuvers.BurnLeft < 0.1) { on = false; _burn = false; Status = "burn complete"; }
+                else if (_burnMin > 0 && Maneuvers.BurnLeft > _burnMin + 2) { on = false; _burn = false; Status = $"burn stopped: left grew to {Maneuvers.BurnLeft:F1} m/s"; }
+                else if (ch != null)
+                {
+                    var q = ch.Data.GetWorldTransform().Orientation;
+                    Vector3D local = Vector3D.Transform(Maneuvers.BurnDirWorld, Quaternion.Inverse(q));
+                    double m = Math.Max(Math.Abs(local.X), Math.Max(Math.Abs(local.Y), Math.Abs(local.Z)));
+                    float k = (float)Math.Max(0.25, Math.Min(1.0, Maneuvers.BurnLeft / 5.0));
+                    _burnMin = _burnMin <= 0 ? Maneuvers.BurnLeft : Math.Min(_burnMin, Maneuvers.BurnLeft);
+                    _move = m > 1e-6 ? new Vector3((float)(local.X / m), (float)(local.Y / m), (float)(local.Z / m)) * k : Vector3.Zero;
+                }
+            }
+            if (ch != null) try { ch.Data.Set(new ControlData { Movement = on ? _move : Vector3.Zero, Rotation = Vector3.Zero }); } catch (Exception e) { Status = "jetpack: " + e.Message; }
+            if (!on) { _until = 0; if (Status != "burn complete") Status = "thrust done"; }
+            return;
+        }
+        if (_gridId <= 0 || _until <= 0) return;
         if (_client == null || (_client.Data.GetWorldTransform().Position - _serverPos).Length() > 50)
         {
             _client = null; double bd = 50;

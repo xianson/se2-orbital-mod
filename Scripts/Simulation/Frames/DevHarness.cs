@@ -346,6 +346,8 @@ public static class DevHarness
                         Maneuvers.Selected = i >= 0 && i < l.Count ? l[i] : null;
                         return Maneuvers.Describe(tn);
                     }
+                    case "findarr":   // node findarr <body> <peMinKm> <peMaxKm>: a pass whose periapsis radius is in the window
+                        return Maneuvers.DevFindArrival(a[2], tn, D(a[3]) * 1000, D(a[4]) * 1000);
                     case "findenc":   // node findenc <body>
                         return Maneuvers.DevFindEncounter(a[2], tn);
                     case "pull":   // node pull <P|R|N|AN|RO|RI> <px> <seconds>

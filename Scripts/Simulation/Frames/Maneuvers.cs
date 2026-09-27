@@ -136,30 +136,36 @@ public static class Maneuvers
         bool planned = false;
         foreach (var n in nodes)
         {
-            if (n.T < tc) continue;
-            var arcs = PatchedConic.Propagate(body, OrbitPropagation.StateAt(el, tc), tc, n.T - tc, 8, 256);
-            if (arcs == null || arcs.Count == 0) return legs.Count > 0;
-            foreach (var a in arcs) legs.Add(new Leg { Body = a.Body, El = a.Elements, T0 = a.StartTime, T1 = Math.Min(a.EndTime, n.T), Planned = planned });
-            var last = arcs[arcs.Count - 1];
-            body = last.Body;
-            var st = OrbitPropagation.StateAt(last.Elements, n.T);
+            double Tn = Math.Max(n.T, tc);   // a node already past applies now (burning late)
+            StateVector st;
+            if (Tn - tc < 0.5)
+                st = OrbitPropagation.StateAt(el, Tn);   // the node is now: no coast before it
+            else
+            {
+                var arcs = PatchedConic.Propagate(body, OrbitPropagation.StateAt(el, tc), tc, Tn - tc, 8, 256);
+                if (arcs == null || arcs.Count == 0) return legs.Count > 0;
+                foreach (var a in arcs) legs.Add(new Leg { Body = a.Body, El = a.Elements, T0 = a.StartTime, T1 = Math.Min(a.EndTime, Tn), Planned = planned });
+                var last = arcs[arcs.Count - 1];
+                body = last.Body;
+                st = OrbitPropagation.StateAt(last.Elements, Tn);
+            }
             KeplerianElements after;
             Vector3D dv;
             if (n.Dirty || n.TBody != body.Name)
             {
                 Axes(st, out var P, out var N, out var R);
                 dv = P * n.Pro + N * n.Nor + R * n.Rad;
-                after = OrbitalMath.ToElements(new StateVector(st.Position, st.Velocity + dv), body.Mu, n.T);
+                after = OrbitalMath.ToElements(new StateVector(st.Position, st.Velocity + dv), body.Mu, Tn);
                 if (!IsFinite(after.SemiMajorAxis)) return true;
                 n.TAfter = after; n.TBody = body.Name; n.Dirty = false;
             }
             else
             {
                 after = n.TAfter;
-                dv = OrbitPropagation.StateAt(after, n.T).Velocity - st.Velocity;   // what is left
+                dv = OrbitPropagation.StateAt(after, Tn).Velocity - st.Velocity;   // what is left
             }
             applied.Add(new Applied { Node = n, Body = body, Before = st, Dv = dv, After = after });
-            el = after; tc = n.T; planned = true;
+            el = after; tc = Tn; planned = true;
         }
         double horizon = el.IsElliptic && IsFinite(el.Period) ? Math.Min(el.Period * 1.02, 10 * 86400.0) : 10 * 86400.0;   // long enough for a transfer
         var tail = PatchedConic.Propagate(body, OrbitPropagation.StateAt(el, tc), tc, horizon, 8, 256);
@@ -691,7 +697,7 @@ public static class Maneuvers
         _session = session;
         if (Nodes.Count == 0) { BurnLine = null; BurnLeft = 0; return; }
         // Nodes left in the past without being flown stay until deleted; a flown one completes.
-        if (!NextBurn(t, out var node, out var rem, out var body)) return;
+        if (!NextBurn(t, out var node, out var rem, out var body)) { BurnLeft = 0; BurnLine = null; return; }
         double left = rem.Length();
         double planned = Math.Sqrt(node.Pro * node.Pro + node.Nor * node.Nor + node.Rad * node.Rad);
         if (planned > DoneDv && left < DoneDv)
@@ -804,6 +810,36 @@ public static class Maneuvers
     }
 
     /// <summary>DEV: search node time x prograde delta-v for a trajectory that enters `body`'s SOI; keep the first found.</summary>
+    /// <summary>DEV: as DevFindEncounter, but the pass must have its periapsis radius within [peMin, peMax] m.</summary>
+    public static string DevFindArrival(string body, double t, double peMin, double peMax)
+    {
+        if (!Base(t, out var b0, out var el)) return "no orbit";
+        double period = el.IsElliptic ? el.Period : 3600;
+        lock (Nodes) Nodes.Clear();
+        var n = new Node();
+        lock (Nodes) Nodes.Add(n);
+        double bestMiss = double.MaxValue; (double T, double P, double R) best = default;
+        for (double dt = 120; dt < period; dt += 90)
+            for (int step = 1; step <= 40; step++)
+            {
+                double dv = (step % 2 == 1 ? 1 : -1) * 2.5 * ((step + 1) / 2);
+                for (double rad = -20; rad <= 20; rad += 10)
+                {
+                    n.T = t + dt; n.Pro = dv; n.Nor = 0; n.Rad = rad; n.Edit();
+                    if (!Trajectory(t, out var legs, out _)) continue;
+                    var l = legs.Find(x => x.Body.Name == body);
+                    if (l.Body == null) continue;
+                    double pe = l.El.PeriapsisRadius;
+                    double miss = pe < peMin ? peMin - pe : pe > peMax ? pe - peMax : 0;
+                    if (miss < bestMiss) { bestMiss = miss; best = (n.T, dv, rad); }
+                    if (miss == 0) { Selected = n; return $"arrival at {body}: node in {Clock(dt)}, prograde {dv:F1}, radial {rad:F0} m/s, Pe radius {pe / 1000:F1} km"; }
+                }
+            }
+        if (bestMiss < double.MaxValue) { n.T = best.T; n.Pro = best.P; n.Rad = best.R; n.Edit(); Selected = n; return $"closest: Pe off the window by {bestMiss / 1000:F1} km (node kept)"; }
+        lock (Nodes) Nodes.Remove(n);
+        return "no encounter found";
+    }
+
     public static string DevFindEncounter(string body, double t)
     {
         if (!Base(t, out var b0, out var el)) return "no orbit";

@@ -20,7 +20,9 @@ public static class DebugPanel
         if (!MapInput.KeyPressed(KeyboardInputs.F8) && !DevOpen) return;
         DevOpen = false;
         if (MapMenu.Open) { MapMenu.Close(); return; }
-        MapMenu.Show(mouse, "Debug", Items(session));
+        // In the open middle of the map, clear of the game's side panels (which draw over ours).
+        var scr = MapPipeline.ScreenSize;
+        MapMenu.Show(new Vector2(scr.X * 0.27f, scr.Y * 0.21f), "Debug", Items(session));
     }
 
     private static List<MapMenu.Item> Items(Keen.VRage.Core.Game.Systems.Session session)

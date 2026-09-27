@@ -133,7 +133,9 @@ public static class OrbitHud
         var r = Current;
         double now = Wall();
         string burn = Maneuvers.BurnLine;
-        bool show = OrbitalConfig.ShowOrbit && (r != null || burn != null);
+        // Not over the map: the card would sit on the terminal's close button, and the map's own title
+        // says the same (orbit and next burn).
+        bool show = OrbitalConfig.ShowOrbit && (r != null || burn != null) && !MapView.Visible;
         if (!show)
         {
             if (_card != null) { GameUi.CloseCard(_card); _card = null; }

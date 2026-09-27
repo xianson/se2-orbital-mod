@@ -186,6 +186,9 @@ public static class Maneuvers
     private static double _lastFrame;
     /// <summary>The mouse is on the editor (a node, a handle, the trajectory) or dragging: the map must not select a sector.</summary>
     public static bool ClaimsMouse;
+    /// <summary>The mouse is on a node or a handle (or dragging one): the map camera must not pan.</summary>
+    public static bool OnGizmo;
+    private static bool _addPending; private static double _addT; private static Vector2 _addAt;
 
     private struct Sample { public double T; public Vector2 S; public bool Planned; }
 
@@ -417,6 +420,24 @@ public static class Maneuvers
         if (!edit) { hoverNode = null; hoverT = double.NaN; }
         HoverNode = hoverNode; HoverT = hoverT;
         ClaimsMouse = _drag != Drag.None || hoverHandle >= 0 || hoverNode != null || !double.IsNaN(hoverT);
+        OnGizmo = _drag != Drag.None || hoverHandle >= 0 || hoverNode != null;
+
+        // A click on the path (press and release without dragging) adds a maneuver there; a drag
+        // that starts on the path pans the map instead.
+        if (_addPending)
+        {
+            if (MapCamera.Dragging || (mouse - _addAt).Length() > 5f * u) _addPending = false;
+            else if (!lDown)
+            {
+                _addPending = false;
+                if (!double.IsNaN(_addT) && _addT > t + 5)
+                {
+                    var n = new Node { T = _addT };
+                    lock (Nodes) Nodes.Add(n);
+                    Selected = n;
+                }
+            }
+        }
 
         if (_drag == Drag.Handle && Selected != null)
         {
@@ -441,12 +462,7 @@ public static class Maneuvers
         {
             if (hoverHandle >= 0) { _drag = Drag.Handle; _axis = handles[hoverHandle].axis; _sign = handles[hoverHandle].sign; _anchor = handles[hoverHandle].at; _dir = handles[hoverHandle].dir; }
             else if (hoverNode != null) { Selected = hoverNode; _drag = Drag.Slide; }
-            else if (!double.IsNaN(hoverT) && hoverT > t + 5)
-            {
-                var n = new Node { T = hoverT };
-                lock (Nodes) Nodes.Add(n);
-                Selected = n;
-            }
+            else if (!double.IsNaN(hoverT) && hoverT > t + 5) { _addPending = true; _addT = hoverT; _addAt = mouse; }
             else Selected = null;
         }
 
@@ -722,10 +738,17 @@ public static class Maneuvers
             }
             case "click":
             {
-                double tAbs = SystemHost.Now + _devT; Sample best = default; double bd = double.MaxValue;
-                foreach (var s in _lastSamples) { double d = Math.Abs(s.T - tAbs); if (d < bd) { bd = d; best = s; } }
-                if (bd < double.MaxValue) { mouse = best.S; _devPressed = true; _devLeft = false; }
-                _devOp = null; _devLeft = null;
+                // Press on the path point, then release there next frame (a click, not a drag).
+                if (_devPhase == 0)
+                {
+                    double tAbs = SystemHost.Now + _devT; Sample best = default; double bd = double.MaxValue;
+                    foreach (var s in _lastSamples) { double d = Math.Abs(s.T - tAbs); if (d < bd) { bd = d; best = s; } }
+                    if (bd == double.MaxValue) { _devOp = null; return; }
+                    _devAt = best.S; mouse = _devAt; _devPressed = true; _devLeft = true; _devPhase = 1;
+                    return;
+                }
+                mouse = _devAt; _devLeft = false;
+                if (_devPhase++ >= 2) { _devOp = null; _devLeft = null; }
                 return;
             }
             case "rclick":

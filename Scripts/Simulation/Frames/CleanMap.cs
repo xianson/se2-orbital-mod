@@ -189,7 +189,9 @@ public static class CleanMap
     {
         ordered = ordered.FindAll(b => listed(b));
         Vector2 scr = MapPipeline.ScreenSize;
-        float x = scr.X * 0.775f, y = scr.Y * 0.27f, line = scr.Y * 0.0275f, scale = 0.78f;
+        float k = MapPipeline.TextScale;   // rows and columns grow with the text
+        float x = scr.X * 0.775f, y = scr.Y * 0.27f, line = scr.Y * 0.0275f * k, scale = 0.78f;
+        float y0 = y;
         string group = null;
         foreach (var b in ordered)
         {
@@ -207,12 +209,13 @@ public static class CleanMap
             var c = b.Selected ? LineSel : Text;
             MapPipeline.PickName = b.Name;
             MapPipeline.ScreenText(new Vector2(x, y), b.Number.ToString(), Dim, scale);
-            MapPipeline.ScreenDot(new Vector2(x + scr.Y * 0.030f, y + line * 0.42f), 4.5f, StateColor(b));
-            MapPipeline.ScreenText(new Vector2(x + scr.Y * 0.045f, y), b.Name, c, scale);
-            MapPipeline.ScreenText(new Vector2(x + scr.Y * 0.19f, y), Where(b), Dim, scale * 0.85f);
+            MapPipeline.ScreenDot(new Vector2(x + scr.Y * 0.030f * k, y + line * 0.42f), 4.5f, StateColor(b));
+            MapPipeline.ScreenText(new Vector2(x + scr.Y * 0.045f * k, y), b.Name, c, scale);
+            MapPipeline.ScreenText(new Vector2(x + scr.Y * 0.19f * k, y), Where(b), Dim, scale * 0.85f);
             MapPipeline.PickName = null;
             y += line;
         }
+        MapPipeline.Reserve(new Vector2(x - scr.Y * 0.012f, y0 - line * 0.3f), new Vector2(scr.X, y + line * 0.3f));
     }
 
 
@@ -227,7 +230,8 @@ public static class CleanMap
     {
         Vector3D W(Vector3D local) => mapPos + (QuaternionD)orient * local;
         _session = session;
-        bool solar = u >= SolarZoom;
+        // Hysteresis: a zoom resting near the switch must not flicker between the views.
+        bool solar = _wasSolar == true ? u >= SolarZoom * 0.9 : u >= SolarZoom * 1.1;
         string focus = Focus != "auto" ? Focus : ViewFocus;
         if (focus == null) foreach (var bd in bands) if (bd.Selected && bd.Home.Kind != SectorHomes.Kind.OwnPlanet) focus = bd.Host;
         focus ??= playerPlanet;
@@ -246,7 +250,8 @@ public static class CleanMap
                 ? b.Home.Kind == SectorHomes.Kind.Belt || b.Home.Kind == SectorHomes.Kind.Ring || b.Selected
                 : b.Host == focus && b.Home.Kind != SectorHomes.Kind.Belt && b.Home.Kind != SectorHomes.Kind.Ring,
                 // A planet's view lists that planet's sectors only; the system view lists them all.
-                b => solar || b.Host == focus || b.Selected);
+                b => solar || (b.Host == focus && b.Home.Kind != SectorHomes.Kind.Belt && b.Home.Kind != SectorHomes.Kind.Ring));
+            Title(solar ? null : planet, playerPlanet, playerOrbit);
             if (!solar && planet != null && planet.Parent != null) DrawSystem(parts, bands, reg, planet, t, playerPlanet, playerRel, playerOrbit, globes, W);
             else DrawSolar(parts, bands, reg, t, playerPlanet, globes, W);
             string selName = null;
@@ -312,7 +317,7 @@ public static class CleanMap
         double planetR = (pdef?.RadiusMeters ?? 6e4) * scaleSys;      // true size
         MapGlobes.Use(planet.Name, W(Vector3D.Zero), planetR, globes);
         BodyRing(W, Vector3D.Zero, planetR, 9f, Text, 1.5f);
-        MapPipeline.Text(W(new Vector3D(0, 0, fit * 0.05)), planet.Name, Text, 0.9f);
+        MapPipeline.Text(W(new Vector3D(0, 0, LabelGap(W, Vector3D.Zero, planetR, 9f, fit * 0.05))), planet.Name, Text, 0.9f);
         foreach (var moon in planet.Children)
         {
             if (!SystemHost.BeaconOf.ContainsKey(moon.Name)) continue;
@@ -320,7 +325,7 @@ public static class CleanMap
             Vector3D ml = Lv(mp);
             MapGlobes.Use(moon.Name, W(ml), (reg.FindDefinition(moon.Name)?.RadiusMeters ?? 2e4) * scaleSys, globes);
             BodyRing(W, ml, (reg.FindDefinition(moon.Name)?.RadiusMeters ?? 2e4) * scaleSys, 5f, Dim, 1.2f);
-            MapPipeline.Text(W(ml + new Vector3D(0, 0, fit * 0.035)), moon.Name, Dim, 0.6f);
+            MapPipeline.Text(W(ml + new Vector3D(0, 0, LabelGap(W, ml, (reg.FindDefinition(moon.Name)?.RadiusMeters ?? 2e4) * scaleSys, 5f, fit * 0.035))), moon.Name, Dim, 0.6f);
         }
 
         foreach (var bd in mine)
@@ -388,6 +393,7 @@ public static class CleanMap
                     break;
                 }
             }
+            MapPipeline.PickName = null;   // only the sector's own lines and marker pick it
         }
 
         Vector3D porg = planet.OriginInRoot(t).Position;
@@ -409,7 +415,12 @@ public static class CleanMap
             }
             Vector3D yl = Lv(playerRel);
             MapPipeline.Text(W(yl), "+", You, 1.2f);
-            MapPipeline.Text(W(yl + new Vector3D(0, 0, fit * 0.05)), "you", You, 0.7f);
+            // Beside the mark on screen (a map-space offset lands far away when zoomed in).
+            if (MapPipeline.ToScreen(W(yl), out var ys))
+            {
+                float uu = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+                HudPanel.TagAt(ys + new Vector2(12f * uu, 0), "you", You, uu, diamond: false);
+            }
         }
     }
 
@@ -444,6 +455,7 @@ public static class CleanMap
             Circle(W, r, OrbitColor(bd), bd.Selected ? 2.4f : 1.8f);
             Marker(W(new Vector3D(Math.Cos(ang) * r, 0, Math.Sin(ang) * r)), bd);
             MapPipeline.Text(W(new Vector3D(Math.Cos(ang) * (r + SolarRadius * 0.06), 0, Math.Sin(ang) * (r + SolarRadius * 0.06))), $"{bd.Number}  {bd.Name}", Quiet(bd) ? QuietText : bd.Selected ? LineSel : Text, Quiet(bd) ? 0.72f * 0.85f : 0.72f);
+            MapPipeline.PickName = null;
         }
 
         // Sectors with their own orbit (a planet-like ring): the full orbit line and the band section.
@@ -456,6 +468,7 @@ public static class CleanMap
             Circle(W, r, OrbitColor(bd), bd.Selected ? 2.4f : 1.8f);
             Marker(W(new Vector3D(Math.Cos(ang) * r, 0, Math.Sin(ang) * r)), bd);
             MapPipeline.Text(W(new Vector3D(Math.Cos(ang) * (r + SolarRadius * 0.06), 0, Math.Sin(ang) * (r + SolarRadius * 0.06))), $"{bd.Number}  {bd.Name}", Quiet(bd) ? QuietText : bd.Selected ? LineSel : Text, Quiet(bd) ? 0.8f * 0.85f : 0.8f);
+            MapPipeline.PickName = null;
         }
 
         // The planets: orbit line, the globe, and the planet's own sector as a circular section around it.
@@ -539,6 +552,55 @@ public static class CleanMap
     /// their orbit and where they are now. GPS markers: at their true place (frame-transferred), pinned to
     /// the edge when beyond the view. toLocal maps a sun-centred model position to the map.
     /// </summary>
+    /// <summary>
+    /// Where you are looking and where you are, at the top of the map's open area: "Delfos › Kemik",
+    /// then your ship's situation (the orbit's Pe / Ap, or on the ground).
+    /// </summary>
+    static void Title(GravityBody view, string playerPlanet, KeplerianElements? orbit)
+    {
+        var scr = MapPipeline.ScreenSize;
+        var at = new Vector2(scr.X * 0.265f, scr.Y * 0.125f);
+        string path = StarName;
+        if (view != null)
+        {
+            var chain = new List<string>();
+            for (var b = view; b != null && b.Parent != null; b = b.Parent) chain.Insert(0, b.Name);
+            path += "  ›  " + string.Join("  ›  ", chain);
+        }
+        MapPipeline.ScreenText(at, path, Text, 1.05f);
+        MapPipeline.Reserve(at - new Vector2(4, 4), at + new Vector2(scr.X * 0.3f, scr.Y * 0.09f));
+        string you;
+        if (FrameHost.PlayerFrame == null && FrameHost.Grounded && playerPlanet != null) you = $"You: on {playerPlanet}";
+        else if (orbit.HasValue && playerPlanet != null)
+        {
+            var o = orbit.Value;
+            double r = SystemHost.Registry?.FindDefinition(playerPlanet)?.RadiusMeters ?? 0;
+            string pe = Km(o.PeriapsisRadius - r);
+            string ap = o.IsElliptic ? Km(o.SemiMajorAxis * (1 + o.Eccentricity) - r) : "escape";
+            you = $"You: orbiting {playerPlanet}   Pe {pe}   Ap {ap}";
+        }
+        else you = playerPlanet != null ? $"You: near {playerPlanet}" : "";
+        if (you.Length > 0) MapPipeline.ScreenText(at + new Vector2(0, scr.Y * 0.034f), you, You, 0.78f);
+        string burn = Maneuvers.BurnLine;
+        if (burn != null) MapPipeline.ScreenText(at + new Vector2(0, scr.Y * 0.062f), burn, Dim, 0.78f);
+    }
+
+    /// <summary>
+    /// How far below a body (map-local units) its name goes: just clear of the globe as drawn (its true
+    /// size, or its minimum ring when smaller), whatever the zoom. Fallback when it cannot be measured.
+    /// </summary>
+    static double LabelGap(Func<Vector3D, Vector3D> W, Vector3D c, double r, float ringPx, double fallback)
+    {
+        if (!(r > 0) || !MapPipeline.ToScreen(W(c), out var sc) || !MapPipeline.ToScreen(W(c + new Vector3D(r, 0, 0)), out var se)) return fallback;
+        double rpx = (se - sc).Length();
+        if (rpx < 0.2) return fallback;
+        float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        double perPx = r / rpx;
+        return (Math.Max(rpx, ringPx * u) + 16 * u) * perPx;
+    }
+
+    static string Km(double m) => Math.Abs(m) >= 10000 ? $"{m / 1000:N0} km" : $"{m / 1000:F1} km";
+
     /// <summary>The planet the zoom took you to (zooming in over it); null until a zoom chooses one.</summary>
     public static string ViewFocus;
     private static bool? _wasSolar;
@@ -550,7 +612,9 @@ public static class CleanMap
     private static void ZoomTransition(bool solar, GravityBody planet, SystemRegistry reg, double t, Func<Vector3D, Vector3D> W, Vector3D mapPos)
     {
         bool? was = _wasSolar; _wasSolar = solar;
-        if (was == null || was.Value == solar || reg?.Root == null) return;
+        // Opening the map: the view centres on what it shows (the planet, or the star), as KSP does.
+        if (was == null) { if (MapCamera.Focus.HasValue) MapCamera.PanTo(W(Vector3D.Zero)); else _wasSolar = null; return; }
+        if (was.Value == solar || reg?.Root == null) return;
         if (solar)
         {
             var top = planet; while (top?.Parent != null && top.Parent.Parent != null) top = top.Parent;
@@ -561,11 +625,17 @@ public static class CleanMap
             if (!MapCamera.Focus.HasValue) return;
             Vector3D f = MapCamera.Focus.Value;
             GravityBody best = null; double bd = double.MaxValue;
+            // The planet under the cursor (within 60 px), else the one nearest the middle of the view.
+            float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+            double bpx = 60 * u;
             foreach (var b in reg.Root.Children)
-            {
-                double d = (W(SolarLocal(b, t)) - f).Length();
-                if (d < bd) { bd = d; best = b; }
-            }
+                if (MapPipeline.ToScreen(W(SolarLocal(b, t)), out var sp) && (sp - Mouse).Length() < bpx) { bpx = (sp - Mouse).Length(); best = b; }
+            if (best == null)
+                foreach (var b in reg.Root.Children)
+                {
+                    double d = (W(SolarLocal(b, t)) - f).Length();
+                    if (d < bd) { bd = d; best = b; }
+                }
             if (best != null) ViewFocus = best.Name;
             MapCamera.PanTo(W(Vector3D.Zero));
         }

@@ -250,6 +250,9 @@ public static class MapPipeline
 
     private static object _batch;
     private static readonly List<BoundingBox2> _placed = new List<BoundingBox2>();
+
+    /// <summary>Keep map labels out of a screen area (the sector list, the title) for this frame.</summary>
+    public static void Reserve(Vector2 min, Vector2 max) => _placed.Add(new BoundingBox2(min, max));
     private static MethodInfo _drawLine, _drawString;
     private static object _font;
     private static Keen.Game2.Client.GameSystems.CameraSystems.CameraComponent _cam;
@@ -304,23 +307,37 @@ public static class MapPipeline
     }
 
     /// <summary>Text in the map's own font at a world point, centred.</summary>
-    public static void Text(Vector3D at, string text, ColorSRGB color, float scale)
+    /// <summary>All map text is drawn this much larger than the sizes the callers ask for (legibility).</summary>
+    public static float TextScale = 1.3f;
+
+    private static MethodInfo _measure; private static object[] _measureArgs;
+
+    /// <summary>The font's own measure of a string at scale 1 (the method is found once).</summary>
+    private static Vector2 Measure(string text)
     {
-        if (_batch == null || _drawString == null || _font == null || !Screen(at, out var s)) return;
-        try
+        if (_measure == null)
         {
-            Vector2 size = Vector2.Zero;
             foreach (var m in _font.GetType().GetMethods())
             {
                 if (m.Name != "MeasureString" || m.ReturnType != typeof(Vector2)) continue;
                 var ps = m.GetParameters();
                 if (ps.Length == 0 || ps[0].ParameterType != typeof(string)) continue;
                 var args = new object[ps.Length];
-                args[0] = text;
                 for (int q = 1; q < ps.Length; q++) args[q] = ps[q].HasDefaultValue ? ps[q].DefaultValue : (ps[q].ParameterType.IsValueType ? Activator.CreateInstance(ps[q].ParameterType) : null);
-                try { size = (Vector2)m.Invoke(_font, args) * scale; } catch { }
-                if (size.X > 0) break;
+                _measure = m; _measureArgs = args; break;
             }
+            if (_measure == null) return Vector2.Zero;
+        }
+        try { _measureArgs[0] = text; return (Vector2)_measure.Invoke(_font, _measureArgs); } catch { return Vector2.Zero; }
+    }
+
+    public static void Text(Vector3D at, string text, ColorSRGB color, float scale)
+    {
+        if (_batch == null || _drawString == null || _font == null || !Screen(at, out var s)) return;
+        scale *= TextScale;
+        try
+        {
+            Vector2 size = Measure(text) * scale;
             if (size.X <= 0) size = new Vector2(text.Length * 12f * scale, 22f * scale);   // estimate
             // No overlapping labels (first placed wins): zoom in to reveal the rest.
             var box = new BoundingBox2(s - size * 0.5f - new Vector2(4, 2), s + size * 0.5f + new Vector2(4, 2));
@@ -383,23 +400,10 @@ public static class MapPipeline
     /// <summary>Size of a text in the UI font at a scale (px).</summary>
     public static Vector2 MeasureText(string text, float scale)
     {
+        scale *= TextScale;   // as ScreenText draws it
         if (_font == null || string.IsNullOrEmpty(text)) return new Vector2((text?.Length ?? 0) * 12f * scale, 22f * scale);
-        try
-        {
-            foreach (var m in _font.GetType().GetMethods())
-            {
-                if (m.Name != "MeasureString" || m.ReturnType != typeof(Vector2)) continue;
-                var ps = m.GetParameters();
-                if (ps.Length == 0 || ps[0].ParameterType != typeof(string)) continue;
-                var args = new object[ps.Length];
-                args[0] = text;
-                for (int q = 1; q < ps.Length; q++) args[q] = ps[q].HasDefaultValue ? ps[q].DefaultValue : (ps[q].ParameterType.IsValueType ? Activator.CreateInstance(ps[q].ParameterType) : null);
-                var v = (Vector2)m.Invoke(_font, args) * scale;
-                if (v.X > 0) return v;
-            }
-        }
-        catch { }
-        return new Vector2(text.Length * 12f * scale, 22f * scale);
+        var v = Measure(text) * scale;
+        return v.X > 0 ? v : new Vector2(text.Length * 12f * scale, 22f * scale);
     }
 
     /// <summary>A screen-space line (px).</summary>
@@ -432,6 +436,7 @@ public static class MapPipeline
     /// <summary>Left-aligned text at a screen position (px), in the map's font; no collision test.</summary>
     public static void ScreenText(Vector2 at, string text, ColorSRGB color, float scale)
     {
+        scale *= TextScale;
         if (PickName != null && !string.IsNullOrEmpty(text)) { float h = 22f * scale; AddPick(at + new Vector2(0, h * 0.5f), at + new Vector2(text.Length * 15f * scale, h * 0.5f)); }
         if (_batch == null || _drawString == null || _font == null) return;
         try

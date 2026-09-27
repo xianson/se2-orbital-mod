@@ -24,7 +24,10 @@ public static class MapCamera
     public static double Distance;
     /// <summary>Where the camera looks on the map plane (world), while driving the camera.</summary>
     public static Vector3D? Focus;
-    private static Vector3D _focusGame;
+    /// <summary>DEV: camera distance to use instead of the game's zoom (0 = the game's).</summary>
+    public static double DevZoom;
+    private static Vector3D _focusGame, _mapPos;
+    private static QuaternionD _mapQ = QuaternionD.Identity;
 
     /// <summary>Centre the view on a point of the map (world); from the next frame.</summary>
     public static void PanTo(Vector3D world) { if (Focus.HasValue) _pan = world - _focusGame; }
@@ -51,6 +54,7 @@ public static class MapCamera
         var g = ctrl.Data.GetWorldTransform();
         Vector3D mapPos = map.MapEntity.Data.GetWorldTransform().Position;
         QuaternionD q = (QuaternionD)map.Orientation;
+        _mapPos = mapPos; _mapQ = q;
         Vector3D up = q * Vector3D.Up, east = q * Vector3D.Right, north = q * Vector3D.Forward;
         Vector3D gf = (Vector3D)g.Orientation.GetForward();
         double den = Vector3D.Dot(gf, up);
@@ -58,6 +62,7 @@ public static class MapCamera
         double d = Vector3D.Dot(mapPos - g.Position, up) / den;
         if (!(d > 0)) { Status = "camera faces away"; return; }
         Vector3D focusGame = g.Position + gf * d;
+        if (DevZoom > 0) d = DevZoom;   // DEV: a set zoom instead of the game's wheel
         if (!_init)
         {
             // Start from the game's angle, so opening the map looks as it always has.
@@ -70,7 +75,8 @@ public static class MapCamera
         bool l = MapInput.Left, r = MapInput.Right, m = MapInput.Middle;
         if (haveMouse)
         {
-            bool free = !Maneuvers.ClaimsMouse && CleanMap.Hovered == null && !MapMenu.Open;
+            // Left-drag pans from anywhere but a maneuver node or handle (a click still selects or adds).
+            bool free = !Maneuvers.OnGizmo && !MapMenu.Open;
             if (l && !_lWas) { _pressL = mouse; _lArmed = free; }
             if (r && !_rWas) { _pressR = mouse; _rArmed = !MapMenu.Open; }
             if (m && !_mWas) { _pressM = mouse; _mArmed = true; }
@@ -139,8 +145,11 @@ public static class MapCamera
     /// <summary>DEV: mapcam [yawDeg pitchDeg [panX panZ]] | mapcam reset</summary>
     public static string Dev(string[] a)
     {
-        if (a.Length > 1 && a[1] == "reset") { _init = false; return "map camera reset"; }
+        if (a.Length > 1 && a[1] == "reset") { _init = false; DevZoom = 0; return "map camera reset"; }
+        if (a.Length > 2 && a[1] == "at") { var b = SystemHost.Registry?.Find(a[2]); if (b == null) return "no body"; PanTo(_mapPos + _mapQ * CleanMap.SolarLocal(b, SystemHost.Now)); return "centre on " + a[2]; }
+        if (a.Length > 3 && a[1] == "pan") { _pan = new Vector3D(double.Parse(a[2]), 0, double.Parse(a[3])); return "pan " + _pan; }
+        if (a.Length > 2 && a[1] == "zoom") { DevZoom = double.Parse(a[2]); return "map zoom " + DevZoom; }
         if (a.Length > 2) { _yaw = double.Parse(a[1]) * Math.PI / 180; _pitch = Math.Clamp(double.Parse(a[2]) * Math.PI / 180, MinPitch, MaxPitch); _init = true; }
-        return "map camera: " + Status;
+        return "map camera: " + Status + " | view " + CleanMap.Status + " focus " + CleanMap.ViewFocus;
     }
 }

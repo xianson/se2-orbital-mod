@@ -32,9 +32,10 @@ public static class UnifiedMap
     /// <summary>Sectors drawn as band sections of their orbits (else: discs).</summary>
     public static bool BandSections = true;
     public static double ZoomOutFactor = 6.0;
+    public static double ZoomInFactor = 25.0;
     public static string Status = "-";
 
-    private static float _baseMax = -1;
+    private static float _baseMax = -1, _baseMin = -1;
     private static bool _gameHidden, _labelsHidden;
 
     // Colours: the colonization states, KSP conventions for orbits.
@@ -64,6 +65,11 @@ public static class UnifiedMap
         if (!Enabled) { RestoreGame(map); return false; }
         if (_baseMax < 0) _baseMax = map.MaxDistance;
         if (map.MaxDistance < _baseMax * (float)ZoomOutFactor) map.MaxDistance = _baseMax * (float)ZoomOutFactor;
+        // And in much closer: a low orbit is a speck at the planet view's sector-wide frame (KSP zooms
+        // right down to the ship).
+        if (_baseMin < 0) _baseMin = map.MinDistance;
+        float minD = Math.Max(0.08f, _baseMin / (float)ZoomInFactor);   // closer, the globes clip at the camera's near plane
+        if (map.MinDistance > minD) map.MinDistance = minD;
         HideGame(map);
         _labelsHidden = true;
 
@@ -400,6 +406,7 @@ public static class UnifiedMap
         CleanMap.Reset();
         SetGameVisible(map, true);
         if (_baseMax > 0) map.MaxDistance = _baseMax;
+        if (_baseMin > 0) map.MinDistance = _baseMin;
         _gameHidden = false;
     }
 
@@ -505,14 +512,17 @@ public static class UnifiedMap
                 // The game's globe labels would stay behind at the charted positions: hide them too.
                 try { v.GetType().GetMethod("SetLabelVisible")?.Invoke(v, new object[] { visible }); } catch { }
             }
-        // The game's star (Delfos) too: our system view draws it at the centre.
+        // The game's star (Delfos) too: our system view draws it at the centre. Its own Deactivate
+        // (label and glow off). NOT UpdateScale: the star's render entity is not a model, and the scale
+        // command crashes the render thread (seen in game, 2.4.0.95).
         object star = PlanetRenderBridge.GetMember(map, "_mainStar");
-        if (star != null)
+        if (star != null && (_starShown != visible || !ReferenceEquals(star, _star)))
         {
-            PlanetRenderBridge.ScaleMapObject(star, visible ? 0f : 1e-4f);
-            try { star.GetType().GetMethod("SetLabelVisible")?.Invoke(star, new object[] { visible }); } catch { }
+            try { star.GetType().GetMethod(visible ? "Activate" : "Deactivate", visible ? new[] { typeof(bool) } : Type.EmptyTypes)?.Invoke(star, visible ? new object[] { false } : null); } catch { }
+            _starShown = visible; _star = star;
         }
     }
+    private static bool? _starShown; private static object _star;
 
     private static void StringIdSel(ColonizationMapSessionComponent map, out Keen.VRage.Library.Utils.StringId? sel)
     {

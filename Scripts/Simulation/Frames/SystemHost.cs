@@ -30,6 +30,9 @@ public static class SystemHost
     public const double K = 63.0 / 6371.0;
     /// <summary>Orbits (and the sun's radius) a further 10x smaller than k: a compact, KSP-like system.</summary>
     public const double OrbitScale = 0.1;
+    /// <summary>Sectors about a planet: their charted distance x this (less shrunk than the planets' own
+    /// orbits: at 0.1 Kemik's sectors crowded within 800 km). Kemik's land at ~1,300-3,200 km (apoapses under ~3,900), inside its 4,574 km SOI.</summary>
+    public const double SectorOrbitScale = 0.4;
     public const double AU = 1.495978707e11 * K * OrbitScale;   // 147,900 km
     public const double StarRadius = 6.9634e8 * K * OrbitScale;   // 689 km
     /// <summary>First planet's orbit around the star, and the spacing factor for the next ones.</summary>

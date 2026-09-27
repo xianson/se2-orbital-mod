@@ -254,13 +254,13 @@ public static class EncounterFrames
             Vector3D pc = SystemHost.BeaconOf.TryGetValue(home.Host, out var b) ? b.Center : Vector3D.Zero;
             Vector3D d = cp - pc;
             double keep = def != null ? PlanetBerths.KeepRadius(def) : 1e5;
-            site.OwnR = Math.Max(keep * 1.6, new Vector3D(d.X, d.Z, 0).Length() * SystemHost.OrbitScale);
+            site.OwnR = Math.Max(keep * 1.6, new Vector3D(d.X, d.Z, 0).Length() * SystemHost.SectorOrbitScale);
             site.OwnTheta = Math.Atan2(d.Z, d.X);
         }
         else
         {
             // The site's place within its sector, scaled like the orbits, held in the home's co-moving axes.
-            Vector3D dw = (cp - sc.Area.Center) * SystemHost.OrbitScale;
+            Vector3D dw = (cp - sc.Area.Center) * SystemHost.SectorOrbitScale;
             Vector3D dm = new Vector3D(dw.X, dw.Z, dw.Y);   // map/world XZ is the ecliptic (model XY)
             Basis(site, t, out Vector3D R, out Vector3D T, out Vector3D N);
             site.Rtn = new Vector3D(Vector3D.Dot(dm, R), Vector3D.Dot(dm, T), Vector3D.Dot(dm, N));

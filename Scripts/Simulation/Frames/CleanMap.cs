@@ -21,7 +21,7 @@ public static class CleanMap
 {
     public static bool Enabled = true;
     public static string Focus = "auto";
-    public const double SystemRadius = 0.50;   // map units (fills most of the view at the map's default zoom)
+    public const double SystemRadius = 0.80;   // map units (fills most of the view at the map's default zoom)
     public const double SolarRadius = 1.90;
     public const double SolarZoom = 2.2;       // u (camera distance / original max) where the view switches
     public static double MeshRebuildSeconds = 0.5;
@@ -576,8 +576,8 @@ public static class CleanMap
 
     public const string SunPart = "OrbitalSun", BeltPart = "OrbitalBelt";
     // The planet's own sector at true size: from its charted distance, +/- half its charted size.
-    private static double si_own_inner(SectorHomes.Home h) => Math.Max(0, h.A - h.Size * 0.5 * SystemHost.OrbitScale);
-    private static double si_own_outer(SectorHomes.Home h) => h.A + h.Size * 0.5 * SystemHost.OrbitScale;
+    private static double si_own_inner(SectorHomes.Home h) => Math.Max(0, h.A - h.Size * 0.5 * SystemHost.SectorOrbitScale);
+    private static double si_own_outer(SectorHomes.Home h) => h.A + h.Size * 0.5 * SystemHost.SectorOrbitScale;
     public const int BeltSegments = 48;
 
     // ───────────────────────────── helpers ─────────────────────────────

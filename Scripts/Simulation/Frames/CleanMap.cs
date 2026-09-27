@@ -424,11 +424,7 @@ public static class CleanMap
             else if (hot2 && hasNodes) { lock (Maneuvers.Nodes) Maneuvers.Nodes.Clear(); Maneuvers.Selected = null; RoutePlanner.Status = ""; }
         }
         _devPlanClick = false;
-        if (RoutePlanner.Status.Length > 0 && (RoutePlanner.Busy || Wall() < _statusUntil || hasNodes))
-        {
-            var ts = MapPipeline.MeasureText(RoutePlanner.Status, 0.5f * u);
-            HudPanel.LabelAt(new Vector2(sz.X * 0.5f - ts.X * 0.5f, at.Y + bs.Y + 18f * u), RoutePlanner.Status, new ColorSRGB(0.75f, 0.85f, 0.95f, 1f), u);
-        }
+
     }
 
     /// <summary>DEV: press the plan button (the selected sector) on the next frame.</summary>

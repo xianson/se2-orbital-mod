@@ -46,12 +46,12 @@ public static class HudPanel
     /// <summary>A flat button (dark plate, accent rule on hover, centred text). Returns true when the mouse is on it.</summary>
     public static bool Button(Vector2 min, Vector2 size, string text, Vector2 mouse, float u, bool enabled = true)
     {
+        // The game's own button look (as its "Fast Travel"): a flat translucent slate, lighter on hover.
         var max = min + size;
         bool hot = enabled && mouse.X >= min.X && mouse.X <= max.X && mouse.Y >= min.Y && mouse.Y <= max.Y;
-        MapPipeline.ScreenRect(min, max, hot ? new ColorSRGB(0.06f, 0.11f, 0.16f, 0.92f) : Bg);
-        MapPipeline.ScreenLine(new Vector2(min.X, max.Y), max, hot ? Accent : new ColorSRGB(Accent.R, Accent.G, Accent.B, 0.45f), 2f * u);
-        var ts = MapPipeline.MeasureText(text, 0.55f * u);
-        MapPipeline.ScreenText(min + (size - ts) * 0.5f, text, enabled ? Title : Label, 0.55f * u);
+        MapPipeline.ScreenRect(min, max, hot ? new ColorSRGB(0.30f, 0.38f, 0.44f, 0.80f) : new ColorSRGB(0.14f, 0.20f, 0.25f, 0.62f));
+        var ts = MapPipeline.MeasureText(text, 0.62f * u);
+        MapPipeline.ScreenText(min + (size - ts) * 0.5f, text, enabled ? Title : new ColorSRGB(0.55f, 0.62f, 0.68f, 0.9f), 0.62f * u);
         return hot;
     }
 
@@ -118,36 +118,58 @@ public static class OrbitHud
     public static Readout Current;
     static readonly ColorSRGB Orbit = new ColorSRGB(1f, 0.84f, 0.25f, 1f);
 
+    private static GameUi.Card _card;
+    private static double _nextUpdate, _nextCheck;
+
+    /// <summary>
+    /// The readout lives in the game's own notification card (updated in place, twice a second at most),
+    /// and the apsides are tagged on the drawn orbit.
+    /// </summary>
     public static void Draw(Keen.VRage.Core.Game.Systems.Session session)
     {
         var r = Current;
-        if (MapView.Visible || OrbitalMap.Active || !OrbitalConfig.ShowOrbit) return;
-        if (r == null && WarpControl.Notice == null) return;
+        double now = Wall();
+        string burn = Maneuvers.BurnLine;
+        bool show = OrbitalConfig.ShowOrbit && (r != null || burn != null);
+        if (!show)
+        {
+            if (_card != null) { GameUi.CloseCard(_card); _card = null; }
+            return;
+        }
+        if (now >= _nextUpdate)
+        {
+            _nextUpdate = now + 0.5;
+            string title = r != null ? $"Orbit  ·  {r.Body}" : "Maneuver";
+            var sb = new System.Text.StringBuilder();
+            if (r != null)
+            {
+                sb.Append($"Altitude {HudPanel.Km(r.Alt)}   ·   {r.Speed:N0} m/s\n");
+                sb.Append($"Periapsis {(r.Pe < 0 ? "impact" : HudPanel.Km(r.Pe))}   ·   Apoapsis {(r.Escape ? "escape" : HudPanel.Km(r.Ap))}\n");
+                if (!r.Escape) sb.Append($"Period {Maneuvers.Clock(r.Period)}   ·   Inclination {r.IncDeg:F1}°\n");
+                sb.Append(r.Mode);
+            }
+            if (burn != null) sb.Append((sb.Length > 0 ? "\n" : "") + burn);
+            string content = sb.ToString();
+            if (_card == null || (now >= _nextCheck && !GameUi.IsOpen(_card)))
+            {
+                _nextCheck = now + 2;
+                if (_card != null) GameUi.CloseCard(_card);
+                _card = GameUi.ShowCard(session, title, content);
+            }
+            else GameUi.UpdateCard(_card, title, content);
+        }
+        // Pe / Ap tags on the drawn orbit (world HUD annotations, like the game's markers).
+        if (r == null || MapView.Visible || OrbitalMap.Active) return;
         if (!FrameMarkers.BeginHud(session)) return;
         try
         {
             HudPanel.BeginLabels();
-            var sz = MapPipeline.ScreenSize;
-            float u = Math.Max(1f, sz.Y / 1080f);
-            if (r == null)
-            {
-                // Just the notice (no orbit to show).
-                HudPanel.Draw(new Vector2(sz.X - 340f * u - 24f * u, sz.Y * 0.30f), 340f * u, "WARP", null, new List<HudPanel.Row>(), WarpControl.Notice, u);
-                return;
-            }
-            var rows = new List<HudPanel.Row>
-            {
-                new HudPanel.Row("Altitude", HudPanel.Km(r.Alt)),
-                new HudPanel.Row("Speed", $"{r.Speed:N0} m/s"),
-                new HudPanel.Row("Periapsis", r.Pe < 0 ? "impact" : HudPanel.Km(r.Pe), r.Pe < 0 ? HudPanel.Warn : (ColorSRGB?)null),
-                new HudPanel.Row("Apoapsis", r.Escape ? "escape" : HudPanel.Km(r.Ap)),
-            };
-            if (!r.Escape) rows.Add(new HudPanel.Row("Period", Maneuvers.Clock(r.Period)));
-            rows.Add(new HudPanel.Row("Inclination", $"{r.IncDeg:F1}°"));
-            HudPanel.Draw(new Vector2(sz.X - 300f * u - 24f * u, sz.Y * 0.30f), 300f * u, "ORBIT", r.Body, rows, WarpControl.Notice ?? r.Mode, u);
+            float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
             if (r.PeWorld.HasValue) HudPanel.Tag(r.PeWorld.Value, "Pe " + HudPanel.Km(r.Pe), Orbit, u);
             if (r.ApWorld.HasValue && !r.Escape) HudPanel.Tag(r.ApWorld.Value, "Ap " + HudPanel.Km(r.Ap), Orbit, u);
         }
         finally { MapPipeline.UiEnd(); }
     }
+
+    static double Wall() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
 }

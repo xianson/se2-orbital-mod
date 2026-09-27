@@ -39,6 +39,8 @@ public static class Maneuvers
 
     public static readonly List<Node> Nodes = new List<Node>();   // lock(Nodes)
     public static Node Selected;
+    /// <summary>The next burn, one line for the orbit card (null when none).</summary>
+    public static string BurnLine;
     public const double WarpLead = 30.0;      // s: warp stops this long before a node
     public const double DoneDv = 0.1;         // m/s
     public static string Status = "";
@@ -320,6 +322,8 @@ public static class Maneuvers
         }
 
         _lastHandles.Clear(); foreach (var h in handles) _lastHandles.Add((h.label, h.at, h.dir));
+        var clickRects = new List<(Vector2 min, Vector2 max, int axis, double sign)>(_valueRects); _valueRects.Clear();
+        int hoverValue = clickRects.FindIndex(b => mouse.X >= b.min.X && mouse.X <= b.max.X && mouse.Y >= b.min.Y && mouse.Y <= b.max.Y);
         _lastSamples = samples;
         _lastNodes.Clear(); foreach (var ns in nodeScreen) _lastNodes.Add((ns.n, ns.s));
 
@@ -339,7 +343,7 @@ public static class Maneuvers
             if (d < bestD && Math.Abs(samples[i].T - samples[i - 1].T) < 3600 * 12) { bestD = d; hoverT = samples[i - 1].T + (samples[i].T - samples[i - 1].T) * k; }
         }
         if (!edit) { hoverNode = null; hoverT = double.NaN; }
-        ClaimsMouse = _drag != Drag.None || hoverHandle >= 0 || hoverNode != null || !double.IsNaN(hoverT);
+        ClaimsMouse = _drag != Drag.None || hoverHandle >= 0 || hoverNode != null || !double.IsNaN(hoverT) || hoverValue >= 0;
 
         if (_drag == Drag.Handle && Selected != null)
         {
@@ -359,6 +363,18 @@ public static class Maneuvers
         {
             if (!lDown) _drag = Drag.None;
             else if (!double.IsNaN(hoverT) && hoverT > t + 5) { Selected.T = hoverT; Selected.Edit(); }
+        }
+        else if (lPressed && hoverValue >= 0 && Selected != null && _session != null)
+        {
+            var (_, _, ax, sg) = clickRects[hoverValue];
+            var node = Selected;
+            double cur = ax == 0 ? node.Pro : ax == 1 ? node.Nor : node.Rad;
+            string name = ax == 0 ? "Prograde" : ax == 1 ? "Normal" : "Radial";
+            GameUi.NumberDialog(_session, $"{name} delta-v (m/s, negative for the opposite way)", cur, v =>
+            {
+                if (ax == 0) node.Pro = v; else if (ax == 1) node.Nor = v; else node.Rad = v;
+                node.Edit();
+            });
         }
         else if (lPressed)
         {
@@ -395,8 +411,10 @@ public static class Maneuvers
             if (mine || hot)
             {
                 // Centred on the axis, a fixed gap beyond the icon: the labels fan out with the handles.
+                // Click the number to type it exactly (the game's numeric dialog).
                 string txt = hot && !mine ? HandleName(label) : $"{Math.Abs(comp):F1}";
-                AxisLabel(tip, dir, 11f * u, txt, c, u);
+                var box = AxisLabel(tip, dir, 11f * u, txt, c, u);
+                if (mine) _valueRects.Add((box.min, box.max, axis, sign));
             }
         }
         if (Selected != null && selS != default)
@@ -501,12 +519,13 @@ public static class Maneuvers
     };
 
     /// <summary>A label centred on an axis from a point, its near edge `gap` beyond it.</summary>
-    static void AxisLabel(Vector2 from, Vector2 dir, float gap, string text, ColorSRGB c, float u)
+    static (Vector2 min, Vector2 max) AxisLabel(Vector2 from, Vector2 dir, float gap, string text, ColorSRGB c, float u)
     {
         var ts = MapPipeline.MeasureText(text, 0.5f * u);
         float ext = Math.Abs(dir.X) * ts.X * 0.5f + Math.Abs(dir.Y) * ts.Y * 0.5f;   // half the box along the axis
         Vector2 centre = from + dir * (gap + ext + 4f * u);
         HudPanel.LabelAt(centre - new Vector2(ts.X * 0.5f, 0), text, c, u);
+        return (centre - ts * 0.5f - new Vector2(4f * u, 4f * u), centre + ts * 0.5f + new Vector2(4f * u, 4f * u));
     }
 
     /// <summary>The map's open area: between the game's side panels (left details, right index and list) and the tab bars.</summary>
@@ -611,6 +630,8 @@ public static class Maneuvers
         }
     }
     private static Vector2 _devAt, _devDir;
+    private static Keen.VRage.Core.Game.Systems.Session _session;
+    private static readonly List<(Vector2 min, Vector2 max, int axis, double sign)> _valueRects = new List<(Vector2, Vector2, int, double)>();
 
     // ───────────────────────────── flying a node (HUD) ─────────────────────────────
 
@@ -628,7 +649,8 @@ public static class Maneuvers
     /// <summary>World view: the next burn as a HUD marker; completes the node when done.</summary>
     public static void HudTick(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera, double t)
     {
-        if (Nodes.Count == 0 || MapView.Visible || OrbitalMap.Active) return;
+        _session = session;
+        if (Nodes.Count == 0) { BurnLine = null; return; }
         // Nodes left in the past without being flown stay until deleted; a flown one completes.
         if (!NextBurn(t, out var node, out var rem, out var body)) return;
         double left = rem.Length();
@@ -644,6 +666,9 @@ public static class Maneuvers
         Accel = MaxAccel(session);
         double burn = Accel > 1e-3 ? left / Accel : double.NaN;
         double start = node.T - (IsFinite(burn) ? burn * 0.5 : 0);   // start half the burn early (as KSP)
+        BurnLine = $"Next burn {left:F1} m/s" + (IsFinite(burn) ? (burn < 60 ? $" ({Math.Max(1, burn):F0} s)" : $" ({Clock(burn)})") : "")
+                   + (start > t ? $"   ·   in {Clock(start - t)}" : "   ·   now");
+        if (MapView.Visible || OrbitalMap.Active) return;
         if (!FrameMarkers.BeginHud(session)) return;
         try
         {
@@ -653,8 +678,7 @@ public static class Maneuvers
             Icon("P", s, PlanColor, true, u);
             string when = start > t ? "in " + Clock(start - t) : "now";
             string dur = IsFinite(burn) ? (burn < 60 ? $"  ·  {Math.Max(1, burn):F0} s burn" : $"  ·  {Clock(burn)} burn") : "";
-            HudPanel.LabelAt(s + new Vector2(16f * u, -9f * u), $"Burn {left:F1} m/s{dur}", PlanColor, u);
-            HudPanel.LabelAt(s + new Vector2(16f * u, 11f * u), (edge ? "turn to it   " : "") + when, new ColorSRGB(0.75f, 0.85f, 0.95f, 1f), u);
+            HudPanel.LabelAt(s + new Vector2(16f * u, 0), $"{left:F1} m/s", PlanColor, u);
         }
         finally { MapPipeline.UiEnd(); }
     }

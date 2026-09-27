@@ -28,6 +28,7 @@ public static class WarpControl
         Say($"Warp ×{Levels[i]:N0}");
     }
 
-    public static void Say(string s) { Notice = s; _noticeUntil = Wall() + 5.0; }
+    public static Keen.VRage.Core.Game.Systems.Session Session;
+    public static void Say(string s) { Notice = s; _noticeUntil = Wall() + 5.0; if (Session != null) GameUi.Toast(Session, "warp", "Time warp", s, 3); }
     static double Wall() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
 }

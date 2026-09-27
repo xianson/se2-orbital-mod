@@ -370,6 +370,12 @@ public static class DevHarness
                 CleanMap._devPlanClick = true;
                 return "plan button queued";
 
+            case "ui":
+                return "gameui: " + (GameUi.LastError.Length > 0 ? GameUi.LastError : "ok");
+
+            case "numdialog":
+                return GameUi.NumberDialog(session, "Test (m/s)", 12.5, v => Log.Default?.Info($"[ORBIT-DEV] numdialog -> {v}")) ? "dialog open" : "dialog failed: " + GameUi.LastError;
+
             case "key":
                 // key <period|comma|slash>: press a warp key for one frame
                 MapInput.DevKeys.Add(a[1]);

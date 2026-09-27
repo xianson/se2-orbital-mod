@@ -351,7 +351,13 @@ public static class RoutePlanner
         return new StateVector(o.Position + rel.Position, o.Velocity + rel.Velocity);
     }
 
-    private static string Say(string s) { Status = s; Log.Default?.Info("[ORBIT-PLAN] " + s); return s; }
+    public static Keen.VRage.Core.Game.Systems.Session Session;
+    private static string Say(string s)
+    {
+        Status = s; Log.Default?.Info("[ORBIT-PLAN] " + s);
+        if (Session != null && !s.StartsWith("Refining")) GameUi.Toast(Session, "route", "Route", s, 8);
+        return s;
+    }
     private static string Km(double m) => HudPanel.Km(m);
     private static bool IsFinite(double x) => !double.IsNaN(x) && !double.IsInfinity(x);
 }

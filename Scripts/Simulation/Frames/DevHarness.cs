@@ -362,6 +362,11 @@ public static class DevHarness
                 }
             }
 
+            case "key":
+                // key <period|comma|slash>: press a warp key for one frame
+                MapInput.DevKeys.Add(a[1]);
+                return "key " + a[1];
+
             case "framedv":
             {
                 // framedv <prograde m/s>: a burn on the player's rails frame (as thrust folded into it)

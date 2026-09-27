@@ -151,7 +151,7 @@ public static class SystemHost
         // Warp also stops a lead time before the next maneuver node.
         if (Timescale > 1.0)
         {
-            double tn = Maneuvers.NextNodeTime(Now);
+            double tn = Maneuvers.NextBurnStart(Now);
             if (!double.IsNaN(tn) && tn - Maneuvers.WarpLead <= next)
             {
                 next = Math.Max(Now, tn - Maneuvers.WarpLead);

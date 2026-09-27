@@ -466,6 +466,29 @@ public static class MapPipeline
     /// A HUD marker for a frame-transferred GPS point: a ringed diamond, its name and distance; off
     /// screen (or behind the camera) it sits on the screen edge in its true direction.
     /// </summary>
+    /// <summary>A world point on the HUD: its screen position, clamped to the game's marker ellipse when off screen.</summary>
+    public static bool HudPoint(Vector3D world, out Vector2 s, out bool edge)
+    {
+        s = default; edge = false;
+        if (_cam == null) return false;
+        var wt = _cam.Entity.Data.GetWorldTransform();
+        Vector3D fwd = (QuaternionD)wt.Orientation * Vector3D.Forward;
+        Vector2 size = ScreenSize, centre = size * 0.5f;
+        bool front = Vector3D.Dot(world - wt.Position, fwd) > 1e-6;
+        s = _cam.WorldToScreenPoint(front ? world : wt.Position - (world - wt.Position));
+        float mx = size.X * 0.12f, my = size.Y * 0.14f;
+        edge = !front || s.X < mx || s.Y < my || s.X > size.X - mx || s.Y > size.Y - my;
+        if (edge)
+        {
+            Vector2 dir = s - centre;
+            if (!front) dir = -dir;
+            if (dir.LengthSquared() < 1e-6f) dir = new Vector2(0, 1);
+            float ax = centre.X - mx, ay = centre.Y - my;
+            s = centre + dir * (1f / (float)Math.Sqrt(dir.X * dir.X / (ax * ax) + dir.Y * dir.Y / (ay * ay)));
+        }
+        return true;
+    }
+
     public static void HudMarker(Vector3D world, string name, string distance, ColorSRGB color)
     {
         if (_batch == null || _drawLine == null || _cam == null) return;

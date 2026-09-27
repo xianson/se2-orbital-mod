@@ -621,13 +621,65 @@ public static class Maneuvers
         }
         Vector3D dirW = rem / left;
         if (FrameHost.PlayerFrame == null && FrameHost.ObserverPlanet != null) dirW = Chart.Of(FrameHost.ObserverPlanet, t).FromInertial(dirW);
+        Accel = MaxAccel(session);
+        double burn = Accel > 1e-3 ? left / Accel : double.NaN;
+        double start = node.T - (IsFinite(burn) ? burn * 0.5 : 0);   // start half the burn early (as KSP)
         if (!FrameMarkers.BeginHud(session)) return;
         try
         {
-            var c = new ColorSRGB(0.35f, 0.90f, 1.00f, 1f);
-            MapPipeline.HudMarker(camera.Position + dirW * 1e4, $"Burn {left:F1} m/s", node.T > t ? "T-" + Clock(node.T - t) : "now", c);
+            float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+            HudPanel.BeginLabels();
+            if (!MapPipeline.HudPoint(camera.Position + dirW * 1e4, out var s, out bool edge)) return;
+            Icon("P", s, PlanColor, true, u);
+            string when = start > t ? "in " + Clock(start - t) : "now";
+            string dur = IsFinite(burn) ? (burn < 60 ? $"  ·  {Math.Max(1, burn):F0} s burn" : $"  ·  {Clock(burn)} burn") : "";
+            HudPanel.LabelAt(s + new Vector2(16f * u, -9f * u), $"Burn {left:F1} m/s{dur}", PlanColor, u);
+            HudPanel.LabelAt(s + new Vector2(16f * u, 11f * u), (edge ? "turn to it   " : "") + when, new ColorSRGB(0.75f, 0.85f, 0.95f, 1f), u);
         }
         finally { MapPipeline.UiEnd(); }
+    }
+
+    /// <summary>The acceleration the player can make (m/s²): the best-facing max thrust over the mass of
+    /// the grid you sit in, or of the character (jetpack).</summary>
+    public static double Accel = 0;
+
+    private static double MaxAccel(Keen.VRage.Core.Game.Systems.Session session)
+    {
+        try
+        {
+            Keen.VRage.DCS.Components.Entity e = null; double mass = 0;
+            if (FrameHost.Seated)
+            {
+                OrbitalGridComponent best = null; double bd = 300;
+                foreach (var g in GridMembers.All())
+                {
+                    if (!g.IsServer) continue;
+                    double d = (GridMembers.Position(g) - FrameHost.PlayerPosition).Length();
+                    if (d < bd) { bd = d; best = g; }
+                }
+                if (best != null) { e = best.Entity; mass = GridMembers.Mass(best); }
+            }
+            else
+            {
+                e = FrameHost.PlayerCharacter(session);
+                if (e != null && e.Data.TryGet<Keen.VRage.Physics.Data.RigidBodyMassProperties>(out var mp) && mp.InvMass > 0) mass = 1.0 / mp.InvMass;
+            }
+            if (e == null || mass <= 0 || !e.Data.TryGet<Keen.Game2.Simulation.WorldObjects.Shared.Movement.MaxThrustData>(out var mt)) return Accel;
+            var p = mt.Regular.Positive; var n = mt.Regular.Negative;
+            double f = Math.Max(Math.Max(Math.Max(p.X, p.Y), p.Z), Math.Max(Math.Max(n.X, n.Y), n.Z));
+            return f > 0 ? f / mass : Accel;
+        }
+        catch { return Accel; }
+    }
+
+    /// <summary>Warp: when the next burn starts (half the burn before its node), NaN if none.</summary>
+    public static double NextBurnStart(double t0)
+    {
+        double tn = NextNodeTime(t0);
+        if (double.IsNaN(tn)) return tn;
+        double dv = 0;
+        lock (Nodes) foreach (var n in Nodes) if (n.T == tn) dv = Math.Sqrt(n.Pro * n.Pro + n.Nor * n.Nor + n.Rad * n.Rad);
+        return Accel > 1e-3 ? tn - 0.5 * dv / Accel : tn;
     }
 
     /// <summary>Warp: the next node time after t0 (NaN if none).</summary>

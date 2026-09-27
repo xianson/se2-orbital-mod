@@ -103,7 +103,8 @@ public static class FrameHost
         double t = SystemHost.Now;
 
         Entity ch = PlayerCharacter(session);
-        Debug = ch == null ? "no character" : IsSeated(ch) ? "seated (skipped)" : $"eva tpPending={_tpPending} wasInKeep={_wasInKeep}";
+        Seated = ch != null && IsSeated(ch);
+        Debug = ch == null ? "no character" : Seated ? "seated" : $"eva tpPending={_tpPending} wasInKeep={_wasInKeep}";
         if (ch != null && !IsSeated(ch))
         {
             long id = IdOf(ch);
@@ -135,6 +136,15 @@ public static class FrameHost
             }
         }
 
+        else if (ch != null)
+        {
+            // Seated: the grid you sit in carries you. Its frame is yours (observer, warp, planning),
+            // and your state is the camera's (the seat moves with the grid).
+            Vector3D pos = ch.Data.GetWorldTransform().Position;
+            _lastPos = pos; _lastVel = OrbitDisplay.MeasuredVelocity;
+            lock (ServerFrames.FramesLock) PlayerFrame = SeatedFrame(pos);
+        }
+
         PublishObserver(camera.Position, reg, t);
 
         // Warp lock (SE1 WarpPolicy, simplified): warp only advances the rails, so it is allowed only
@@ -148,6 +158,7 @@ public static class FrameHost
         else if (PlayerFrame != null && Observer.HasValue)
             OrbitDisplay.DrawFrameOrbit(session, camera, Observer.Value, PlayerFrame, reg, t);
         MapInput.Poll();
+        WarpControl.Tick();
         MapView.Tick(session, camera, t);
         FrameMarkers.Tick(session, camera, t);
         Maneuvers.HudTick(session, camera, t);
@@ -792,6 +803,24 @@ public static class FrameHost
         var list = new List<Entity>();
         return session.TryFillAliveCharacters(list) && list.Count > 0 ? list[0] : null;
     }
+
+    /// <summary>The frame of the grid a seated player sits in (a member grid within 300 m). Caller holds FramesLock.</summary>
+    private static ProximityFrame SeatedFrame(Vector3D pos)
+    {
+        ProximityFrame best = null; double bd = 300;
+        lock (ServerFrames.GridPositions)
+            foreach (var kv in ServerFrames.GridPositions)
+            {
+                double d = (kv.Value - pos).Length();
+                if (d >= bd) continue;
+                var f = SystemHost.Frames.FindByMember(kv.Key);
+                if (f != null) { bd = d; best = f; }
+            }
+        return best;
+    }
+
+    /// <summary>True when the local character sits in a seat.</summary>
+    public static bool Seated;
 
     private static bool IsSeated(Entity ch) => ch.Data.TryGet<Keen.VRage.Core.Game.Components.EntityParentData>(out _);
 

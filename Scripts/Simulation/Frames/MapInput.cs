@@ -13,7 +13,8 @@ namespace OrbitalMod;
 /// </summary>
 public static class MapInput
 {
-    private static IInputDevice _mouse;
+    private static IInputDevice _mouse, _keyboard;
+    private static readonly Dictionary<int, bool> _keys = new Dictionary<int, bool>(), _keysPrev = new Dictionary<int, bool>();
     private static double _lastLookup = -10;
     private static bool _l, _r;
     public static bool Left, LeftPressed, LeftReleased, Right, RightPressed;
@@ -28,7 +29,7 @@ public static class MapInput
     public static void Poll()
     {
         double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
-        if (_mouse == null && now - _lastLookup > 2.0)
+        if ((_mouse == null || _keyboard == null) && now - _lastLookup > 2.0)
         {
             _lastLookup = now;
             try
@@ -36,7 +37,10 @@ public static class MapInput
                 var input = VRageCore.Instance?.Engine?.Single<IPlatformInput>();
                 if (input != null)
                     foreach (var dev in input.ConnectedDevices)
-                        if (dev.Class.GenericClasses.Contains(GenericDeviceClass.Mouse)) { _mouse = dev; Status = "mouse: " + dev.Name; break; }
+                    {
+                        if (_mouse == null && dev.Class.GenericClasses.Contains(GenericDeviceClass.Mouse)) { _mouse = dev; Status = "mouse: " + dev.Name; }
+                        if (_keyboard == null && dev.Class.GenericClasses.Contains(GenericDeviceClass.Keyboard)) _keyboard = dev;
+                    }
             }
             catch (Exception e) { Status = "no mouse: " + e.Message; }
         }
@@ -50,5 +54,23 @@ public static class MapInput
         RightPressed = r && !_r;
         Left = l; Right = r;
         _l = l; _r = r;
+        _keysPrev.Clear(); foreach (var kv in _keys) _keysPrev[kv.Key] = kv.Value;
+        _keys.Clear();
+    }
+
+    /// <summary>DEV: keys pressed by the harness this frame.</summary>
+    public static readonly HashSet<string> DevKeys = new HashSet<string>();
+
+    /// <summary>A key that went down this frame (polled on first ask each frame).</summary>
+    public static bool KeyPressed(DigitalInput key)
+    {
+        int id = key.GetHashCode();
+        if (!_keys.TryGetValue(id, out bool down))
+        {
+            try { down = _keyboard != null && _keyboard.GetDigitalState(key); } catch { _keyboard = null; }
+            _keys[id] = down;
+        }
+        _keysPrev.TryGetValue(id, out bool was);
+        return down && !was;
     }
 }

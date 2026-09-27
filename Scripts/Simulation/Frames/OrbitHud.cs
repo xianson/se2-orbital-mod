@@ -109,12 +109,20 @@ public static class OrbitHud
     public static void Draw(Keen.VRage.Core.Game.Systems.Session session)
     {
         var r = Current;
-        if (r == null || MapView.Visible || OrbitalMap.Active || !OrbitalConfig.ShowOrbit) return;
+        if (MapView.Visible || OrbitalMap.Active || !OrbitalConfig.ShowOrbit) return;
+        if (r == null && WarpControl.Notice == null) return;
         if (!FrameMarkers.BeginHud(session)) return;
         try
         {
+            HudPanel.BeginLabels();
             var sz = MapPipeline.ScreenSize;
             float u = Math.Max(1f, sz.Y / 1080f);
+            if (r == null)
+            {
+                // Just the notice (no orbit to show).
+                HudPanel.Draw(new Vector2(sz.X - 340f * u - 24f * u, sz.Y * 0.30f), 340f * u, "WARP", null, new List<HudPanel.Row>(), WarpControl.Notice, u);
+                return;
+            }
             var rows = new List<HudPanel.Row>
             {
                 new HudPanel.Row("Altitude", HudPanel.Km(r.Alt)),
@@ -124,7 +132,7 @@ public static class OrbitHud
             };
             if (!r.Escape) rows.Add(new HudPanel.Row("Period", Maneuvers.Clock(r.Period)));
             rows.Add(new HudPanel.Row("Inclination", $"{r.IncDeg:F1}°"));
-            HudPanel.Draw(new Vector2(sz.X - 300f * u - 24f * u, sz.Y * 0.30f), 300f * u, "ORBIT", r.Body, rows, r.Mode, u);
+            HudPanel.Draw(new Vector2(sz.X - 300f * u - 24f * u, sz.Y * 0.30f), 300f * u, "ORBIT", r.Body, rows, WarpControl.Notice ?? r.Mode, u);
             if (r.PeWorld.HasValue) HudPanel.Tag(r.PeWorld.Value, "Pe " + HudPanel.Km(r.Pe), Orbit, u);
             if (r.ApWorld.HasValue && !r.Escape) HudPanel.Tag(r.ApWorld.Value, "Ap " + HudPanel.Km(r.Ap), Orbit, u);
         }

@@ -260,6 +260,21 @@ public static class Maneuvers
                 }
                 prev = s; hp = true;
             }
+            // A pass drawn about a ghost is also drawn where it really is about the view's body, faint
+            // and thin: it joins the path before the encounter to the path after it.
+            if (drawn && !Live(l.Body))
+            {
+                var faint = new ColorSRGB(col.R, col.G, col.B, 0.55f);
+                Vector2 pv = default; bool hv = false;
+                for (int k = 0; k <= n; k++)
+                {
+                    double tk = l.T0 + span * k / n;
+                    Vector3D loc = toMap(RootAt(l, tk), tk);
+                    if (Math.Sqrt(loc.X * loc.X + loc.Z * loc.Z) > limit * 1.04 || !MapPipeline.ToScreen(W(loc), out var sq) || !InMapArea(sq)) { hv = false; continue; }
+                    if (hv) MapPipeline.ScreenLine(pv, sq, faint, 1.2f * u);
+                    pv = sq; hv = true;
+                }
+            }
         }
 
         if (applied.Count > 0 && Base(t, out var bb, out var bel) && bel.IsElliptic && IsFinite(bel.Period))

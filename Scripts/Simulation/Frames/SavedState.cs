@@ -181,7 +181,8 @@ public static class SavedState
                         break;
                     }
                     case "node":
-                        Maneuvers.Restore(P(p[1]), P(p[2]), P(p[3]), P(p[4]));
+                        if (p.Length >= 14) Maneuvers.Restore(P(p[1]), P(p[2]), P(p[3]), P(p[4]), Unesc(p[5]), ParseEl(p, 6));
+                        else Maneuvers.Restore(P(p[1]), P(p[2]), P(p[3]), P(p[4]));
                         break;
                     case "gpshid":
                         FrameMarkers.RestoreHidden(Unesc(p[1]));

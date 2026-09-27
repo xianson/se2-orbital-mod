@@ -80,7 +80,27 @@ public static class Maneuvers
     }
 
     /// <summary>The whole trajectory from t: legs (patched), and each node as applied.</summary>
+    private static double _cT = double.NaN; private static string _cSig; private static List<Leg> _cLegs; private static List<Applied> _cApplied; private static bool _cOk;
+
+    /// <summary>The trajectory, memoised: the map, the HUD and warp ask for it every frame.</summary>
     public static bool Trajectory(double t, out List<Leg> legs, out List<Applied> applied)
+    {
+        string sig = Signature(t);
+        if (t == _cT && sig == _cSig && _cLegs != null) { legs = _cLegs; applied = _cApplied; return _cOk; }
+        _cOk = TrajectoryUncached(t, out legs, out applied);
+        _cT = t; _cSig = Signature(t); _cLegs = legs; _cApplied = applied;   // after: re-targeting clears Dirty
+        return _cOk;
+    }
+
+    private static string Signature(double t)
+    {
+        var sb = new System.Text.StringBuilder();
+        if (Base(t, out var b, out var el)) sb.Append(b.Name).Append(el.SemiMajorAxis).Append(el.Eccentricity).Append(el.Epoch).Append(el.TrueAnomaly).Append(el.Inclination);
+        lock (Nodes) foreach (var n in Nodes) sb.Append('|').Append(n.T).Append(n.Pro).Append(n.Nor).Append(n.Rad).Append(n.Dirty).Append(n.TBody);
+        return sb.ToString();
+    }
+
+    private static bool TrajectoryUncached(double t, out List<Leg> legs, out List<Applied> applied)
     {
         legs = new List<Leg>(); applied = new List<Applied>();
         if (!Base(t, out var body, out var el)) return false;
@@ -696,13 +716,27 @@ public static class Maneuvers
     {
         var l = new List<string>();
         var inv = System.Globalization.CultureInfo.InvariantCulture;
-        lock (Nodes) foreach (var n in Nodes) l.Add($"node {n.T.ToString("R", inv)} {n.Pro.ToString("R", inv)} {n.Nor.ToString("R", inv)} {n.Rad.ToString("R", inv)}");
+        string R(double v) => v.ToString("R", inv);
+        lock (Nodes)
+            foreach (var n in Nodes)
+            {
+                string line = $"node {R(n.T)} {R(n.Pro)} {R(n.Nor)} {R(n.Rad)}";
+                // The fixed target (post-burn orbit): a half-flown burn keeps what is left across a load.
+                if (!n.Dirty && n.TBody != null)
+                {
+                    var e = n.TAfter;
+                    line += $" {n.TBody.Replace(" ", "%20")} {R(e.SemiMajorAxis)} {R(e.Eccentricity)} {R(e.Inclination)} {R(e.Raan)} {R(e.ArgPeriapsis)} {R(e.TrueAnomaly)} {R(e.Mu)} {R(e.Epoch)}";
+                }
+                l.Add(line);
+            }
         return l;
     }
 
-    public static void Restore(double t, double pro, double nor, double rad)
+    public static void Restore(double t, double pro, double nor, double rad, string tBody = null, KeplerianElements? tAfter = null)
     {
-        lock (Nodes) Nodes.Add(new Node { T = t, Pro = pro, Nor = nor, Rad = rad });
+        var n = new Node { T = t, Pro = pro, Nor = nor, Rad = rad };
+        if (tBody != null && tAfter.HasValue) { n.TBody = tBody; n.TAfter = tAfter.Value; n.Dirty = false; }
+        lock (Nodes) Nodes.Add(n);
     }
 
     /// <summary>DEV: search node time x prograde delta-v for a trajectory that enters `body`'s SOI; keep the first found.</summary>

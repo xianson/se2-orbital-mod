@@ -159,6 +159,7 @@ public static class FrameHost
             OrbitDisplay.DrawFrameOrbit(session, camera, Observer.Value, PlayerFrame, reg, t);
         MapInput.Poll();
         WarpControl.Tick();
+        RoutePlanner.Tick(SystemHost.Now);
         MapView.Tick(session, camera, t);
         FrameMarkers.Tick(session, camera, t);
         Maneuvers.HudTick(session, camera, t);

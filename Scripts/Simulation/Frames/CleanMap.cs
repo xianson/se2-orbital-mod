@@ -163,6 +163,7 @@ public static class CleanMap
             string selName = null;
             foreach (var bd in bands) if (bd.Selected) selName = bd.Name;
             if (_toMap != null && ManeuverEditor) Maneuvers.MapDraw(_toMap, W, _limit, t, Mouse, selName, solar ? null : planet?.Name);
+            if (ManeuverEditor) RouteButtons(selName, bands, t);
         }
         finally { if (ui) MapPipeline.UiEnd(); }
 
@@ -397,6 +398,42 @@ public static class CleanMap
     // ───────────────────────────── encounters and GPS (both views) ─────────────────────────────
 
     private static Keen.VRage.Core.Game.Systems.Session _session;
+    private static double _statusUntil;
+
+    /// <summary>
+    /// Plan a route to the selected sector (auto nodes), or clear the nodes: two buttons at the foot of
+    /// the map, with the planner's result under them.
+    /// </summary>
+    private static void RouteButtons(string selName, List<Band> bands, double t)
+    {
+        var sz = MapPipeline.ScreenSize;
+        float u = Math.Max(1f, sz.Y / 1080f);
+        Band sel = bands.Find(b => b.Name == selName);
+        bool can = sel != null && sel.Home.Kind != SectorHomes.Kind.OwnPlanet;
+        Vector2 bs = new Vector2(250f * u, 34f * u);
+        Vector2 at = new Vector2(sz.X * 0.5f - bs.X - 6f * u, sz.Y * 0.86f);
+        string label = RoutePlanner.Busy ? $"Planning…  {RoutePlanner.Progress}%" : can ? $"Plan route  ›  {sel.Name}" : "Select a sector to plan";
+        bool hot = HudPanel.Button(at, bs, label, Mouse, u, can && !RoutePlanner.Busy);
+        bool hasNodes = Maneuvers.Nodes.Count > 0;
+        Vector2 at2 = new Vector2(sz.X * 0.5f + 6f * u, at.Y);
+        bool hot2 = HudPanel.Button(at2, new Vector2(150f * u, bs.Y), "Clear route", Mouse, u, hasNodes);
+        if (hot || hot2) Maneuvers.ClaimsMouse = true;
+        if (MapInput.LeftPressed || _devPlanClick)
+        {
+            if ((hot || _devPlanClick) && can && !RoutePlanner.Busy) { RoutePlanner.Start(sel.Name); _statusUntil = Wall() + 12; }
+            else if (hot2 && hasNodes) { lock (Maneuvers.Nodes) Maneuvers.Nodes.Clear(); Maneuvers.Selected = null; RoutePlanner.Status = ""; }
+        }
+        _devPlanClick = false;
+        if (RoutePlanner.Status.Length > 0 && (RoutePlanner.Busy || Wall() < _statusUntil || hasNodes))
+        {
+            var ts = MapPipeline.MeasureText(RoutePlanner.Status, 0.5f * u);
+            HudPanel.LabelAt(new Vector2(sz.X * 0.5f - ts.X * 0.5f, at.Y + bs.Y + 18f * u), RoutePlanner.Status, new ColorSRGB(0.75f, 0.85f, 0.95f, 1f), u);
+        }
+    }
+
+    /// <summary>DEV: press the plan button (the selected sector) on the next frame.</summary>
+    public static bool _devPlanClick;
+    static double Wall() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
     private static Func<Vector3D, double, Vector3D> _toMap;
     private static double _limit;
     /// <summary>The mouse (screen px) for this frame's editors.</summary>

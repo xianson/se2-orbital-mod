@@ -362,6 +362,14 @@ public static class DevHarness
                 }
             }
 
+            case "route":
+                // route <sector name...>: auto-plan to that sector's site (as the map's button)
+                return RoutePlanner.Start(string.Join(" ", a, 1, a.Length - 1));
+
+            case "planclick":
+                CleanMap._devPlanClick = true;
+                return "plan button queued";
+
             case "key":
                 // key <period|comma|slash>: press a warp key for one frame
                 MapInput.DevKeys.Add(a[1]);

@@ -43,6 +43,18 @@ public static class HudPanel
         return max;
     }
 
+    /// <summary>A flat button (dark plate, accent rule on hover, centred text). Returns true when the mouse is on it.</summary>
+    public static bool Button(Vector2 min, Vector2 size, string text, Vector2 mouse, float u, bool enabled = true)
+    {
+        var max = min + size;
+        bool hot = enabled && mouse.X >= min.X && mouse.X <= max.X && mouse.Y >= min.Y && mouse.Y <= max.Y;
+        MapPipeline.ScreenRect(min, max, hot ? new ColorSRGB(0.06f, 0.11f, 0.16f, 0.92f) : Bg);
+        MapPipeline.ScreenLine(new Vector2(min.X, max.Y), max, hot ? Accent : new ColorSRGB(Accent.R, Accent.G, Accent.B, 0.45f), 2f * u);
+        var ts = MapPipeline.MeasureText(text, 0.55f * u);
+        MapPipeline.ScreenText(min + (size - ts) * 0.5f, text, enabled ? Title : Label, 0.55f * u);
+        return hot;
+    }
+
     /// <summary>A small labelled tag at a world point (apsides, your position), when on screen.</summary>
     public static void Tag(Vector3D world, string text, ColorSRGB c, float u)
     {

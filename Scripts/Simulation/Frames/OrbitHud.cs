@@ -119,7 +119,7 @@ public static class OrbitHud
     }
 
     public static Readout Current;
-    static readonly ColorSRGB Orbit = new ColorSRGB(1f, 0.84f, 0.25f, 1f);
+    static readonly ColorSRGB Orbit = new ColorSRGB(0.35f, 0.88f, 1.00f, 1f);   // your orbit: cyan, as on the map
 
     private static GameUi.Card _card;
     private static double _nextUpdate, _nextCheck;

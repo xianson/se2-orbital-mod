@@ -45,7 +45,7 @@ public static class UnifiedMap
     private static readonly ColorSRGB Unlocked = new ColorSRGB(0.30f, 0.62f, 0.95f);
     private static readonly ColorSRGB Colonized = new ColorSRGB(0.35f, 0.9f, 0.5f);
     private static readonly ColorSRGB Selected = new ColorSRGB(1f, 0.85f, 0.2f);
-    private static readonly ColorSRGB You = new ColorSRGB(1f, 0.85f, 0.1f);
+    private static readonly ColorSRGB You = new ColorSRGB(0.35f, 0.88f, 1.00f);
     private static readonly ColorSRGB Ring = new ColorSRGB(0.4f, 0.5f, 0.65f);
     private static readonly ColorSRGB Sun = new ColorSRGB(1f, 0.85f, 0.4f);
     private static readonly ColorSRGB Text = new ColorSRGB(0.92f, 0.96f, 1f);

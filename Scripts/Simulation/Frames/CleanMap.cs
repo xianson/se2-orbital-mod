@@ -37,7 +37,7 @@ public static class CleanMap
 
     static readonly ColorSRGB Line = new ColorSRGB(0.60f, 0.72f, 0.88f, 0.28f);
     static readonly ColorSRGB LineSel = new ColorSRGB(1.00f, 0.85f, 0.30f, 0.95f);
-    static readonly ColorSRGB You = new ColorSRGB(1.00f, 0.80f, 0.15f, 1f);
+    static readonly ColorSRGB You = new ColorSRGB(0.35f, 0.88f, 1.00f, 1f);   // you: cyan (gold is 'selected')
     static readonly ColorSRGB Text = new ColorSRGB(0.94f, 0.97f, 1.00f, 1f);
     static readonly ColorSRGB BeltLine = new ColorSRGB(0.75f, 0.68f, 0.55f, 0.22f);
     static readonly ColorSRGB Dim = new ColorSRGB(0.70f, 0.78f, 0.88f, 0.9f);
@@ -411,7 +411,7 @@ public static class CleanMap
             switch (h.Kind)
             {
                 case SectorHomes.Kind.OwnPlanet:
-                    Circle(W, R(si_own_outer(h)), OrbitColor(bd), bd.Selected ? 2.4f : 1.8f);
+                    OwnSector(W, R(si_own_outer(h)), bd);
                     break;
                 case SectorHomes.Kind.Ellipse:
                 {
@@ -894,6 +894,30 @@ public static class CleanMap
     public const string SunPart = "OrbitalSun", BeltPart = "OrbitalBelt";
     // The planet's own sector at true size: from its charted distance, +/- half its charted size.
     private static double si_own_inner(SectorHomes.Home h) => Math.Max(0, h.A - h.Size * 0.5 * SystemHost.SectorOrbitScale);
+    /// <summary>
+    /// A planet's own sector (its near space): not an orbit, so a faint dashed boundary (gold when
+    /// selected), with the sector's name centred above the whole area.
+    /// </summary>
+    static void OwnSector(Func<Vector3D, Vector3D> W, double r, Band b)
+    {
+        float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        var col = b.Selected ? HudPanel.Alpha(LineSel, 0.85f) : b.Name == Hovered ? HudPanel.Alpha(StateColor(b), 0.8f) : HudPanel.Alpha(StateColor(b), 0.45f);
+        const int n = 64;
+        Vector2 prev = default, top = default; bool have = false, haveTop = false;
+        for (int i = 0; i <= n; i++)
+        {
+            double a = 2 * Math.PI * i / n;
+            Vector3D p = W(new Vector3D(Math.Cos(a) * r, 0, Math.Sin(a) * r));
+            if (!MapPipeline.ToScreen(p, out var s)) { have = false; continue; }
+            if (have) MapPipeline.ScreenDashed(prev, s, col, (b.Selected ? 1.8f : 1.3f) * u);
+            if (!haveTop || s.Y < top.Y) { top = s; haveTop = true; }
+            prev = s; have = true;
+        }
+        if (!haveTop) return;
+        var sz = MapPipeline.MeasureText(b.Name, 0.8f);
+        MapPipeline.ScreenText(new Vector2(top.X - sz.X / 2, top.Y - sz.Y - 4f * u), b.Name, b.Selected ? LineSel : Dim, 0.8f);
+    }
+
     private static double si_own_outer(SectorHomes.Home h) => h.A + h.Size * 0.5 * SystemHost.SectorOrbitScale;
     public const int BeltSegments = 48;
 

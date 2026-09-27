@@ -69,7 +69,7 @@ public static class Maneuvers
     public const double DoneDv = 0.1;         // m/s
     public static string Status = "";
 
-    static readonly ColorSRGB YouColor = new ColorSRGB(1.00f, 0.80f, 0.15f, 1f);
+    static readonly ColorSRGB YouColor = new ColorSRGB(0.35f, 0.88f, 1.00f, 1f);   // your orbit: cyan (as KSP)
     static readonly ColorSRGB PlanColor = new ColorSRGB(0.35f, 0.90f, 1.00f, 0.9f);
     static readonly ColorSRGB NodeColor = new ColorSRGB(0.35f, 0.90f, 1.00f, 1f);
     static readonly ColorSRGB ProColor = new ColorSRGB(0.85f, 0.95f, 0.30f, 1f);
@@ -639,8 +639,9 @@ public static class Maneuvers
 
     static readonly ColorSRGB[] PatchColors =
     {
-        new ColorSRGB(0.35f, 0.90f, 1.00f, 0.95f), new ColorSRGB(1.00f, 0.62f, 0.25f, 0.95f),
-        new ColorSRGB(0.85f, 0.50f, 1.00f, 0.95f), new ColorSRGB(0.55f, 1.00f, 0.55f, 0.95f),
+        // The plan (after a maneuver): orange as KSP, then each further patch its own colour.
+        new ColorSRGB(1.00f, 0.62f, 0.25f, 0.95f), new ColorSRGB(0.85f, 0.50f, 1.00f, 0.95f),
+        new ColorSRGB(0.55f, 1.00f, 0.55f, 0.95f), new ColorSRGB(1.00f, 0.45f, 0.65f, 0.95f),
     };
 
     /// <summary>A label centred on an axis from a point, its near edge `gap` beyond it.</summary>

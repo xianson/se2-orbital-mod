@@ -220,7 +220,7 @@ public static class CleanMap
         var pdef = reg.FindDefinition(planet.Name);
         double planetR = (pdef?.RadiusMeters ?? 6e4) * scaleSys;      // true size
         MapGlobes.Use(planet.Name, W(Vector3D.Zero), planetR, globes);
-        MapPipeline.ScreenRing(W(Vector3D.Zero), 9f, Text, 1.5f);
+        BodyRing(W, Vector3D.Zero, planetR, 9f, Text, 1.5f);
         MapPipeline.Text(W(new Vector3D(0, 0, fit * 0.05)), planet.Name, Text, 0.9f);
         foreach (var moon in planet.Children)
         {
@@ -228,7 +228,7 @@ public static class CleanMap
             Vector3D mp = moon.StateInParentAt(t).Position;
             Vector3D ml = Lv(mp);
             MapGlobes.Use(moon.Name, W(ml), (reg.FindDefinition(moon.Name)?.RadiusMeters ?? 2e4) * scaleSys, globes);
-            MapPipeline.ScreenRing(W(ml), 5f, Dim, 1.2f);
+            BodyRing(W, ml, (reg.FindDefinition(moon.Name)?.RadiusMeters ?? 2e4) * scaleSys, 5f, Dim, 1.2f);
             MapPipeline.Text(W(ml + new Vector3D(0, 0, fit * 0.035)), moon.Name, Dim, 0.6f);
         }
 
@@ -336,7 +336,7 @@ public static class CleanMap
 
         // The sun: a warm disc (its own section, coloured below), and its name.
         parts.Add(Annulus(SunPart, 0, Math.PI, 0, Math.Max(SystemHost.StarRadius * SolarRadius / outer, SolarRadius * 0.004)));   // true size
-        MapPipeline.ScreenRing(W(Vector3D.Zero), 10f, new ColorSRGB(1f, 0.85f, 0.4f, 0.9f), 1.5f);
+        BodyRing(W, Vector3D.Zero, SystemHost.StarRadius * SolarRadius / outer, 10f, new ColorSRGB(1f, 0.85f, 0.4f, 0.9f), 1.5f);
         MapPipeline.Text(W(new Vector3D(0, 0, SolarRadius * 0.085)), "Sun", Text, 0.85f);
 
         // The belt: a torus of its own, and its sectors as band sections on it.
@@ -384,7 +384,7 @@ public static class CleanMap
                 // The planet's own sector at true size is far below a pixel here: the ring marker stands for it.
             }
             MapGlobes.Use(p.Name, W(c), (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, globes);   // true size
-            MapPipeline.ScreenRing(W(c), 8f, p.Name == playerPlanet ? You : Text, 1.5f);
+            BodyRing(W, c, (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, 8f, p.Name == playerPlanet ? You : Text, 1.5f);
             int n = 0; foreach (var bd in bands) if (bd.Host == p.Name && bd.Home.Kind != SectorHomes.Kind.OwnPlanet) n++;
             MapPipeline.Text(W(c + new Vector3D(0, 0, SolarRadius * 0.045)), p.Name, p.Name == playerPlanet ? You : Text, 0.9f);
         }
@@ -526,6 +526,20 @@ public static class CleanMap
         if (Quiet(b)) { MapPipeline.ScreenRing(world, 2.5f, new ColorSRGB(c.R, c.G, c.B, 0.35f), 2.5f); return; }
         MapPipeline.ScreenRing(world, 8f, c, 2f);
         MapPipeline.ScreenRing(world, 3.5f, c, 3.5f);
+    }
+
+    /// <summary>
+    /// A body's marker ring: padded round the body's true size on the map, never smaller than the
+    /// fixed marker (minPx) so a far-off body still reads.
+    /// </summary>
+    private static void BodyRing(Func<Vector3D, Vector3D> W, Vector3D centre, double radiusLocal, float minPx, ColorSRGB col, float width)
+    {
+        Vector3D wc = W(centre);
+        float rpx = 0;
+        if (MapPipeline.ToScreen(wc, out var sc))
+            foreach (var ax in new[] { new Vector3D(radiusLocal, 0, 0), new Vector3D(0, 0, radiusLocal) })
+                if (MapPipeline.ToScreen(W(centre + ax), out var se)) rpx = Math.Max(rpx, (se - sc).Length());
+        MapPipeline.ScreenRing(wc, Math.Max(rpx * 1.25f + 4f, minPx), col, width);
     }
 
     private static void Circle(Func<Vector3D, Vector3D> W, double r, ColorSRGB col, float px)

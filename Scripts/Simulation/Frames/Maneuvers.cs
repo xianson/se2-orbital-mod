@@ -204,7 +204,7 @@ public static class Maneuvers
                 double tk = l.T0 + span * k / n;
                 Vector3D loc = LegLoc(l, tk);
                 if (Math.Sqrt(loc.X * loc.X + loc.Z * loc.Z) > limit * 1.04) { hp = false; continue; }
-                if (!MapPipeline.ToScreen(W(loc), out var s)) { hp = false; continue; }
+                if (!MapPipeline.ToScreen(W(loc), out var s) || !InMapArea(s)) { hp = false; continue; }
                 samples.Add(new Sample { T = tk, S = s, Planned = l.Planned });
                 if (hp && drawn)
                 {
@@ -224,7 +224,7 @@ public static class Maneuvers
             {
                 double tk = t0 + (t1 - t0) * k / 96;
                 Vector3D loc = Loc(bb, OrbitPropagation.StateAt(bel, tk).Position, tk);
-                if (Math.Sqrt(loc.X * loc.X + loc.Z * loc.Z) > limit * 1.04 || !MapPipeline.ToScreen(W(loc), out var sp)) { hv = false; continue; }
+                if (Math.Sqrt(loc.X * loc.X + loc.Z * loc.Z) > limit * 1.04 || !MapPipeline.ToScreen(W(loc), out var sp) || !InMapArea(sp)) { hv = false; continue; }
                 if (hv) MapPipeline.ScreenLine(pv, sp, faint, 1.2f * u);
                 pv = sp; hv = true;
             }
@@ -237,19 +237,19 @@ public static class Maneuvers
             if (nb == pa.Body) continue;
             double tp = legs[li].T0;
             Vector3D loc = LegLoc(pa, tp);
-            if (!MapPipeline.ToScreen(W(loc), out var sp)) continue;
+            if (!MapPipeline.ToScreen(W(loc), out var sp) || !InMapArea(sp)) continue;
             var col = legColour[li];
             MapPipeline.ScreenCircle(sp, 3.5f * u, col, 2f * u);
             bool escape = nb == pa.Body.Parent;
             // An encounter: the body where it will be, named (the ghost the arc is drawn about).
-            if (!escape && !nb.IsRoot && nb.Name != focusBody && MapPipeline.ToScreen(W(Loc(nb, Vector3D.Zero, tp)), out var gs))
+            if (!escape && !nb.IsRoot && nb.Name != focusBody && MapPipeline.ToScreen(W(Loc(nb, Vector3D.Zero, tp)), out var gs) && InMapArea(gs))
             {
-                // The ghost at the body's true size on the map (its radius mapped like everything else).
+                // The ghost ring: padded round the body's true size on the map (its radius mapped like everything else).
                 double R = SystemHost.Registry?.FindDefinition(nb.Name)?.RadiusMeters ?? 0;
                 float rpx = 0;
                 foreach (var ax in new[] { Vector3D.UnitX, Vector3D.UnitY })
                     if (MapPipeline.ToScreen(W(Loc(nb, ax * R, tp)), out var es)) rpx = Math.Max(rpx, (es - gs).Length());
-                rpx = Math.Max(rpx, 2f * u);
+                rpx = Math.Max(rpx * 1.3f + 3f * u, 9f * u);   // padded round the body, never smaller than the old marker
                 MapPipeline.ScreenCircle(gs, rpx, new ColorSRGB(col.R, col.G, col.B, 0.55f), 1.3f * u);
                 HudPanel.TagAt(gs + new Vector2(rpx + 6f * u, 0), nb.Name, col, u, diamond: false);
             }
@@ -409,7 +409,7 @@ public static class Maneuvers
                 void Apsis(double nu, string name, double rad)
                 {
                     Vector3D loc = Loc(selA.Body, OrbitSampler.PositionAtTrueAnomaly(aft, nu), Selected.T);
-                    if (MapPipeline.ToScreen(W(loc), out var ps)) HudPanel.TagAt(ps, $"{name} {HudPanel.Km(rad - R)}", PlanColor, u);
+                    if (MapPipeline.ToScreen(W(loc), out var ps) && InMapArea(ps)) HudPanel.TagAt(ps, $"{name} {HudPanel.Km(rad - R)}", PlanColor, u);
                 }
                 Apsis(0, "Pe", aft.PeriapsisRadius);
                 Apsis(Math.PI, "Ap", aft.ApoapsisRadius);
@@ -487,6 +487,13 @@ public static class Maneuvers
         float ext = Math.Abs(dir.X) * ts.X * 0.5f + Math.Abs(dir.Y) * ts.Y * 0.5f;   // half the box along the axis
         Vector2 centre = from + dir * (gap + ext + 4f * u);
         HudPanel.LabelAt(centre - new Vector2(ts.X * 0.5f, 0), text, c, u);
+    }
+
+    /// <summary>The map's open area: between the game's side panels (left details, right index and list) and the tab bars.</summary>
+    static bool InMapArea(Vector2 s)
+    {
+        var sz = MapPipeline.ScreenSize;
+        return s.X > sz.X * 0.255f && s.X < sz.X * 0.772f && s.Y > sz.Y * 0.14f && s.Y < sz.Y * 0.93f;
     }
 
     static string HandleName(string l) => l switch

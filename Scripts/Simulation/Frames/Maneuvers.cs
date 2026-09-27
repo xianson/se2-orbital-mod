@@ -303,6 +303,17 @@ public static class Maneuvers
             var col = legColour[li];
             MapPipeline.ScreenCircle(sp, 3.5f * u, col, 2f * u);
             bool escape = nb == pa.Body.Parent;
+            // Where the crossing really is (about the view's body): marked and named after the body
+            // entered (Caligo going in, Kemik coming out, Sun on an escape).
+            {
+                Vector3D tl = toMap(RootAt(pa, tp), tp);
+                if (Math.Sqrt(tl.X * tl.X + tl.Z * tl.Z) <= limit * 1.04 && MapPipeline.ToScreen(W(tl), out var st) && InMapArea(st))
+                {
+                    MapPipeline.ScreenCircle(st, 5f * u, col, 2f * u);
+                    MapPipeline.ScreenCircle(st, 1.5f * u, col, 2.5f * u);
+                    HudPanel.TagAt(st + new Vector2(10f * u, 0), nb.IsRoot ? "Sun" : nb.Name, col, u, diamond: false);
+                }
+            }
             // An encounter: the body where it will be, named (the ghost the arc is drawn about).
             bool moonAtSolarScale = focusBody == null && nb.Parent != null && !nb.Parent.IsRoot;   // too small to tell apart there
             if (!escape && !nb.IsRoot && nb.Name != focusBody && !moonAtSolarScale && MapPipeline.ToScreen(W(Loc(nb, Vector3D.Zero, tp)), out var gs) && InMapArea(gs))

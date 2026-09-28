@@ -440,7 +440,7 @@ public static class Maneuvers
         var selA = applied.Find(a => a.Node == Selected);
         Vector2 selS = default;
         bool edit = focusBody != null;   // the solar view shows nodes; editing is in a planet's view
-        if (edit && Selected != null && selA.Node != null && nodeScreen.Exists(x => x.n == Selected))
+        if (edit && Selected != null && selA.Node != null && nodeScreen.Exists(x => x.n == Selected && InMapArea(x.s)))   // not when the node is off view
         {
             selS = nodeScreen.Find(x => x.n == Selected).s;
             Axes(selA.Before, out var P, out var N, out var R);

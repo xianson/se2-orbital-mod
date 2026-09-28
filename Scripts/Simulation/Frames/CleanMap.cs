@@ -412,6 +412,7 @@ public static class CleanMap
             if (!SystemHost.BeaconOf.ContainsKey(moon.Name)) continue;
             Vector3D mp = moon.StateInParentAt(t).Position;
             Vector3D ml = Lv(mp);
+            if (!MapPipeline.ToScreen(W(ml), out var mls) || !InOpenArea(mls)) continue;   // off view: not over the game's panels
             MapGlobes.Use(moon.Name, W(ml), (reg.FindDefinition(moon.Name)?.RadiusMeters ?? 2e4) * scaleSys, globes);
             BodyRing(W, ml, (reg.FindDefinition(moon.Name)?.RadiusMeters ?? 2e4) * scaleSys, 5f, Dim, 1.2f);
             Hit(moon, W(ml), W(ml + new Vector3D((reg.FindDefinition(moon.Name)?.RadiusMeters ?? 2e4) * scaleSys, 0, 0)), 5f);
@@ -519,7 +520,7 @@ public static class CleanMap
             Vector3D yl = Lv(playerRel);
             MapPipeline.Text(W(yl), "+", You, 1.2f);
             // Beside the mark on screen (a map-space offset lands far away when zoomed in).
-            if (MapPipeline.ToScreen(W(yl), out var ys))
+            if (MapPipeline.ToScreen(W(yl), out var ys) && InOpenArea(ys))
             {
                 float uu = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
                 HudPanel.TagAt(ys + new Vector2(12f * uu, 0), "you", You, uu, diamond: false);
@@ -606,7 +607,7 @@ public static class CleanMap
                 for (int i = 0; i < pts.Length - (path.IsClosed ? 0 : 1); i++)
                     MapPipeline.Line(W(S(pts[i])), W(S(pts[(i + 1) % pts.Length])), You, 2f);
             var now = OrbitPropagation.StateAt(playerOrbit.Value, t);
-            if (MapPipeline.ToScreen(W(S(now.Position)), out var ys))
+            if (MapPipeline.ToScreen(W(S(now.Position)), out var ys) && InOpenArea(ys))
             {
                 float uu = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
                 MapPipeline.ScreenText(ys - new Vector2(6f * uu, 12f * uu), "+", You, 1.2f);
@@ -825,6 +826,13 @@ public static class CleanMap
     /// A body's name centred just below it on screen: below its drawn disc (largest screen extent of
     /// its radius, so a tilted view cannot tuck it under the globe) or its ring when that is bigger.
     /// </summary>
+    /// <summary>The map's open area on screen (between the game's panels, above the warp bar).</summary>
+    public static bool InOpenArea(Vector2 s)
+    {
+        var scr = MapPipeline.ScreenSize;
+        return s.X >= scr.X * 0.255f && s.X <= scr.X * 0.775f && s.Y >= scr.Y * 0.1f && s.Y <= scr.Y * 0.84f;
+    }
+
     static void BodyLabel(Func<Vector3D, Vector3D> W, Vector3D c, double r, float ringPx, string name, ColorSRGB col, float scale)
     {
         if (!MapPipeline.ToScreen(W(c), out var sc)) return;

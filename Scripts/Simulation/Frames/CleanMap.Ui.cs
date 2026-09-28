@@ -242,6 +242,7 @@ public static partial class CleanMap
         GravityBody best = null; float bd = float.MaxValue;
         foreach (var h in _hits) { float d = (h.s - Mouse).Length(); if (d <= h.r && d < bd) { bd = d; best = h.b; } }
         if (best != null) FocusOn(best, reg, t, W, solar);
+        else FocusLens(Mouse);   // a Lagrange zone: centre on it and frame it
     }
 
     /// <summary>Fly the view to a body: the star (system view), a planet or a moon (its own view).</summary>

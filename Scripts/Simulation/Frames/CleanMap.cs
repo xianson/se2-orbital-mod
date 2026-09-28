@@ -127,7 +127,7 @@ public static partial class CleanMap
         }
 
         Frame = $"anchor {anchor.Name} pxPerV {_pxPerV:G3} d {MapCamera.Distance:G3} min {GameMap.MinZoom:G3} focusV {MapCamera.FocusV.Length():G3} scale {_wscale:G3}";
-        _hits.Clear(); _crumbs.Clear();
+        _hits.Clear(); _crumbs.Clear(); SwapLens();
         GravityBody focusPlanet = anchor.IsRoot ? null : anchor.Parent != null && !anchor.Parent.IsRoot ? anchor.Parent : anchor;
         string focus = focusPlanet?.Name;
         // The planet's own level (its sectors listed) while its system shows.

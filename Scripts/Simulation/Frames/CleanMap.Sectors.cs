@@ -148,13 +148,17 @@ public static partial class CleanMap
             var h = new SectorHomes.Home { Kind = SectorHomes.Kind.Lagrange, Host = body.Name, Point = p };
             Vector3D at = SectorHomes.Where(h, reg, t, out Vector3D centre);
             // Its shape, as a sector's but faint: L3-L5 a lens on the body's orbit, L1 / L2 a small zone.
-            var ghost = new Band { Name = "", Home = h };
+            // Named as its zone ("Palatine L2"): double-click centres on it, as on a sector.
+            string zoneName = $"{SystemHost.DisplayName(body.Name)} L{p}";
+            var ghost = new Band { Name = zoneName, Home = h };
+            _markerAt[zoneName] = W(toLocal(at));
             if (p >= 3)
             {
                 double P = SectorHomes.Period(h, reg);
                 SectorArea(W, q => { var p = SectorHomes.Where(h, reg, t + P * q, out var cq); return p - cq; }, v => toLocal(centre + v), ghost, SectorSpan, 0.035, taper: true, faint: true);
             }
             else OwnSector(W, SectorHomes.HillRadius(body) * 0.15 * LocalScale(toLocal), ghost, toLocal(at), faint: true);
+            CoreMark(W, toLocal, h, reg, at);
             Vector3D w = W(toLocal(at));
             if (!MapPipeline.ToScreen(w, out var s) || !InOpenArea(s)) continue;
             // Named after its body: a planet's points (with the star) and its moon's (with the planet) share a screen.
@@ -259,6 +263,8 @@ public static partial class CleanMap
                     break;
                 }
             }
+            if (h.Kind == SectorHomes.Kind.Lagrange && Maneuvers.Lag?.Site?.Sector != b0.Name)   // (the preview draws its own)
+                CoreMark(W0, toLocal, h, reg, at);
             if (marker)
             {
                 Marker(W0(mk), b0);
@@ -270,6 +276,60 @@ public static partial class CleanMap
             }
             MapPipeline.PickName = null;
         });
+    }
+
+    /// <summary>Lagrange zones on screen (name, outline), for double-click: this frame's and last frame's.</summary>
+    private static List<(string name, Vector2[] poly)> _lens = new List<(string, Vector2[])>(), _lensPrev = new List<(string, Vector2[])>();
+    static void LensHit(string name, IList<Vector2> poly)
+    {
+        if (string.IsNullOrEmpty(name) || poly == null || poly.Count < 3) return;
+        var a = new Vector2[poly.Count]; poly.CopyTo(a, 0); _lens.Add((name, a));
+    }
+    static void SwapLens() { var s = _lensPrev; _lensPrev = _lens; _lens = s; _lens.Clear(); }
+
+    /// <summary>
+    /// A double-click on a Lagrange zone: centre on it and frame it (about half the view), so its inside
+    /// (the calm core) reads. False when the click was on no zone.
+    /// </summary>
+    static bool FocusLens(Vector2 m)
+    {
+        foreach (var l in _lensPrev)
+        {
+            if (!MapPipeline.InPolygon(l.poly, m)) continue;
+            CentreOn(l.name);
+            Vector2 lo = l.poly[0], hi = l.poly[0];
+            foreach (var p in l.poly) { lo = Vector2.Min(lo, p); hi = Vector2.Max(hi, p); }
+            float ext = Math.Max(hi.X - lo.X, hi.Y - lo.Y);
+            if (ext > 1f && MapCamera.Distance > 0) MapCamera.ZoomTo(MapCamera.Distance * ext / (0.5 * MapPipeline.ScreenSize.Y));
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// A Lagrange zone's calm core (no pull at all), once zoomed in enough to see it: a dotted circle in
+    /// its orbit plane round the point, named when big.
+    /// </summary>
+    static void CoreMark(Func<Vector3D, Vector3D> W, Func<Vector3D, Vector3D> toLocal, SectorHomes.Home h, SystemRegistry reg, Vector3D at)
+    {
+        double core = SectorHomes.LagrangeCore(h, reg);
+        if (!(core > 0)) return;
+        float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        Vector3D c = toLocal(at);
+        double rl = core * LocalScale(toLocal);
+        if (!MapPipeline.ToScreen(W(c), out var cs)) return;
+        var pts = new List<Vector2>(64);
+        float rmax = 0;
+        for (int i = 0; i < 64; i++)
+        {
+            double a = 2 * Math.PI * i / 64;
+            if (!MapPipeline.ToScreen(W(c + new Vector3D(Math.Cos(a) * rl, 0, Math.Sin(a) * rl)), out var sp)) return;
+            pts.Add(sp); rmax = Math.Max(rmax, (sp - cs).Length());
+        }
+        if (rmax < 6f * u) return;   // too small to read yet
+        var col = new ColorSRGB(0.55f, 0.85f, 1f, 0.55f);
+        MapStyle.Boundary(pts, true, col, MapStyle.Thin(u), u);
+        if (rmax > 40f * u) MapPipeline.TextScreen(cs + new Vector2(0, rmax * 0.6f + 10f * u), "Calm core", col, 0.5f);
     }
 
     /// <summary>Where each sector's marker was drawn (world), for centring on it.</summary>
@@ -319,6 +379,7 @@ public static partial class CleanMap
         }
         var poly = new List<Vector2>(outer);
         for (int i = inner.Count - 1; i >= 0; i--) poly.Add(inner[i]);
+        if (!ring && b.Home?.Kind == SectorHomes.Kind.Lagrange) LensHit(b.Name, poly);
         var c = b.Selected ? LineSel : StateColor(b);
         // Under the ghost of a sector you will enter (drawn where it will be then): today's sector steps back.
         if (!faint && Maneuvers.UnderGhost(0.5f * (outer[n / 2] + inner[n / 2]), b.Name)) faint = true;

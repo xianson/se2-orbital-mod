@@ -226,11 +226,12 @@ public static partial class CleanMap
             MapStyle.Boundary(ring, true, col, b.Selected ? MapStyle.Medium(u) : MapStyle.Thin(u), u);
             // Its area stops orbit lines (a body's own space: its moons' orbits run through it by nature).
             if (b.Home?.Kind != SectorHomes.Kind.Body) MapPipeline.OccludeArea(ring);
+            if (b.Home?.Kind == SectorHomes.Kind.Lagrange) LensHit(b.Name, ring);
         }
         // Only inside the map's open area (not over the game's tab bar or the title).
         var scr = MapPipeline.ScreenSize;
         if (!haveTop || top.Y < scr.Y * 0.2f || top.X < scr.X * 0.26f || top.X > scr.X * 0.77f) return;
-        if (b.Home?.Kind == SectorHomes.Kind.Body) return;   // the body's own label names it
+        if (b.Home?.Kind == SectorHomes.Kind.Body || faint) return;   // the body's own label names it (a faint zone: its mark does)
         string nm = Label(b);
         var sz = MapPipeline.MeasureText(nm, 0.8f);
         MapPipeline.TextScreen(new Vector2(top.X, top.Y - sz.Y * 0.5f - 4f * u), nm, b.Selected ? LineSel : Dim, 0.8f);   // clear of the title lines

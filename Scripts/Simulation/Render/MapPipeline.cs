@@ -371,6 +371,15 @@ public static class MapPipeline
         if (r > 1f) _areas.Add(new Area { C = c, R = r });
     }
 
+    /// <summary>A screen point inside a polygon (even-odd).</summary>
+    public static bool InPolygon(Vector2[] p, Vector2 s)
+    {
+        bool inside = false;
+        for (int i = 0, j = p.Length - 1; i < p.Length; j = i++)
+            if ((p[i].Y > s.Y) != (p[j].Y > s.Y) && s.X < (p[j].X - p[i].X) * (s.Y - p[i].Y) / (p[j].Y - p[i].Y) + p[i].X) inside = !inside;
+        return inside;
+    }
+
     /// <summary>Inside a sector's area on screen (as drawn last frame; none once the map has not drawn for a moment).</summary>
     public static bool InSectorArea(Vector2 s)
     {

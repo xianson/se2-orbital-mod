@@ -374,7 +374,40 @@ public static class EncounterFrames
     /// <summary>The Lagrange sites (a sector's point each).</summary>
     public static IEnumerable<Site> LagrangeSites()
     {
-        foreach (var s in _sites.Values) if (s.Home?.Kind == SectorHomes.Kind.Lagrange) yield return s;
+        var real = new List<Site>();
+        foreach (var s in new List<Site>(_sites.Values)) if (s.Home?.Kind == SectorHomes.Kind.Lagrange) real.Add(s);
+        foreach (var s in real) yield return s;
+        // Every other Lagrange zone on the map (a body's L1-L5 with its parent, sector or not) is a sphere
+        // of influence too: entered, ridden and left the same way.
+        foreach (var v in VirtualLagrange())
+            if (!real.Exists(r => r.Home.Host == v.Home.Host && r.Home.Point == v.Home.Point)) yield return v;
+    }
+
+    private static List<Site> _virtual;
+    private static int _virtualKey = -1;
+    /// <summary>A zone per body and point (L1-L5 with its parent), named "Palatine L2": no frame of its own.</summary>
+    static List<Site> VirtualLagrange()
+    {
+        var reg = SystemHost.Registry;
+        if (reg == null) return new List<Site>();
+        int key = SystemHost.BeaconOf.Count * 1000 + reg.Bodies.Count;
+        if (_virtual != null && key == _virtualKey) return _virtual;
+        var list = new List<Site>();
+        foreach (var b in reg.Bodies)
+        {
+            if (b.IsRoot || b.Parent == null || !SystemHost.BeaconOf.ContainsKey(b.Name)) continue;
+            for (int p = 1; p <= 5; p++)
+            {
+                string name = $"{SystemHost.DisplayName(b.Name)} L{p}";
+                list.Add(new Site
+                {
+                    FrameId = -1, Sector = name, Host = b.Name, Label = name,
+                    Home = new SectorHomes.Home { Kind = SectorHomes.Kind.Lagrange, Host = b.Name, Point = p, Sector = name },
+                });
+            }
+        }
+        _virtual = list; _virtualKey = key;
+        return list;
     }
 
     /// <summary>A frame's ride in a Lagrange sector, if it has one.</summary>

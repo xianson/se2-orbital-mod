@@ -25,6 +25,18 @@ public static class AsteroidBridge
 
     /// <summary>The game's rings (manual volumes) as found: type, transform, bounds (for the map and the sectors).</summary>
     public static readonly List<string> RingInfo = new List<string>();
+    /// <summary>The game's planetary rings (tori): centre (world), inner / outer radius and half-thickness (m).</summary>
+    public static readonly List<(Vector3D C, double In, double Out, double Half)> Rings = new List<(Vector3D, double, double, double)>();
+
+    /// <summary>The ring round a world point (a planet's centre), if the game has one there.</summary>
+    public static bool RingAround(Vector3D centre, out double inner, out double outer)
+    {
+        inner = outer = 0;
+        lock (Rings)
+            foreach (var r in Rings)
+                if ((r.C - centre).Length() < Math.Max(5000.0, 0.05 * r.Out)) { inner = r.In; outer = r.Out; return inner > 0 && outer > inner; }
+        return false;
+    }
 
     private static readonly List<(VolumeDefinition v, float density)> _orig = new List<(VolumeDefinition, float)>();
     private static readonly HashSet<VolumeDefinition> _seen = new HashSet<VolumeDefinition>();
@@ -57,16 +69,25 @@ public static class AsteroidBridge
                 gen.QueryManualVolumes(in all, buf);
                 var en = ((BufferReference<IProceduralVolume>)buf).GetEnumerator();
                 var info = new List<string>();
+                var rings = new List<(Vector3D, double, double, double)>();
                 while (en.MoveNext())
                 {
                     var vol = en.Current;
                     Kill(vol.Composition);
                     var box = vol.GetOrientedBoundingBox().GetAABB();
                     var wt = vol.Transform;
-                    info.Add($"{vol.GetType().Name} at {Km(wt.Position)} up {wt.Orientation.GetUp()} box {Km(box.Min)}..{Km(box.Max)}");
+                    string radii = "";
+                    if (vol is ProceduralRing pr)
+                    {
+                        var tv = pr.Torus;
+                        rings.Add((tv.WorldTransform.Position, tv.InnerRadius, tv.OuterRadius, tv.MinorRadii.Y));
+                        radii = $" inner {tv.InnerRadius / 1000:F1} km outer {tv.OuterRadius / 1000:F1} km half-height {tv.MinorRadii.Y / 1000:F2} km";
+                    }
+                    info.Add($"{vol.GetType().Name} at {Km(wt.Position)} up {wt.Orientation.GetUp()} box {Km(box.Min)}..{Km(box.Max)}{radii}");
                 }
                 en.Dispose();
                 lock (RingInfo) { RingInfo.Clear(); RingInfo.AddRange(info); }
+                lock (Rings) { Rings.Clear(); Rings.AddRange(rings); }
                 if (!_loggedRings && info.Count > 0)
                 {
                     _loggedRings = true;

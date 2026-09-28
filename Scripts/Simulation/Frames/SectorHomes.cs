@@ -72,7 +72,10 @@ public static class SectorHomes
             case "Byblos Sector": Body(root); h.Future = true; h.AU = 0.88; h.Phase = chartBearing; break;   // a planet still to come
             case "Zarkon": Ring(root, 0.72 * AUm, 0.80 * AUm); break;         // a belt between Kemik (0.53) and Verdure (1.0), clear of both
             case "Pyrethra": Ring(root, 1.25 * AUm, 1.35 * AUm); break;       // the outer belt, beyond Verdure
-            case "Oblivara": Ring("Verdure", VerdureRingInnerR * Rp("Verdure"), VerdureRingOuterR * Rp("Verdure")); break;   // Verdure's ring
+            case "Oblivara":   // Verdure's ring: the game's own torus, once read (its radii in Verdure radii until then)
+                if (SystemHost.BeaconOf.TryGetValue("Verdure", out var vb) && AsteroidBridge.RingAround(vb.Center, out var ri, out var ro)) Ring("Verdure", ri, ro);
+                else Ring("Verdure", VerdureRingInnerR * Rp("Verdure"), VerdureRingOuterR * Rp("Verdure"));
+                break;
             case "Echelon": L("Kemik", 4); break;
             case "Nadirae": L("Kemik", 5); break;
             case "Tarnyx": L("Kemik", 3); break;

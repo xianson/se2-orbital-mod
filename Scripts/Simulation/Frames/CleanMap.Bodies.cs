@@ -195,15 +195,21 @@ public static partial class CleanMap
         float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
         var col = faint ? HudPanel.Alpha(Dim, 0.3f) : b.Selected ? HudPanel.Alpha(LineSel, 0.85f) : b.Name == Hovered ? HudPanel.Alpha(StateColor(b), 0.8f) : HudPanel.Alpha(StateColor(b), 0.45f);
         const int n = 64;
-        Vector2 prev = default, top = default; bool have = false, haveTop = false;
-        for (int i = 0; i <= n; i++)
+        Vector2 top = default; bool haveTop = false;
+        var ring = new List<Vector2>(n);
+        for (int i = 0; i < n; i++)
         {
             double a = 2 * Math.PI * i / n;
             Vector3D p = W(centre + new Vector3D(Math.Cos(a) * r, 0, Math.Sin(a) * r));
-            if (!MapPipeline.ToScreen(p, out var s)) { have = false; continue; }
-            if (have) MapPipeline.ScreenDashed(prev, s, col, (b.Selected ? 1.8f : 1.3f) * u);
+            if (!MapPipeline.ToScreen(p, out var s)) { ring.Clear(); break; }
+            ring.Add(s);
             if (!haveTop || s.Y < top.Y) { top = s; haveTop = true; }
-            prev = s; have = true;
+        }
+        if (ring.Count == n)
+        {
+            MapPipeline.ScreenDotted(ring, true, col, (b.Selected ? 1.8f : 1.3f) * u, 6f * u, 5f * u);
+            // Its area stops orbit lines (a body's own space: its moons' orbits run through it by nature).
+            if (b.Home?.Kind != SectorHomes.Kind.Body) MapPipeline.OccludeArea(ring);
         }
         // Only inside the map's open area (not over the game's tab bar or the title).
         var scr = MapPipeline.ScreenSize;

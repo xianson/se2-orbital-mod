@@ -302,6 +302,7 @@ public static partial class CleanMap
             if (oa && ob && ((sb - sa).Length() < 12f * u || depth >= 22))
             {
                 if (MapPipeline.Occluded(W((pa + pb) * 0.5))) { Flush(); return; }   // behind a body's globe
+                if (MapPipeline.InSectorArea(0.5f * (sa + sb))) { Flush(); return; }   // through a sector: not drawn
                 Emit(sa, sb, depthCue && (pa.Y + pb.Y) < 0);
                 return;
             }

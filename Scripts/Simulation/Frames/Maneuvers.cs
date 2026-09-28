@@ -1251,8 +1251,8 @@ public static class Maneuvers
                 if (MapPipeline.ToScreen(W(toMap(centre + r * (1 + ki), tE)), out var so)) outer.Add(so);
                 if (MapPipeline.ToScreen(W(toMap(centre + r * (1 - ki), tE)), out var si)) inner.Add(si);
             }
-            for (int i = 0; i + 1 < outer.Count; i++) MapPipeline.ScreenDashed(outer[i], outer[i + 1], bcol, 1.4f * u, u);
-            for (int i = 0; i + 1 < inner.Count; i++) MapPipeline.ScreenDashed(inner[i], inner[i + 1], bcol, 1.4f * u, u);
+            var lens = new List<Vector2>(outer); for (int i = inner.Count - 1; i >= 0; i--) lens.Add(inner[i]);
+            MapPipeline.ScreenDotted(lens, true, bcol, 1.4f * u, 6f * u, 5f * u);
         }
         else
         {

@@ -305,6 +305,9 @@ public static class MapPipeline
         _placed.Clear();
         _picks.Clear();
         _occluders.Clear();
+        // Last frame's sector areas answer this frame (orbit lines are drawn before the sectors).
+        _areasPrev.Clear(); _areasPrev.AddRange(_areas); _areas.Clear();
+        _areasAt = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
         try
         {
             _cam = SpecCam.CameraOf(session);
@@ -350,6 +353,74 @@ public static class MapPipeline
     // ── bodies hide the lines behind them (an orbit line ran across the planet's globe) ──
     private struct Occluder { public Vector2 C; public float R; public double Depth, RWorld; }
     private static readonly List<Occluder> _occluders = new List<Occluder>();
+
+    // Sector areas on screen (a polygon, or a disc when Poly is null): orbit lines are not drawn through them.
+    private struct Area { public Vector2[] Poly; public Vector2 C; public float R; }
+    private static readonly List<Area> _areas = new List<Area>(), _areasPrev = new List<Area>();
+    private static double _areasAt;
+
+    /// <summary>A sector's area on screen (its outline): orbit lines do not cross it.</summary>
+    public static void OccludeArea(IList<Vector2> poly)
+    {
+        if (poly != null && poly.Count >= 3) { var a = new Vector2[poly.Count]; poly.CopyTo(a, 0); _areas.Add(new Area { Poly = a }); }
+    }
+
+    /// <summary>A round sector area on screen (centre, radius px).</summary>
+    public static void OccludeDisc(Vector2 c, float r)
+    {
+        if (r > 1f) _areas.Add(new Area { C = c, R = r });
+    }
+
+    /// <summary>Inside a sector's area on screen (as drawn last frame; none once the map has not drawn for a moment).</summary>
+    public static bool InSectorArea(Vector2 s)
+    {
+        double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+        if (_areasPrev.Count == 0 || now - _areasAt > 0.3) return false;
+        foreach (var a in _areasPrev)
+        {
+            if (a.Poly == null) { if ((s - a.C).LengthSquared() < a.R * a.R) return true; continue; }
+            bool inside = false;
+            var p = a.Poly;
+            for (int i = 0, j = p.Length - 1; i < p.Length; j = i++)
+                if ((p[i].Y > s.Y) != (p[j].Y > s.Y) && s.X < (p[j].X - p[i].X) * (s.Y - p[i].Y) / (p[j].Y - p[i].Y) + p[i].X) inside = !inside;
+            if (inside) return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// A dotted path, the dashes measured along its whole length (the batch's own dashing restarts on
+    /// every segment, and a small shape of short segments came out solid).
+    /// </summary>
+    public static void ScreenDotted(IList<Vector2> pts, bool closed, ColorSRGB color, float width, float dash, float gap)
+    {
+        if (pts == null || pts.Count < 2 || !(dash > 0) || !(gap > 0)) return;
+        float period = dash + gap, phase = 0;
+        int n = closed ? pts.Count : pts.Count - 1;
+        for (int i = 0; i < n; i++)
+        {
+            Vector2 a = pts[i], b = pts[(i + 1) % pts.Count];
+            float len = (b - a).Length();
+            if (!(len > 0)) continue;
+            Vector2 dir = (b - a) / len;
+            float at = 0;
+            while (at < len)
+            {
+                float inPeriod = phase % period;
+                if (inPeriod < dash)
+                {
+                    float on = Math.Min(dash - inPeriod, len - at);
+                    ScreenLine(a + dir * at, a + dir * (at + on), color, width);
+                    at += on; phase += on;
+                }
+                else
+                {
+                    float off = Math.Min(period - inPeriod, len - at);
+                    at += off; phase += off;
+                }
+            }
+        }
+    }
 
     /// <summary>A body's globe this frame (world centre and radius): lines behind it are not drawn.</summary>
     public static void Occlude(Vector3D centre, double radius)

@@ -315,24 +315,17 @@ public static partial class CleanMap
         // Under the ghost of a sector you will enter (drawn where it will be then): today's sector steps back.
         if (!faint && Maneuvers.UnderGhost(0.5f * (outer[n / 2] + inner[n / 2]), b.Name)) faint = true;
         float fa = faint ? 0.06f : b.Selected ? 0.30f : b.Name == Hovered ? 0.34f : Quiet(b) ? 0.08f : 0.18f;
-        // A dark base first: the lines under the sector are hidden, not showing through it.
-        if (!faint) MapPipeline.ScreenFill(poly, new ColorSRGB(0.04f, 0.06f, 0.09f, 0.82f));   // (a point with no sector: no base, lines show through)
-        // Tinted only when it has your attention; otherwise just its dotted edge.
+        // Just a dotted edge (tinted inside only when it has your attention); orbit lines stop at it.
         if (b.Selected || b.Name == Hovered) MapPipeline.ScreenFill(poly, HudPanel.Alpha(c, fa));
+        if (!ring) MapPipeline.OccludeArea(poly);   // (a belt is crossed by orbits by nature: they stay)
         var edge = HudPanel.Alpha(c, faint ? 0.3f : b.Selected ? 0.95f : Quiet(b) ? 0.3f : 0.7f);
         float ew = (b.Selected ? 1.8f : 1.3f) * u;
-        void Dotted(List<Vector2> pts, bool closed)
+        if (ring)
         {
-            for (int i = 0; i + 1 < pts.Count; i++) MapPipeline.ScreenDashed(pts[i], pts[i + 1], edge, ew, u);
-            if (closed && pts.Count > 2) MapPipeline.ScreenDashed(pts[pts.Count - 1], pts[0], edge, ew, u);
+            MapPipeline.ScreenDotted(outer, true, edge, ew, 6f * u, 5f * u);
+            MapPipeline.ScreenDotted(inner, true, edge, ew, 6f * u, 5f * u);
         }
-        Dotted(outer, ring);
-        Dotted(inner, ring);
-        if (!ring)
-        {
-            MapPipeline.ScreenDashed(outer[0], inner[0], edge, ew, u);
-            MapPipeline.ScreenDashed(outer[n], inner[n], edge, ew, u);
-        }
+        else MapPipeline.ScreenDotted(poly, true, edge, ew, 6f * u, 5f * u);   // round the whole lens
     }
 
     /// <summary>Height above or below the planet's plane: a dashed drop line to the plane and a dot at its foot.</summary>

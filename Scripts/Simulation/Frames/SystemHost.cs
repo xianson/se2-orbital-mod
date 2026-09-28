@@ -92,6 +92,15 @@ public static class SystemHost
     /// <summary>The world's sun period (seconds, 0 = its sun does not rotate); set by the client host.</summary>
     public static double WorldSunPeriod;
     public static readonly string[] PlanetOrder = { "Verdure", "Kemik" };
+    /// <summary>
+    /// The planets' orbits from the game's colonization chart, which is about Delfos: charted distance
+    /// from Delfos in Verdure's (= 1 AU) and charted bearing (degrees, atan2(z, x) of the world chart).
+    /// Kemik is the inner planet there (3,910 km from Delfos against Verdure's 7,390).
+    /// </summary>
+    public static readonly Dictionary<string, (double au, double bearingDeg)> ChartOrbits = new Dictionary<string, (double, double)>
+    {
+        { "Verdure", (1.0, 92.27) }, { "Kemik", (0.529, 71.55) },
+    };
 
     /// <summary>Palatine plays the Moon (384,400 km x k); other moons keep their charted distance (Caligo is Phobos-like).</summary>
     /// <summary>Caligo's charted distance (~195 km) sat it almost on Kemik; three times out (~585 km) it reads as a moon.</summary>
@@ -283,7 +292,8 @@ public static class SystemHost
             def.Bodies.Add(new BodyDefinition
             {
                 Name = name, Parent = "Star", HasOrbit = true,
-                SemiMajorAxisMeters = a, Eccentricity = PlanetEccentricity(name), MeanAnomalyAtEpochDeg = anomaly,
+                SemiMajorAxisMeters = ChartOrbits.TryGetValue(name, out var co) ? co.au * AU : a, Eccentricity = PlanetEccentricity(name),
+                MeanAnomalyAtEpochDeg = ChartOrbits.TryGetValue(name, out var cb) ? cb.bearingDeg : anomaly,
                 // Match the engine's physics after the inverse-square patch.
                 SurfaceGravityMps2 = law.G0 * mult, RadiusMeters = law.R0,
                 HasAtmosphere = true, AtmosphereHeightMeters = law.R0 * AtmosphereFraction,

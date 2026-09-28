@@ -380,6 +380,14 @@ public static class UnifiedMap
     {
         var list = new List<SectorInfo>();
         var trojanCount = new Dictionary<string, int>();
+        // The game's chart is about Delfos (its own sector is the centre cell): each planet is one
+        // sector, and every other sector is Delfos's, orbiting it at its charted distance and bearing
+        // (Verdure's charted distance is 1 AU, as SystemHost places the planets).
+        Vector3D starC = default; bool haveStar = false;
+        foreach (var sc in sectors.Sectors) if (sc.Name == SectorHomes.StarSector) { starC = sc.Area.Center; haveStar = true; }
+        double unit = 0;
+        if (haveStar && SystemHost.BeaconOf.TryGetValue(SystemHost.PlanetOrder[0], out var vb))
+            unit = Math.Sqrt((vb.Center.X - starC.X) * (vb.Center.X - starC.X) + (vb.Center.Z - starC.Z) * (vb.Center.Z - starC.Z));
         foreach (var sc in sectors.Sectors)
         {
             var si = new SectorInfo { Sector = sc };
@@ -393,6 +401,17 @@ public static class UnifiedMap
                 if (d < best) { best = d; si.Host = p.Name; hc = pc; }
             }
             if (si.Host == null) continue;
+            if (!si.OwnsPlanet && unit > 0)
+            {
+                Vector3D ca = sc.Area.Center;
+                double dx = ca.X - starC.X, dz = ca.Z - starC.Z;
+                double au = Math.Sqrt(dx * dx + dz * dz) / unit;
+                if (sc.Name == SectorHomes.StarSector || au < 0.1) au = 0.2;   // the star's own: close about it
+                si.R = best; si.Theta0 = Math.Atan2(dz, dx);
+                si.Home = SectorHomes.MakeHelio(sc.Name, si.Host, au, Math.Atan2(dz, dx), sc.Area.Size);
+                list.Add(si);
+                continue;
+            }
             si.R = best;
             si.Theta0 = Math.Atan2(c.Z - hc.Z, c.X - hc.X);
             double mu = reg.Find(si.Host).Mu;

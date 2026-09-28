@@ -65,7 +65,7 @@ public static class CleanMap
         SectorHomes.Kind.L1 or SectorHomes.Kind.L2 => b.Host + " Lagrange points",
         SectorHomes.Kind.L4 or SectorHomes.Kind.L5 => b.Host + " Trojans",
         SectorHomes.Kind.Belt => "Main belt",
-        SectorHomes.Kind.Ring => b.Home.AU < 1 ? "Inner system" : b.Home.AU < SectorHomes.BeltInnerAU ? "Delfos orbit" : "Outer ring",
+        SectorHomes.Kind.Ring => b.Name == SectorHomes.StarSector ? StarName : b.Home.AU < 0.8 ? "Inner ring" : "Outer ring",
         _ => "Other",
     };
 
@@ -76,7 +76,7 @@ public static class CleanMap
         {
             SectorHomes.Kind.OwnPlanet => planet * 10, SectorHomes.Kind.Ellipse => planet * 10 + 1,
             SectorHomes.Kind.L1 or SectorHomes.Kind.L2 => planet * 10 + 2, SectorHomes.Kind.L4 or SectorHomes.Kind.L5 => planet * 10 + 3,
-            SectorHomes.Kind.Belt => 200, SectorHomes.Kind.Ring => b.Home.AU < 1 ? 5 : b.Home.AU < SectorHomes.BeltInnerAU ? 150 : 300, _ => 400,
+            SectorHomes.Kind.Belt => 200, SectorHomes.Kind.Ring => b.Name == SectorHomes.StarSector ? 1 : b.Home.AU < 0.8 ? 150 : 300, _ => 400,
         };
     }
 
@@ -469,7 +469,7 @@ public static class CleanMap
     public static void Reset() { _lastKey = null; }
 
     /// <summary>Map units per metre: one scale for everything (the system to the outer ring is SolarRadius).</summary>
-    static double Sigma => SolarRadius / (SectorHomes.RingAU * 1.05 * SystemHost.AU);
+    static double Sigma => SolarRadius / (SectorHomes.SystemOuterAU * SystemHost.AU);
     /// <summary>An ecliptic vector (x, y) in map units (x, 0, z).</summary>
     static Vector3D Flat(Vector3D v) => new Vector3D(v.X * Sigma, v.Z * Sigma, v.Y * Sigma);   // height is the map's up
     /// <summary>The body the map is about (its origin), and a body to frame once the map is about it.</summary>
@@ -768,7 +768,7 @@ public static class CleanMap
                                   HashSet<string> globes, Func<Vector3D, Vector3D> W, KeplerianElements? playerOrbit = null)
     {
         var root = reg.Root;
-        double outer = SectorHomes.RingAU * 1.05 * SystemHost.AU;
+        double outer = SectorHomes.SystemOuterAU * SystemHost.AU;
         // Display radius: compressed (r^0.55) so the inner planets are not crammed against the sun;
         // order and angles are true, the physics stays proportional.
         double Rs(double r) => SolarRadius * Math.Max(0, r) / outer;   // strictly proportional
@@ -793,8 +793,7 @@ public static class CleanMap
         // The belt: a torus of its own, and its sectors as band sections on it.
         double b0 = Rs(SectorHomes.BeltInnerAU * SystemHost.AU), b1 = Rs(SectorHomes.BeltOuterAU * SystemHost.AU);
         // The belt: just its two edges, faint (a filled torus dominated the view).
-        Circle(W, b0, BeltLine, 1f);
-        Circle(W, b1, BeltLine, 1f);
+        if (bands.Exists(x => x.Home.Kind == SectorHomes.Kind.Belt)) { Circle(W, b0, BeltLine, 1f); Circle(W, b1, BeltLine, 1f); }
         foreach (var bd in bands)
         {
             if (bd.Home.Kind != SectorHomes.Kind.Belt) continue;

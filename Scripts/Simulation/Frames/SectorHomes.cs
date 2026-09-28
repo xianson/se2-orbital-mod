@@ -29,8 +29,9 @@ public static class SectorHomes
         public double I, Node;
         /// <summary>A belt: the sector is the whole ring of its orbit round the planet, not a section of it.</summary>
         public bool Belt;
-        /// <summary>A ring sector's own orbit about the star (in AU).</summary>
+        /// <summary>A ring sector's own orbit about the star (in AU), and where on it at t = 0 (NaN: by name).</summary>
         public double AU = RingAU;
+        public double Phase = double.NaN;
         public int Slot;                 // index within an L-point group
     }
 
@@ -50,9 +51,21 @@ public static class SectorHomes
     public const double LyapunovLambda = 2.53, LyapunovKappa = 3.2, LyapunovAmplitude = 0.12;
 
     /// <summary>Planet sectors that are a belt round their planet (the whole ring of the orbit): Kemik's outermost.</summary>
-    public static readonly HashSet<string> Belts = new HashSet<string> { "Helionis" };
+    public static readonly HashSet<string> Belts = new HashSet<string>();
     /// <summary>Ring sectors' orbits about the star (AU); others at RingAU.</summary>
     public static readonly Dictionary<string, double> RingOrbits = new Dictionary<string, double> { { "Delfos Sector", 0.45 }, { "Zarkon", 1.85 } };
+
+    /// <summary>The star's own sector on the game's chart (the centre cell, round Delfos).</summary>
+    public const string StarSector = "Delfos Sector";
+    /// <summary>The system's extent on the map (AU): the chart's outer ring is at about 1.</summary>
+    public const double SystemOuterAU = 1.15;
+
+    /// <summary>
+    /// A sector of Delfos's (every sector but the planets' own): a circular orbit about the star at
+    /// its charted distance from Delfos (in Verdure's charted distance = 1 AU) and charted bearing.
+    /// </summary>
+    public static Home MakeHelio(string sector, string host, double au, double phase, double size)
+        => new Home { Sector = sector, Host = host, Size = size, Kind = Kind.Ring, AU = au, Phase = phase, E = 0 };
 
     /// <summary>Ellipse eccentricity and orientation, deterministic per sector name.</summary>
     public static Home Make(string sector, string host, double chartDistance, double chartBearing, double size, int slot)
@@ -151,7 +164,7 @@ public static class SectorHomes
     {
         uint hash = 2166136261;
         foreach (char c in h.Sector) hash = (hash ^ c) * 16777619;
-        double a = (h.AU > 0 ? h.AU : RingAU) * SystemHost.AU, ph = (hash & 0xFFFF) / 65535.0 * 2 * Math.PI;
+        double a = (h.AU > 0 ? h.AU : RingAU) * SystemHost.AU, ph = !double.IsNaN(h.Phase) ? h.Phase : (hash & 0xFFFF) / 65535.0 * 2 * Math.PI;
         double n = Math.Sqrt(starMu / (a * a * a));
         return new Vector3D(Math.Cos(ph + n * t) * a, Math.Sin(ph + n * t) * a, 0);
     }

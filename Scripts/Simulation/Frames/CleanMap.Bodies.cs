@@ -44,45 +44,17 @@ public static partial class CleanMap
             BodyLabel(W, ml, (reg.FindDefinition(moon.Name)?.RadiusMeters ?? 2e4) * scaleSys, 5f, moon.Name, Dim, 0.6f);
         }
 
+        // Its sectors (its own space, its rings, its L1 / L2): only when its system is big enough on screen.
         if (detail)
-        foreach (var bd in mine)
         {
-            var h = bd.Home;
-            MapPipeline.PickName = bd.Name;
-            switch (h.Kind)
+            Vector3D pRoot = planet.OriginInRoot(t).Position;
+            foreach (var bd in bands)
             {
-                case SectorHomes.Kind.OwnPlanet:
-                    OwnSector(W, R(si_own_outer(h)), bd);
-                    break;
-                case SectorHomes.Kind.Ellipse:
-                {
-                    SectorHomes.Rel(h, planet, t, out var rel);
-                    double T = SectorHomes.Period(h, planet);
-                    Vector3D RelAt(double q) { SectorHomes.Rel(h, planet, t + T * q, out var rq); return rq; }
-                    // Its orbit (not through the sector itself), dimmer where it dips below the plane.
-                    if (!h.Belt) Curve(q => Lv(RelAt(q)), W, SectorSpan, 1 - SectorSpan, 60, OrbitLine(bd), bd.Selected ? 2f : 1.2f, depthCue: true);
-                    Vector3D mk = Lv(rel);
-                    var b0 = bd; var W0 = W;
-                    string label = $"{bd.Number}  {bd.Name}";
-                    _deferred.Add(() =>
-                    {
-                        MapPipeline.PickName = b0.Name;
-                        DropLine(W0, mk, StateColor(b0));
-                        SectorArea(W0, RelAt, Lv, b0, h.Belt ? 0.5 : SectorSpan);
-                        Marker(W0(mk), b0);
-                        if (MapPipeline.ToScreen(W0(mk), out var ms))
-                        {
-                            float lu = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
-                            MapPipeline.TextScreen(ms + new Vector2(0, 22f * lu), label, Quiet(b0) ? QuietText : b0.Selected ? LineSel : Text, Quiet(b0) ? 0.72f * 0.85f : 0.72f);
-                        }
-                        MapPipeline.PickName = null;
-                    });
-                    break;
-                }
+                var h = bd.Home;
+                bool mineHere = h.Host == planet.Name && (h.Kind != SectorHomes.Kind.Lagrange || h.Point <= 2);
+                if (mineHere) DrawSector(bd, reg, t, W, r => Lv(r - pRoot), Sigma);
             }
-            MapPipeline.PickName = null;   // only the sector's own lines and marker pick it
         }
-
 
         MapPipeline.PickName = null;
         // You.
@@ -146,67 +118,12 @@ public static partial class CleanMap
         Hit(root, W(Vector3D.Zero), W(new Vector3D(SystemHost.StarRadius * SolarRadius / outer, 0, 0)), 10f);
         BodyLabel(W, Vector3D.Zero, SystemHost.StarRadius * SolarRadius / outer, 10f, StarName, Text, 0.85f);
 
-        // The belt: a torus of its own, and its sectors as band sections on it.
-        double b0 = Rs(SectorHomes.BeltInnerAU * SystemHost.AU), b1 = Rs(SectorHomes.BeltOuterAU * SystemHost.AU);
-        // The belt: just its two edges, faint (a filled torus dominated the view).
-        if (bands.Exists(x => x.Home.Kind == SectorHomes.Kind.Belt)) { Circle(W, b0, BeltLine, 1f); Circle(W, b1, BeltLine, 1f); }
+        // The star's sectors: its own space, its belts, the planets' L3 / L4 / L5, bodies still to come.
         foreach (var bd in bands)
         {
-            if (bd.Home.Kind != SectorHomes.Kind.Belt) continue;
-            MapPipeline.PickName = bd.Name;
-            Vector3D hp = SectorHomes.HelioBelt(bd.Home, root.Mu, t);
-            double ang = Math.Atan2(hp.Y, hp.X), r = Rs(hp.Length());
-            // (No orbit line: only the planets and moons have one; a line per sector ringed the star in circles.)
-            {
-                var bs = bd; var h0 = bd.Home; var W0 = W; double Tb = 2 * Math.PI * Math.Sqrt(Math.Pow(hp.Length(), 3) / root.Mu);
-                Vector3D mk = new Vector3D(Math.Cos(ang) * r, 0, Math.Sin(ang) * r);
-                string label = $"{bd.Number}  {bd.Name}";
-                _deferred.Add(() =>
-                {
-                    MapPipeline.PickName = bs.Name;
-                    SectorArea(W0, q => SectorHomes.HelioBelt(h0, root.Mu, t + Tb * q), S, bs);
-                    Marker(W0(mk), bs);
-                    if (MapPipeline.ToScreen(W0(mk), out var ms))
-                    {
-                        float lu = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
-                        MapPipeline.TextScreen(ms + new Vector2(0, 22f * lu), label, Quiet(bs) ? QuietText : bs.Selected ? LineSel : Text, Quiet(bs) ? 0.72f * 0.85f : 0.72f);
-                    }
-                    MapPipeline.PickName = null;
-                });
-            }
-            MapPipeline.PickName = null;
-        }
-
-        // Sectors with their own orbit (a planet-like ring): the full orbit line and the band section.
-        foreach (var bd in bands)
-        {
-            if (bd.Home.Kind != SectorHomes.Kind.Ring) continue;
-            MapPipeline.PickName = bd.Name;
-            Vector3D hp = SectorHomes.HelioRing(bd.Home, root.Mu, t);
-            double ang = Math.Atan2(hp.Y, hp.X), r = Rs(hp.Length());
-            Curve(a => new Vector3D(Math.Cos(a) * r, 0, Math.Sin(a) * r), W, ang + 2 * Math.PI * SectorSpan, ang + 2 * Math.PI * (1 - SectorSpan), 90, OrbitLine(bd), bd.Selected ? 2f : 1.2f);
-            {
-                var bs = bd; var h0 = bd.Home; var W0 = W; double Tb = 2 * Math.PI * Math.Sqrt(Math.Pow(hp.Length(), 3) / root.Mu);
-                Vector3D mk = new Vector3D(Math.Cos(ang) * r, 0, Math.Sin(ang) * r);
-                string label = $"{bd.Number}  {bd.Name}";
-                _deferred.Add(() =>
-                {
-                    MapPipeline.PickName = bs.Name;
-                    if (bs.Name == SectorHomes.StarSector)
-                        // Delfos's own: a zone round the star (not an orbit), open in the middle for the star.
-                        SectorArea(W0, q => new Vector3D(Math.Cos(2 * Math.PI * q), Math.Sin(2 * Math.PI * q), 0) * (SectorHomes.StarZoneAU[0] + SectorHomes.StarZoneAU[1]) * 0.5 * SystemHost.AU,
-                                   S, bs, 0.5, (SectorHomes.StarZoneAU[1] - SectorHomes.StarZoneAU[0]) / (SectorHomes.StarZoneAU[0] + SectorHomes.StarZoneAU[1]));
-                    else SectorArea(W0, q => SectorHomes.HelioRing(h0, root.Mu, t + Tb * q), S, bs, h0.Belt ? 0.5 : SectorSpan);
-                    Marker(W0(mk), bs);
-                    if (MapPipeline.ToScreen(W0(mk), out var ms))
-                    {
-                        float lu = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
-                        MapPipeline.TextScreen(ms + new Vector2(0, 22f * lu), label, Quiet(bs) ? QuietText : bs.Selected ? LineSel : Text, Quiet(bs) ? 0.8f * 0.85f : 0.8f);
-                    }
-                    MapPipeline.PickName = null;
-                });
-            }
-            MapPipeline.PickName = null;
+            var h = bd.Home;
+            bool star = h.Host == root.Name || (h.Kind == SectorHomes.Kind.Lagrange && h.Point >= 3);
+            if (star) DrawSector(bd, reg, t, W, S, SolarRadius / outer);
         }
 
         // The planets: orbit line, the globe, and the planet's own sector as a circular section around it.
@@ -218,15 +135,9 @@ public static partial class CleanMap
             if (el.IsElliptic) Curve(nu => S(OrbitSampler.PositionAtTrueAnomaly(el, nu)), W, 0, 2 * Math.PI, 96, _planetLevel ? HudPanel.Alpha(Line, 0.1f) : Line, 1.2f);
             Vector3D hp = p.StateInParentAt(t).Position;
             Vector3D c = S(hp);
-            var own = bands.Find(b => b.Host == p.Name && b.Home.Kind == SectorHomes.Kind.OwnPlanet);
-            if (own != null)
-            {
-                // The planet's own sector at true size is far below a pixel here: the ring marker stands for it.
-            }
             MapGlobes.Use(p.Name, W(c), (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer * _wscale, globes);   // true size
             BodyDot(W, c, (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, p.Name == playerPlanet ? You : Text);
             Hit(p, W(c), W(c + new Vector3D((reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, 0, 0)), 8f);
-            int n = 0; foreach (var bd in bands) if (bd.Host == p.Name && bd.Home.Kind != SectorHomes.Kind.OwnPlanet) n++;
             BodyLabel(W, c, (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, 8f, p.Name, p.Name == playerPlanet ? You : Text, 0.9f);
         }
         // You, orbiting the star: your orbit and where you are (planning: the planner draws it).
@@ -265,7 +176,7 @@ public static partial class CleanMap
     /// A planet's own sector (its near space): not an orbit, so a faint dashed boundary (gold when
     /// selected), with the sector's name centred above the whole area.
     /// </summary>
-    static void OwnSector(Func<Vector3D, Vector3D> W, double r, Band b)
+    static void OwnSector(Func<Vector3D, Vector3D> W, double r, Band b, Vector3D centre = default)
     {
         float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
         var col = b.Selected ? HudPanel.Alpha(LineSel, 0.85f) : b.Name == Hovered ? HudPanel.Alpha(StateColor(b), 0.8f) : HudPanel.Alpha(StateColor(b), 0.45f);
@@ -274,7 +185,7 @@ public static partial class CleanMap
         for (int i = 0; i <= n; i++)
         {
             double a = 2 * Math.PI * i / n;
-            Vector3D p = W(new Vector3D(Math.Cos(a) * r, 0, Math.Sin(a) * r));
+            Vector3D p = W(centre + new Vector3D(Math.Cos(a) * r, 0, Math.Sin(a) * r));
             if (!MapPipeline.ToScreen(p, out var s)) { have = false; continue; }
             if (have) MapPipeline.ScreenDashed(prev, s, col, (b.Selected ? 1.8f : 1.3f) * u);
             if (!haveTop || s.Y < top.Y) { top = s; haveTop = true; }

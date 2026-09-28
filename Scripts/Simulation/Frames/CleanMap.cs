@@ -40,12 +40,6 @@ public static partial class CleanMap
     static readonly ColorSRGB BeltLine = new ColorSRGB(0.75f, 0.68f, 0.55f, 0.22f);
     static readonly ColorSRGB Dim = new ColorSRGB(0.70f, 0.78f, 0.88f, 0.9f);
 
-    static double HomeHelioRadius(Band b, GravityBody host) => b.Home.Kind switch
-    {
-        SectorHomes.Kind.Belt => (SectorHomes.BeltInnerAU + SectorHomes.BeltOuterAU) * 0.5 * SystemHost.AU,
-        SectorHomes.Kind.Ring => b.Home.AU * SystemHost.AU,
-        _ => host.StateInParentAt(SystemHost.Now).Position.Length(),   // Trojans share the planet's orbit
-    };
     static readonly ColorSRGB TargetText = new ColorSRGB(0.95f, 0.45f, 0.85f, 1f);
     static readonly ColorSRGB RowHover = new ColorSRGB(0.30f, 0.55f, 0.65f, 0.22f);
 
@@ -151,11 +145,9 @@ public static partial class CleanMap
             MapPipeline.Reserve(Vector2.Zero, new Vector2(scrR.X * 0.255f, scrR.Y));
             MapPipeline.Reserve(Vector2.Zero, new Vector2(scrR.X, scrR.Y * 0.1f));
             MapPipeline.Reserve(new Vector2(0, scrR.Y * 0.93f), scrR);
-            DrawList(ordered, b => sys
-                ? b.Home.Kind == SectorHomes.Kind.Belt || b.Home.Kind == SectorHomes.Kind.Ring || b.Selected
-                : b.Host == focus && b.Home.Kind != SectorHomes.Kind.Belt && b.Home.Kind != SectorHomes.Kind.Ring,
-                // A planet's level lists that planet's sectors only; the system level lists them all.
-                b => sys || (b.Host == focus && b.Home.Kind != SectorHomes.Kind.Belt && b.Home.Kind != SectorHomes.Kind.Ring));
+            // The system level lists every sector (the star's opened); a planet's level only that planet's.
+            DrawList(ordered, b => sys ? b.Home.Host == root.Name || b.Selected : b.Host == focus,
+                b => sys || b.Host == focus);
             // The title's area is kept free of map labels now; the title itself is drawn after the map, over its lines.
             MapPipeline.Reserve(new Vector2(scrR.X * 0.26f, scrR.Y * 0.118f), new Vector2(scrR.X * 0.56f, scrR.Y * 0.118f + TitleHeight(scrR)));
             // The map itself (orbits, sectors, the plan) is clipped to the open area between the panels.
@@ -276,8 +268,10 @@ public static partial class CleanMap
         if (b.IsRoot) return SolarRadius / Sigma;
         double frame = SectorHomes.HillRadius(b) * 0.2;
         if (!IsFinite(frame)) frame = 0;
-        foreach (var bd in bands)
-            if (bd.Host == b.Name && bd.Home.Kind == SectorHomes.Kind.Ellipse) frame = Math.Max(frame, bd.Home.A * (1 + bd.Home.E));
+        foreach (var bd in bands)   // its own space, its rings, its L1 / L2
+            if (bd.Host == b.Name)
+                frame = Math.Max(frame, bd.Home.Kind == SectorHomes.Kind.Ring ? bd.Home.Outer : bd.Home.Kind == SectorHomes.Kind.Body ? bd.Home.Outer
+                                        : bd.Home.Point <= 2 ? SectorHomes.HillRadius(b) * 1.15 : 0);
         frame = Math.Max(frame, 8 * (reg.FindDefinition(b.Name)?.RadiusMeters ?? 0));
         return frame * 1.15;
     }

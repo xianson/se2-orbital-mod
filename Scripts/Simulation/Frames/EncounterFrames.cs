@@ -170,7 +170,8 @@ public static class EncounterFrames
         if (SectorAnchors && sectors != null)
             foreach (var sc in sectors.Sectors)
             {
-                if (!homes.TryGetValue(sc.Name, out var h) || h.Kind == SectorHomes.Kind.OwnPlanet) continue;
+                // (A planet's own sector is its cell: no anchor. The star's and a body still to come's get one.)
+                if (!homes.TryGetValue(sc.Name, out var h) || (h.Kind == SectorHomes.Kind.Body && !h.Future && !(reg.Find(h.Host)?.IsRoot ?? false))) continue;
                 Vector3D c = ClearOf(hazards, sc.Area.Center, h.Host);
                 if (VoxelBerthRegistry.TryCellContaining(c, reg, out _, out _) || SiteContaining(c) != null) continue;
                 var f = MakeSite(sectors, homes, c, sc.Name, t, sc.Area.Center);
@@ -245,7 +246,13 @@ public static class EncounterFrames
         if (sc == null || !homes.TryGetValue(sc.Name, out var home) || reg.Find(home.Host) == null) return null;
 
         var site = new Site { Sector = sc.Name, Host = home.Host, Home = home, World = world, Label = label };
-        if (home.Kind == SectorHomes.Kind.OwnPlanet)
+        if (home.Kind == SectorHomes.Kind.Body && !home.Future && reg.Find(home.Host) is GravityBody sb && sb.IsRoot)
+        {
+            // The star's own space: a circular orbit inside its zone.
+            site.OwnR = home.Outer * 0.6;
+            site.OwnTheta = 0;
+        }
+        else if (home.Kind == SectorHomes.Kind.Body && !home.Future)
         {
             // Its own circular orbit about the planet: the charted distance scaled like every orbit,
             // kept clear of the planet's cell.
@@ -285,29 +292,15 @@ public static class EncounterFrames
         var planet = reg.Find(s.Host);
         Vector3D po = planet != null ? planet.OriginInRoot(t).Position : Vector3D.Zero;
         centre = Vector3D.Zero;
-        switch (s.Home.Kind)
+        if (s.Home.Kind == SectorHomes.Kind.Body && !s.Home.Future && planet != null)
         {
-            case SectorHomes.Kind.Ellipse:
-            case SectorHomes.Kind.L1:
-            case SectorHomes.Kind.L2:
-                centre = po;
-                return SectorHomes.Rel(s.Home, planet, t, out Vector3D rel) ? po + rel : po;
-            case SectorHomes.Kind.L4:
-            case SectorHomes.Kind.L5:
-                return SectorHomes.HelioTrojan(s.Home, planet, t);
-            case SectorHomes.Kind.Belt:
-                return SectorHomes.HelioBelt(s.Home, root.Mu, t);
-            case SectorHomes.Kind.Ring:
-                return SectorHomes.HelioRing(s.Home, root.Mu, t);
-            case SectorHomes.Kind.OwnPlanet:
-            {
-                centre = po;
-                double n = Math.Sqrt(planet.Mu / (s.OwnR * s.OwnR * s.OwnR));
-                double a = s.OwnTheta + n * t;
-                return po + new Vector3D(Math.Cos(a), Math.Sin(a), 0) * s.OwnR;
-            }
+            // A body's own space: the site on its own circular orbit about the body.
+            centre = po;
+            double n = Math.Sqrt(planet.Mu / (s.OwnR * s.OwnR * s.OwnR));
+            double a = s.OwnTheta + n * t;
+            return po + new Vector3D(Math.Cos(a), Math.Sin(a), 0) * s.OwnR;
         }
-        return po;
+        return SectorHomes.Where(s.Home, reg, t, out centre);   // a ring's point, a Lagrange point, a body still to come
     }
 
     /// <summary>The home's co-moving axes at t: radial (from its centre), along-track, normal.</summary>

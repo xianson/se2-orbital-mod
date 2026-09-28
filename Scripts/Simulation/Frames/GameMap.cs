@@ -40,9 +40,7 @@ public static class GameMap
     {
         public SectorComponent Sector;
         public string Host;            // nearest planet
-        public bool OwnsPlanet, Trojan;
-        public int TrojanSide, TrojanIndex;
-        public double R, Theta0, Omega;
+        public bool OwnsPlanet;
         public SectorHomes.Home Home;
     }
 
@@ -160,67 +158,25 @@ public static class GameMap
 
     private static List<SectorInfo> Classify(SectorsSessionComponent sectors, SystemRegistry reg, List<GravityBody> planets)
     {
+        // Each sector is a Body, a Ring or a Lagrange point (SectorHomes.For). The chart is about Delfos
+        // (its own sector the centre cell): a sector's bearing from there places a ring's site and a body
+        // still to come on their orbits.
         var list = new List<SectorInfo>();
-        var trojanCount = new Dictionary<string, int>();
-        // The game's chart is about Delfos (its own sector is the centre cell): each planet is one
-        // sector, and every other sector is Delfos's, orbiting it at its charted distance and bearing
-        // (Verdure's charted distance is 1 AU, as SystemHost places the planets).
         Vector3D starC = default; bool haveStar = false;
         foreach (var sc in sectors.Sectors) if (sc.Name == SectorHomes.StarSector) { starC = sc.Area.Center; haveStar = true; }
-        double unit = 0;
-        if (haveStar && SystemHost.BeaconOf.TryGetValue(SystemHost.PlanetOrder[0], out var vb))
-            unit = Math.Sqrt((vb.Center.X - starC.X) * (vb.Center.X - starC.X) + (vb.Center.Z - starC.Z) * (vb.Center.Z - starC.Z));
         foreach (var sc in sectors.Sectors)
         {
-            var si = new SectorInfo { Sector = sc };
             Vector3D c = sc.Area.Center;
-            double best = double.MaxValue; Vector3D hc = default;
+            string nearest = null; double best = double.MaxValue;
             foreach (var p in planets)
             {
                 Vector3D pc = SystemHost.BeaconOf[p.Name].Center;
-                if (sc.Contains(pc)) si.OwnsPlanet = true;
                 double d = (new Vector3D(c.X, pc.Y, c.Z) - pc).Length();
-                if (d < best) { best = d; si.Host = p.Name; hc = pc; }
+                if (d < best) { best = d; nearest = p.Name; }
             }
-            if (si.Host == null) continue;
-            if (!si.OwnsPlanet && unit > 0)
-            {
-                Vector3D ca = sc.Area.Center;
-                double dx = ca.X - starC.X, dz = ca.Z - starC.Z;
-                double au = Math.Sqrt(dx * dx + dz * dz) / unit;
-                if (sc.Name == SectorHomes.StarSector || au < 0.1) au = 0.2;   // the star's own: close about it
-                si.R = best; si.Theta0 = Math.Atan2(dz, dx);
-                si.Home = SectorHomes.MakeHelio(sc.Name, si.Host, au, Math.Atan2(dz, dx), sc.Area.Size);
-                list.Add(si);
-                continue;
-            }
-            si.R = best;
-            si.Theta0 = Math.Atan2(c.Z - hc.Z, c.X - hc.X);
-            double mu = reg.Find(si.Host).Mu;
-            si.Omega = Math.Sqrt(mu / (best * best * best));
-            si.Home = SectorHomes.Make(sc.Name, si.Host, best, si.Theta0, sc.Area.Size, 0);
-            if (si.OwnsPlanet) si.Home.Kind = SectorHomes.Kind.OwnPlanet;
-            if (!si.OwnsPlanet && best > MapView.TrojanThreshold)
-            {
-                si.Trojan = true;
-                trojanCount.TryGetValue(si.Host, out int k);
-                trojanCount[si.Host] = k + 1;
-                si.TrojanSide = k % 2 == 0 ? 1 : -1;
-                si.TrojanIndex = k / 2;
-            }
-            list.Add(si);
-        }
-        // Slots within each L-point group (spread the members apart).
-        var slots = new Dictionary<string, int>();
-        foreach (var si in list)
-        {
-            if (si.Home == null) continue;
-            string key = si.Host + "/" + si.Home.Kind;
-            slots.TryGetValue(key, out int k);
-            si.Home.Slot = k; slots[key] = k + 1;
-            si.Trojan = si.Home.Kind == SectorHomes.Kind.L4 || si.Home.Kind == SectorHomes.Kind.L5;
-            if (si.Trojan) si.TrojanSide = si.Home.Kind == SectorHomes.Kind.L4 ? 1 : -1;
-            si.TrojanIndex = si.Home.Slot;
+            double bearing = haveStar ? Math.Atan2(c.Z - starC.Z, c.X - starC.X) : 0;
+            var home = SectorHomes.For(sc.Name, nearest, bearing, sc.Area.Size, reg);
+            list.Add(new SectorInfo { Sector = sc, Host = home.Host, Home = home, OwnsPlanet = home.Kind == SectorHomes.Kind.Body && !home.Future });
         }
         return list;
     }

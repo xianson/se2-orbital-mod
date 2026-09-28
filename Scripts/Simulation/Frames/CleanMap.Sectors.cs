@@ -25,34 +25,40 @@ public static partial class CleanMap
     static ColorSRGB StateColor(Band b) => b.State == Keen.Game2.Simulation.GameSystems.Colonization.SectorColonizationState.Colonized ? StColonized
         : b.State == Keen.Game2.Simulation.GameSystems.Colonization.SectorColonizationState.Unlocked ? StUnlocked : StLocked;
 
-    /// <summary>Where a sector lives, as a list group ("Kemik orbit", "Main belt", ...).</summary>
-    static string Group(Band b) => b.Home.Kind switch
+    /// <summary>Where a sector lives, as a list group ("Delfos", "Delfos rings", "Kemik Lagrange points", ...).</summary>
+    static string Group(Band b)
     {
-        SectorHomes.Kind.OwnPlanet => b.Host,
-        SectorHomes.Kind.Ellipse => b.Host + " orbit",
-        SectorHomes.Kind.L1 or SectorHomes.Kind.L2 => b.Host + " Lagrange points",
-        SectorHomes.Kind.L4 or SectorHomes.Kind.L5 => b.Host + " Trojans",
-        SectorHomes.Kind.Belt => "Main belt",
-        SectorHomes.Kind.Ring => b.Name == SectorHomes.StarSector ? StarName : b.Home.AU < 0.8 ? "Inner ring" : "Outer ring",
-        _ => "Other",
-    };
-
-    static int GroupRank(Band b)
-    {
-        int planet = Array.IndexOf(SystemHost.PlanetOrder, b.Host); if (planet < 0) planet = 9;
+        string host = b.Home.Future ? b.Name.Replace(" Sector", "") : SystemHost.DisplayName(b.Home.Host);
         return b.Home.Kind switch
         {
-            SectorHomes.Kind.OwnPlanet => planet * 10, SectorHomes.Kind.Ellipse => planet * 10 + 1,
-            SectorHomes.Kind.L1 or SectorHomes.Kind.L2 => planet * 10 + 2, SectorHomes.Kind.L4 or SectorHomes.Kind.L5 => planet * 10 + 3,
-            SectorHomes.Kind.Belt => 200, SectorHomes.Kind.Ring => b.Name == SectorHomes.StarSector ? 1 : b.Home.AU < 0.8 ? 150 : 300, _ => 400,
+            SectorHomes.Kind.Body => host,
+            SectorHomes.Kind.Ring => host + (b.Home.Host == SystemHost.Registry?.Root?.Name ? " belts" : " ring"),
+            _ => host + " Lagrange points",
         };
+    }
+
+    /// <summary>The list: the star first, then each planet outward (its space, its rings, its points), bodies to come last.</summary>
+    static int GroupRank(Band b)
+    {
+        var reg = SystemHost.Registry;
+        var host = reg?.Find(b.Home.Host);
+        int body;
+        if (b.Home.Future) body = 90;
+        else if (host == null || host.IsRoot) body = 0;
+        else
+        {
+            body = 1;
+            double a = host.StateInParentAt(0).Position.Length();
+            foreach (var p in reg.Root.Children) if (SystemHost.BeaconOf.ContainsKey(p.Name) && p.StateInParentAt(0).Position.Length() < a) body++;
+        }
+        return body * 10 + (int)b.Home.Kind;
     }
 
     /// <summary>Number the sectors in list order (group, then distance).</summary>
     static List<Band> Ordered(List<Band> bands)
     {
         var list = new List<Band>(bands);
-        list.Sort((x, y) => { int g = GroupRank(x).CompareTo(GroupRank(y)); return g != 0 ? g : x.Home.A.CompareTo(y.Home.A); });
+        list.Sort((x, y) => { int g = GroupRank(x).CompareTo(GroupRank(y)); if (g != 0) return g; int p = x.Home.Point.CompareTo(y.Home.Point); return p != 0 ? p : x.Home.A.CompareTo(y.Home.A); });
         for (int i = 0; i < list.Count; i++) list[i].Number = i + 1;
         return list;
     }
@@ -84,7 +90,7 @@ public static partial class CleanMap
         {
             double t = SystemHost.Now;
             var reg = SystemHost.Registry;
-            if (Maneuvers.Base(t, out var body, out var el) && reg != null && b.Home.Kind != SectorHomes.Kind.OwnPlanet)
+            if (Maneuvers.Base(t, out var body, out var el) && reg != null && !(b.Home.Kind == SectorHomes.Kind.Body && b.Home.Host == body.Name))
             {
                 double r1 = el.IsElliptic ? el.SemiMajorAxis : OrbitPropagation.StateAt(el, t).Position.Length();
                 double Hohmann(double mu, double ra, double rb, out double tof)
@@ -94,28 +100,28 @@ public static partial class CleanMap
                     return Math.Abs(Math.Sqrt(mu / ra) * (Math.Sqrt(2 * rb / (ra + rb)) - 1)) + Math.Abs(Math.Sqrt(mu / rb) * (1 - Math.Sqrt(2 * ra / (ra + rb))));
                 }
                 double dv = double.NaN, tt = 0;
-                var host = reg.Find(b.Host);
-                bool helioHome = b.Home.Kind == SectorHomes.Kind.Belt || b.Home.Kind == SectorHomes.Kind.Ring || b.Home.Kind == SectorHomes.Kind.L4 || b.Home.Kind == SectorHomes.Kind.L5;
-                if (!helioHome && host == body && b.Home.Kind == SectorHomes.Kind.Ellipse)
-                    dv = Hohmann(body.Mu, r1, b.Home.A, out tt);
-                else if (!helioHome && host == body)   // L1 / L2: out to the Hill radius
-                    dv = Hohmann(body.Mu, r1, SectorHomes.HillRadius(body), out tt);
-                else if (body.Parent != null && body.Parent.IsRoot && host != null)
+                var h = b.Home;
+                SectorHomes.Where(h, reg, t, out Vector3D centre);
+                Vector3D target = SectorHomes.Where(h, reg, t);
+                var about = reg.Root.DeepestSoiContaining(target, t) ?? reg.Root;
+                if (about == body)   // about your own body: the two-burn transfer to its distance
+                    dv = Hohmann(body.Mu, r1, (target - body.OriginInRoot(t).Position).Length(), out tt);
+                else if (body.Parent != null && body.Parent.IsRoot)
                 {
+                    // Out of your planet's sphere, across about the star, and in (a planet's) or matched (the star's).
                     var root = body.Parent;
                     double rB = body.StateInParentAt(t).Position.Length();
-                    double rT = helioHome ? HomeHelioRadius(b, host) : host.StateInParentAt(t).Position.Length();
+                    double rT = (about.IsRoot ? target : about.OriginInRoot(t).Position).Length();
                     double at = (rB + rT) / 2;
                     tt = Math.PI * Math.Sqrt(at * at * at / root.Mu);
                     double vB = Math.Sqrt(root.Mu / rB), vT = Math.Sqrt(root.Mu / rT);
                     double vinfD = Math.Abs(Math.Sqrt(root.Mu * (2 / rB - 1 / at)) - vB), vinfA = Math.Abs(vT - Math.Sqrt(root.Mu * (2 / rT - 1 / at)));
                     double ej = Math.Sqrt(vinfD * vinfD + 2 * body.Mu / r1) - Math.Sqrt(body.Mu / r1);
-                    double arr;
-                    if (helioHome) arr = vinfA;
-                    else
+                    double arr = vinfA;
+                    if (!about.IsRoot)
                     {
-                        double rc = b.Home.Kind == SectorHomes.Kind.Ellipse ? b.Home.A : (reg.FindDefinition(host.Name)?.RadiusMeters ?? 6e4) + 150e3;
-                        arr = Math.Sqrt(vinfA * vinfA + 2 * host.Mu / rc) - Math.Sqrt(host.Mu / rc);
+                        double rc = Math.Max((target - about.OriginInRoot(t).Position).Length(), (reg.FindDefinition(about.Name)?.RadiusMeters ?? 6e4) + 150e3);
+                        arr = Math.Sqrt(vinfA * vinfA + 2 * about.Mu / rc) - Math.Sqrt(about.Mu / rc);
                     }
                     dv = ej + arr;
                 }
@@ -127,15 +133,84 @@ public static partial class CleanMap
         return txt;
     }
 
-    static string WherePlace(Band b) => b.Home.Kind switch
+    static string WherePlace(Band b)
     {
-        SectorHomes.Kind.OwnPlanet => "near space",
-        SectorHomes.Kind.Ellipse => $"{b.Home.A / 1000:N0} km",
-        SectorHomes.Kind.L1 => "L1", SectorHomes.Kind.L2 => "L2", SectorHomes.Kind.L4 => "L4", SectorHomes.Kind.L5 => "L5",
-        SectorHomes.Kind.Belt => $"{SectorHomes.BeltInnerAU:F1}-{SectorHomes.BeltOuterAU:F1} AU",
-        SectorHomes.Kind.Ring => $"{b.Home.AU:0.##} AU",
-        _ => "",
-    };
+        var h = b.Home;
+        switch (h.Kind)
+        {
+            case SectorHomes.Kind.Body: return h.Future ? $"{h.AU:0.##} AU" : "near space";
+            case SectorHomes.Kind.Ring:
+                return h.Host == SystemHost.Registry?.Root?.Name ? $"{h.Inner / SystemHost.AU:0.##}-{h.Outer / SystemHost.AU:0.##} AU"
+                                                                 : $"{HudPanel.Km(h.Inner)}-{HudPanel.Km(h.Outer)}";
+            default: return $"L{h.Point}";
+        }
+    }
+
+    /// <summary>
+    /// A sector drawn by its kind (everything is an orbit), about the origin of the level drawing it:
+    ///  - Body: its space, a zone round the body (a body still to come: a marker on its own orbit);
+    ///  - Ring: the whole band round its host;
+    ///  - Lagrange: L3-L5 a section of its body's orbit about the point; L1 / L2 a small zone round it.
+    /// toLocal maps a root position to the level's local map units (scale: map units per metre).
+    /// </summary>
+    static void DrawSector(Band bd, SystemRegistry reg, double t, Func<Vector3D, Vector3D> W, Func<Vector3D, Vector3D> toLocal, double scale)
+    {
+        var h = bd.Home;
+        Vector3D at = SectorHomes.Where(h, reg, t, out Vector3D centre);
+        Vector3D mk = toLocal(at), cl = toLocal(centre);
+        double P = SectorHomes.Period(h, reg);
+        bool marker = true;
+        MapPipeline.PickName = bd.Name;
+        switch (h.Kind)
+        {
+            case SectorHomes.Kind.Body when !h.Future:
+                OwnSector(W, h.Outer * scale, bd, cl);   // its space, named at its top
+                marker = false;
+                break;
+            case SectorHomes.Kind.Body:   // a body still to come: its orbit, faint
+            {
+                double r = h.AU * SystemHost.AU * scale;
+                Curve(a => cl + new Vector3D(Math.Cos(a) * r, 0, Math.Sin(a) * r), W, 0, 2 * Math.PI, 90, HudPanel.Alpha(Line, 0.6f), 1.1f);
+                break;
+            }
+        }
+        MapPipeline.PickName = null;
+        var b0 = bd; var W0 = W;
+        string label = $"{bd.Number}  {bd.Name}";
+        _deferred.Add(() =>
+        {
+            MapPipeline.PickName = b0.Name;
+            switch (h.Kind)
+            {
+                case SectorHomes.Kind.Ring:
+                    // The ring about its host (the point's offset from its centre, all the way round).
+                    SectorArea(W0, q => { var p = SectorHomes.Where(h, reg, t + P * q, out var cq); return p - cq; },
+                               v => toLocal(centre + v), b0, 0.5, (h.Outer - h.Inner) / (h.Outer + h.Inner));
+                    break;
+                case SectorHomes.Kind.Lagrange when h.Point >= 3:
+                    SectorArea(W0, q => SectorHomes.Where(h, reg, t + P * q) - centre, v => toLocal(centre + v), b0);
+                    break;
+                case SectorHomes.Kind.Lagrange:   // L1 / L2: a small zone round the point
+                {
+                    var s = reg.Find(h.Host);
+                    double rz = (s != null ? SectorHomes.HillRadius(s) : 1e6) * 0.15 * scale;
+                    OwnSector(W0, rz, b0, mk);
+                    break;
+                }
+            }
+            if (marker)
+            {
+                Marker(W0(mk), b0);
+                if (MapPipeline.ToScreen(W0(mk), out var ms))
+                {
+                    float lu = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+                    MapPipeline.TextScreen(ms + new Vector2(0, 22f * lu), label, Quiet(b0) ? QuietText : b0.Selected ? LineSel : Text, Quiet(b0) ? 0.72f * 0.85f : 0.72f);
+                }
+            }
+            MapPipeline.PickName = null;
+        });
+    }
+
     /// <summary>Where each sector's marker was drawn (world), for centring on it.</summary>
     private static readonly Dictionary<string, Vector3D> _markerAt = new Dictionary<string, Vector3D>();
 

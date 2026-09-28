@@ -1,100 +1,94 @@
 using Keen.VRage.Core;
 using SEAerospace;
 using SEAerospace.Orbital;
+using SEAerospace.SystemDef;
 
 #pragma warning disable
 namespace OrbitalMod;
 
 /// <summary>
-/// Where each colonization sector lives in the solar system, and where it is at time t.
-/// A sector region's motion is PRESCRIBED (an ephemeris), so it can sit on a Kepler ellipse
-/// about its planet, loop around the planet's L1/L2 point (a planar Lyapunov orbit, the
-/// circular restricted three-body motion that patched conics cannot give), or ride the
-/// planet's orbit 60 degrees ahead or behind (L4/L5 Trojans). Ships merged into a region ride
-/// with it; the ephemeris is the truth for maps and rendezvous.
-///
-/// Positions are in the planet's ecliptic frame (x, y; z = 0), metres, relative to the planet.
+/// Where each colonization sector lives in the solar system. Everything is an orbit, and a sector is
+/// one of three kinds:
+///  - BODY:     a body's own space (the star, a planet; a body still to come has its own orbit). It
+///              rides the body.
+///  - RING:     a band on an orbit round a body (a belt round Delfos, Verdure's ring).
+///  - LAGRANGE: a point co-orbiting with a body: L1 / L2 inside and outside it (its Hill radius), L3
+///              opposite, L4 / L5 sixty degrees ahead and behind on its orbit.
+/// The game's chart gives the sectors; this table says what each one is. Positions are in the
+/// system's root (sun-centred) frame, metres; the ecliptic is (x, y), height z.
 /// </summary>
 public static class SectorHomes
 {
-    public enum Kind { OwnPlanet, Ellipse, L1, L2, L4, L5, Belt, Ring }
+    public enum Kind { Body, Ring, Lagrange }
 
     public sealed class Home
     {
-        public string Sector, Host;
+        public string Sector;
         public Kind Kind;
-        public double A, E, Omega, M0;   // ellipse
-        public double Size;              // charted size, m
-        /// <summary>Inclination and ascending node of an ellipse sector's orbit (about its planet's equator plane).</summary>
-        public double I, Node;
-        /// <summary>A belt: the sector is the whole ring of its orbit round the planet, not a section of it.</summary>
-        public bool Belt;
-        /// <summary>A ring sector's own orbit about the star (in AU), and where on it at t = 0 (NaN: by name).</summary>
-        public double AU = RingAU;
-        public double Phase = double.NaN;
-        public int Slot;                 // index within an L-point group
+        /// <summary>Body: the body (the root for the star). Ring: the body it rings. Lagrange: the smaller body of the pair.</summary>
+        public string Host;
+        /// <summary>Lagrange: 1..5.</summary>
+        public int Point;
+        /// <summary>Ring: inner and outer radius about its host (m). Body: its zone's radius.</summary>
+        public double Inner, Outer;
+        /// <summary>Ring: its plane (rad) about the host's ecliptic.</summary>
+        public double Tilt, Node;
+        /// <summary>Ring, a body still to come: where on its orbit its site is at t = 0 (rad).</summary>
+        public double Phase;
+        /// <summary>A body still to come (Byblos): its own circular orbit about the star (AU).</summary>
+        public bool Future;
+        public double AU;
+        /// <summary>The charted size (m).</summary>
+        public double Size;
+        /// <summary>For ordering: a ring's mid radius, else 0.</summary>
+        public double A => Kind == Kind.Ring ? 0.5 * (Inner + Outer) : Future ? AU * SystemHost.AU : 0;
     }
-
-    /// <summary>Default homes for the Survival campaign (design section 6); others fall back to rules.</summary>
-    public static readonly Dictionary<string, Kind> Campaign = new Dictionary<string, Kind>
-    {
-        { "Vantaris", Kind.L1 }, { "Cygnark", Kind.L2 },
-        { "Byblos Sector", Kind.Ring }, { "Trinarc", Kind.Belt }, { "Pyrethra", Kind.Belt },
-        // Deep sectors the nearest-planet rule had filed under Kemik: they are Delfos's.
-        { "Delfos Sector", Kind.Ring },   // the star's own: an inner orbit, inside Verdure's
-        { "Zarkon", Kind.Ring },          // its own orbit between Kemik and the belt
-        { "Axionis", Kind.L4 }, { "Tarnyx", Kind.L5 },   // Kemik's leading and trailing Trojans
-    };
-
-    // Planar Lyapunov orbit (linearised about L1/L2, small mass ratio): in-plane frequency
-    // lambda ~ 2.53 n, along-track/radial amplitude ratio ~ 3.2.
-    public const double LyapunovLambda = 2.53, LyapunovKappa = 3.2, LyapunovAmplitude = 0.12;
-
-    /// <summary>Planet sectors that are a belt round their planet (the whole ring of the orbit): Kemik's outermost.</summary>
-    /// <summary>Sectors that are a whole ring round Delfos (a belt), not a section of their orbit.</summary>
-    public static readonly HashSet<string> Belts = new HashSet<string> { "Zarkon", "Pyrethra" };
-    /// <summary>Delfos Sector's zone round the star (AU, inner and outer).</summary>
-    public static readonly double[] StarZoneAU = { 0.08, 0.3 };
-    /// <summary>Sectors that will be planets (kept as sectors until then).</summary>
-    public static readonly HashSet<string> FuturePlanets = new HashSet<string> { "Byblos Sector" };
-    /// <summary>Ring sectors' orbits about the star (AU); others at RingAU.</summary>
-    public static readonly Dictionary<string, double> RingOrbits = new Dictionary<string, double> { { "Delfos Sector", 0.45 }, { "Zarkon", 1.85 } };
 
     /// <summary>The star's own sector on the game's chart (the centre cell, round Delfos).</summary>
     public const string StarSector = "Delfos Sector";
-    /// <summary>The system's extent on the map (AU): the chart's outer ring is at about 1.</summary>
-    public const double SystemOuterAU = 1.15;
+    /// <summary>The system's extent on the map (AU): out past the outer belt.</summary>
+    public const double SystemOuterAU = 1.45;
+    /// <summary>Verdure's ring (the game's own ring round Verdure): radii in Verdure radii until the game's torus is read.</summary>
+    public const double VerdureRingInnerR = 2.2, VerdureRingOuterR = 3.4;
 
     /// <summary>
-    /// A sector of Delfos's (every sector but the planets' own): a circular orbit about the star at
-    /// its charted distance from Delfos (in Verdure's charted distance = 1 AU) and charted bearing.
+    /// The sectors as orbits. Lagrange points by where the game's chart puts each sector against its
+    /// planet (L4 ahead, L5 behind, L3 opposite).
     /// </summary>
-    public static Home MakeHelio(string sector, string host, double au, double phase, double size)
-        => new Home { Sector = sector, Host = host, Size = size, Kind = Kind.Ring, AU = au, Phase = phase, E = 0, Belt = Belts.Contains(sector) };
-
-    /// <summary>Ellipse eccentricity and orientation, deterministic per sector name.</summary>
-    public static Home Make(string sector, string host, double chartDistance, double chartBearing, double size, int slot)
+    public static Home For(string sector, string nearestPlanet, double chartBearing, double size, SystemRegistry reg)
     {
-        var h = new Home { Sector = sector, Host = host, Size = size, Slot = slot };
-        h.Kind = Campaign.TryGetValue(sector, out var k) ? k : chartDistance > MapView.TrojanThreshold ? (slot % 2 == 0 ? Kind.L4 : Kind.L5) : Kind.Ellipse;
-        if (RingOrbits.TryGetValue(sector, out var au)) h.AU = au;
-        uint hash = 2166136261;
-        foreach (char c in sector) hash = (hash ^ c) * 16777619;
-        h.A = chartDistance * SystemHost.SectorOrbitScale;   // the charted distance, scaled for sectors
-        // Near circular (eccentric orbits of similar size crossed each other into a tangle), and tilted:
-        // most a little, some steeply, some polar or retrograde, so a planet's sectors spread in 3D.
-        h.E = 0.02 + 0.08 * ((hash & 0xFFFF) / 65535.0);
-        h.Omega = ((hash >> 16) & 0xFFFF) / 65535.0 * 2 * Math.PI;
-        // (A proper mix: the name hash's own high bits were alike for alike names, and four of Kemik's
-        // seven sectors came out the same.)
-        uint h2 = hash; h2 ^= h2 >> 16; h2 *= 0x85EBCA6Bu; h2 ^= h2 >> 13; h2 *= 0xC2B2AE35u; h2 ^= h2 >> 16;
-        double[] tilts = { 0, 6, 14, 28, 45, 65, 90, 115 };
-        h.I = tilts[(h2 >> 5) % (uint)tilts.Length] * Math.PI / 180;
-        h.Node = ((h2 >> 12) & 0x3FF) / 1023.0 * 2 * Math.PI;
-        // A belt: a ring of rock round the planet (flat-ish and circular), chosen by name.
-        h.Belt = Belts.Contains(sector);
-        if (h.Belt) { h.E = 0.01; h.I = Math.Min(h.I, 12 * Math.PI / 180); }
-        h.M0 = chartBearing - h.Omega - h.Node;   // starts near its charted bearing
+        var h = new Home { Sector = sector, Size = size };
+        string root = reg?.Root?.Name;
+        double AUm = SystemHost.AU;
+        void Body(string host) { h.Kind = Kind.Body; h.Host = host; }
+        void Ring(string host, double inner, double outer) { h.Kind = Kind.Ring; h.Host = host; h.Inner = inner; h.Outer = outer; h.Phase = chartBearing; }
+        void L(string host, int p) { h.Kind = Kind.Lagrange; h.Host = host; h.Point = p; }
+        double Rp(string body) => reg?.FindDefinition(body)?.RadiusMeters ?? 6e4;
+        switch (sector)
+        {
+            case "Delfos Sector": Body(root); h.Outer = 0.3 * AUm; break;
+            case "Verdure Sector": Body("Verdure"); break;
+            case "Kemik Sector": Body("Kemik"); break;
+            case "Byblos Sector": Body(root); h.Future = true; h.AU = 0.88; h.Phase = chartBearing; break;   // a planet still to come
+            case "Zarkon": Ring(root, 0.60 * AUm, 0.66 * AUm); break;         // a belt between Kemik and Verdure
+            case "Pyrethra": Ring(root, 1.25 * AUm, 1.35 * AUm); break;       // the outer belt, beyond Verdure
+            case "Oblivara": Ring("Verdure", VerdureRingInnerR * Rp("Verdure"), VerdureRingOuterR * Rp("Verdure")); break;   // Verdure's ring
+            case "Echelon": L("Kemik", 4); break;
+            case "Nadirae": L("Kemik", 5); break;
+            case "Tarnyx": L("Kemik", 3); break;
+            case "Axionis": L("Kemik", 2); break;
+            case "Vantaris": L("Verdure", 4); break;
+            case "Helionis": L("Verdure", 5); break;
+            case "Trinarc": L("Verdure", 3); break;
+            case "Cygnark": L("Verdure", 2); break;
+            default: Body(nearestPlanet ?? root); break;   // (another world's sectors: its nearest planet's space)
+        }
+        // A planet's own space: a share of its sphere of influence, clear of the planet.
+        if (h.Kind == Kind.Body && !h.Future && h.Outer <= 0)
+        {
+            var b = reg?.Find(h.Host);
+            h.Outer = b != null && !double.IsInfinity(b.SoiRadius) ? Math.Max(0.15 * b.SoiRadius, 2.5 * Rp(h.Host)) : 5e5;
+        }
         return h;
     }
 
@@ -102,83 +96,81 @@ public static class SectorHomes
     public static double HillRadius(GravityBody planet) => planet.Parent == null ? double.PositiveInfinity :
         planet.StateInParentAt(0).Position.Length() * Math.Pow(planet.Mu / (3 * planet.Parent.Mu), 1.0 / 3.0);
 
-    /// <summary>Position relative to the planet at time t (ecliptic x, y), or false for L4/L5 (use HelioTrojan).</summary>
-    public static bool Rel(Home h, GravityBody planet, double t, out Vector3D rel)
+    /// <summary>
+    /// Where the sector is at t (its site's point; root frame), and the body its motion is about
+    /// (centre: a body's, a ring's host, an L1/L2's planet; the star for L3-L5 and a body to come).
+    /// </summary>
+    public static Vector3D Where(Home h, SystemRegistry reg, double t, out Vector3D centre)
     {
-        rel = default;
+        var root = reg.Root;
+        centre = Vector3D.Zero;
         switch (h.Kind)
         {
-            case Kind.Ellipse:
+            case Kind.Body:
+                if (h.Future) return Circular(root.Mu, h.AU * SystemHost.AU, h.Phase, 0, 0, t);
+                {
+                    var b = reg.Find(h.Host) ?? root;
+                    centre = b.OriginInRoot(t).Position;
+                    return centre;
+                }
+            case Kind.Ring:
             {
-                double n = Math.Sqrt(planet.Mu / (h.A * h.A * h.A));
-                double M = h.M0 + n * t;
-                double E = M;
-                for (int i = 0; i < 12; i++) E -= (E - h.E * Math.Sin(E) - M) / (1 - h.E * Math.Cos(E));
-                double nu = 2 * Math.Atan2(Math.Sqrt(1 + h.E) * Math.Sin(E / 2), Math.Sqrt(1 - h.E) * Math.Cos(E / 2));
-                double r = h.A * (1 - h.E * Math.Cos(E));
-                // In its own plane (argument of latitude u from the node), tilted by I about the node line.
-                double u = h.Omega + nu, cu = Math.Cos(u), su = Math.Sin(u), cn = Math.Cos(h.Node), sn = Math.Sin(h.Node), ci = Math.Cos(h.I);
-                rel = new Vector3D(r * (cn * cu - sn * su * ci), r * (sn * cu + cn * su * ci), r * su * Math.Sin(h.I));
-                return true;
+                var b = reg.Find(h.Host) ?? root;
+                centre = b.OriginInRoot(t).Position;
+                return centre + Circular(b.Mu, 0.5 * (h.Inner + h.Outer), h.Phase, h.Tilt, h.Node, t);
             }
-            case Kind.L1:
-            case Kind.L2:
+            case Kind.Lagrange:
             {
-                var s = planet.StateInParentAt(t);
-                Vector3D radial = Vector3D.Normalize(new Vector3D(s.Position.X, s.Position.Y, 0));   // away from the sun
-                Vector3D along = Vector3D.Normalize(new Vector3D(s.Velocity.X, s.Velocity.Y, 0));
-                double rH = HillRadius(planet);
-                double n = Math.Sqrt(planet.Parent.Mu / Math.Pow(s.Position.Length(), 3));
-                double ph = LyapunovLambda * n * t + h.Slot * 1.7;
-                double ax = LyapunovAmplitude * rH;
-                Vector3D centre = radial * (h.Kind == Kind.L1 ? -rH : rH);
-                rel = centre + radial * (-ax * Math.Cos(ph)) + along * (LyapunovKappa * ax * Math.Sin(ph));
-                return true;
+                var s = reg.Find(h.Host);
+                if (s == null || s.Parent == null) return Vector3D.Zero;
+                var st = s.StateInParentAt(t);
+                Vector3D po = s.Parent.OriginInRoot(t).Position, ps = st.Position;
+                Vector3D n = Vector3D.Cross(ps, st.Velocity);
+                n = n.LengthSquared() > 1e-12 ? Vector3D.Normalize(n) : Vector3D.UnitZ;
+                Vector3D rel;
+                switch (h.Point)
+                {
+                    case 1: rel = ps * (1 - HillRadius(s) / ps.Length()); centre = po + ps; break;
+                    case 2: rel = ps * (1 + HillRadius(s) / ps.Length()); centre = po + ps; break;
+                    case 3: rel = -ps; centre = po; break;
+                    default: rel = Rotate(ps, n, (h.Point == 4 ? 1 : -1) * Math.PI / 3); centre = po; break;
+                }
+                return po + rel;
             }
+        }
+        return Vector3D.Zero;
+    }
+
+    public static Vector3D Where(Home h, SystemRegistry reg, double t) => Where(h, reg, t, out _);
+
+    /// <summary>The period the sector moves round with (its ring's, its body's orbit, its pair's).</summary>
+    public static double Period(Home h, SystemRegistry reg)
+    {
+        var root = reg.Root;
+        double P(double mu, double r) => 2 * Math.PI * Math.Sqrt(r * r * r / mu);
+        switch (h.Kind)
+        {
+            case Kind.Ring: { var b = reg.Find(h.Host) ?? root; return P(b.Mu, 0.5 * (h.Inner + h.Outer)); }
+            case Kind.Lagrange: { var s = reg.Find(h.Host); return s?.Parent != null ? P(s.Parent.Mu, s.StateInParentAt(0).Position.Length()) : 1; }
             default:
-                return false;
+                if (h.Future) return P(root.Mu, h.AU * SystemHost.AU);
+                { var b = reg.Find(h.Host); return b?.Parent != null ? P(b.Parent.Mu, b.StateInParentAt(0).Position.Length()) : 1; }
         }
     }
 
-    /// <summary>Period of the home's motion (for band sections): the ellipse period or the Lyapunov period.</summary>
-    public static double Period(Home h, GravityBody planet)
+    /// <summary>A circular orbit (radius r about a body of mu), phase at t = 0, in a plane tilted about a node.</summary>
+    static Vector3D Circular(double mu, double r, double phase, double tilt, double node, double t)
     {
-        if (h.Kind == Kind.Ellipse) return 2 * Math.PI * Math.Sqrt(h.A * h.A * h.A / planet.Mu);
-        double n = Math.Sqrt(planet.Parent.Mu / Math.Pow(planet.StateInParentAt(0).Position.Length(), 3));
-        return 2 * Math.PI / (LyapunovLambda * n);
+        double a = phase + Math.Sqrt(mu / (r * r * r)) * t;
+        Vector3D p = new Vector3D(Math.Cos(a) * r, Math.Sin(a) * r, 0);
+        if (tilt != 0) p = Rotate(p, new Vector3D(Math.Cos(node), Math.Sin(node), 0), tilt);
+        return p;
     }
 
-    /// <summary>The main belt: 2.2 to 3.2 AU (scaled), between Kemik and where Jupiter would be.</summary>
-    public const double BeltInnerAU = 2.2, BeltOuterAU = 3.2;
-
-    /// <summary>A belt sector's heliocentric position: a circular orbit in the belt, spread by name.</summary>
-    public static Vector3D HelioBelt(Home h, double starMu, double t)
+    /// <summary>Rotate v about a unit axis by an angle (Rodrigues).</summary>
+    static Vector3D Rotate(Vector3D v, Vector3D k, double ang)
     {
-        uint hash = 2166136261;
-        foreach (char c in h.Sector) hash = (hash ^ c) * 16777619;
-        double a = (BeltInnerAU + (BeltOuterAU - BeltInnerAU) * (0.2 + 0.6 * ((hash & 0xFFFF) / 65535.0))) * SystemHost.AU;
-        double ph = ((hash >> 16) & 0xFFFF) / 65535.0 * 2 * Math.PI;
-        double n = Math.Sqrt(starMu / (a * a * a));
-        return new Vector3D(Math.Cos(ph + n * t) * a, Math.Sin(ph + n * t) * a, 0);
-    }
-
-    /// <summary>A sector with its own orbit around the sun (a planet-like ring), beyond the belt.</summary>
-    public const double RingAU = 3.9;
-
-    public static Vector3D HelioRing(Home h, double starMu, double t)
-    {
-        uint hash = 2166136261;
-        foreach (char c in h.Sector) hash = (hash ^ c) * 16777619;
-        double a = (h.AU > 0 ? h.AU : RingAU) * SystemHost.AU, ph = !double.IsNaN(h.Phase) ? h.Phase : (hash & 0xFFFF) / 65535.0 * 2 * Math.PI;
-        double n = Math.Sqrt(starMu / (a * a * a));
-        return new Vector3D(Math.Cos(ph + n * t) * a, Math.Sin(ph + n * t) * a, 0);
-    }
-
-    /// <summary>A Trojan's heliocentric position: the planet's, 60 degrees ahead (L4) or behind (L5).</summary>
-    public static Vector3D HelioTrojan(Home h, GravityBody planet, double t)
-    {
-        Vector3D hp = planet.StateInParentAt(t).Position;
-        double ang = (h.Kind == Kind.L4 ? 1 : -1) * (Math.PI / 3 + h.Slot * 0.035);
-        return PlanetBerths.RotateAboutAxis(hp, Vector3D.UnitZ, ang);
+        double c = Math.Cos(ang), s = Math.Sin(ang);
+        return v * c + Vector3D.Cross(k, v) * s + k * Vector3D.Dot(k, v) * (1 - c);
     }
 }

@@ -1010,15 +1010,45 @@ public static class Maneuvers
         Vector3D? pt = EncounterFrames.SitePoint(pf.Id, t);
         if (!pt.HasValue || _lib == null || _lib.Count < 2) return;
         var col = new ColorSRGB(0.95f, 0.75f, 0.35f, 0.9f);
+        // The sector as a sphere of influence: its teardrop, dotted, round the point (as the map draws it).
+        var home = site.Home;
+        double P = SectorHomes.Period(home, reg);
+        SectorHomes.Where(home, reg, t, out Vector3D centre);
+        const double span = 0.035, k = 0.035;
+        var outer = new List<Vector2>(); var inner = new List<Vector2>();
+        for (int i = 0; i <= 32; i++)
+        {
+            double q = -span + 2 * span * i / 32, ki = k * Math.Max(0.08, Math.Sin(Math.PI * i / 32));
+            Vector3D r = SectorHomes.Where(home, reg, t + P * q) - centre;
+            if (MapPipeline.ToScreen(W(toMap(centre + r * (1 + ki), t)), out var so)) outer.Add(so);
+            if (MapPipeline.ToScreen(W(toMap(centre + r * (1 - ki), t)), out var si)) inner.Add(si);
+        }
+        var bcol = HudPanel.Alpha(col, 0.6f);
+        for (int i = 0; i + 1 < outer.Count; i++) MapPipeline.ScreenDashed(outer[i], outer[i + 1], bcol, 1.4f * u, u);
+        for (int i = 0; i + 1 < inner.Count; i++) MapPipeline.ScreenDashed(inner[i], inner[i + 1], bcol, 1.4f * u, u);
+        // Inside it: your path; where it would leave the teardrop, an Exit (as a planet's SOI).
+        Vector3D eL = Vector3D.Normalize(pt.Value - centre);
+        Vector3D nrmL = Vector3D.Normalize(Vector3D.Cross(body.StateInParentAt(t).Position, body.StateInParentAt(t).Velocity));
+        Vector3D eT = Vector3D.Cross(nrmL, eL);
+        double rL = (pt.Value - centre).Length(), halfLen = rL * Math.Sin(2 * Math.PI * span), B = rL * k;
         Vector2 prev = default; bool hp = false;
         foreach (var off in _lib)
         {
+            double x = Vector3D.Dot(off, eL), y = Vector3D.Dot(off, eT);
+            double taper = Math.Max(0.08, Math.Cos(Math.Min(1.0, Math.Abs(y) / halfLen) * Math.PI / 2));
+            bool inside = (y / halfLen) * (y / halfLen) + (x / (B * taper)) * (x / (B * taper)) <= 1;
             if (!MapPipeline.ToScreen(W(toMap(pt.Value + off, t)), out var sp) || !InMapArea(sp)) { hp = false; continue; }
+            if (!inside)
+            {
+                MapPipeline.ScreenCircle(sp, 5f * u, col, 2f * u);
+                HudPanel.TagAt(sp + new Vector2(10f * u, 0), $"{site.Sector} Exit", col, u, diamond: false);
+                break;
+            }
             if (hp) MapPipeline.ScreenLine(prev, sp, col, 1.8f * u);
             prev = sp; hp = true;
         }
         if (MapPipeline.ToScreen(W(toMap(pt.Value, t)), out var cs) && InMapArea(cs))
-            HudPanel.TagAt(cs, $"L{site.Home.Point} drift ±{HudPanel.Km(_libAmp)}  ·  {Clock(_libPeriod)}", col, u);
+            HudPanel.TagAt(cs, $"L{home.Point} drift ±{HudPanel.Km(_libAmp)}  ·  {Clock(_libPeriod)}", col, u);
     }
 
     /// <summary>Patches drawn after your orbit (KSP's conic patch limit).</summary>

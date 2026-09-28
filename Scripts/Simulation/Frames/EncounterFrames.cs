@@ -304,8 +304,8 @@ public static class EncounterFrames
     }
 
     /// <summary>
-    /// A Lagrange site's dynamics, kept simple (a game): at L4 / L5 the pair's own pull (from their mu),
-    /// relative to its pull at the point; they are stable, so you wobble gently round the point.
+    /// A Lagrange site's dynamics: at L4 / L5 the pair's own pull round the point (a tadpole of realistic
+    /// period, following the teardrop);
     /// L1 / L2 / L3 hold you: no relative pull at all (the real ones are unstable; drifting off is no fun).
     /// False for any frame that is not a Lagrange site.
     /// </summary>
@@ -319,9 +319,9 @@ public static class EncounterFrames
         if (s.Home.Point <= 3) { relAccel = _ => Vector3D.Zero; return true; }
         var body = SystemHost.Registry?.Find(s.Home.Host);
         if (body?.Parent == null) return false;
-        // Relative to the pull at the point itself (not the point's actual path): an eccentric planet's
-        // points breathe in and out, and that breathing drove thousands of km of drift. What is left is
-        // the stable wobble round the point, as big as your arrival was off.
+        // The pair's full pull (the elliptic problem: the body's actual orbit), relative to its pull at
+        // the point: small offsets wobble (bounded: checked over 20 librations of Kemik's), big ones bend
+        // along the orbit into the teardrop, as the real Trojans' do.
         Vector3D p = SiteRoot(s, t);
         Vector3D g0 = SectorHomes.PairGravity(body, p, t);
         if (!IsFinite(g0)) return false;

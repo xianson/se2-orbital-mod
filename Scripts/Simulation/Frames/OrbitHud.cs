@@ -190,7 +190,7 @@ public static class OrbitHud
             if (burn != null) sb.Append((sb.Length > 0 ? "\n" : "") + burn);
             string tgt = Maneuvers.TargetLine(SystemHost.Now);
             if (tgt != null) sb.Append((sb.Length > 0 ? "\n" : "") + tgt);
-            string content = sb.ToString();
+            string content = sb.ToString().TrimEnd('\n').Replace("\n\n", "\n");   // no blank lines
             if (_card == null || (now >= _nextCheck && !GameUi.IsOpen(_card)))
             {
                 _nextCheck = now + 2;

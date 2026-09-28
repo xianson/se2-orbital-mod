@@ -361,16 +361,18 @@ public static class MapPipeline
     }
 
     /// <summary>Text centred on a screen point, clear of labels placed before it (else left out).</summary>
-    public static void TextScreen(Vector2 s, string text, ColorSRGB color, float scale)
+    public static bool TextScreen(Vector2 s, string text, ColorSRGB color, float scale, bool dryRun = false)
     {
-        if (_batch == null || _drawString == null || _font == null) return;
-        if (ClipRect.HasValue && ClipRect.Value.Contains(s) != ContainmentType.Contains) return;
+        if (_batch == null || _drawString == null || _font == null) return false;
+        if (ClipRect.HasValue && ClipRect.Value.Contains(s) != ContainmentType.Contains) return false;
         var size = MeasureText(text, scale);
         var box = new BoundingBox2(s - size * 0.5f - new Vector2(4, 2), s + size * 0.5f + new Vector2(4, 2));
-        foreach (var placed in _placed) if (placed.Intersects(box)) return;
+        foreach (var placed in _placed) if (placed.Intersects(box)) return false;
+        if (dryRun) return true;
         _placed.Add(box);
         if (PickName != null) AddPick(box.Min, box.Max);
         ScreenText(s - size * 0.5f, text, color, scale);
+        return true;
     }
 
     public static void Text(Vector3D at, string text, ColorSRGB color, float scale)

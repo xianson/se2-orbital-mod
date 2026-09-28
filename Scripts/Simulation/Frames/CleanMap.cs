@@ -524,13 +524,6 @@ public static class CleanMap
                 if (pts != null)
                     for (int i = 0; i < pts.Length - (path.IsClosed ? 0 : 1); i++)
                         MapPipeline.Line(W(Lv(pts[i])), W(Lv(pts[(i + 1) % pts.Length])), You, 2f);
-                // Pe / Ap on your orbit (as KSP), plan or not.
-                var po = playerOrbit.Value; double pr = reg.FindDefinition(planet.Name)?.RadiusMeters ?? 0;
-                float u2 = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
-                if (MapPipeline.ToScreen(W(Lv(OrbitSampler.PositionAtTrueAnomaly(po, 0))), out var pes) && InOpenArea(pes))
-                    HudPanel.TagAt(pes, "Pe " + HudPanel.Km(po.PeriapsisRadius - pr), You, u2);
-                if (po.IsElliptic && po.Eccentricity > 0.002 && MapPipeline.ToScreen(W(Lv(OrbitSampler.PositionAtTrueAnomaly(po, Math.PI))), out var aps) && InOpenArea(aps))
-                    HudPanel.TagAt(aps, "Ap " + HudPanel.Km(po.SemiMajorAxis * (1 + po.Eccentricity) - pr), You, u2);
             }
             Vector3D yl = Lv(playerRel);
             MapPipeline.Text(W(yl), "+", You, 1.2f);
@@ -539,6 +532,16 @@ public static class CleanMap
             {
                 float uu = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
                 HudPanel.TagAt(ys + new Vector2(12f * uu, 0), "you", You, uu, diamond: false);
+            }
+            // Pe / Ap on your orbit (as KSP), plan or not; after 'you', which has the first claim.
+            if (!Planning && playerOrbit.HasValue && IsFinite(playerOrbit.Value.SemiMajorAxis))
+            {
+                var po = playerOrbit.Value; double pr = reg.FindDefinition(planet.Name)?.RadiusMeters ?? 0;
+                float u2 = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+                if (MapPipeline.ToScreen(W(Lv(OrbitSampler.PositionAtTrueAnomaly(po, 0))), out var pes) && InOpenArea(pes))
+                    HudPanel.TagAt(pes, "Pe " + HudPanel.Km(po.PeriapsisRadius - pr), You, u2);
+                if (po.IsElliptic && po.Eccentricity > 0.002 && MapPipeline.ToScreen(W(Lv(OrbitSampler.PositionAtTrueAnomaly(po, Math.PI))), out var aps) && InOpenArea(aps))
+                    HudPanel.TagAt(aps, "Ap " + HudPanel.Km(po.SemiMajorAxis * (1 + po.Eccentricity) - pr), You, u2);
             }
         }
     }
@@ -1046,9 +1049,10 @@ public static class CleanMap
         float k = Math.Min(Math.Abs((d.X > 0 ? max.X - c0.X : c0.X - min.X) / (Math.Abs(d.X) + 1e-6f)), Math.Abs((d.Y > 0 ? max.Y - c0.Y : c0.Y - min.Y) / (Math.Abs(d.Y) + 1e-6f)));
         Vector2 e = c0 + d * k, n = Vector2.Normalize(d), side = new Vector2(-n.Y, n.X);
         float a = 9f * u;
+        // The arrow only with its name (a bare arrow says nothing).
+        if (!MapPipeline.TextScreen(e - n * (a + 14f * u), label, c, 0.6f)) return;
         MapPipeline.ScreenLine(e, e - n * a + side * a * 0.6f, c, 1.8f * u);
         MapPipeline.ScreenLine(e, e - n * a - side * a * 0.6f, c, 1.8f * u);
-        MapPipeline.TextScreen(e - n * (a + 14f * u), label, c, 0.6f);
     }
 
     public const string SunPart = "OrbitalSun", BeltPart = "OrbitalBelt";

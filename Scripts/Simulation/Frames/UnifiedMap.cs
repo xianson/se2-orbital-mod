@@ -409,6 +409,7 @@ public static class UnifiedMap
         SetGameVisible(map, true);
         if (_baseMax > 0) map.MaxDistance = _baseMax;
         if (_baseMin > 0) map.MinDistance = _baseMin;
+        PlanetRenderBridge.SettleMapZoom(map, map.MinDistance, map.MaxDistance);
         _gameHidden = false;
     }
 
@@ -510,14 +511,17 @@ public static class UnifiedMap
         if (PlanetRenderBridge.GetMember(map, "_discoveredPlanets") is System.Collections.IDictionary planets)
             foreach (var v in planets.Values)
             {
+                // Only on a change: UpdateScale rebuilds the globe's particle effects and collider.
+                if (_objShown.TryGetValue(v, out bool was) && was == visible) continue;
+                _objShown[v] = visible;
                 PlanetRenderBridge.ScaleMapObject(v, visible ? 0f : 1e-4f);
-                // The game's globe labels would stay behind at the charted positions: hide them too.
-                try { v.GetType().GetMethod("SetLabelVisible")?.Invoke(v, new object[] { visible }); } catch { }
+                BlankName(v, !visible);
             }
         // The game's star (Delfos) too: our system view draws it at the centre. Its own Deactivate
         // (label and glow off). NOT UpdateScale: the star's render entity is not a model, and the scale
         // command crashes the render thread (seen in game, 2.4.0.95).
         object star = PlanetRenderBridge.GetMember(map, "_mainStar");
+        if (star != null && (_starShown != visible || !ReferenceEquals(star, _star))) BlankName(star, !visible);
         if (star != null && (_starShown != visible || !ReferenceEquals(star, _star)))
         {
             try { star.GetType().GetMethod(visible ? "Activate" : "Deactivate", visible ? new[] { typeof(bool) } : Type.EmptyTypes)?.Invoke(star, visible ? new object[] { false } : null); } catch { }
@@ -525,6 +529,34 @@ public static class UnifiedMap
         }
     }
     private static bool? _starShown; private static object _star;
+    private static readonly Dictionary<object, bool> _objShown = new Dictionary<object, bool>();
+    private static readonly Dictionary<object, string> _names = new Dictionary<object, string>();
+
+    /// <summary>
+    /// The game's own globe and star labels (its planet names, upper case) are drawn at their charted
+    /// places, not ours: while our layout shows, their names are blanked (the game re-shows the labels
+    /// whenever its zoom moves, so hiding the label alone let them flash back, stacked). Never forced
+    /// visible again: the game shows them itself, only while its map is open (forcing them on when the
+    /// map closed left them stacked in flight).
+    /// </summary>
+    static void BlankName(object mapObject, bool blank)
+    {
+        try
+        {
+            if (blank)
+            {
+                if (!_names.ContainsKey(mapObject) && PlanetRenderBridge.GetMember(mapObject, "_name") is string n) _names[mapObject] = n;
+                PlanetRenderBridge.SetMember(mapObject, "_name", "");
+                mapObject.GetType().GetMethod("SetLabelVisible")?.Invoke(mapObject, new object[] { false });
+            }
+            else if (_names.TryGetValue(mapObject, out var n))
+            {
+                PlanetRenderBridge.SetMember(mapObject, "_name", n);
+                _names.Remove(mapObject);
+            }
+        }
+        catch { }
+    }
 
     private static void StringIdSel(ColonizationMapSessionComponent map, out Keen.VRage.Library.Utils.StringId? sel)
     {

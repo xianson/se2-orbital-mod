@@ -341,7 +341,14 @@ public static class CleanMap
             if (!have.Contains(bd.Name))
             {
                 var ph = new MapPipeline.Part { Name = bd.Name };
-                ph.Outline.Add(new Vector3(0, -0.001f, 0)); ph.Outline.Add(new Vector3(1e-6f, -0.001f, 0)); ph.Outline.Add(new Vector3(0, -0.001f, 1e-6f));
+                // A tiny but proper hexagon under the map's centre. (A 1e-6 triangle is degenerate in
+                // float: the selected sector's colour then smeared into a huge band across the view,
+                // over the game's panels, and it showed in flight.)
+                for (int q = 0; q < 6; q++)
+                {
+                    double a = Math.PI * q / 3;
+                    ph.Outline.Add(new Vector3((float)(Math.Cos(a) * 2e-4), -0.002f, (float)(Math.Sin(a) * 2e-4)));
+                }
                 parts.Add(ph);
             }
 
@@ -913,7 +920,9 @@ public static class CleanMap
             if (!haveTop || s.Y < top.Y) { top = s; haveTop = true; }
             prev = s; have = true;
         }
-        if (!haveTop) return;
+        // Only inside the map's open area (not over the game's tab bar or the title).
+        var scr = MapPipeline.ScreenSize;
+        if (!haveTop || top.Y < scr.Y * 0.2f || top.X < scr.X * 0.26f || top.X > scr.X * 0.77f) return;
         var sz = MapPipeline.MeasureText(b.Name, 0.8f);
         MapPipeline.ScreenText(new Vector2(top.X - sz.X / 2, top.Y - sz.Y - 4f * u), b.Name, b.Selected ? LineSel : Dim, 0.8f);
     }

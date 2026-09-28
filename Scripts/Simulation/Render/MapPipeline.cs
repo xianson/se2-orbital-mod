@@ -292,8 +292,13 @@ public static class MapPipeline
         s = default;
         var wt = _cam.Entity.Data.GetWorldTransform();
         Vector3D fwd = (QuaternionD)wt.Orientation * Vector3D.Forward;
-        if (Vector3D.Dot(world - wt.Position, fwd) <= 1e-6) return false;
+        if (Vector3D.Dot(world - wt.Position, fwd) <= 1e-4) return false;
         s = _cam.WorldToScreenPoint(in world);
+        // A point just in front of the camera projects far off screen: a line to it became a huge
+        // band across the view (seen at close zoom), and such lines broke the UI batch (the game's
+        // panels went blank). Beyond a generous guard band, the point is not drawn.
+        var sz = ScreenSize;
+        if (!(Math.Abs(s.X - sz.X * 0.5f) < sz.X * 3f) || !(Math.Abs(s.Y - sz.Y * 0.5f) < sz.Y * 3f)) return false;
         return true;
     }
 

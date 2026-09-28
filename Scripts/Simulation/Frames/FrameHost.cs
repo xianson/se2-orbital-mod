@@ -185,6 +185,8 @@ public static class FrameHost
         Guard("AutoBurn.Tick", () => AutoBurn.Tick(session, t));
         Guard("OrbitHud.Draw", () => OrbitHud.Draw(session));
         Guard("WarpBar", () => WarpBar.DrawHud(session));
+        // On rails the game's SPD (your velocity in the frame) is 0: show your speed about the body.
+        Guard("HudSpeed", () => { if (PlayerFrame != null && OrbitHud.Current != null) GameUi.SetHudSpeed(session, (float)OrbitHud.Current.Speed); });
         Guard("OrbitalMap.Tick", () => OrbitalMap.Tick(session, t));
         Guard("SunDriver.Tick", () => SunDriver.Tick(session, camera.Position, t));
     }

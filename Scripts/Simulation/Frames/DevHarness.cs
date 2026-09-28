@@ -401,7 +401,7 @@ public static class DevHarness
                 return DevFlight.Thrust(new Vector3((float)D(a[1]), (float)D(a[2]), (float)D(a[3])), D(a[4]));
 
             case "flight":
-                return $"seated={FrameHost.Seated} frame={(FrameHost.PlayerFrame != null ? "#" + FrameHost.PlayerFrame.Id : "-")} {DevFlight.Status} | auto: {AutoBurn.Status} | {DevFlight.Attitude} | {DevFlight.Info}";
+                return $"seated={FrameHost.Seated} frame={(FrameHost.PlayerFrame != null ? "#" + FrameHost.PlayerFrame.Id : "-")} {DevFlight.Status} | auto: {AutoBurn.Status} | {DevFlight.Attitude} | {GameUi.SpeedStatus} | {DevFlight.Info}";
 
             case "floaters":
             {
@@ -511,6 +511,14 @@ public static class DevHarness
             case "sectororbits":
                 MapView.SectorOrbits = On(a[1]);
                 return "sectororbits=" + MapView.SectorOrbits;
+
+            case "sectorvis":   // sectorvis on|off: the map's sector renderer (our mesh) shown or not
+            {
+                var mp = MapView.Map(session);
+                if (mp == null) return "no map";
+                PlanetRenderBridge.SetRenderComponentVisible(PlanetRenderBridge.GetMember(mp, "SectorsRenderer"), On(a[1]));
+                return "sector renderer visible=" + On(a[1]);
+            }
 
             case "hidesectors":
                 UnifiedMap.HideGameSectors = On(a[1]);

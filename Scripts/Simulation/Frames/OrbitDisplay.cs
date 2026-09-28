@@ -28,6 +28,31 @@ public static class OrbitDisplay
     private static MeshBuilder _builder;
     /// <summary>Line width as a fraction of the distance to the camera (the thick-line width is in world metres).</summary>
     public static float LineThickness = 0.0025f;
+    static readonly ColorSRGB You = new ColorSRGB(0.35f, 0.88f, 1.00f, 1f);
+
+    /// <summary>
+    /// A world line whose width is a constant angle from the camera: split where it passes near the
+    /// camera, so each piece is as wide as ITS distance calls for (a segment kilometres long passing
+    /// beside the camera, sized by its midpoint, was a wide ribbon across the view), and the piece at
+    /// the camera itself is skipped.
+    /// </summary>
+    static void Line(Vector3D a, Vector3D b, Vector3D cam, ColorSRGB color, int depth = 0)
+    {
+        Vector3D ab = b - a;
+        double len = ab.Length();
+        if (len < 1e-6) return;
+        double k = Math.Clamp(Vector3D.Dot(cam - a, ab) / (len * len), 0, 1);
+        double near = (a + ab * k - cam).Length();                  // closest approach to the camera
+        if (near < NearCameraSkip && len < NearCameraSkip * 2) return;
+        if (len > near * 0.5 && depth < 12)
+        {
+            Vector3D m = a + ab * 0.5;
+            Line(a, m, cam, color, depth + 1);
+            Line(m, b, cam, color, depth + 1);
+            return;
+        }
+        _builder.AddLine(a, b, color, (float)Math.Max(0.05, near * LineThickness), true);
+    }
     private static bool IsFiniteV(Vector3D v) => !double.IsNaN(v.X + v.Y + v.Z) && !double.IsInfinity(v.X + v.Y + v.Z);
     private static object _dominant;
     private static double _dominantG;
@@ -119,7 +144,7 @@ public static class OrbitDisplay
         }
 
         OrbitPath path = OrbitSampler.SamplePath(el, PathPoints, law.Reach);
-        var color = el.IsElliptic ? ColorSRGB.Yellow : ColorSRGB.Red;
+        var color = el.IsElliptic ? You : ColorSRGB.Red;   // your orbit: cyan, as on the map
         var pts = path.Points;
         if (pts != null && pts.Length > 1)
         {
@@ -182,9 +207,7 @@ public static class OrbitDisplay
             {
                 Vector3D p0 = SEAerospace.PlanetBerths.WorldFromCelestial(obs, parentOrg + pts[i]);
                 Vector3D p1 = SEAerospace.PlanetBerths.WorldFromCelestial(obs, parentOrg + pts[(i + 1) % n]);
-                if ((p0 - camera.Position).LengthSquared() < NearCameraSkip * NearCameraSkip ||
-                    (p1 - camera.Position).LengthSquared() < NearCameraSkip * NearCameraSkip) continue;
-                _builder.AddLine(p0, p1, color, (float)Math.Max(1.0, ((p0 + p1) * 0.5 - camera.Position).Length() * LineThickness), true);
+                Line(p0, p1, camera.Position, color);
             }
         }
 

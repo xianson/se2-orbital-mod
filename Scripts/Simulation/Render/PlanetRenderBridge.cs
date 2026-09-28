@@ -594,6 +594,41 @@ public static class PlanetRenderBridge
         catch (Exception e) { WarnOnce("map-zoom", "map zoom failed: " + Inner(e)); return false; }
     }
 
+    /// <summary>
+    /// Put the colonization map's zoom back inside [min, max] and stop its zoom easing. Its easing only
+    /// ends when it reaches its target; a target outside the (restored) limits never is, and the easing
+    /// then ran on after the map closed: re-showing the map's planet labels in flight and moving its
+    /// camera controller.
+    /// </summary>
+    public static bool SettleMapZoom(object map, float min, float max)
+    {
+        try
+        {
+            Type mt = map.GetType();
+            Type cd = mt.GetNestedType("CameraData", BindingFlags.NonPublic | BindingFlags.Public);
+            Type tag = mt.GetNestedType("CameraNeedsUpdateTag", BindingFlags.NonPublic | BindingFlags.Public);
+            object data = mt.GetProperty("Data", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(map);
+            if (cd == null || tag == null || data == null) return false;
+            MethodInfo get = null, set = null, remove = null;
+            foreach (var m in data.GetType().GetMethods())
+            {
+                if (!m.IsGenericMethodDefinition) continue;
+                if (m.Name == "Get" && m.GetParameters().Length == 0) get = m;
+                if (m.Name == "Set" && m.GetParameters().Length == 1) set = m;
+                if (m.Name == "TryRemove" && m.GetParameters().Length == 0) remove = m;
+            }
+            if (get == null || set == null) return false;
+            object v = get.MakeGenericMethod(cd).Invoke(data, null);
+            var fd = cd.GetField("Distance"); var ft = cd.GetField("TargetDistance");
+            float d = Math.Clamp((float)fd.GetValue(v), min, max);
+            fd.SetValue(v, d); ft.SetValue(v, d);
+            set.MakeGenericMethod(cd).Invoke(data, new[] { v });
+            remove?.MakeGenericMethod(tag).Invoke(data, null);
+            return true;
+        }
+        catch (Exception e) { WarnOnce("map-settle", "map zoom settle failed: " + Inner(e)); return false; }
+    }
+
     public static string EngineScreenshot(string name)
     {
         try

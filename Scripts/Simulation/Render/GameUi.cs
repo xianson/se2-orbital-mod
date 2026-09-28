@@ -126,6 +126,74 @@ public static class GameUi
 
     // ── lookup ──
 
+    // ---- the game's speed readout (SPD) ----
+
+    private static object _moveVm; private static PropertyInfo _speedProp; private static double _nextFind;
+    public static string SpeedStatus = "-";
+
+    /// <summary>
+    /// Show a speed in the game's own SPD box (the character or cockpit HUD). On rails you sit still in
+    /// your frame, so the game's readout (your physics velocity) says 0; this puts your speed about the
+    /// body there instead. The view model is found once through the HUD component's screen handle (a
+    /// bounded reflection search) and re-found when the HUD changes (seat, stand up).
+    /// </summary>
+    public static void SetHudSpeed(Keen.VRage.Core.Game.Systems.Session session, float speed)
+    {
+        try
+        {
+            double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+            if (_moveVm == null || now > _nextFind)
+            {
+                _nextFind = now + 2.0;
+                object found = null;
+                foreach (var e in session.GetEntitiesOfType<Keen.Game2.Client.GameSystems.CameraSystems.Adapters.CockpitHUDComponent>())
+                    found ??= FindIn(e.TryGet<Keen.Game2.Client.GameSystems.CameraSystems.Adapters.CockpitHUDComponent>(), "_hud");
+                if (found == null)
+                    foreach (var e in session.GetEntitiesOfType<Keen.Game2.Client.GameSystems.CameraSystems.Adapters.CharacterHUDComponent>())
+                        found ??= FindIn(e.TryGet<Keen.Game2.Client.GameSystems.CameraSystems.Adapters.CharacterHUDComponent>(), "_hud");
+                if (found != null && !ReferenceEquals(found, _moveVm)) { _moveVm = found; _speedProp = found.GetType().GetProperty("Speed"); }
+                SpeedStatus = _moveVm != null ? "hud speed: " + _moveVm.GetType().Name : "hud speed: not found";
+            }
+            _speedProp?.SetValue(_moveVm, speed);
+        }
+        catch (Exception e) { SpeedStatus = "hud speed: " + (e.InnerException ?? e).Message; _moveVm = null; }
+    }
+
+    /// <summary>From a component's HUD handle, the MovementHUDScreenViewModel behind it (breadth-first, bounded).</summary>
+    private static object FindIn(object comp, string field)
+    {
+        if (comp == null) return null;
+        object root = PlanetRenderBridge.GetMember(comp, field);
+        if (root == null) return null;
+        var seen = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        var q = new Queue<(object o, int d)>(); q.Enqueue((root, 0));
+        int budget = 400;
+        while (q.Count > 0 && budget-- > 0)
+        {
+            var (o, d) = q.Dequeue();
+            if (o == null || !seen.Add(o)) continue;
+            var t = o.GetType();
+            if (t.Name == "MovementHUDScreenViewModel") return o;
+            var direct = t.GetProperty("MovementHUDScreenViewModel");
+            if (direct != null) { try { var v = direct.GetValue(o); if (v != null) return v; } catch { } }
+            if (d >= 5) continue;
+            foreach (var name in new[] { "ViewModel", "DataContext", "Screen", "Target", "Value" })
+            {
+                var pp = t.GetProperty(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (pp != null && pp.GetIndexParameters().Length == 0) { try { var v = pp.GetValue(o); if (v != null && !v.GetType().IsValueType) q.Enqueue((v, d + 1)); } catch { } }
+            }
+            for (var tt = t; tt != null && tt != typeof(object); tt = tt.BaseType)
+                foreach (var f in tt.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+                {
+                    if (f.FieldType.IsValueType || f.FieldType == typeof(string)) continue;
+                    string ns = f.FieldType.Namespace ?? "";
+                    if (!(ns.StartsWith("Keen") || f.FieldType.IsInterface || f.FieldType == typeof(object))) continue;
+                    try { var v = f.GetValue(o); if (v != null) q.Enqueue((v, d + 1)); } catch { }
+                }
+        }
+        return null;
+    }
+
     private static object Service(Keen.VRage.Core.Game.Systems.Session session, string typeName)
     {
         var t = FindType(typeName);

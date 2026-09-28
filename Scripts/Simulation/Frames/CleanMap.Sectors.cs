@@ -133,6 +133,26 @@ public static partial class CleanMap
         return txt;
     }
 
+    /// <summary>
+    /// A body's Lagrange points (with its primary), sector or not: a small faint mark and "L4" etc.
+    /// Points a sector sits on are left to the sector.
+    /// </summary>
+    static void LagrangeMarks(List<Band> bands, SystemRegistry reg, double t, Func<Vector3D, Vector3D> W, Func<Vector3D, Vector3D> toLocal, GravityBody body, int fromPoint, int toPoint)
+    {
+        if (body?.Parent == null) return;
+        float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        var col = HudPanel.Alpha(Dim, 0.55f);
+        for (int p = fromPoint; p <= toPoint; p++)
+        {
+            if (bands.Exists(b => b.Home.Kind == SectorHomes.Kind.Lagrange && b.Home.Host == body.Name && b.Home.Point == p)) continue;
+            var h = new SectorHomes.Home { Kind = SectorHomes.Kind.Lagrange, Host = body.Name, Point = p };
+            Vector3D w = W(toLocal(SectorHomes.Where(h, reg, t)));
+            if (!MapPipeline.ToScreen(w, out var s) || !InOpenArea(s)) continue;
+            if (!MapPipeline.ScreenIcon("diamond", s, 4f * u, col)) MapPipeline.ScreenDiamond(w, 4f * u, col, 1.2f * u);
+            MapPipeline.TextScreen(s + new Vector2(0, 12f * u), $"L{p}", col, 0.5f);
+        }
+    }
+
     /// <summary>A sector as shown: a body's own sector is named after the body ("Verdure", not "Verdure Sector").</summary>
     public static string Label(Band b) => b.Home?.Kind == SectorHomes.Kind.Body
         ? (b.Home.Future ? b.Name.Replace(" Sector", "") : SystemHost.DisplayName(b.Home.Host))

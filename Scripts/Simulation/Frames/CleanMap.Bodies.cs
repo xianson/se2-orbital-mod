@@ -48,6 +48,10 @@ public static partial class CleanMap
         if (detail)
         {
             Vector3D pRoot = planet.OriginInRoot(t).Position;
+            // Its L1 / L2 (with its primary), and each moon's L1-L5 (with it), sector or not.
+            LagrangeMarks(bands, reg, t, W, r => Lv(r - pRoot), planet, 1, 2);
+            foreach (var moon in planet.Children)
+                if (SystemHost.BeaconOf.ContainsKey(moon.Name)) LagrangeMarks(bands, reg, t, W, r => Lv(r - pRoot), moon, 1, 5);
             foreach (var bd in bands)
             {
                 var h = bd.Home;
@@ -118,6 +122,9 @@ public static partial class CleanMap
         Hit(root, W(Vector3D.Zero), W(new Vector3D(SystemHost.StarRadius * SolarRadius / outer, 0, 0)), 10f);
         BodyLabel(W, Vector3D.Zero, SystemHost.StarRadius * SolarRadius / outer, 10f, StarName, Text, 0.85f);
 
+        // Every planet's L3 / L4 / L5 (with Delfos), sector or not.
+        foreach (var p in root.Children)
+            if (SystemHost.BeaconOf.ContainsKey(p.Name)) LagrangeMarks(bands, reg, t, W, S, p, 3, 5);
         // The star's sectors: its own space, its belts, the planets' L3 / L4 / L5, bodies still to come.
         foreach (var bd in bands)
         {

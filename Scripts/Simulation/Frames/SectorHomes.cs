@@ -29,6 +29,8 @@ public static class SectorHomes
         public double I, Node;
         /// <summary>A belt: the sector is the whole ring of its orbit round the planet, not a section of it.</summary>
         public bool Belt;
+        /// <summary>A ring sector's own orbit about the star (in AU).</summary>
+        public double AU = RingAU;
         public int Slot;                 // index within an L-point group
     }
 
@@ -37,6 +39,10 @@ public static class SectorHomes
     {
         { "Vantaris", Kind.L1 }, { "Cygnark", Kind.L2 },
         { "Byblos Sector", Kind.Ring }, { "Trinarc", Kind.Belt }, { "Pyrethra", Kind.Belt },
+        // Deep sectors the nearest-planet rule had filed under Kemik: they are Delfos's.
+        { "Delfos Sector", Kind.Ring },   // the star's own: an inner orbit, inside Verdure's
+        { "Zarkon", Kind.Ring },          // its own orbit between Kemik and the belt
+        { "Axionis", Kind.L4 }, { "Tarnyx", Kind.L5 },   // Kemik's leading and trailing Trojans
     };
 
     // Planar Lyapunov orbit (linearised about L1/L2, small mass ratio): in-plane frequency
@@ -44,13 +50,16 @@ public static class SectorHomes
     public const double LyapunovLambda = 2.53, LyapunovKappa = 3.2, LyapunovAmplitude = 0.12;
 
     /// <summary>Planet sectors that are a belt round their planet (the whole ring of the orbit): Kemik's outermost.</summary>
-    public static readonly HashSet<string> Belts = new HashSet<string> { "Zarkon" };
+    public static readonly HashSet<string> Belts = new HashSet<string> { "Helionis" };
+    /// <summary>Ring sectors' orbits about the star (AU); others at RingAU.</summary>
+    public static readonly Dictionary<string, double> RingOrbits = new Dictionary<string, double> { { "Delfos Sector", 0.45 }, { "Zarkon", 1.85 } };
 
     /// <summary>Ellipse eccentricity and orientation, deterministic per sector name.</summary>
     public static Home Make(string sector, string host, double chartDistance, double chartBearing, double size, int slot)
     {
         var h = new Home { Sector = sector, Host = host, Size = size, Slot = slot };
         h.Kind = Campaign.TryGetValue(sector, out var k) ? k : chartDistance > MapView.TrojanThreshold ? (slot % 2 == 0 ? Kind.L4 : Kind.L5) : Kind.Ellipse;
+        if (RingOrbits.TryGetValue(sector, out var au)) h.AU = au;
         uint hash = 2166136261;
         foreach (char c in sector) hash = (hash ^ c) * 16777619;
         h.A = chartDistance * SystemHost.SectorOrbitScale;   // the charted distance, scaled for sectors
@@ -142,7 +151,7 @@ public static class SectorHomes
     {
         uint hash = 2166136261;
         foreach (char c in h.Sector) hash = (hash ^ c) * 16777619;
-        double a = RingAU * SystemHost.AU, ph = (hash & 0xFFFF) / 65535.0 * 2 * Math.PI;
+        double a = (h.AU > 0 ? h.AU : RingAU) * SystemHost.AU, ph = (hash & 0xFFFF) / 65535.0 * 2 * Math.PI;
         double n = Math.Sqrt(starMu / (a * a * a));
         return new Vector3D(Math.Cos(ph + n * t) * a, Math.Sin(ph + n * t) * a, 0);
     }

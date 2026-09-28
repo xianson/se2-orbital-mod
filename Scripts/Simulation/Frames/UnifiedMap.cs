@@ -155,6 +155,7 @@ public static class UnifiedMap
             CleanMap.Draw(session, PlanetRenderBridge.GetMember(map, "SectorsRenderer"), PlanetRenderBridge.GetMember(map, "_configuration"),
                           bands, reg, mapPos, orient, u, t, youPlanet, youRel, youOrbit, usedGlobes);
             MapGlobes.End(usedGlobes);
+            PlaceStar(map, mapPos, orient);
             ApplyPick(map);
             if (DevClick) { DevClick = false; map.OnSelectSector(); }
             Status = $"clean u={u:F2} {CleanMap.Status} {PickStatus}";
@@ -603,6 +604,44 @@ public static class UnifiedMap
             _starShown = visible; _star = star;
         }
     }
+    /// <summary>
+    /// Delfos is the game's own star model, moved each frame to where the map has the star (its
+    /// ordinary transform; its render entity cannot be scaled, so it keeps its own size on screen).
+    /// Put overhead, out of view, when the map has no place for it on screen.
+    /// </summary>
+    private static void PlaceStar(ColonizationMapSessionComponent map, Vector3D mapPos, Quaternion orient)
+    {
+        try
+        {
+            object star = PlanetRenderBridge.GetMember(map, "_mainStar");
+            var ent = star != null ? PlanetRenderBridge.GetMember(star, "Entity") as Entity : null;
+            if (ent == null || !_starMoved) { StarPlaced = false; return; }
+            Vector3D? at = CleanMap.StarWorld;
+            var scr = MapPipeline.ScreenSize;
+            bool show = at.HasValue && MapPipeline.ToScreen(at.Value, out var s)
+                && s.X > scr.X * 0.255f && s.X < scr.X * 0.775f && s.Y > scr.Y * 0.1f && s.Y < scr.Y * 0.84f;
+            if (show)
+            {
+                var q = (QuaternionD)orient;
+                Vector3D d = at.Value - mapPos;
+                var local = new Vector3((float)Vector3D.Dot(d, q * Vector3D.UnitX), (float)Vector3D.Dot(d, q * Vector3D.UnitY), (float)Vector3D.Dot(d, q * Vector3D.UnitZ));
+                if (float.IsNaN(local.X) || float.IsNaN(local.Y) || float.IsNaN(local.Z)) show = false;
+                else
+                {
+                    ent.Data.Set(new RelativeTransform(local, _starRel.Orientation));
+                    var got = ent.Data.GetWorldTransform().Position;
+                    StarDebug = $"star want {at.Value - mapPos} got {got - mapPos} rel {local}";
+                }
+            }
+            if (!show) ent.Data.Set(new RelativeTransform(_starRel.Position + new Vector3(0, 1e5f, 0), _starRel.Orientation));
+            StarPlaced = show;
+        }
+        catch { StarPlaced = false; }
+    }
+    /// <summary>The game's star model is on the map this frame (the map then draws no disc of its own).</summary>
+    public static bool StarPlaced;
+    public static string StarDebug = "-";
+
     private static bool? _starShown; private static object _star;
     private static bool _starMoved; private static RelativeTransform _starRel;
     private static readonly Dictionary<object, bool> _objShown = new Dictionary<object, bool>();

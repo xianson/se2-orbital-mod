@@ -478,8 +478,11 @@ public static class Maneuvers
             if (!MapPipeline.ToScreen(W(loc), out var s)) continue;
             nodeScreen.Add((a.Node, s, a));
             bool sel = a.Node == Selected;
-            MapPipeline.ScreenCircle(s, (sel ? 9f : 7f) * u, NodeColor, (sel ? 2.6f : 2f) * u);
-            MapPipeline.ScreenCircle(s, 2.5f * u, NodeColor, 3f * u);
+            if (!MapPipeline.ScreenIcon("node", s, (sel ? 10f : 8f) * u, NodeColor))
+            {
+                MapPipeline.ScreenCircle(s, (sel ? 9f : 7f) * u, NodeColor, (sel ? 2.6f : 2f) * u);
+                MapPipeline.ScreenCircle(s, 2.5f * u, NodeColor, 3f * u);
+            }
             // Armed for auto-burn: said on the node itself (only the menu said so before).
             if (a.Node.Auto) HudPanel.TagAt(s + new Vector2((sel ? 12f : 10f) * u, 0), AutoBurn.Flying ? "auto-burning" : "auto-burn", AutoColor, u, diamond: false);
         }
@@ -919,6 +922,9 @@ public static class Maneuvers
     /// <summary>KSP's navball symbols, drawn with screen lines.</summary>
     static void Icon(string kind, Vector2 c, ColorSRGB col, bool hot, float u)
     {
+        // Our KSP icons (textures); the line drawings below when they cannot be drawn.
+        string tex = kind switch { "P" => "prograde", "R" => "retrograde", "N" => "normal", "AN" => "antinormal", "RO" => "radialout", "RI" => "radialin", _ => null };
+        if (tex != null && MapPipeline.ScreenIcon(tex, c, (hot ? 13f : 10.5f) * u, col)) return;
         float r = (hot ? 8f : 6.5f) * u, w = (hot ? 2.2f : 1.6f) * u, t = 3.5f * u;
         void L(Vector2 a, Vector2 b) => MapPipeline.ScreenLine(c + a, c + b, col, w);
         void Tri(float s, bool up)

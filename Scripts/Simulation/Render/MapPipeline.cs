@@ -304,6 +304,7 @@ public static class MapPipeline
         _batch = null;
         _placed.Clear();
         _picks.Clear();
+        _occluders.Clear();
         try
         {
             _cam = SpecCam.CameraOf(session);
@@ -346,10 +347,37 @@ public static class MapPipeline
         return true;
     }
 
+    // ── bodies hide the lines behind them (an orbit line ran across the planet's globe) ──
+    private struct Occluder { public Vector2 C; public float R; public double Depth, RWorld; }
+    private static readonly List<Occluder> _occluders = new List<Occluder>();
+
+    /// <summary>A body's globe this frame (world centre and radius): lines behind it are not drawn.</summary>
+    public static void Occlude(Vector3D centre, double radius)
+    {
+        if (_cam == null || !(radius > 0) || !Screen(centre, out var c)) return;
+        var wt = _cam.Entity.Data.GetWorldTransform();
+        Vector3D fwd = (QuaternionD)wt.Orientation * Vector3D.Forward, right = (QuaternionD)wt.Orientation * Vector3D.Right;
+        if (!Screen(centre + right * radius, out var e)) return;
+        float r = (e - c).Length();
+        if (r < 2f) return;
+        _occluders.Add(new Occluder { C = c, R = r, Depth = Vector3D.Dot(centre - wt.Position, fwd), RWorld = radius });
+    }
+
+    /// <summary>Behind (or inside) a body's globe as seen from the camera.</summary>
+    public static bool Occluded(Vector3D world)
+    {
+        if (_occluders.Count == 0 || _cam == null || !Screen(world, out var s)) return false;
+        var wt = _cam.Entity.Data.GetWorldTransform();
+        double depth = Vector3D.Dot(world - wt.Position, (QuaternionD)wt.Orientation * Vector3D.Forward);
+        foreach (var o in _occluders)
+            if ((s - o.C).LengthSquared() < o.R * o.R && depth > o.Depth - o.RWorld * 0.9) return true;
+        return false;
+    }
+
     /// <summary>A smooth screen-space line between two world points (px width).</summary>
     public static void Line(Vector3D a, Vector3D b, ColorSRGB color, float width)
     {
-        if (_batch == null || _drawLine == null || !Screen(a, out var sa) || !Screen(b, out var sb) || !Clip(ref sa, ref sb)) return;
+        if (_batch == null || _drawLine == null || Occluded((a + b) * 0.5) || !Screen(a, out var sa) || !Screen(b, out var sb) || !Clip(ref sa, ref sb)) return;
         AddPick(sa, sb);
         Seg(sa, sb, color, width);
     }
@@ -639,6 +667,8 @@ public static class MapPipeline
         if (!_icons.TryGetValue(name, out var h))
         {
             h = null;
+            if (MapIcons.Has(name)) { h = MapIcons.Handle(name); _icons[name] = h; }
+            else
             try
             {
                 object raw = PlanetRenderBridge.GetMember(_mapConfig, name);

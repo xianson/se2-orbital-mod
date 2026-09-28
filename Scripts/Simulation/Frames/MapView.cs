@@ -142,7 +142,7 @@ public static class MapView
     // ───────────────────────────── band 1: the chart coming alive ─────────────────────────────
 
     /// <summary>Sectors farther than this from their planet go to its Trojan points (design section 6).</summary>
-    public const double TrojanThreshold = 8.0e6;   // m
+    public const double TrojanThreshold = 6.0e6;   // m: farther on the chart from every planet, a sector is Delfos's
     public static bool SectorOrbits = true;
     private static readonly ColorSRGB SectorColor = new ColorSRGB(0.45f, 0.85f, 1f);
     private static readonly ColorSRGB SectorSelColor = new ColorSRGB(1f, 0.85f, 0.2f);

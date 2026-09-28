@@ -65,7 +65,7 @@ public static class CleanMap
         SectorHomes.Kind.L1 or SectorHomes.Kind.L2 => b.Host + " Lagrange points",
         SectorHomes.Kind.L4 or SectorHomes.Kind.L5 => b.Host + " Trojans",
         SectorHomes.Kind.Belt => "Main belt",
-        SectorHomes.Kind.Ring => "Outer ring",
+        SectorHomes.Kind.Ring => b.Home.AU < 1 ? "Inner system" : b.Home.AU < SectorHomes.BeltInnerAU ? "Delfos orbit" : "Outer ring",
         _ => "Other",
     };
 
@@ -76,7 +76,7 @@ public static class CleanMap
         {
             SectorHomes.Kind.OwnPlanet => planet * 10, SectorHomes.Kind.Ellipse => planet * 10 + 1,
             SectorHomes.Kind.L1 or SectorHomes.Kind.L2 => planet * 10 + 2, SectorHomes.Kind.L4 or SectorHomes.Kind.L5 => planet * 10 + 3,
-            SectorHomes.Kind.Belt => 200, SectorHomes.Kind.Ring => 300, _ => 400,
+            SectorHomes.Kind.Belt => 200, SectorHomes.Kind.Ring => b.Home.AU < 1 ? 5 : b.Home.AU < SectorHomes.BeltInnerAU ? 150 : 300, _ => 400,
         };
     }
 
@@ -162,7 +162,7 @@ public static class CleanMap
     static double HomeHelioRadius(Band b, GravityBody host) => b.Home.Kind switch
     {
         SectorHomes.Kind.Belt => (SectorHomes.BeltInnerAU + SectorHomes.BeltOuterAU) * 0.5 * SystemHost.AU,
-        SectorHomes.Kind.Ring => SectorHomes.RingAU * SystemHost.AU,
+        SectorHomes.Kind.Ring => b.Home.AU * SystemHost.AU,
         _ => host.StateInParentAt(SystemHost.Now).Position.Length(),   // Trojans share the planet's orbit
     };
 
@@ -172,7 +172,7 @@ public static class CleanMap
         SectorHomes.Kind.Ellipse => $"{b.Home.A / 1000:N0} km",
         SectorHomes.Kind.L1 => "L1", SectorHomes.Kind.L2 => "L2", SectorHomes.Kind.L4 => "L4", SectorHomes.Kind.L5 => "L5",
         SectorHomes.Kind.Belt => $"{SectorHomes.BeltInnerAU:F1}-{SectorHomes.BeltOuterAU:F1} AU",
-        SectorHomes.Kind.Ring => $"{SectorHomes.RingAU:F1} AU",
+        SectorHomes.Kind.Ring => $"{b.Home.AU:0.##} AU",
         _ => "",
     };
 
@@ -289,6 +289,8 @@ public static class CleanMap
     private static double _lastMesh;
     private static string _lastKey;
     public static string Status = "-";
+    /// <summary>Where the star is on the map this frame (world), for the game's star model.</summary>
+    public static Vector3D? StarWorld;
     /// <summary>DEV: this frame's view (the body it is about, the zoom).</summary>
     public static string Frame = "-";
 
@@ -381,6 +383,13 @@ public static class CleanMap
             // The map itself (orbits, sectors, the plan) is clipped to the open area between the panels.
             MapPipeline.ClipRect = new BoundingBox2(new Vector2(scrR.X * 0.255f, scrR.Y * 0.1f), new Vector2(scrR.X * 0.775f, scrR.Y * 0.84f));
 
+            // Every globe hides the lines behind it.
+            foreach (var body in reg.Bodies)
+            {
+                if (body.IsRoot || !SystemHost.BeaconOf.ContainsKey(body.Name)) continue;
+                double br = (reg.FindDefinition(body.Name)?.RadiusMeters ?? 0) * Sigma * _wscale;
+                MapPipeline.Occlude(W(Map(body.OriginInRoot(t).Position)), br);
+            }
             // The sun and its planets, the belt and the outer ring (about the sun).
             _off = Map(Vector3D.Zero);
             Vector3D starV = _off;
@@ -520,7 +529,12 @@ public static class CleanMap
             double k = len > 0 ? Math.Clamp(Vector3D.Dot(f - pa, ab) / (len * len), 0, 1) : 0;
             if ((pa + ab * k - f).Length() > reach + 0.3 * len) return;   // the arc keeps near its chord
             bool oa = MapPipeline.ToScreen(W(pa), out var sa), ob = MapPipeline.ToScreen(W(pb), out var sb);
-            if (oa && ob && ((sb - sa).Length() < 12f * u || depth >= 22)) { Emit(sa, sb, depthCue && (pa.Y + pb.Y) < 0); return; }
+            if (oa && ob && ((sb - sa).Length() < 12f * u || depth >= 22))
+            {
+                if (MapPipeline.Occluded(W((pa + pb) * 0.5))) { Flush(); return; }   // behind a body's globe
+                Emit(sa, sb, depthCue && (pa.Y + pb.Y) < 0);
+                return;
+            }
             // Not on screen at either end (behind the camera, or far off it): a few splits to find where
             // it comes into view, no more; one end on screen: deeper.
             int max = oa && ob ? 22 : oa || ob ? 14 : 7;
@@ -761,7 +775,8 @@ public static class CleanMap
         Vector3D S(Vector3D helio) { double r = Math.Sqrt(helio.X * helio.X + helio.Y * helio.Y); double f = r > 0 ? Rs(r) / r : 0; return new Vector3D(helio.X * f, 0, helio.Y * f); }
 
         // The sun: a warm disc (its own section, coloured below), and its name.
-        if (MapPipeline.ToScreen(W(Vector3D.Zero), out var sunS) && InOpenArea(sunS))
+        StarWorld = W(Vector3D.Zero);   // the game's star model goes here (UnifiedMap.PlaceStar)
+        if (!UnifiedMap.StarPlaced && MapPipeline.ToScreen(W(Vector3D.Zero), out var sunS) && InOpenArea(sunS))
         {
             float su = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
             float srpx = MapPipeline.ToScreen(W(new Vector3D(SystemHost.StarRadius * SolarRadius / outer, 0, 0)), out var sunE) ? (sunE - sunS).Length() : 0f;
@@ -833,6 +848,31 @@ public static class CleanMap
                 });
             }
             MapPipeline.PickName = null;
+        }
+
+        // Trojans: a section of their planet's orbit, 60 degrees ahead (L4) or behind (L5).
+        foreach (var bd in bands)
+        {
+            if (bd.Home.Kind != SectorHomes.Kind.L4 && bd.Home.Kind != SectorHomes.Kind.L5) continue;
+            var tp = reg.Find(bd.Host);
+            if (tp == null || tp.Parent == null) continue;
+            var bs = bd; var h0 = bd.Home; var W0 = W;
+            double ap = tp.StateInParentAt(t).Position.Length();
+            double Tp = 2 * Math.PI * Math.Sqrt(ap * ap * ap / root.Mu);
+            Vector3D mk = S(SectorHomes.HelioTrojan(h0, tp, t));
+            string label = $"{bd.Number}  {bd.Name}";
+            _deferred.Add(() =>
+            {
+                MapPipeline.PickName = bs.Name;
+                SectorArea(W0, q => SectorHomes.HelioTrojan(h0, tp, t + Tp * q), S, bs);
+                Marker(W0(mk), bs);
+                if (MapPipeline.ToScreen(W0(mk), out var ms))
+                {
+                    float lu = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+                    MapPipeline.TextScreen(ms + new Vector2(0, 22f * lu), label, Quiet(bs) ? QuietText : bs.Selected ? LineSel : Text, Quiet(bs) ? 0.72f * 0.85f : 0.72f);
+                }
+                MapPipeline.PickName = null;
+            });
         }
 
         // The planets: orbit line, the globe, and the planet's own sector as a circular section around it.

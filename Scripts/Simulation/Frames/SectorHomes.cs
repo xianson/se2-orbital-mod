@@ -70,7 +70,7 @@ public static class SectorHomes
             case "Verdure Sector": Body("Verdure"); break;
             case "Kemik Sector": Body("Kemik"); break;
             case "Byblos Sector": Body(root); h.Future = true; h.AU = 0.88; h.Phase = chartBearing; break;   // a planet still to come
-            case "Zarkon": Ring(root, 0.60 * AUm, 0.66 * AUm); break;         // a belt between Kemik and Verdure
+            case "Zarkon": Ring(root, 0.72 * AUm, 0.80 * AUm); break;         // a belt between Kemik (0.53) and Verdure (1.0), clear of both
             case "Pyrethra": Ring(root, 1.25 * AUm, 1.35 * AUm); break;       // the outer belt, beyond Verdure
             case "Oblivara": Ring("Verdure", VerdureRingInnerR * Rp("Verdure"), VerdureRingOuterR * Rp("Verdure")); break;   // Verdure's ring
             case "Echelon": L("Kemik", 4); break;

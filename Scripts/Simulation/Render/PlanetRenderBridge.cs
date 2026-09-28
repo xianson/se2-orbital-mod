@@ -341,7 +341,8 @@ public static class PlanetRenderBridge
                 FindSetEntityCustomData(p.Model.GetType())?.MakeGenericMethod(_scaleDataType).Invoke(p.Model, new[] { data });
                 p.LastScale = scale;
             }
-            if (ProxyAtmospheres && p.Visible) UpdateAtmosphere(h, p, center, radius);   // world proxies and map globes alike
+            // World proxies only: on the map the globes' atmospheres hid Delfos's star model.
+            if (ProxyAtmospheres && p.Visible && !p.MapOnly) UpdateAtmosphere(h, p, center, radius);
         }
         catch (Exception e) { WarnOnce("proxy-update", $"proxy update failed for {h.Name}: {Inner(e)}"); }
     }

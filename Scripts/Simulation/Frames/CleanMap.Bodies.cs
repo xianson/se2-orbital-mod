@@ -116,19 +116,15 @@ public static partial class CleanMap
         Vector3D S(Vector3D helio) { double r = Math.Sqrt(helio.X * helio.X + helio.Y * helio.Y); double f = r > 0 ? Rs(r) / r : 0; return new Vector3D(helio.X * f, 0, helio.Y * f); }
 
         // The sun: a warm disc (its own section, coloured below), and its name.
-        // Delfos: our own image of a red dwarf, a fixed size on screen (big at every zoom). The game's
-        // star model is parked out of view (StarWorld null): off the map plane it did not draw, and on it
-        // it came and went.
-        StarWorld = null;
-        if (MapPipeline.ToScreen(W(Vector3D.Zero), out var sunS) && InOpenArea(sunS))
+        // Delfos: the game's own star model, placed here (GameMap.PlaceStar); a red disc only when it cannot be.
+        StarWorld = W(Vector3D.Zero);
+        if (!GameMap.StarPlaced && MapPipeline.ToScreen(W(Vector3D.Zero), out var sunS) && InOpenArea(sunS))
         {
             float su = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
-            float half = 40f * su / 0.6f;   // the disc is 0.6 of the image across
-            if (!MapPipeline.ScreenIconBox("delfos", sunS - new Vector2(half, half), sunS + new Vector2(half, half), new ColorSRGB(1f, 1f, 1f, 1f)))
-                MapPipeline.ScreenDisc(sunS, 40f * su, new ColorSRGB(1f, 0.46f, 0.22f, 1f));
+            MapPipeline.ScreenDisc(sunS, 30f * su, new ColorSRGB(1f, 0.46f, 0.22f, 1f));
         }
-        Hit(root, W(Vector3D.Zero), W(new Vector3D(SystemHost.StarRadius * SolarRadius / outer, 0, 0)), 40f);
-        BodyLabel(W, Vector3D.Zero, SystemHost.StarRadius * SolarRadius / outer, 42f, StarName, Text, 0.85f);
+        Hit(root, W(Vector3D.Zero), W(new Vector3D(SystemHost.StarRadius * SolarRadius / outer, 0, 0)), 24f);
+        BodyLabel(W, Vector3D.Zero, SystemHost.StarRadius * SolarRadius / outer, 26f, StarName, Text, 0.85f);
 
         // Every planet's L3 / L4 / L5 (with Delfos), sector or not.
         foreach (var p in root.Children)
@@ -191,10 +187,10 @@ public static partial class CleanMap
     /// A planet's own sector (its near space): not an orbit, so a faint dashed boundary (gold when
     /// selected), with the sector's name centred above the whole area.
     /// </summary>
-    static void OwnSector(Func<Vector3D, Vector3D> W, double r, Band b, Vector3D centre = default)
+    static void OwnSector(Func<Vector3D, Vector3D> W, double r, Band b, Vector3D centre = default, bool faint = false)
     {
         float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
-        var col = b.Selected ? HudPanel.Alpha(LineSel, 0.85f) : b.Name == Hovered ? HudPanel.Alpha(StateColor(b), 0.8f) : HudPanel.Alpha(StateColor(b), 0.45f);
+        var col = faint ? HudPanel.Alpha(Dim, 0.3f) : b.Selected ? HudPanel.Alpha(LineSel, 0.85f) : b.Name == Hovered ? HudPanel.Alpha(StateColor(b), 0.8f) : HudPanel.Alpha(StateColor(b), 0.45f);
         const int n = 64;
         Vector2 prev = default, top = default; bool have = false, haveTop = false;
         for (int i = 0; i <= n; i++)

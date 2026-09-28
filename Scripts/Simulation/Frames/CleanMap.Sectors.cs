@@ -146,9 +146,17 @@ public static partial class CleanMap
         {
             if (bands.Exists(b => b.Home.Kind == SectorHomes.Kind.Lagrange && b.Home.Host == body.Name && b.Home.Point == p)) continue;
             var h = new SectorHomes.Home { Kind = SectorHomes.Kind.Lagrange, Host = body.Name, Point = p };
-            Vector3D w = W(toLocal(SectorHomes.Where(h, reg, t)));
+            Vector3D at = SectorHomes.Where(h, reg, t, out Vector3D centre);
+            // Its shape, as a sector's but faint: L3-L5 a lens on the body's orbit, L1 / L2 a small zone.
+            var ghost = new Band { Name = "", Home = h };
+            if (p >= 3)
+            {
+                double P = SectorHomes.Period(h, reg);
+                SectorArea(W, q => SectorHomes.Where(h, reg, t + P * q) - centre, v => toLocal(centre + v), ghost, SectorSpan, 0.035, taper: true, faint: true);
+            }
+            else OwnSector(W, SectorHomes.HillRadius(body) * 0.15 * LocalScale(toLocal), ghost, toLocal(at), faint: true);
+            Vector3D w = W(toLocal(at));
             if (!MapPipeline.ToScreen(w, out var s) || !InOpenArea(s)) continue;
-            if (!MapPipeline.ScreenIcon("diamond", s, 4f * u, col)) MapPipeline.ScreenDiamond(w, 4f * u, col, 1.2f * u);
             MapPipeline.TextScreen(s + new Vector2(0, 12f * u), $"L{p}", col, 0.5f);
         }
     }
@@ -277,7 +285,10 @@ public static partial class CleanMap
     /// The sector itself: an area of its orbit (a band section about where it is now), filled in its
     /// state colour and outlined; its orbit carries it round.
     /// </summary>
-    static void SectorArea(Func<Vector3D, Vector3D> W, Func<double, Vector3D> relAt, Func<Vector3D, Vector3D> toLocal, Band b, double span = SectorSpan, double kWidth = 0, bool taper = false)
+    /// <summary>Map units per metre of a level's toLocal (it is linear).</summary>
+    static double LocalScale(Func<Vector3D, Vector3D> toLocal) => (toLocal(new Vector3D(1e6, 0, 0)) - toLocal(Vector3D.Zero)).Length() / 1e6;
+
+    static void SectorArea(Func<Vector3D, Vector3D> W, Func<double, Vector3D> relAt, Func<Vector3D, Vector3D> toLocal, Band b, double span = SectorSpan, double kWidth = 0, bool taper = false, bool faint = false)
     {
         float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
         double k = kWidth > 0 ? kWidth : Math.Clamp(b.Home.Size * 0.5 * SystemHost.SectorOrbitScale / Math.Max(1, b.Home.A), 0.03, 0.065);
@@ -296,11 +307,11 @@ public static partial class CleanMap
         var poly = new List<Vector2>(outer);
         for (int i = inner.Count - 1; i >= 0; i--) poly.Add(inner[i]);
         var c = b.Selected ? LineSel : StateColor(b);
-        float fa = b.Selected ? 0.30f : b.Name == Hovered ? 0.34f : Quiet(b) ? 0.08f : 0.18f;
+        float fa = faint ? 0.06f : b.Selected ? 0.30f : b.Name == Hovered ? 0.34f : Quiet(b) ? 0.08f : 0.18f;
         // A dark base first: the lines under the sector are hidden, not showing through it.
-        MapPipeline.ScreenFill(poly, new ColorSRGB(0.04f, 0.06f, 0.09f, 0.82f));
+        if (!faint) MapPipeline.ScreenFill(poly, new ColorSRGB(0.04f, 0.06f, 0.09f, 0.82f));   // (a point with no sector: no base, lines show through)
         MapPipeline.ScreenFill(poly, HudPanel.Alpha(c, fa));
-        var edge = HudPanel.Alpha(c, b.Selected ? 0.95f : Quiet(b) ? 0.3f : 0.6f);
+        var edge = HudPanel.Alpha(c, faint ? 0.3f : b.Selected ? 0.95f : Quiet(b) ? 0.3f : 0.6f);
         float ew = (b.Selected ? 1.8f : 1.2f) * u;
         MapPipeline.ScreenPath(outer, ring, edge, ew);
         MapPipeline.ScreenPath(inner, ring, edge, ew);

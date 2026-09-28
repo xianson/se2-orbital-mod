@@ -46,8 +46,10 @@ public static class SystemHost
     public const double SectorOrbitScale = 0.4;
     /// <summary>The system's unit distance: Verdure's orbit (30,000 km; Kemik 1.524 of it, the belt 2.2-3.2, the ring 3.9).</summary>
     public const double AU = 3.0e7;
-    /// <summary>Delfos's radius: a red dwarf, some twenty radii from Verdure.</summary>
-    public const double StarRadius = 1.5e6;
+    /// <summary>Delfos's radius: a red dwarf as big as Palatine's orbit round Verdure (1,140 km).</summary>
+    public const double StarRadius = PalatineOrbit;
+    /// <summary>Palatine's orbit: the Moon's (384,400 km) x k x OrbitScale, x3.</summary>
+    public const double PalatineOrbit = 3 * 3.844e8 * K * OrbitScale;
     /// <summary>First planet's orbit around the star, and the spacing factor for the next ones.</summary>
     public const double FirstOrbit = AU;                  // Verdure = Earth, 1 AU
     public const double OrbitSpacing = 1.524;             // Kemik = Mars, 1.524 AU
@@ -108,7 +110,7 @@ public static class SystemHost
     /// influence (a third of its distance) would reach past Kemik's (~1,980 km, Kemik being the inner planet).</summary>
     public const double CaligoOrbitFactor = 6.0;
     private static double MoonOrbit(string name, double charted) =>
-        name == "Palatine" ? 3 * 3.844e8 * K * OrbitScale : name == "Caligo" ? charted * CaligoOrbitFactor : charted;   // Palatine x3 (1,140 km)
+        name == "Palatine" ? PalatineOrbit : name == "Caligo" ? charted * CaligoOrbitFactor : charted;   // Palatine x3 (1,140 km)
     private static double MoonEccentricity(string name) => name == "Palatine" ? 0.0549 : 0.015;
     private static double PlanetEccentricity(string name) => name == "Verdure" ? 0.0167 : name == "Kemik" ? 0.0934 : 0.02;
     public const double MoonMaxDistance = 1.0e6;   // m

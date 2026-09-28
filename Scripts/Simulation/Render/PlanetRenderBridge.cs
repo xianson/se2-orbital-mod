@@ -74,6 +74,12 @@ public static class PlanetRenderBridge
         public object Model;
         public bool Visible;
         public float LastScale = -1f;
+        /// <summary>A map globe (no atmosphere), else a world proxy.</summary>
+        public bool MapOnly;
+        /// <summary>Its atmosphere (the game's PlanetEnvironmentEntity, boxed), where it was made, and at what scale.</summary>
+        public object Atmo;
+        public Vector3D AtmoAt;
+        public double AtmoK, AtmoMadeAt;
     }
 
     // ── Render service (resolved once) ──
@@ -313,7 +319,7 @@ public static class PlanetRenderBridge
                 (mapOnly ? "OrbitalMapGlobe_" : "OrbitalProxy_") + h.Name, h.ProxyModel, RelativeTransform.Identity, root, flags, entityType, null
             });
 
-            return new Proxy { Root = root, Model = model, Visible = true };
+            return new Proxy { Root = root, Model = model, Visible = true, MapOnly = mapOnly };
         }
         catch (Exception e) { WarnOnce("proxy-create", $"proxy create failed for {h.Name}: {Inner(e)}"); return null; }
     }
@@ -335,13 +341,82 @@ public static class PlanetRenderBridge
                 FindSetEntityCustomData(p.Model.GetType())?.MakeGenericMethod(_scaleDataType).Invoke(p.Model, new[] { data });
                 p.LastScale = scale;
             }
+            if (ProxyAtmospheres && !p.MapOnly && p.Visible) UpdateAtmosphere(h, p, center, radius);
         }
         catch (Exception e) { WarnOnce("proxy-update", $"proxy update failed for {h.Name}: {Inner(e)}"); }
+    }
+
+    // ── proxy atmospheres ──
+    // The game's own atmosphere (RenderContracts.CreatePlanetEnvironmentEntity, as
+    // PlanetEnvironmentRenderComponent makes a planet's), with the real planet's definition and its
+    // radii scaled by the proxy's size (the definition's heights are fractions of the radius). Its
+    // position is fixed at creation: it is made again once the proxy has moved (throttled); a size
+    // change goes through SetParameters. Any failure turns them off for the session.
+    public static bool ProxyAtmospheres = true;
+    private static MethodInfo _createEnv;
+
+    static Type Plain(ParameterInfo pi) => pi.ParameterType.IsByRef ? pi.ParameterType.GetElementType() : pi.ParameterType;
+
+    static void UpdateAtmosphere(PlanetHandles h, Proxy p, Vector3D center, double radius)
+    {
+        if (h.EnvShowArgs == null || h.EnvShowArgs[0] == null || !(h.SurfaceRadius > 0)) return;
+        double k = radius / h.SurfaceRadius;
+        if (!(k > 0) || double.IsInfinity(k)) return;
+        double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+        try
+        {
+            bool moved = p.Atmo != null && (center - p.AtmoAt).Length() > radius * 0.01;
+            if (p.Atmo == null || (moved && now - p.AtmoMadeAt > 0.2))
+            {
+                DisposeAtmosphere(p);
+                if (_createEnv == null)
+                    foreach (var m in _contracts.GetType().GetMethods())
+                        if (m.Name == "CreatePlanetEnvironmentEntity" && m.GetParameters().Length == 12) _createEnv = m;
+                if (_createEnv == null) { ProxyAtmospheres = false; WarnOnce("proxy-atmo", "no CreatePlanetEnvironmentEntity: proxy atmospheres off"); return; }
+                var ps = _createEnv.GetParameters();
+                float F(object o) => (float)(Convert.ToDouble(o) * k);
+                p.Atmo = _createEnv.Invoke(_contracts, new object[]
+                {
+                    "OrbitalProxyAtmosphere_" + h.Name, h.EnvShowArgs[0], F(h.EnvShowArgs[1]), F(h.EnvShowArgs[2]),
+                    null,                                         // no clouds
+                    Activator.CreateInstance(Plain(ps[5])),       // no spherization: the proxy is already a sphere
+                    Activator.CreateInstance(Plain(ps[6])), Activator.CreateInstance(Plain(ps[7])),
+                    F(h.EnvShowArgs[5]), center, null,
+                    Array.CreateInstance(Plain(ps[11]).GetElementType(), 0),
+                });
+                p.AtmoAt = center; p.AtmoK = k; p.AtmoMadeAt = now;
+            }
+            else if (Math.Abs(k - p.AtmoK) > p.AtmoK * 0.01)
+            {
+                var set = p.Atmo.GetType().GetMethod("SetParameters");
+                var sp = set?.GetParameters();
+                if (set != null && sp.Length == 7)
+                {
+                    float F(object o) => (float)(Convert.ToDouble(o) * k);
+                    set.Invoke(p.Atmo, new object[] { h.EnvShowArgs[0], F(h.EnvShowArgs[1]), F(h.EnvShowArgs[2]), null, Activator.CreateInstance(Plain(sp[4])), F(h.EnvShowArgs[5]), null });
+                    p.AtmoK = k;
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            ProxyAtmospheres = false;
+            DisposeAtmosphere(p);
+            WarnOnce("proxy-atmo", $"proxy atmosphere failed for {h.Name} (off for this session): {Inner(e)}");
+        }
+    }
+
+    static void DisposeAtmosphere(Proxy p)
+    {
+        if (p?.Atmo == null) return;
+        try { p.Atmo.GetType().GetMethod("Dispose", Type.EmptyTypes)?.Invoke(p.Atmo, null); } catch { }
+        p.Atmo = null;
     }
 
     public static void SetProxyVisible(Proxy p, bool visible)
     {
         if (p == null || p.Visible == visible) return;
+        if (!visible) DisposeAtmosphere(p);   // never two atmospheres (the real planet's is back)
         try
         {
             p.Model.GetType().GetMethod("SetRenderFlagsState")?.Invoke(p.Model, new[] { Enum.ToObject(_renderFlagsType, 0x1), (object)visible });
@@ -353,6 +428,7 @@ public static class PlanetRenderBridge
     public static void DisposeProxy(Proxy p)
     {
         if (p == null) return;
+        DisposeAtmosphere(p);
         try
         {
             p.Model?.GetType().GetMethod("Dispose", Type.EmptyTypes)?.Invoke(p.Model, null);

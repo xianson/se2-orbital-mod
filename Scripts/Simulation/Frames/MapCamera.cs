@@ -31,14 +31,37 @@ public static class MapCamera
     private static Vector3D _focusGame, _mapPos;
     private static QuaternionD _mapQ = QuaternionD.Identity;
 
+    /// <summary>
+    /// The zoom is virtual: the camera is always RenderDistance from the map's centre, and the map is
+    /// scaled instead (world = RenderDistance / Distance per map unit). The game's wheel zoom (Distance)
+    /// then spans the whole system down to a low orbit with no near- or far-plane limits. The view's
+    /// centre (FocusV) is in map units about the map's origin (the body the map is about).
+    /// </summary>
+    public const double RenderDistance = 1.0;
+    public static double Scale => Distance > 0 ? RenderDistance / Distance : 1.0;
+    public static Vector3D FocusV => _pan;
+    /// <summary>A map point (map units) in the world.</summary>
+    public static Vector3D ToWorld(Vector3D v) => _mapPos + _mapQ * ((v - _pan) * Scale);
+    /// <summary>A world point back to map units.</summary>
+    public static Vector3D FromWorld(Vector3D w)
+    {
+        Vector3D d = w - _mapPos;
+        var l = new Vector3D(Vector3D.Dot(d, _mapQ * Vector3D.UnitX), Vector3D.Dot(d, _mapQ * Vector3D.UnitY), Vector3D.Dot(d, _mapQ * Vector3D.UnitZ));
+        return _pan + l / Scale;
+    }
+    /// <summary>The map's origin moved by -dv (it follows another body now): keep the view where it is.</summary>
+    public static void Shift(Vector3D dv) { _pan += dv; if (_panGoal.HasValue) _panGoal = _panGoal.Value + dv; }
+
     /// <summary>Centre the view on a point of the map (world); from the next frame.</summary>
     static bool Finite(Vector3D v) => !(double.IsNaN(v.X) || double.IsNaN(v.Y) || double.IsNaN(v.Z) || double.IsInfinity(v.X) || double.IsInfinity(v.Y) || double.IsInfinity(v.Z));
 
     public static void PanTo(Vector3D world, bool smooth = false)
     {
         if (!Focus.HasValue || !Finite(world)) return;
-        if (smooth) _panGoal = world - _focusGame;
-        else { _pan = world - _focusGame; _panGoal = null; }
+        Vector3D v = FromWorld(world);
+        if (!Finite(v)) return;
+        if (smooth) _panGoal = v;
+        else { _pan = v; _panGoal = null; }
     }
 
     /// <summary>Glide the zoom to a camera distance (on top of the game's wheel zoom, which still works).</summary>
@@ -94,7 +117,7 @@ public static class MapCamera
         if (_panGoal.HasValue)
         {
             _pan += (_panGoal.Value - _pan) * ease;
-            if ((_panGoal.Value - _pan).Length() < 1e-5) { _pan = _panGoal.Value; _panGoal = null; }
+            if ((_panGoal.Value - _pan).Length() < Math.Max(1e-12, d * 1e-4)) { _pan = _panGoal.Value; _panGoal = null; }
         }
         _map = map;
         if (DevZoom > 0) d = DevZoom;   // DEV: a set zoom instead of the game's wheel
@@ -140,9 +163,10 @@ public static class MapCamera
                 {
                     // Move the focus against the drag, so the map follows the cursor (about one
                     // distance per screen height at the camera's field of view).
+                    // (In map units, on the map's own axes: the pan is the view's centre on the map.)
                     double k = d * 1.0 / px;
-                    Vector3D right = Math.Cos(_yaw) * east - Math.Sin(_yaw) * north;
-                    Vector3D fwd = Math.Sin(_yaw) * east + Math.Cos(_yaw) * north;
+                    Vector3D right = Math.Cos(_yaw) * Vector3D.Right - Math.Sin(_yaw) * Vector3D.Forward;
+                    Vector3D fwd = Math.Sin(_yaw) * Vector3D.Right + Math.Cos(_yaw) * Vector3D.Forward;
                     double tilt = Math.Max(0.35, Math.Sin(_pitch));   // screen-up covers more ground when tilted
                     _pan += (-dm.X * right + dm.Y / tilt * fwd) * k;
                     _panGoal = null;
@@ -156,16 +180,16 @@ public static class MapCamera
         _lWas = l; _rWas = r; _mWas = m;
 
         // Keep the focus on the map.
-        double lim = Math.Max(0.5, map.MaxDistance);
+        double lim = Math.Max(6.0, map.MaxDistance);   // (map units about the map's body: the whole system fits)
         if (_pan.Length() > lim) _pan = _pan * (lim / _pan.Length());
 
         // The camera: about the focus, at the game's distance, from our angle.
         _focusGame = focusGame;
-        Vector3D focus = focusGame + _pan;
+        Vector3D focus = mapPos;   // the camera looks at the map's centre; the map moves under it (virtual zoom)
         Focus = focus;
         Vector3D dir = Vector3D.Normalize(Math.Cos(_pitch) * (Math.Sin(_yaw) * east + Math.Cos(_yaw) * north) - Math.Sin(_pitch) * up);
         Vector3D camUp = Vector3D.Normalize(Vector3D.Cross(Vector3D.Cross(dir, up), dir));
-        var wt = new WorldTransform(focus - dir * d, Quaternion.CreateFromForwardUp((Vector3)dir, (Vector3)camUp));
+        var wt = new WorldTransform(focus - dir * RenderDistance, Quaternion.CreateFromForwardUp((Vector3)dir, (Vector3)camUp));
         // Never a NaN transform to the engine (it does not check; a NaN camera crashes the renderer).
         if (!Finite(wt.Position) || !wt.Orientation.IsValidAndRotationIsNormalized() || !Finite(_pan))
         {
@@ -193,10 +217,10 @@ public static class MapCamera
     public static string Dev(string[] a)
     {
         if (a.Length > 1 && a[1] == "reset") { _init = false; DevZoom = 0; return "map camera reset"; }
-        if (a.Length > 2 && a[1] == "at") { var b = SystemHost.Registry?.Find(a[2]); if (b == null) return "no body"; PanTo(_mapPos + _mapQ * CleanMap.SolarLocal(b, SystemHost.Now)); return "centre on " + a[2]; }
+        if (a.Length > 2 && a[1] == "at") { var b = SystemHost.Registry?.Find(a[2]); if (b == null) return "no body"; _pan = CleanMap.SolarLocal(b, SystemHost.Now); _panGoal = null; return "centre on " + a[2]; }
         if (a.Length > 3 && a[1] == "pan") { _pan = new Vector3D(double.Parse(a[2]), 0, double.Parse(a[3])); return "pan " + _pan; }
         if (a.Length > 2 && a[1] == "zoom") { DevZoom = double.Parse(a[2]); return "map zoom " + DevZoom; }
         if (a.Length > 2) { _yaw = double.Parse(a[1]) * Math.PI / 180; _pitch = Math.Clamp(double.Parse(a[2]) * Math.PI / 180, MinPitch, MaxPitch); _init = true; }
-        return "map camera: " + Status + " | view " + CleanMap.Status + " focus " + CleanMap.ViewFocus + " | click " + CleanMap.ClickDebug;
+        return "map camera: " + Status + " | view " + CleanMap.Status + " | " + CleanMap.Frame + " | vec " + MapPipeline.VectorStatus + " focus " + CleanMap.ViewFocus + " | click " + CleanMap.ClickDebug;
     }
 }

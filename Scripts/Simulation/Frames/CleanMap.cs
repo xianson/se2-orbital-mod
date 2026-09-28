@@ -289,26 +289,76 @@ public static class CleanMap
     private static double _lastMesh;
     private static string _lastKey;
     public static string Status = "-";
+    /// <summary>DEV: this frame's view (the body it is about, the zoom).</summary>
+    public static string Frame = "-";
 
     public static void Draw(Keen.VRage.Core.Game.Systems.Session session, object sectorsRenderer, object mapConfig,
                             List<Band> bands, SystemRegistry reg, Vector3D mapPos, Quaternion orient,
                             double u, double t, string playerPlanet, Vector3D playerRel, KeplerianElements? playerOrbit,
                             HashSet<string> globes)
     {
-        Vector3D W(Vector3D local) => mapPos + (QuaternionD)orient * local;
         _session = session;
-        // Hysteresis: a zoom resting near the switch must not flicker between the views.
-        bool solar = _wasSolar == true ? u >= SolarZoom * 0.9 : u >= SolarZoom * 1.1;
-        string focus = Focus != "auto" ? Focus : ViewFocus;
-        if (focus == null) foreach (var bd in bands) if (bd.Selected && bd.Home.Kind != SectorHomes.Kind.OwnPlanet) focus = bd.Host;
-        focus ??= playerPlanet;
-        var planet = focus != null ? reg.Find(focus) : null;
-        ZoomTransition(solar, planet, reg, t, W, mapPos);
+        bool cam = MapCamera.Distance > 0;
+        Vector3D W(Vector3D v) => cam ? MapCamera.ToWorld(v) : mapPos + (QuaternionD)orient * v;
+        _wscale = cam ? MapCamera.Scale : 1.0;
+        var root = reg.Root;
+
+        // ONE map (KSP): every body at its true place, about the body the map is about (the one you
+        // focused, else yours). Its origin follows that body; switching bodies keeps the view still.
+        GravityBody anchor = null;
+        if (ViewFocus != null) anchor = ViewFocus == StarName || ViewFocus == root?.Name ? root : reg.Find(ViewFocus);
+        if (anchor == null && playerPlanet != null) anchor = reg.Find(playerPlanet);
+        anchor ??= root;
+        if (anchor == null) return;
+        if (_anchor != null && _anchor != anchor && cam)
+            MapCamera.Shift(-Flat(anchor.OriginInRoot(t).Position - _anchor.OriginInRoot(t).Position));
+        _anchor = anchor;
+        Vector3D aPos = anchor.OriginInRoot(t).Position;
+        Vector3D Map(Vector3D rootPos) => Flat(rootPos - aPos);
+        // The closest zoom: the body stays smaller than the camera's distance.
+        double aR = anchor.IsRoot ? SystemHost.StarRadius : (reg.FindDefinition(anchor.Name)?.RadiusMeters ?? 6e4);
+        UnifiedMap.MinZoom = Math.Max(1e-7, 2.5 * aR * Sigma);
+
+        // Screen pixels per map unit at the view's centre (the level of detail goes by it).
+        _pxPerV = 0;
+        if (cam && MapPipeline.ToScreen(W(MapCamera.FocusV), out var f0))
+        {
+            double step = MapCamera.Distance * 0.1;
+            foreach (var ax in new[] { new Vector3D(step, 0, 0), new Vector3D(0, 0, step) })
+                if (MapPipeline.ToScreen(W(MapCamera.FocusV + ax), out var f1)) _pxPerV = Math.Max(_pxPerV, (f1 - f0).Length() / step);
+        }
+        { var sw = _detailPrev; _detailPrev = _detail; _detail = sw; _detail.Clear(); }
+
+        // A body focused (double-click, breadcrumb, menu): glide there and frame it, once re-anchored.
+        if (_zoomTo != null && _zoomTo == anchor && cam && _pxPerV > 0)
+        {
+            MapCamera.PanTo(W(Vector3D.Zero), smooth: true);
+            double fitV = anchor.IsRoot ? SolarRadius : FrameOf(anchor, bands, reg) * Sigma;
+            MapCamera.ZoomTo(MapCamera.Distance * fitV * _pxPerV / (MapPipeline.ScreenSize.Y * 0.36));
+            _zoomTo = null;
+        }
+        // Opening the map: centred on your body (the camera starts there), framed on your orbit (as KSP).
+        if (_fitPending && cam && _pxPerV > 0)
+        {
+            double far = anchor.IsRoot ? SolarRadius / Sigma : FrameOf(anchor, bands, reg);
+            if (!anchor.IsRoot && playerPlanet == anchor.Name && playerOrbit.HasValue && IsFinite(playerOrbit.Value.SemiMajorAxis))
+            {
+                var o = playerOrbit.Value;
+                far = o.IsElliptic ? o.SemiMajorAxis * (1 + o.Eccentricity) : anchor.SoiRadius;
+                far = Math.Max(far, 1.6 * aR);
+            }
+            if (IsFinite(far) && far > 0) MapCamera.ZoomTo(MapCamera.Distance * far * Sigma * _pxPerV / (MapPipeline.ScreenSize.Y * 0.28));
+            _fitPending = false;
+        }
+
+        Frame = $"anchor {anchor.Name} pxPerV {_pxPerV:G3} d {MapCamera.Distance:G3} min {UnifiedMap.MinZoom:G3} focusV {MapCamera.FocusV.Length():G3} scale {_wscale:G3}";
         _hits.Clear(); _crumbs.Clear();
-        if (!solar && ViewFocus != null) planet = reg.Find(ViewFocus) ?? planet;
-        focus = planet?.Name ?? focus;
-        _viewBody = !solar && planet != null && planet.Parent != null ? planet : null;
-        ViewKey = _viewBody?.Name ?? "system";
+        GravityBody focusPlanet = anchor.IsRoot ? null : anchor.Parent != null && !anchor.Parent.IsRoot ? anchor.Parent : anchor;
+        string focus = focusPlanet?.Name;
+        // The planet's own level (its sectors listed) while its system shows.
+        bool sys = focusPlanet == null || !_detailPrev.Contains(focusPlanet.Name);
+        _viewBody = anchor.IsRoot ? null : anchor;
+        ViewKey = sys ? "system" : anchor.Name;
 
         var parts = new List<MapPipeline.Part>();
         var ordered = Ordered(bands);
@@ -320,33 +370,58 @@ public static class CleanMap
             MapPipeline.Reserve(Vector2.Zero, new Vector2(scrR.X * 0.255f, scrR.Y));
             MapPipeline.Reserve(Vector2.Zero, new Vector2(scrR.X, scrR.Y * 0.1f));
             MapPipeline.Reserve(new Vector2(0, scrR.Y * 0.93f), scrR);
-            // The system layout: zoomed out, or about the star itself (orbiting it).
-            bool sys = solar || planet == null || planet.Parent == null;
             DrawList(ordered, b => sys
                 ? b.Home.Kind == SectorHomes.Kind.Belt || b.Home.Kind == SectorHomes.Kind.Ring || b.Selected
                 : b.Host == focus && b.Home.Kind != SectorHomes.Kind.Belt && b.Home.Kind != SectorHomes.Kind.Ring,
-                // A planet's view lists that planet's sectors only; the system view lists them all.
+                // A planet's level lists that planet's sectors only; the system level lists them all.
                 b => sys || (b.Host == focus && b.Home.Kind != SectorHomes.Kind.Belt && b.Home.Kind != SectorHomes.Kind.Ring));
             // The title's area is kept free of map labels now; the title itself is drawn after the map, over its lines.
             MapPipeline.Reserve(new Vector2(scrR.X * 0.26f, scrR.Y * 0.118f), new Vector2(scrR.X * 0.56f, scrR.Y * 0.118f + TitleHeight(scrR)));
             // The map itself (orbits, sectors, the plan) is clipped to the open area between the panels.
             MapPipeline.ClipRect = new BoundingBox2(new Vector2(scrR.X * 0.255f, scrR.Y * 0.1f), new Vector2(scrR.X * 0.775f, scrR.Y * 0.84f));
-            if (!solar && planet != null && planet.Parent != null) DrawSystem(parts, bands, reg, planet, t, playerPlanet, playerRel, playerOrbit, globes, W);
-            else DrawSolar(parts, bands, reg, t, playerPlanet, globes, W, playerOrbit);
+
+            // The sun and its planets, the belt and the outer ring (about the sun).
+            _off = Map(Vector3D.Zero);
+            Vector3D starV = _off;
+            DrawSolar(parts, bands, reg, t, playerPlanet, globes, v => W(v + starV), playerOrbit);
+            // Each planet's and moon's own system: its sectors and moons pop in once it is big enough
+            // on screen to read; yours is always drawn (your orbit and where you are).
+            foreach (var p in root.Children)
+            {
+                if (!SystemHost.BeaconOf.ContainsKey(p.Name)) continue;
+                Vector3D pv = Map(p.OriginInRoot(t).Position);
+                bool pd = Detail(p.Name, FrameOf(p, bands, reg) * Sigma, pv);
+                _off = pv;
+                DrawSystem(parts, bands, reg, p, t, playerPlanet, playerRel, playerOrbit, globes, v => W(v + pv), pd);
+                foreach (var m in p.Children)
+                {
+                    if (!SystemHost.BeaconOf.ContainsKey(m.Name)) continue;
+                    Vector3D mv = Map(m.OriginInRoot(t).Position);
+                    bool md = pd && Detail(m.Name, FrameOf(m, bands, reg) * Sigma, mv);
+                    if (!md && m.Name != playerPlanet) continue;
+                    _off = mv;
+                    DrawSystem(parts, bands, reg, m, t, playerPlanet, playerRel, playerOrbit, globes, v => W(v + mv), md);
+                }
+            }
+            _off = Vector3D.Zero;
+            Overlay(r => Map(r), double.PositiveInfinity, W, t, reg);
+            _toMap = (r, tt) => Flat(r - anchor.OriginInRoot(tt).Position);
+            _limit = double.PositiveInfinity;
+
             string selName = null;
             foreach (var bd in bands) if (bd.Selected) selName = bd.Name;
-            if (_toMap != null && ManeuverEditor) Maneuvers.MapDraw(_toMap, W, _limit, t, Mouse, selName, sys ? reg.Root?.Name : planet?.Name);   // editable in every view
+            if (_toMap != null && ManeuverEditor) Maneuvers.MapDraw(_toMap, W, _limit, t, Mouse, selName, anchor.Name);   // editable at every zoom
             MapPipeline.ClipRect = null;   // menus, the warp bar, hints: unclipped
-            Title(sys ? null : planet, playerPlanet, playerOrbit);
+            Title(anchor.IsRoot ? null : anchor, playerPlanet, playerOrbit);
             if (ManeuverEditor) ContextMenu(bands, t);
-            _lastW = W; _lastSolar = solar;
-            FocusInput(reg, t, W, solar);
+            _lastW = W; _lastSolar = false;
+            FocusInput(reg, t, W, false);
             BodyTooltip(reg, playerPlanet, playerOrbit);
             ListInput(W);
             Hints();
             WarpBar.DrawMap(Mouse);
         }
-        finally { MapPipeline.ClipRect = null; if (ui) MapPipeline.UiEnd(); _fitPending = false; }   // first frame only
+        finally { MapPipeline.ClipRect = null; if (ui) MapPipeline.UiEnd(); }
 
         // Every sector keeps a (possibly zero-size) part: the game colours parts by sector name and
         // must always find them.
@@ -369,16 +444,11 @@ public static class CleanMap
 
         // The mesh changes only when the view changes, or every MeshRebuildSeconds (motion).
         double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
-        string key = solar ? "solar" : "sys:" + focus;
+        string key = "unified";
         bool moved = double.IsNaN(_lastMeshSimT) || Math.Abs(t - _lastMeshSimT) > MeshRebuildSimSeconds;
         if (key != _lastKey || (moved && now - _lastMesh > MeshRebuildSeconds))
         {
             bool ok = MapPipeline.ShowParts(sectorsRenderer, parts);
-            if (ok)
-            {
-                MapPipeline.ColourSection(sectorsRenderer, SunPart, new ColorSRGB(1f, 0.78f, 0.35f, 0.95f), new ColorSRGB(1f, 0.93f, 0.6f, 1f));
-                MapPipeline.ColourSection(sectorsRenderer, BeltPart, new ColorSRGB(0.10f, 0.09f, 0.08f, 0.12f), new ColorSRGB(0.40f, 0.36f, 0.30f, 0.30f));
-            }
             _lastKey = key; _lastMesh = now; _lastMeshSimT = t;
             Status = ok ? $"{key} parts={parts.Count}" : $"{key} mesh failed: {MapPipeline.LastError}";
         }
@@ -386,46 +456,153 @@ public static class CleanMap
 
     public static void Reset() { _lastKey = null; }
 
+    /// <summary>Map units per metre: one scale for everything (the system to the outer ring is SolarRadius).</summary>
+    static double Sigma => SolarRadius / (SectorHomes.RingAU * 1.05 * SystemHost.AU);
+    /// <summary>An ecliptic vector (x, y) in map units (x, 0, z).</summary>
+    static Vector3D Flat(Vector3D v) => new Vector3D(v.X * Sigma, 0, v.Y * Sigma);
+    /// <summary>The body the map is about (its origin), and a body to frame once the map is about it.</summary>
+    private static GravityBody _anchor, _zoomTo;
+    /// <summary>World units per map unit this frame (globe sizes), and screen px per map unit at the view's centre.</summary>
+    private static double _wscale = 1, _pxPerV;
+    /// <summary>The map-unit offset of what is being drawn (its local origin), for the curves' view test.</summary>
+    private static Vector3D _off;
+    private static HashSet<string> _detail = new HashSet<string>(), _detailPrev = new HashSet<string>();
+
+    /// <summary>A body's own system shows (its sectors, moons and labels) once it is this big on screen.</summary>
+    static bool Detail(string name, double fitV, Vector3D centreV)
+    {
+        if (!(_pxPerV > 0)) return true;
+        double px = fitV * _pxPerV;
+        bool show = px > (_detailPrev.Contains(name) ? 55 : 80);   // hysteresis: no flicker at the edge
+        // Well off the view: nothing of it to draw.
+        if (show && MapCamera.Distance > 0 && (centreV - MapCamera.FocusV).Length() > 6 * MapCamera.Distance + fitV) show = false;
+        if (show) _detail.Add(name);
+        return show;
+    }
+
+    /// <summary>A body's system radius (metres): its sectors' farthest apoapsis, at least a few radii.</summary>
+    static double FrameOf(GravityBody b, List<Band> bands, SystemRegistry reg)
+    {
+        if (b.IsRoot) return SolarRadius / Sigma;
+        double frame = SectorHomes.HillRadius(b) * 0.2;
+        if (!IsFinite(frame)) frame = 0;
+        foreach (var bd in bands)
+            if (bd.Host == b.Name && bd.Home.Kind == SectorHomes.Kind.Ellipse) frame = Math.Max(frame, bd.Home.A * (1 + bd.Home.E));
+        frame = Math.Max(frame, 8 * (reg.FindDefinition(b.Name)?.RadiusMeters ?? 0));
+        return frame * 1.15;
+    }
+
+    /// <summary>
+    /// A smooth curve at any zoom: sampled coarsely, then split where it is long on screen, and only
+    /// near the view (zoomed onto a planet, the sun's circles are a straight line through it; a
+    /// fixed number of chords missed the planet by a good part of the screen).
+    /// </summary>
+    static void Curve(Func<double, Vector3D> at, Func<Vector3D, Vector3D> W, double a0, double a1, int n, ColorSRGB col, float px)
+    {
+        float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        bool cam = MapCamera.Distance > 0;
+        Vector3D f = cam ? MapCamera.FocusV - _off : Vector3D.Zero;
+        double reach = cam ? 5 * MapCamera.Distance : double.PositiveInfinity;
+        int budget = 3000;   // points per curve: never a runaway (a split that cannot resolve froze the game)
+        void Seg(double ta, Vector3D pa, double tb, Vector3D pb, int depth)
+        {
+            if (--budget < 0) return;
+            Vector3D ab = pb - pa; double len = ab.Length();
+            double k = len > 0 ? Math.Clamp(Vector3D.Dot(f - pa, ab) / (len * len), 0, 1) : 0;
+            if ((pa + ab * k - f).Length() > reach + 0.3 * len) return;   // the arc keeps near its chord
+            bool oa = MapPipeline.ToScreen(W(pa), out var sa), ob = MapPipeline.ToScreen(W(pb), out var sb);
+            if (oa && ob && ((sb - sa).Length() < 12f * u || depth >= 22)) { Emit(sa, sb); return; }
+            // Not on screen at either end (behind the camera, or far off it): a few splits to find where
+            // it comes into view, no more; one end on screen: deeper.
+            int max = oa && ob ? 22 : oa || ob ? 14 : 7;
+            if (depth >= max) return;
+            double tm = 0.5 * (ta + tb); Vector3D pm = at(tm);
+            Seg(ta, pa, tm, pm, depth + 1); Seg(tm, pm, tb, pb, depth + 1);
+        }
+        // Consecutive pieces join into runs; each run is one smooth path.
+        var run = new List<Vector2>();
+        void Flush() { if (run.Count > 1) MapPipeline.ScreenPath(run, false, col, px * u); run = new List<Vector2>(); }
+        void Emit(Vector2 sa, Vector2 sb)
+        {
+            if (run.Count > 0 && (run[run.Count - 1] - sa).LengthSquared() > 0.25f) Flush();
+            if (run.Count == 0) run.Add(sa);
+            run.Add(sb);
+        }
+        Vector3D prev = at(a0);
+        for (int i = 1; i <= n; i++)
+        {
+            double ti = a0 + (a1 - a0) * i / n; Vector3D pi = at(ti);
+            Seg(a0 + (a1 - a0) * (i - 1) / n, prev, ti, pi, 0);
+            prev = pi;
+        }
+        Flush();
+    }
+
+    /// <summary>A sector's orbit line: faint (bright, a planet's many orbits were a tangle); gold when selected.</summary>
+    static ColorSRGB OrbitLine(Band b)
+    {
+        if (b.Selected) return LineSel;
+        var c = StateColor(b);
+        if (b.Name == Hovered) return HudPanel.Alpha(c, 0.8f);
+        return HudPanel.Alpha(c, Quiet(b) ? 0.10f : 0.22f);
+    }
+
+    /// <summary>
+    /// The sector itself: an area of its orbit (a band section about where it is now), filled in its
+    /// state colour and outlined; its orbit carries it round.
+    /// </summary>
+    static void SectorArea(Func<Vector3D, Vector3D> W, Func<double, Vector3D> relAt, Func<Vector3D, Vector3D> toLocal, Band b)
+    {
+        float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        double k = Math.Clamp(b.Home.Size * 0.5 * SystemHost.SectorOrbitScale / Math.Max(1, b.Home.A), 0.03, 0.065);
+        const double span = 0.035;   // of its period, each side of where it is
+        const int n = 24;
+        var outer = new List<Vector2>(n + 1); var inner = new List<Vector2>(n + 1);
+        for (int i = 0; i <= n; i++)
+        {
+            Vector3D r = relAt(-span + 2 * span * i / n);
+            if (!MapPipeline.ToScreen(W(toLocal(r * (1 + k))), out var so) || !MapPipeline.ToScreen(W(toLocal(r * (1 - k))), out var si)) return;
+            outer.Add(so); inner.Add(si);
+        }
+        var poly = new List<Vector2>(outer);
+        for (int i = inner.Count - 1; i >= 0; i--) poly.Add(inner[i]);
+        var c = b.Selected ? LineSel : StateColor(b);
+        float fa = b.Selected ? 0.30f : b.Name == Hovered ? 0.34f : Quiet(b) ? 0.08f : 0.18f;
+        MapPipeline.ScreenFill(poly, HudPanel.Alpha(c, fa));
+        MapPipeline.ScreenPath(poly, true, HudPanel.Alpha(c, b.Selected ? 0.95f : Quiet(b) ? 0.3f : 0.6f), (b.Selected ? 1.8f : 1.2f) * u);
+    }
+
     // ───────────────────────────── system view ─────────────────────────────
 
     private static void DrawSystem(List<MapPipeline.Part> parts, List<Band> bands, SystemRegistry reg, GravityBody planet, double t,
                                    string playerPlanet, Vector3D playerRel, KeplerianElements? playerOrbit, HashSet<string> globes,
-                                   Func<Vector3D, Vector3D> W)
+                                   Func<Vector3D, Vector3D> W, bool detail)
     {
-        double fit = SystemRadius;
+        // True scale (the one map's): the system's size on the map is its real size.
+        double scaleSys = Sigma;
+        double fit = FrameOf(planet, bands, reg) * Sigma;
         var mine = bands.FindAll(b => b.Host == planet.Name);
-        var ell = mine.FindAll(b => b.Home.Kind == SectorHomes.Kind.Ellipse);
-        ell.Sort((x, y) => x.Home.A.CompareTo(y.Home.A));
         double rH = SectorHomes.HillRadius(planet);
-        // Strictly proportional: one linear scale, framed on the planet's sectors (farthest
-        // apoapsis); anything beyond the frame (the L1/L2 sectors) is pinned to the edge.
-        double frame = rH * 0.2;
-        foreach (var b in ell) frame = Math.Max(frame, b.Home.A * (1 + b.Home.E));
-        // A moon's reach is small next to its own size: frame at least a few radii, or it fills the view.
-        frame = Math.Max(frame, 8 * (reg.FindDefinition(planet.Name)?.RadiusMeters ?? 0));
-        double scaleSys = fit / (frame * 1.15);
         double R(double r) => Math.Max(0, r) * scaleSys;
         Vector3D L(double ang, double r) => new Vector3D(Math.Cos(ang) * r, 0, Math.Sin(ang) * r);
         Vector3D Lv(Vector3D rel) => L(Math.Atan2(rel.Y, rel.X), R(Math.Sqrt(rel.X * rel.X + rel.Y * rel.Y)));
 
-        // Planet and moons.
-        var pdef = reg.FindDefinition(planet.Name);
-        double planetR = (pdef?.RadiusMeters ?? 6e4) * scaleSys;      // true size
-        MapGlobes.Use(planet.Name, W(Vector3D.Zero), planetR, globes);
-        Hit(planet, W(Vector3D.Zero), W(new Vector3D(planetR, 0, 0)), 9f);
-        BodyLabel(W, Vector3D.Zero, planetR, 9f, SystemHost.DisplayName(planet.Name), Text, 0.9f);
+        // (The body itself is drawn by the level above: the sun's planets, a planet's moons.)
+        // Its moons, and its sectors: only when its system is big enough on screen.
+        if (detail)
         foreach (var moon in planet.Children)
         {
             if (!SystemHost.BeaconOf.ContainsKey(moon.Name)) continue;
             Vector3D mp = moon.StateInParentAt(t).Position;
             Vector3D ml = Lv(mp);
             if (!MapPipeline.ToScreen(W(ml), out var mls) || !InOpenArea(mls)) continue;   // off view: not over the game's panels
-            MapGlobes.Use(moon.Name, W(ml), (reg.FindDefinition(moon.Name)?.RadiusMeters ?? 2e4) * scaleSys, globes);
-            BodyRing(W, ml, (reg.FindDefinition(moon.Name)?.RadiusMeters ?? 2e4) * scaleSys, 5f, Dim, 1.2f);
+            MapGlobes.Use(moon.Name, W(ml), (reg.FindDefinition(moon.Name)?.RadiusMeters ?? 2e4) * scaleSys * _wscale, globes);
+            BodyDot(W, ml, (reg.FindDefinition(moon.Name)?.RadiusMeters ?? 2e4) * scaleSys, moon.Name == playerPlanet ? You : Dim);
             Hit(moon, W(ml), W(ml + new Vector3D((reg.FindDefinition(moon.Name)?.RadiusMeters ?? 2e4) * scaleSys, 0, 0)), 5f);
             BodyLabel(W, ml, (reg.FindDefinition(moon.Name)?.RadiusMeters ?? 2e4) * scaleSys, 5f, moon.Name, Dim, 0.6f);
         }
 
+        if (detail)
         foreach (var bd in mine)
         {
             var h = bd.Home;
@@ -442,14 +619,9 @@ public static class CleanMap
                     double rr = R(Math.Sqrt(rel.X * rel.X + rel.Y * rel.Y));   // true current distance
                     // Its true ellipse, every sector: the orbit is the sector.
                     double T = SectorHomes.Period(h, planet);
-                    Vector3D pv = default;
-                    for (int q = 0; q <= 160; q++)
-                    {
-                        SectorHomes.Rel(h, planet, t + T * q / 160, out var rq);
-                        Vector3D pp = W(Lv(rq));
-                        if (q > 0) MapPipeline.Line(pv, pp, OrbitColor(bd), bd.Selected ? 2.4f : 1.8f);
-                        pv = pp;
-                    }
+                    Vector3D RelAt(double q) { SectorHomes.Rel(h, planet, t + T * q, out var rq); return rq; }
+                    Curve(q => Lv(RelAt(q)), W, 0, 1, 64, OrbitLine(bd), bd.Selected ? 2f : 1.2f);
+                    SectorArea(W, RelAt, Lv, bd);
                     Marker(W(L(ang, rr)), bd);
                     MapPipeline.Text(W(L(ang, rr + fit * 0.055)), $"{bd.Number}  {bd.Name}", Quiet(bd) ? QuietText : bd.Selected ? LineSel : Text, Quiet(bd) ? 0.72f * 0.85f : 0.72f);
                     break;
@@ -468,7 +640,7 @@ public static class CleanMap
                     Vector3D dn = now - centreRel;
                     Vector3D nl = centreL + new Vector3D(dn.X, 0, dn.Y) * loopScale;
                     double nlLen = Math.Sqrt(nl.X * nl.X + nl.Z * nl.Z);
-                    if (nlLen > fit * 1.02)
+                    if (false)
                     {
                         // Beyond the frame: pinned to the edge in its true direction, with its true distance.
                         Vector3D edgeP = nl * (fit * 1.02 / nlLen);
@@ -494,28 +666,11 @@ public static class CleanMap
             MapPipeline.PickName = null;   // only the sector's own lines and marker pick it
         }
 
-        Vector3D porg = planet.OriginInRoot(t).Position;
-        Overlay(r => Lv(r - porg), fit * 1.02, W, t, reg);
-        _toMap = (r, tt) => Lv(r - planet.OriginInRoot(tt).Position);
-        _limit = fit * 1.02;
 
         MapPipeline.PickName = null;
         // You.
         if (playerPlanet == planet.Name)
         {
-            // Opening the map: framed on your orbit when it is small on screen (as KSP), so a low orbit
-            // and its tags are not crammed into a few pixels round the planet.
-            if (_fitPending && playerOrbit.HasValue && IsFinite(playerOrbit.Value.SemiMajorAxis) && MapCamera.Distance > 0)
-            {
-                _fitPending = false;
-                var o = playerOrbit.Value;
-                double far = o.IsElliptic ? o.SemiMajorAxis * (1 + o.Eccentricity) : planet.SoiRadius;
-                if (MapPipeline.ToScreen(W(Vector3D.Zero), out var c0) && MapPipeline.ToScreen(W(L(0, R(far))), out var c1))
-                {
-                    float px = (c1 - c0).Length(), want = MapPipeline.ScreenSize.Y * 0.28f;
-                    if (px > 1 && px < want * 0.6f) MapCamera.ZoomTo(MapCamera.Distance * px / want);
-                }
-            }
             if (!Planning && playerOrbit.HasValue && IsFinite(playerOrbit.Value.SemiMajorAxis))   // planning: the planner draws it
             {
                 var path = OrbitSampler.SamplePath(playerOrbit.Value, 128, planet.SoiRadius);
@@ -525,7 +680,8 @@ public static class CleanMap
                         MapPipeline.Line(W(Lv(pts[i])), W(Lv(pts[(i + 1) % pts.Length])), You, 2f);
             }
             Vector3D yl = Lv(playerRel);
-            MapPipeline.Text(W(yl), "+", You, 1.2f);
+            float yu = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+            if (!(MapPipeline.ToScreen(W(yl), out var yic) && MapPipeline.ScreenIcon("PlayerIcon", yic, 10f * yu, You))) MapPipeline.Text(W(yl), "+", You, 1.2f);
             // Beside the mark on screen (a map-space offset lands far away when zoomed in).
             if (MapPipeline.ToScreen(W(yl), out var ys) && InOpenArea(ys))
             {
@@ -533,7 +689,8 @@ public static class CleanMap
                 HudPanel.TagAt(ys + new Vector2(12f * uu, 0), "you", You, uu, diamond: false);
             }
             // Pe / Ap on your orbit (as KSP), plan or not; after 'you', which has the first claim.
-            if (!Planning && playerOrbit.HasValue && IsFinite(playerOrbit.Value.SemiMajorAxis))
+            if (!Planning && playerOrbit.HasValue && IsFinite(playerOrbit.Value.SemiMajorAxis)
+                && (!(_pxPerV > 0) || playerOrbit.Value.PeriapsisRadius * Sigma * _pxPerV > 30))
             {
                 var po = playerOrbit.Value; double pr = reg.FindDefinition(planet.Name)?.RadiusMeters ?? 0;
                 float u2 = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
@@ -558,7 +715,14 @@ public static class CleanMap
         Vector3D S(Vector3D helio) { double r = Math.Sqrt(helio.X * helio.X + helio.Y * helio.Y); double f = r > 0 ? Rs(r) / r : 0; return new Vector3D(helio.X * f, 0, helio.Y * f); }
 
         // The sun: a warm disc (its own section, coloured below), and its name.
-        parts.Add(Annulus(SunPart, 0, Math.PI, 0, Math.Max(SystemHost.StarRadius * SolarRadius / outer, SolarRadius * 0.004)));   // true size
+        if (MapPipeline.ToScreen(W(Vector3D.Zero), out var sunS) && InOpenArea(sunS))
+        {
+            float su = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+            float srpx = MapPipeline.ToScreen(W(new Vector3D(SystemHost.StarRadius * SolarRadius / outer, 0, 0)), out var sunE) ? (sunE - sunS).Length() : 0f;
+            float sr = Math.Clamp(srpx, 5f * su, 80f * su);
+            MapPipeline.ScreenDisc(sunS, sr * 1.6f, new ColorSRGB(1f, 0.75f, 0.35f, 0.18f));   // a glow
+            MapPipeline.ScreenDisc(sunS, sr, new ColorSRGB(1f, 0.86f, 0.5f, 1f));
+        }
         BodyRing(W, Vector3D.Zero, SystemHost.StarRadius * SolarRadius / outer, 10f, new ColorSRGB(1f, 0.85f, 0.4f, 0.9f), 1.5f);
         Hit(root, W(Vector3D.Zero), W(new Vector3D(SystemHost.StarRadius * SolarRadius / outer, 0, 0)), 10f);
         BodyLabel(W, Vector3D.Zero, SystemHost.StarRadius * SolarRadius / outer, 10f, StarName, Text, 0.85f);
@@ -574,7 +738,9 @@ public static class CleanMap
             MapPipeline.PickName = bd.Name;
             Vector3D hp = SectorHomes.HelioBelt(bd.Home, root.Mu, t);
             double ang = Math.Atan2(hp.Y, hp.X), r = Rs(hp.Length());
-            Circle(W, r, OrbitColor(bd), bd.Selected ? 2.4f : 1.8f);
+            Circle(W, r, OrbitLine(bd), bd.Selected ? 2f : 1.2f);
+            { var h0 = bd.Home; double Tb = 2 * Math.PI * Math.Sqrt(Math.Pow(hp.Length(), 3) / root.Mu);
+              SectorArea(W, q => SectorHomes.HelioBelt(h0, root.Mu, t + Tb * q), S, bd); }
             Marker(W(new Vector3D(Math.Cos(ang) * r, 0, Math.Sin(ang) * r)), bd);
             MapPipeline.Text(W(new Vector3D(Math.Cos(ang) * (r + SolarRadius * 0.06), 0, Math.Sin(ang) * (r + SolarRadius * 0.06))), $"{bd.Number}  {bd.Name}", Quiet(bd) ? QuietText : bd.Selected ? LineSel : Text, Quiet(bd) ? 0.72f * 0.85f : 0.72f);
             MapPipeline.PickName = null;
@@ -587,7 +753,9 @@ public static class CleanMap
             MapPipeline.PickName = bd.Name;
             Vector3D hp = SectorHomes.HelioRing(bd.Home, root.Mu, t);
             double ang = Math.Atan2(hp.Y, hp.X), r = Rs(hp.Length());
-            Circle(W, r, OrbitColor(bd), bd.Selected ? 2.4f : 1.8f);
+            Circle(W, r, OrbitLine(bd), bd.Selected ? 2f : 1.2f);
+            { var h0 = bd.Home; double Tb = 2 * Math.PI * Math.Sqrt(Math.Pow(hp.Length(), 3) / root.Mu);
+              SectorArea(W, q => SectorHomes.HelioRing(h0, root.Mu, t + Tb * q), S, bd); }
             Marker(W(new Vector3D(Math.Cos(ang) * r, 0, Math.Sin(ang) * r)), bd);
             MapPipeline.Text(W(new Vector3D(Math.Cos(ang) * (r + SolarRadius * 0.06), 0, Math.Sin(ang) * (r + SolarRadius * 0.06))), $"{bd.Number}  {bd.Name}", Quiet(bd) ? QuietText : bd.Selected ? LineSel : Text, Quiet(bd) ? 0.8f * 0.85f : 0.8f);
             MapPipeline.PickName = null;
@@ -598,10 +766,7 @@ public static class CleanMap
         {
             if (!SystemHost.BeaconOf.ContainsKey(p.Name)) continue;
             var el = OrbitalMath.ToElements(p.StateInParentAt(t), root.Mu, t);
-            var path = OrbitSampler.SamplePath(el, 160);
-            if (path.Points != null)
-                for (int i = 0; i < path.Points.Length; i++)
-                    MapPipeline.Line(W(S(path.Points[i])), W(S(path.Points[(i + 1) % path.Points.Length])), Line, 1.2f);
+            if (el.IsElliptic) Curve(nu => S(OrbitSampler.PositionAtTrueAnomaly(el, nu)), W, 0, 2 * Math.PI, 96, Line, 1.2f);
             Vector3D hp = p.StateInParentAt(t).Position;
             Vector3D c = S(hp);
             var own = bands.Find(b => b.Host == p.Name && b.Home.Kind == SectorHomes.Kind.OwnPlanet);
@@ -609,8 +774,8 @@ public static class CleanMap
             {
                 // The planet's own sector at true size is far below a pixel here: the ring marker stands for it.
             }
-            MapGlobes.Use(p.Name, W(c), (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, globes);   // true size
-            if (p.Name != playerPlanet) BodyRing(W, c, (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, 8f, Text, 1.5f);
+            MapGlobes.Use(p.Name, W(c), (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer * _wscale, globes);   // true size
+            BodyDot(W, c, (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, p.Name == playerPlanet ? You : Text);
             Hit(p, W(c), W(c + new Vector3D((reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, 0, 0)), 8f);
             int n = 0; foreach (var bd in bands) if (bd.Host == p.Name && bd.Home.Kind != SectorHomes.Kind.OwnPlanet) n++;
             BodyLabel(W, c, (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, 8f, p.Name, p.Name == playerPlanet ? You : Text, 0.9f);
@@ -627,14 +792,11 @@ public static class CleanMap
             if (MapPipeline.ToScreen(W(S(now.Position)), out var ys) && InOpenArea(ys))
             {
                 float uu = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
-                MapPipeline.ScreenText(ys - new Vector2(6f * uu, 12f * uu), "+", You, 1.2f);
+                if (!MapPipeline.ScreenIcon("PlayerIcon", ys, 10f * uu, You)) MapPipeline.ScreenText(ys - new Vector2(6f * uu, 12f * uu), "+", You, 1.2f);
                 HudPanel.TagAt(ys + new Vector2(12f * uu, 0), "you", You, uu, diamond: false);
             }
         }
         MapPipeline.PickName = null;
-        Overlay(r => S(r), SolarRadius * 1.02, W, t, reg);
-        _toMap = (r, tt) => S(r);
-        _limit = SolarRadius * 1.02;
     }
 
     // ───────────────────────────── encounters and GPS (both views) ─────────────────────────────
@@ -796,25 +958,9 @@ public static class CleanMap
     /// <summary>Fly the view to a body: the star (system view), a planet or a moon (its own view).</summary>
     public static void FocusOn(GravityBody b, SystemRegistry reg, double t, Func<Vector3D, Vector3D> W, bool solar)
     {
-        double baseMax = Math.Max(1e-3, UnifiedMap.BaseMax);
-        if (b.Parent == null)
-        {
-            if (solar) MapCamera.PanTo(W(Vector3D.Zero), smooth: true);
-            else { _glideToStar = true; MapCamera.ZoomTo(SolarZoom * 1.3 * baseMax); }
-            return;
-        }
-        if (solar)
-        {
-            var top = b; while (top.Parent != null && top.Parent.Parent != null) top = top.Parent;
-            _glide = b;
-            MapCamera.PanTo(W(SolarLocal(top, t)), smooth: true);
-            MapCamera.ZoomTo(SolarZoom * 0.5 * baseMax);
-            return;
-        }
-        bool same = ViewFocus == b.Name || (_viewBody != null && _viewBody == b);
-        ViewFocus = b.Name;
-        MapCamera.PanTo(W(Vector3D.Zero), smooth: same);
-        if (!same && UnifiedMap.DefaultDistance > 0) MapCamera.ZoomTo(UnifiedMap.DefaultDistance);   // another body: its view at the usual zoom
+        // The map becomes about that body (the view stays put), then glides to it and frames its system.
+        ViewFocus = b.IsRoot ? StarName : b.Name;
+        _zoomTo = b;
     }
 
     /// <summary>A breadcrumb part's size: the font's measure, but never under ~8 px a character per unit
@@ -946,16 +1092,10 @@ public static class CleanMap
 
     /// <summary>Where a body (a planet about the sun) sits in the system view, in map-local units.</summary>
     public static Vector3D SolarLocal(GravityBody b, double t)
-    {
-        double outer = SectorHomes.RingAU * 1.05 * SystemHost.AU;
-        Vector3D h = b.OriginInRoot(t).Position;
-        double r = Math.Sqrt(h.X * h.X + h.Y * h.Y);
-        double f = r > 0 ? SolarRadius * r / outer / r : 0;
-        return new Vector3D(h.X * f, 0, h.Y * f);
-    }
+        => Flat(b.OriginInRoot(t).Position - (_anchor != null ? _anchor.OriginInRoot(t).Position : Vector3D.Zero));
 
     /// <summary>The map closed: the next opening starts from where you are.</summary>
-    public static void ResetView() { ViewFocus = null; _wasSolar = null; _fitPending = true; }
+    public static void ResetView() { ViewFocus = null; _wasSolar = null; _fitPending = true; _anchor = null; _zoomTo = null; }
     private static bool _fitPending = true;
 
     /// <summary>The planet the view is about (null: the system view). Only its own things are drawn.</summary>
@@ -974,7 +1114,7 @@ public static class CleanMap
                 var site = EncounterFrames.SiteOf(f.Id);
                 if (site != null && site.Anchor) continue;
                 var parent = reg.Find(f.ParentBodyName);
-                if (parent == null || !InView(parent)) continue;
+                if (parent == null || !(parent.IsRoot || _detail.Contains(parent.Name))) continue;
                 Vector3D porg = parent.OriginInRoot(t).Position;
                 var el = f.Elements;
                 double T = el.IsElliptic && IsFinite(el.Period) ? el.Period : 6 * 3600.0;
@@ -1121,6 +1261,13 @@ public static class CleanMap
     {
         _markerAt[b.Name] = world;
         var c = b.Selected ? LineSel : StateColor(b);
+        // The colonization map's own sector icons (locked, or the default), tinted by state.
+        if (MapPipeline.ToScreen(world, out var ms))
+        {
+            float mu = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+            string icon = b.State == Keen.Game2.Simulation.GameSystems.Colonization.SectorColonizationState.Locked ? "LockedIcon" : "DefaultIcon";
+            if (MapPipeline.ScreenIcon(icon, ms, (Quiet(b) ? 7f : b.Selected ? 11f : 9f) * mu, Quiet(b) ? HudPanel.Alpha(c, 0.5f) : c)) return;
+        }
         if (Quiet(b)) { MapPipeline.ScreenRing(world, 5f, HudPanel.Alpha(c, 0.5f), 1.4f); MapPipeline.ScreenRing(world, 2f, HudPanel.Alpha(c, 0.5f), 2f); return; }
         MapPipeline.ScreenRing(world, 8f, c, 2f);
         MapPipeline.ScreenRing(world, 3.5f, c, 3.5f);
@@ -1130,6 +1277,15 @@ public static class CleanMap
     /// A body's marker ring: padded round the body's true size on the map, never smaller than the
     /// fixed marker (minPx) so a far-off body still reads.
     /// </summary>
+    /// <summary>A body too small to see as a globe: a small filled dot (KSP), in its colour.</summary>
+    private static void BodyDot(Func<Vector3D, Vector3D> W, Vector3D centre, double radiusLocal, ColorSRGB col)
+    {
+        if (!MapPipeline.ToScreen(W(centre), out var sc) || !InOpenArea(sc)) return;
+        float rpx = MapPipeline.ToScreen(W(centre + new Vector3D(radiusLocal, 0, 0)), out var se) ? (se - sc).Length() : 0f;
+        float uu = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        if (rpx < 4f * uu) MapPipeline.ScreenDisc(sc, 4f * uu, col);
+    }
+
     private static void BodyRing(Func<Vector3D, Vector3D> W, Vector3D centre, double radiusLocal, float minPx, ColorSRGB col, float width)
     {
         Vector3D wc = W(centre);
@@ -1143,17 +1299,7 @@ public static class CleanMap
     }
 
     private static void Circle(Func<Vector3D, Vector3D> W, double r, ColorSRGB col, float px)
-    {
-        const int n = 128;
-        Vector3D prev = W(new Vector3D(r, 0, 0));
-        for (int i = 1; i <= n; i++)
-        {
-            double a = 2 * Math.PI * i / n;
-            Vector3D p = W(new Vector3D(Math.Cos(a) * r, 0, Math.Sin(a) * r));
-            MapPipeline.Line(prev, p, col, px);
-            prev = p;
-        }
-    }
+        => Curve(a => new Vector3D(Math.Cos(a) * r, 0, Math.Sin(a) * r), W, 0, 2 * Math.PI, 96, col, px);
 
     private static bool IsFinite(double x) => !double.IsNaN(x) && !double.IsInfinity(x);
 }

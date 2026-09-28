@@ -40,6 +40,8 @@ public static class UnifiedMap
     public static double BaseMax => _baseMax;
     /// <summary>The game's original opening zoom (camera distance).</summary>
     public static double DefaultDistance;
+    /// <summary>The closest zoom (map units), set by the map for the body it is about.</summary>
+    public static double MinZoom = 1e-5;
     private static bool _gameHidden, _labelsHidden;
 
     // Colours: the colonization states, KSP conventions for orbits.
@@ -72,8 +74,9 @@ public static class UnifiedMap
         // And in much closer: a low orbit is a speck at the planet view's sector-wide frame (KSP zooms
         // right down to the ship).
         if (_baseMin < 0) _baseMin = map.MinDistance;
-        float minD = Math.Max(0.08f, _baseMin / (float)ZoomInFactor);   // closer, the globes clip at the camera's near plane
-        if (map.MinDistance > minD) map.MinDistance = minD;
+        // The zoom is virtual (MapCamera): no near plane to keep off; the closest zoom keeps the map's
+        // body smaller than the camera's distance (CleanMap sets it).
+        map.MinDistance = (float)Math.Max(1e-7, MinZoom);
         // Opening: the game starts at a percentage of its zoom range, which our wider range turned into
         // a far zoom (the system view, sometimes); open at its original default distance instead.
         if (!_gameHidden)
@@ -587,7 +590,7 @@ public static class UnifiedMap
                     if (!visible)
                     {
                         if (!_starMoved) { _starRel = ent.Data.GetRelativeTransform(); _starMoved = true; }
-                        ent.Data.Set(new RelativeTransform(_starRel.Position + new Vector3(0, -1e4f, 0), _starRel.Orientation));
+                        ent.Data.Set(new RelativeTransform(_starRel.Position + new Vector3(0, 1e5f, 0), _starRel.Orientation));   // straight up: the map camera always looks down
                     }
                     else if (_starMoved)
                     {
@@ -816,7 +819,15 @@ public static class MapGlobes
         if (h == null) return;
         // Not over the game's panels (a 3D globe cannot be clipped): only when its centre is in the open area.
         var scr = MapPipeline.ScreenSize;
-        if (MapPipeline.ToScreen(center, out var cs) && (cs.X < scr.X * 0.255f || cs.X > scr.X * 0.775f || cs.Y < scr.Y * 0.1f || cs.Y > scr.Y * 0.84f)) return;
+        // Hidden only once its whole disc is off the open area (by the centre alone, a globe at the edge
+        // popped out while half of it was still in view).
+        if (MapPipeline.ToScreen(center, out var cs))
+        {
+            float rpx = 0;
+            var q = (QuaternionD)MapPipeline.CameraOrientation;
+            if (MapPipeline.ToScreen(center + q * Vector3D.Right * radius, out var es)) rpx = (es - cs).Length();
+            if (cs.X + rpx < scr.X * 0.255f || cs.X - rpx > scr.X * 0.775f || cs.Y + rpx < scr.Y * 0.1f || cs.Y - rpx > scr.Y * 0.84f) { if (_globes.TryGetValue(body, out var off)) PlanetRenderBridge.SetProxyVisible(off, false); return; }
+        }
         if (!_globes.TryGetValue(body, out var g)) { g = PlanetRenderBridge.CreateProxy(h, center, mapOnly: true); if (g == null) return; _globes[body] = g; }
         PlanetRenderBridge.UpdateProxy(h, g, center, radius);
         PlanetRenderBridge.SetProxyVisible(g, true);

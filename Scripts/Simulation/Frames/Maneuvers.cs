@@ -75,8 +75,8 @@ public static class Maneuvers
         if (double.IsNaN(tn)) return WarpLead;
         bool auto = false;
         lock (Nodes) foreach (var n in Nodes) if (n.T == tn && n.Auto) auto = true;
-        // An auto-burn needs no time to line up, unless the ship still has to turn (it cannot while on
-        // rails in warp): then the full lead.
+        // An auto-burn turns to its burn during warp, so it needs no time to line up after; unless it
+        // is still well off (warp faster than the gyros can follow the burn round): then the full lead.
         return auto && DevFlight.OffBurnDeg <= 5 ? AutoWarpLead : WarpLead;
     }
     public const double DoneDv = 0.1;         // m/s

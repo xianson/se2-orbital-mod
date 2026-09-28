@@ -20,16 +20,20 @@ public static class AutoBurn
     {
         var node = NextArmed();
         double start = node != null ? Maneuvers.BurnStart(node) : double.NaN;
-        bool active = node != null && t >= start - AlignLead && Maneuvers.BurnLeft >= Maneuvers.DoneDv
-                      && SystemHost.Timescale <= 1.0 && !DevFlight.Busy;
+        // Turning is allowed in warp (the ship is simulated as usual inside its frame; only the orbit
+        // runs fast): in warp it keeps pointing at the burn, so it is lined up when warp drops out.
+        // Thrust only out of warp.
+        bool warping = SystemHost.Timescale > 1.0;
+        bool active = node != null && (t >= start - AlignLead || warping) && Maneuvers.BurnLeft >= Maneuvers.DoneDv
+                      && !DevFlight.Busy;
         bool fly = active;
         if (fly)
         {
-            bool burning = t >= start;
+            bool burning = t >= start && !warping;
             if (!Flying) Flying = true;   // (no toast: the orbit card and the map title say it)
             // Turn first (seated: the gyros bring the main thrust axis onto the burn), thrust from the start.
             DevFlight.Command(session, Maneuvers.BurnDirWorld, burning ? Math.Max(0.25, Math.Min(1.0, Maneuvers.BurnLeft / 5.0)) : 0.0);
-            Status = burning ? $"burning, {Maneuvers.BurnLeft:F1} m/s left" : $"turning, burn in {Maneuvers.Clock(start - t)}";
+            Status = burning ? $"burning, {Maneuvers.BurnLeft:F1} m/s left" : warping ? $"lined up in warp, burn in {Maneuvers.Clock(start - t)}" : $"turning, burn in {Maneuvers.Clock(start - t)}";
         }
         else if (Flying)
         {

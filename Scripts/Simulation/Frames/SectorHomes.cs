@@ -123,25 +123,76 @@ public static class SectorHomes
             {
                 var s = reg.Find(h.Host);
                 if (s == null || s.Parent == null) return Vector3D.Zero;
-                var st = s.StateInParentAt(t);
-                Vector3D po = s.Parent.OriginInRoot(t).Position, ps = st.Position;
-                Vector3D n = Vector3D.Cross(ps, st.Velocity);
-                n = n.LengthSquared() > 1e-12 ? Vector3D.Normalize(n) : Vector3D.UnitZ;
-                Vector3D rel;
-                switch (h.Point)
-                {
-                    case 1: rel = ps * (1 - HillRadius(s) / ps.Length()); centre = po + ps; break;
-                    case 2: rel = ps * (1 + HillRadius(s) / ps.Length()); centre = po + ps; break;
-                    case 3: rel = -ps; centre = po; break;
-                    default: rel = Rotate(ps, n, (h.Point == 4 ? 1 : -1) * Math.PI / 3); centre = po; break;
-                }
-                return po + rel;
+                Vector3D po = s.Parent.OriginInRoot(t).Position;
+                centre = h.Point <= 2 ? s.OriginInRoot(t).Position : po;
+                return po + LagrangeRel(s, h.Point, t);
             }
         }
         return Vector3D.Zero;
     }
 
     public static Vector3D Where(Home h, SystemRegistry reg, double t) => Where(h, reg, t, out _);
+
+    /// <summary>
+    /// A body's Lagrange point with its primary, from their gravity (mu): the balance point, in the frame
+    /// turning with the body at its present rate, of the primary's pull, the body's pull and the pull the
+    /// body gives the primary (the indirect term: the model keeps the primary still). Relative to the
+    /// primary; from the body's actual place and speed, so the points breathe with an eccentric orbit.
+    /// Newton's method from the textbook guesses.
+    /// </summary>
+    public static Vector3D LagrangeRel(GravityBody s, int point, double t)
+    {
+        var st = s.StateInParentAt(t);
+        Vector3D ps = st.Position, hv = Vector3D.Cross(ps, st.Velocity);
+        double r = ps.Length();
+        if (!(r > 0) || hv.LengthSquared() < 1e-12) return ps;
+        Vector3D e1 = ps / r, n = Vector3D.Normalize(hv), e2 = Vector3D.Cross(n, e1);
+        double m1 = s.Parent.Mu, m2 = s.Mu, w2 = hv.LengthSquared() / (r * r * r * r);
+        double rh = r * Math.Pow(m2 / (3 * m1), 1.0 / 3.0);
+        // In the turning plane (x toward the body, y along its motion): pulls + indirect + centrifugal.
+        (double, double) Net(double x, double y)
+        {
+            double d1 = Math.Sqrt(x * x + y * y), dx2 = x - r, d2 = Math.Sqrt(dx2 * dx2 + y * y);
+            double k1 = m1 / (d1 * d1 * d1), k2 = m2 / (d2 * d2 * d2), ki = m2 / (r * r);
+            return (-k1 * x - k2 * dx2 - ki + w2 * x, -k1 * y - k2 * y + w2 * y);
+        }
+        double gx, gy;
+        switch (point)
+        {
+            case 1: gx = r - rh; gy = 0; break;
+            case 2: gx = r + rh; gy = 0; break;
+            case 3: gx = -r; gy = 0; break;
+            default: gx = 0.5 * r; gy = (point == 4 ? 1 : -1) * r * Math.Sqrt(3) / 2; break;
+        }
+        for (int i = 0; i < 25; i++)
+        {
+            var (fx, fy) = Net(gx, gy);
+            double e = Math.Max(1.0, r * 1e-7);
+            var (fxx, fyx) = Net(gx + e, gy); var (fxy, fyy) = Net(gx, gy + e);
+            double a = (fxx - fx) / e, b = (fxy - fx) / e, c = (fyx - fy) / e, d = (fyy - fy) / e;
+            double det = point <= 3 ? a : a * d - b * c;
+            if (Math.Abs(det) < 1e-30) break;
+            double sx, sy;
+            if (point <= 3) { sx = fx / a; sy = 0; }   // the collinear points stay on the line
+            else { sx = (d * fx - b * fy) / det; sy = (a * fy - c * fx) / det; }
+            gx -= sx; gy -= sy;
+            if (Math.Abs(sx) + Math.Abs(sy) < 1e-3) break;
+        }
+        return e1 * gx + e2 * gy;
+    }
+
+    /// <summary>Gravity at a root-frame point from a primary and its body, with the indirect term (what balances a Lagrange point).</summary>
+    public static Vector3D PairGravity(GravityBody s, Vector3D x, double t)
+    {
+        Vector3D o1 = s.Parent.OriginInRoot(t).Position, o2 = s.OriginInRoot(t).Position, rel = o2 - o1;
+        Vector3D a = x - o1, b = x - o2;
+        double la = a.Length(), lb = b.Length(), lr = rel.Length();
+        Vector3D g = Vector3D.Zero;
+        if (la > 1) g -= a * (s.Parent.Mu / (la * la * la));
+        if (lb > 1) g -= b * (s.Mu / (lb * lb * lb));
+        if (lr > 1) g -= rel * (s.Mu / (lr * lr * lr));
+        return g;
+    }
 
     /// <summary>The period the sector moves round with (its ring's, its body's orbit, its pair's).</summary>
     public static double Period(Home h, SystemRegistry reg)

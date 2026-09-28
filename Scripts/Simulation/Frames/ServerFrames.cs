@@ -468,6 +468,9 @@ public static class ServerFrames
         double mu = f.Elements.Mu;
         Vector3D rA = cur.Position;
         Vector3D gA = Grav(rA, mu);
+        // A Lagrange site: its own simple dynamics (EncounterFrames.LagrangeDynamics).
+        Func<Vector3D, Vector3D> lag = null;
+        if (f.IsEncounter) EncounterFrames.LagrangeDynamics(f.Id, t, out lag);
         foreach (var g in grids)
         {
             if (g == anchor) continue;
@@ -478,7 +481,7 @@ public static class ServerFrames
                 SplitGrid(f, g, cur, rRel, GridMembers.Velocity(g), t);
                 continue;
             }
-            Vector3D accel = (Grav(rA + rRel, mu) - gA) - A;
+            Vector3D accel = lag != null ? lag(rRel) : (Grav(rA + rRel, mu) - gA) - A;
             if (IsFinite(accel)) GridMembers.AddVelocity(g, accel * dt);
         }
 

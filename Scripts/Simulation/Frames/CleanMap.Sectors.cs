@@ -213,7 +213,22 @@ public static partial class CleanMap
                                v => toLocal(centre + v), b0, 0.5, (h.Outer - h.Inner) / (h.Outer + h.Inner));
                     break;
                 case SectorHomes.Kind.Lagrange when h.Point >= 3:
-                    SectorArea(W0, q => SectorHomes.Where(h, reg, t + P * q) - centre, v => toLocal(centre + v), b0);
+                    SectorArea(W0, q => SectorHomes.Where(h, reg, t + P * q) - centre, v => toLocal(centre + v), b0, SectorSpan * 1.6, 0, taper: true);
+                    // Hovered or selected: the triangle (or line) it makes with Delfos and its planet.
+                    if (b0.Selected || b0.Name == Hovered)
+                    {
+                        var body = reg.Find(h.Host);
+                        float lu = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+                        var tc = HudPanel.Alpha(b0.Selected ? LineSel : StateColor(b0), 0.5f);
+                        if (body?.Parent != null && MapPipeline.ToScreen(W0(mk), out var pm)
+                            && MapPipeline.ToScreen(W0(toLocal(body.Parent.OriginInRoot(t).Position)), out var pp)
+                            && MapPipeline.ToScreen(W0(toLocal(body.OriginInRoot(t).Position)), out var pb))
+                        {
+                            MapPipeline.ScreenDashed(pm, pp, tc, 1.2f * lu, lu);
+                            MapPipeline.ScreenDashed(pm, pb, tc, 1.2f * lu, lu);
+                            MapPipeline.ScreenDashed(pp, pb, HudPanel.Alpha(tc, 0.5f), 1f * lu, lu);
+                        }
+                    }
                     break;
                 case SectorHomes.Kind.Lagrange:   // L1 / L2: a small zone round the point
                 {
@@ -262,7 +277,7 @@ public static partial class CleanMap
     /// The sector itself: an area of its orbit (a band section about where it is now), filled in its
     /// state colour and outlined; its orbit carries it round.
     /// </summary>
-    static void SectorArea(Func<Vector3D, Vector3D> W, Func<double, Vector3D> relAt, Func<Vector3D, Vector3D> toLocal, Band b, double span = SectorSpan, double kWidth = 0)
+    static void SectorArea(Func<Vector3D, Vector3D> W, Func<double, Vector3D> relAt, Func<Vector3D, Vector3D> toLocal, Band b, double span = SectorSpan, double kWidth = 0, bool taper = false)
     {
         float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
         double k = kWidth > 0 ? kWidth : Math.Clamp(b.Home.Size * 0.5 * SystemHost.SectorOrbitScale / Math.Max(1, b.Home.A), 0.03, 0.065);
@@ -273,7 +288,9 @@ public static partial class CleanMap
         for (int i = 0; i <= n; i++)
         {
             Vector3D r = ring ? relAt((double)i / n) : relAt(-span + 2 * span * i / n);
-            if (!MapPipeline.ToScreen(W(toLocal(r * (1 + k))), out var so) || !MapPipeline.ToScreen(W(toLocal(r * (1 - k))), out var si)) return;
+            // Tapered (a Trojan swarm's tadpole): full width in the middle, to a point at the ends.
+            double ki = taper ? k * Math.Max(0.08, Math.Sin(Math.PI * i / n)) : k;
+            if (!MapPipeline.ToScreen(W(toLocal(r * (1 + ki))), out var so) || !MapPipeline.ToScreen(W(toLocal(r * (1 - ki))), out var si)) return;
             outer.Add(so); inner.Add(si);
         }
         var poly = new List<Vector2>(outer);

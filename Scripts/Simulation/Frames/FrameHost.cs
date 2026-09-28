@@ -316,7 +316,8 @@ public static class FrameHost
         StateVector cur = OrbitPropagation.StateAt(f.Elements, t);
         Vector3D rRel = pos - f.BerthCenter;   // the anchor is pinned at the berth
         double mu = f.Elements.Mu;
-        Vector3D acc = (Grav(cur.Position + rRel, mu) - Grav(cur.Position, mu)) - A;
+        Vector3D acc = EncounterFrames.LagrangeDynamics(f.Id, t, out var lag) ? lag(rRel)   // a Lagrange site's own dynamics
+                     : (Grav(cur.Position + rRel, mu) - Grav(cur.Position, mu)) - A;
         if (IsFinite(acc) && acc.LengthSquared() > 1e-10) SetVelocity(ch, vel + acc * dt);
         if (rRel.Length() > ServerFrames.SlotRadius)
         {

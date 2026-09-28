@@ -303,6 +303,27 @@ public static class EncounterFrames
         return SectorHomes.Where(s.Home, reg, t, out centre);   // a ring's point, a Lagrange point, a body still to come
     }
 
+    /// <summary>
+    /// A Lagrange site's dynamics, kept simple (a game): at L4 / L5 the pair's own pull (from their mu)
+    /// minus the site's own acceleration, exactly; they are stable, so you wobble gently round the point.
+    /// L1 / L2 / L3 hold you: no relative pull at all (the real ones are unstable; drifting off is no fun).
+    /// False for any frame that is not a Lagrange site.
+    /// </summary>
+    public static bool LagrangeDynamics(long frameId, double t, out Func<Vector3D, Vector3D> relAccel)
+    {
+        relAccel = null;
+        if (!_sites.TryGetValue(frameId, out var s) || s.Home == null || s.Home.Kind != SectorHomes.Kind.Lagrange) return false;
+        if (s.Home.Point <= 3) { relAccel = _ => Vector3D.Zero; return true; }
+        var body = SystemHost.Registry?.Find(s.Home.Host);
+        if (body?.Parent == null) return false;
+        const double h = 1.0;
+        Vector3D p = SiteRoot(s, t);
+        Vector3D aF = (SiteRoot(s, t - h) - 2 * p + SiteRoot(s, t + h)) / (h * h);
+        if (!IsFinite(aF)) return false;
+        relAccel = d => SectorHomes.PairGravity(body, p + d, t) - aF;
+        return true;
+    }
+
     /// <summary>The home's co-moving axes at t: radial (from its centre), along-track, normal.</summary>
     private static void Basis(Site s, double t, out Vector3D R, out Vector3D T, out Vector3D N)
     {

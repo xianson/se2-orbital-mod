@@ -385,6 +385,8 @@ public static class Maneuvers
             }
         }
 
+        DrawLibration(t, toMap, W, u);
+
         // The orbit each patch puts you on (KSP): where a patch about a body is cut short by its next
         // event (a moon's escape into its planet, then back into the moon), the rest of its ellipse is
         // drawn faint and dashed, with its Pe / Ap, so the orbit you would be on reads at a glance.
@@ -946,6 +948,77 @@ public static class Maneuvers
         list.Sort((a, b) => a.T.CompareTo(b.T));
         _cross = list;
         return list;
+    }
+
+    // ── the Lagrangian preview: at an L4 / L5 site, your motion about the point ──
+    private static List<Vector3D> _lib;      // offsets from the point, in the frame turning with the planet (at _libT0)
+    private static double _libWall, _libT0, _libPeriod, _libAmp;
+    private static long _libFrame = -1;
+
+    /// <summary>
+    /// Inside an L4 / L5 sector you are not on a plain orbit: the pair's pull holds you in a slow
+    /// tadpole round the point. Integrated with exactly the sector's own dynamics (RK4, about two of
+    /// its periods), drawn round the point in the frame turning with the planet, with its size and period.
+    /// </summary>
+    static void DrawLibration(double t, Func<Vector3D, double, Vector3D> toMap, Func<Vector3D, Vector3D> W, float u)
+    {
+        var pf = FrameHost.PlayerFrame;
+        var site = pf != null ? EncounterFrames.SiteOf(pf.Id) : null;
+        if (site?.Home == null || site.Home.Kind != SectorHomes.Kind.Lagrange || site.Home.Point < 4 || FrameHost.RiderFrame != pf.Id) { _libFrame = -1; return; }
+        var reg = SystemHost.Registry;
+        var body = reg?.Find(site.Home.Host);
+        if (body?.Parent == null) return;
+        double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+        if (_lib == null || _libFrame != pf.Id || now - _libWall > 2.0)
+        {
+            _libWall = now; _libFrame = pf.Id; _libT0 = t;
+            // Its period (small-motion theory): Tlib = T / sqrt(27/4 mu), mu = the body's share of the pair.
+            double a = body.StateInParentAt(t).Position.Length();
+            double T = 2 * Math.PI * Math.Sqrt(a * a * a / body.Parent.Mu);
+            double mu = body.Mu / (body.Mu + body.Parent.Mu);
+            _libPeriod = T / Math.Sqrt(27.0 / 4.0 * mu);
+            double horizon = Math.Min(2 * _libPeriod, 20 * 86400.0);
+            int n = 1200; double dt = horizon / n;
+            Vector3D d = FrameHost.RiderOffset, v = FrameHost.RiderVelocity;
+            Vector3D A(double tt, Vector3D x) => EncounterFrames.LagrangeDynamics(pf.Id, tt, out var f) ? f(x) : Vector3D.Zero;
+            var st0 = body.StateInParentAt(t);
+            Vector3D p0 = st0.Position, nrm = Vector3D.Normalize(Vector3D.Cross(st0.Position, st0.Velocity));
+            var pts = new List<Vector3D>(n + 1);
+            double amp = 0;
+            for (int i = 0; i <= n; i++)
+            {
+                double tt = t + i * dt;
+                // Into the frame turning with the planet (at t): turned back by how far the planet has gone.
+                Vector3D pi = body.StateInParentAt(tt).Position;
+                double ang = Math.Atan2(Vector3D.Dot(nrm, Vector3D.Cross(p0, pi)), Vector3D.Dot(p0, pi));
+                double c = Math.Cos(-ang), s = Math.Sin(-ang);
+                Vector3D rot = d * c + Vector3D.Cross(nrm, d) * s + nrm * Vector3D.Dot(nrm, d) * (1 - c);
+                pts.Add(rot);
+                amp = Math.Max(amp, rot.Length());
+                if (i == n) break;
+                // RK4 on (d, v) with the sector's own relative acceleration.
+                Vector3D k1v = A(tt, d), k1x = v;
+                Vector3D k2v = A(tt + dt / 2, d + k1x * (dt / 2)), k2x = v + k1v * (dt / 2);
+                Vector3D k3v = A(tt + dt / 2, d + k2x * (dt / 2)), k3x = v + k2v * (dt / 2);
+                Vector3D k4v = A(tt + dt, d + k3x * dt), k4x = v + k3v * dt;
+                d += (k1x + 2 * k2x + 2 * k3x + k4x) * (dt / 6);
+                v += (k1v + 2 * k2v + 2 * k3v + k4v) * (dt / 6);
+                if (!IsFinite(d.X) || d.Length() > 5e6) break;   // (left the sector's reach: no longer a libration)
+            }
+            _lib = pts; _libAmp = amp;
+        }
+        Vector3D? pt = EncounterFrames.SitePoint(pf.Id, t);
+        if (!pt.HasValue || _lib == null || _lib.Count < 2) return;
+        var col = new ColorSRGB(0.95f, 0.75f, 0.35f, 0.9f);
+        Vector2 prev = default; bool hp = false;
+        foreach (var off in _lib)
+        {
+            if (!MapPipeline.ToScreen(W(toMap(pt.Value + off, t)), out var sp) || !InMapArea(sp)) { hp = false; continue; }
+            if (hp) MapPipeline.ScreenLine(prev, sp, col, 1.8f * u);
+            prev = sp; hp = true;
+        }
+        if (MapPipeline.ToScreen(W(toMap(pt.Value, t)), out var cs) && InMapArea(cs))
+            HudPanel.TagAt(cs, $"L{site.Home.Point} drift ±{HudPanel.Km(_libAmp)}  ·  {Clock(_libPeriod)}", col, u);
     }
 
     /// <summary>Patches drawn after your orbit (KSP's conic patch limit).</summary>

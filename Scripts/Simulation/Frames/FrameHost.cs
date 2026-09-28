@@ -312,6 +312,7 @@ public static class FrameHost
                                     Vector3D pos, Vector3D vel, double t, double dt)
     {
         if (_tpPending) return;
+        RiderFrame = f.Id; RiderOffset = pos - f.BerthCenter; RiderVelocity = vel;
         Vector3D A = ServerFrames.AnchorAccel.TryGetValue(f.Id, out var a) ? a : Vector3D.Zero;
         StateVector cur = OrbitPropagation.StateAt(f.Elements, t);
         Vector3D rRel = pos - f.BerthCenter;   // the anchor is pinned at the berth
@@ -417,6 +418,9 @@ public static class FrameHost
     public static bool HighSpeedActive => _hsActive;
     public static long PlayerId => _playerId;
     public static Vector3D PlayerPosition => _lastPos;
+    /// <summary>The player riding a frame: its id, offset from the frame's centre and velocity relative to it (last tick).</summary>
+    public static long RiderFrame = -1;
+    public static Vector3D RiderOffset, RiderVelocity;
 
     /// <summary>Save: the player's HighSpeed conic, if riding one.</summary>
     public static bool TryGetHighSpeed(out string body, out KeplerianElements el)

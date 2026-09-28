@@ -309,6 +309,9 @@ public static class EncounterFrames
     /// L1 / L2 / L3 hold you: no relative pull at all (the real ones are unstable; drifting off is no fun).
     /// False for any frame that is not a Lagrange site.
     /// </summary>
+    /// <summary>A site's point at t (root frame), or null.</summary>
+    public static Vector3D? SitePoint(long frameId, double t) => _sites.TryGetValue(frameId, out var s) ? SiteRoot(s, t) : (Vector3D?)null;
+
     public static bool LagrangeDynamics(long frameId, double t, out Func<Vector3D, Vector3D> relAccel)
     {
         relAccel = null;

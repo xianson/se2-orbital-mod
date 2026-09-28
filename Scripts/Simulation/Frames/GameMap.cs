@@ -335,7 +335,10 @@ public static class GameMap
         if (star != null && (_starShown != visible || !ReferenceEquals(star, _star))) BlankName(star, !visible);
         if (star != null && (_starShown != visible || !ReferenceEquals(star, _star)))
         {
-            try { star.GetType().GetMethod(visible ? "Activate" : "Deactivate", visible ? new[] { typeof(bool) } : Type.EmptyTypes)?.Invoke(star, visible ? new object[] { false } : null); } catch { }
+            // Its glow (looped particle effects) is what makes the star bright; Deactivate stopped it and
+            // left a model lit only by the sun's direction (dark from most angles). Activate(false): glow
+            // on, label off (ours names it).
+            try { star.GetType().GetMethod("Activate", new[] { typeof(bool) })?.Invoke(star, new object[] { false }); } catch { }
             // Its model too: the star's entity is moved far outside the map through its ordinary
             // transform (not its render model: scaling that crashed the renderer), and put back after.
             // Left in place it drew a brown-dwarf globe over whichever planet sat at its charted spot.
@@ -397,8 +400,7 @@ public static class GameMap
             }
             if (!show) ent.Data.Set(new RelativeTransform(_starRel.Position + new Vector3(0, 1e5f, 0), _starRel.Orientation));
             // The game hides map objects by its own zoom, which ours is not: on the map, it is always drawn.
-            else if (Frame % 30 == 0) PlanetRenderBridge.ForceRenderComponentVisible(star);
-            Frame++;
+
             StarPlaced = show;
         }
         catch { StarPlaced = false; }

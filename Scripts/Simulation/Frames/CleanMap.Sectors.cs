@@ -157,7 +157,8 @@ public static partial class CleanMap
             else OwnSector(W, SectorHomes.HillRadius(body) * 0.15 * LocalScale(toLocal), ghost, toLocal(at), faint: true);
             Vector3D w = W(toLocal(at));
             if (!MapPipeline.ToScreen(w, out var s) || !InOpenArea(s)) continue;
-            MapPipeline.TextScreen(s + new Vector2(0, 12f * u), $"L{p}", col, 0.5f);
+            // Named after its body: a planet's points (with the star) and its moon's (with the planet) share a screen.
+            MapPipeline.TextScreen(s + new Vector2(0, 12f * u), $"{SystemHost.DisplayName(body.Name)} L{p}", col, 0.5f);
         }
     }
 

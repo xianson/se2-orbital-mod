@@ -1327,7 +1327,8 @@ public static class Maneuvers
         if (hasC && readable)
         {
             string stay = double.IsNaN(plan.TX) ? "stays" : $"exit {(plan.Now ? "in" : "after")} {Clock(plan.TX - plan.TE)}";
-            string who = plan.Now ? $"L{home.Point}" : $"{plan.Site.Sector} (L{home.Point}, in {Clock(plan.TE - SystemHost.Now)})";
+            string lp = $"{SystemHost.DisplayName(home.Host)} L{home.Point}";
+            string who = plan.Now ? lp : $"{plan.Site.Sector} ({lp}, in {Clock(plan.TE - SystemHost.Now)})";
             HudPanel.TagAt(cs, $"{who}  ·  orbit ±{HudPanel.Km(plan.Amp)}  ·  {stay}", col, u);
         }
     }

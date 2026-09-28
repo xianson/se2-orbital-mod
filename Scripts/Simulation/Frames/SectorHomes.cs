@@ -146,10 +146,13 @@ public static class SectorHomes
         double r = ps.Length();
         if (!(r > 0) || hv.LengthSquared() < 1e-12) return ps;
         Vector3D e1 = ps / r, n = Vector3D.Normalize(hv), e2 = Vector3D.Cross(n, e1);
-        // L4 / L5: the equilateral points, exactly, at the body's present distance (so in the elliptic
-        // problem too; a balance at the present turning rate sat ~460 km off Kemik's, and motion round
-        // it ran away).
-        if (point >= 4) return Rotate(ps, n, (point == 4 ? 1 : -1) * Math.PI / 3);
+        // L4 / L5: 60 degrees ahead / behind, on the body's orbit path there (for the look: an eccentric
+        // orbit's equilateral points sit off its drawn path by more than a sector is wide).
+        if (point >= 4)
+        {
+            Vector3D dir = Vector3D.Normalize(Rotate(ps, n, (point == 4 ? 1 : -1) * Math.PI / 3));
+            return dir * OrbitRadiusToward(s, t, dir);
+        }
         // L1-L3: fixed fractions of the present distance (the circular problem's balance, scale-free).
         double m1 = s.Parent.Mu, m2 = s.Mu, w2 = m1 / (r * r * r);
         double rh = r * Math.Pow(m2 / (3 * m1), 1.0 / 3.0);
@@ -182,8 +185,22 @@ public static class SectorHomes
             gx -= sx; gy -= sy;
             if (Math.Abs(sx) + Math.Abs(sy) < 1e-3) break;
         }
+        // L3: the same fraction of the orbit's radius on the far side (on its path, as L4 / L5).
+        if (point == 3) return -e1 * (Math.Abs(gx) / r * OrbitRadiusToward(s, t, -e1));
         return e1 * gx + e2 * gy;
     }
+
+    /// <summary>The body's orbit radius (about its parent) toward a direction in its plane.</summary>
+    public static double OrbitRadiusToward(GravityBody s, double t, Vector3D dir)
+    {
+        var st = s.StateInParentAt(t);
+        double mu = s.Parent.Mu + s.Mu, r = st.Position.Length();
+        Vector3D h = Vector3D.Cross(st.Position, st.Velocity);
+        Vector3D ev = ((st.Velocity.LengthSquared() - mu / r) * st.Position - Vector3D.Dot(st.Position, st.Velocity) * st.Velocity) / mu;
+        double p = h.LengthSquared() / mu, den = 1 + Vector3D.Dot(ev, Vector3D.Normalize(dir));
+        return den > 1e-6 && IsFiniteD(p / den) ? p / den : r;
+    }
+    static bool IsFiniteD(double x) => !double.IsNaN(x) && !double.IsInfinity(x);
 
     /// <summary>
     /// The Lagrange orbit (a game's approximation, a distorted Kepler): in the frame turning with the body
@@ -287,7 +304,8 @@ public static class SectorHomes
             double phi = Math.Atan2(Vector3D.Dot(n, Vector3D.Cross(b, ap)), Vector3D.Dot(b, ap));
             if (Math.Abs(phi) > phiMax) return false;
             double half = 0.035 * rb * Math.Max(0.08, Math.Cos(phi / phiMax * Math.PI / 2));
-            return Math.Abs(ap.Length() - rb) <= half && Math.Abs(z) <= half;
+            double mid = OrbitRadiusToward(s, t, ap) * (h.Point == 3 ? rb / OrbitRadiusToward(s, t, b) : 1);   // along the orbit path
+            return Math.Abs(ap.Length() - mid) <= half && Math.Abs(z) <= half;
         };
     }
 

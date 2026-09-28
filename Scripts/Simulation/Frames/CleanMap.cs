@@ -646,6 +646,8 @@ public static class CleanMap
         {
             title = "Maneuver  ·  in " + Maneuvers.Clock(node.T - t);
             Maneuvers.Selected = node;
+            // Warp to it (as KSP): top warp; warp stops by itself ahead of the burn.
+            if (node.T - t > Maneuvers.WarpLead + 10) items.Add(new MapMenu.Item("Warp to maneuver", () => WarpControl.SetLevel(WarpControl.Levels.Length - 1), FrameHost.PlayerFrame != null));
             items.Add(new MapMenu.Item(node.Auto ? "Auto-burn: on" : "Auto-burn: off", () => node.Auto = !node.Auto));
             items.Add(new MapMenu.Item("Remove maneuver", () => Maneuvers.Delete(node, false)));
         }

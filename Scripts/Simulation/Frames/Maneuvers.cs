@@ -610,12 +610,17 @@ public static class Maneuvers
                 foreach (var h in handles) angs.Add(Math.Atan2(h.dir.Y, h.dir.X));
                 angs.Sort();
                 double bestScore = double.MinValue;
+                var hs = MapPipeline.MeasureText(head, 0.5f * u);
                 for (int q = 0; q < angs.Count; q++)
                 {
                     double a0 = angs[q], a1 = q + 1 < angs.Count ? angs[q + 1] : angs[0] + 2 * Math.PI;
                     double mid = (a0 + a1) * 0.5, width = a1 - a0;
                     double score = width + 0.35 * Math.Sin(mid);   // wide first, then downward (screen y grows down)
-                    if (score > bestScore) { bestScore = score; gap = new Vector2((float)Math.Cos(mid), (float)Math.Sin(mid)); }
+                    // ...and where it lands clear of the game's panels and the list (it ran under the left panel).
+                    var dir = new Vector2((float)Math.Cos(mid), (float)Math.Sin(mid));
+                    var c = selS + dir * (58f * u + Math.Abs(dir.X) * hs.X * 0.5f + Math.Abs(dir.Y) * hs.Y * 0.5f);
+                    if (!InMapArea(c - hs * 0.5f) || !InMapArea(c + hs * 0.5f)) score -= 10;
+                    if (score > bestScore) { bestScore = score; gap = dir; }
                 }
             }
             AxisLabel(selS, gap, 58f * u, head, NodeColor, u);

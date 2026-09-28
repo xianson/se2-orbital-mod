@@ -1246,7 +1246,8 @@ public static class Maneuvers
             for (int i = 0; i <= 32; i++)
             {
                 double q = -span + 2 * span * i / 32, ki = k * Math.Max(0.08, Math.Sin(Math.PI * i / 32));
-                Vector3D r = SectorHomes.Where(home, reg, tE + P * q) - centre;
+                // Relative to the parent where it is then: a moon's points only (its planet's own orbit left out).
+                Vector3D r = SectorHomes.Where(home, reg, tE + P * q, out var cq) - cq;
                 if (MapPipeline.ToScreen(W(toMap(centre + r * (1 + ki), tE)), out var so)) outer.Add(so);
                 if (MapPipeline.ToScreen(W(toMap(centre + r * (1 - ki), tE)), out var si)) inner.Add(si);
             }

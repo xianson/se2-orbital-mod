@@ -152,7 +152,7 @@ public static partial class CleanMap
             if (p >= 3)
             {
                 double P = SectorHomes.Period(h, reg);
-                SectorArea(W, q => SectorHomes.Where(h, reg, t + P * q) - centre, v => toLocal(centre + v), ghost, SectorSpan, 0.035, taper: true, faint: true);
+                SectorArea(W, q => { var p = SectorHomes.Where(h, reg, t + P * q, out var cq); return p - cq; }, v => toLocal(centre + v), ghost, SectorSpan, 0.035, taper: true, faint: true);
             }
             else OwnSector(W, SectorHomes.HillRadius(body) * 0.15 * LocalScale(toLocal), ghost, toLocal(at), faint: true);
             Vector3D w = W(toLocal(at));
@@ -225,7 +225,7 @@ public static partial class CleanMap
                     // You are in it: only its dotted boundary (the preview draws it, as a planet's SOI), no fill.
                     var pf = FrameHost.PlayerFrame;
                     bool inIt = pf != null && EncounterFrames.SiteOf(pf.Id)?.Sector == b0.Name;
-                    if (!inIt) SectorArea(W0, q => SectorHomes.Where(h, reg, t + P * q) - centre, v => toLocal(centre + v), b0, SectorSpan, 0.035, taper: true);   // a thin lens
+                    if (!inIt) SectorArea(W0, q => { var p = SectorHomes.Where(h, reg, t + P * q, out var cq); return p - cq; }, v => toLocal(centre + v), b0, SectorSpan, 0.035, taper: true);   // a thin lens
                     // Hovered or selected: the triangle (or line) it makes with Delfos and its planet.
                     if (b0.Selected || b0.Name == Hovered)
                     {
@@ -317,15 +317,21 @@ public static partial class CleanMap
         float fa = faint ? 0.06f : b.Selected ? 0.30f : b.Name == Hovered ? 0.34f : Quiet(b) ? 0.08f : 0.18f;
         // A dark base first: the lines under the sector are hidden, not showing through it.
         if (!faint) MapPipeline.ScreenFill(poly, new ColorSRGB(0.04f, 0.06f, 0.09f, 0.82f));   // (a point with no sector: no base, lines show through)
-        MapPipeline.ScreenFill(poly, HudPanel.Alpha(c, fa));
-        var edge = HudPanel.Alpha(c, faint ? 0.3f : b.Selected ? 0.95f : Quiet(b) ? 0.3f : 0.6f);
-        float ew = (b.Selected ? 1.8f : 1.2f) * u;
-        MapPipeline.ScreenPath(outer, ring, edge, ew);
-        MapPipeline.ScreenPath(inner, ring, edge, ew);
+        // Tinted only when it has your attention; otherwise just its dotted edge.
+        if (b.Selected || b.Name == Hovered) MapPipeline.ScreenFill(poly, HudPanel.Alpha(c, fa));
+        var edge = HudPanel.Alpha(c, faint ? 0.3f : b.Selected ? 0.95f : Quiet(b) ? 0.3f : 0.7f);
+        float ew = (b.Selected ? 1.8f : 1.3f) * u;
+        void Dotted(List<Vector2> pts, bool closed)
+        {
+            for (int i = 0; i + 1 < pts.Count; i++) MapPipeline.ScreenDashed(pts[i], pts[i + 1], edge, ew, u);
+            if (closed && pts.Count > 2) MapPipeline.ScreenDashed(pts[pts.Count - 1], pts[0], edge, ew, u);
+        }
+        Dotted(outer, ring);
+        Dotted(inner, ring);
         if (!ring)
         {
-            MapPipeline.ScreenLine(outer[0], inner[0], edge, ew);
-            MapPipeline.ScreenLine(outer[n], inner[n], edge, ew);
+            MapPipeline.ScreenDashed(outer[0], inner[0], edge, ew, u);
+            MapPipeline.ScreenDashed(outer[n], inner[n], edge, ew, u);
         }
     }
 

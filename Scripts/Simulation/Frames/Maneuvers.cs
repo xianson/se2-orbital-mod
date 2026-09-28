@@ -338,6 +338,8 @@ public static class Maneuvers
             if (ownConic && l.El.IsElliptic && IsFinite(l.El.Period) && span > l.El.Period) span = l.El.Period;
             int n = Math.Max(24, Math.Min(200, (int)(160 * Math.Min(1.0, span / (l.El.IsElliptic && IsFinite(l.El.Period) ? l.El.Period : span)))));
             Vector2 prev = default; bool hp = false; double prevT = l.T0;
+            var planRun = new List<Vector2>();
+            void FlushPlan() { if (planRun.Count > 1) MapStyle.Plan(planRun, false, col, MapStyle.Thick(u), u); planRun.Clear(); }
             // Evenly in time, then refined where the screen gap is large: a hyperbolic pass spends
             // almost all its time far out, and its periapsis came out as a few straight kinks.
             bool Pt(double tk, out Vector2 sp)
@@ -352,8 +354,8 @@ public static class Maneuvers
                 samples.Add(new Sample { T = tk, S = sp, Planned = l.Planned });
                 if (hp && drawn)
                 {
-                    if (l.Planned) MapPipeline.ScreenDashed(prev, sp, col, 2f * u, u);
-                    else MapPipeline.ScreenLine(prev, sp, col, 2.2f * u);
+                    if (l.Planned) { if (planRun.Count == 0) planRun.Add(prev); planRun.Add(sp); }
+                    else MapPipeline.ScreenLine(prev, sp, col, MapStyle.Thick(u));
                 }
                 prev = sp; prevT = tk; hp = true;
             }
@@ -368,10 +370,11 @@ public static class Maneuvers
             for (int k = 0; k <= n; k++)
             {
                 double tk = l.T0 + span * k / n;
-                if (!Pt(tk, out var s)) { hp = false; continue; }
+                if (!Pt(tk, out var s)) { hp = false; FlushPlan(); continue; }
                 if (hp) Refine(prevT, prev, tk, s, 0);
                 Emit(tk, s);
             }
+            FlushPlan();
             // A pass drawn about a ghost is also drawn where it really is about the view's body, faint
             // and thin: it joins the path before the encounter to the path after it.
             if (drawn && !Live(l.Body))
@@ -392,16 +395,17 @@ public static class Maneuvers
         if (applied.Count > 0 && Base(t, out var bb, out var bel) && bel.IsElliptic && IsFinite(bel.Period))
         {
             double t0 = applied[0].Node.T, t1 = t + bel.Period;
-            var faint = HudPanel.Alpha(YouColor, 0.22f);
-            Vector2 pv = default; bool hv = false;
+            var faint = HudPanel.Alpha(YouColor, 0.3f);
+            var run = new List<Vector2>();
             for (int k = 0; k <= 96 && t0 < t1; k++)
             {
                 double tk = t0 + (t1 - t0) * k / 96;
                 Vector3D loc = Loc(bb, OrbitPropagation.StateAt(bel, tk).Position, tk);
-                if (Math.Sqrt(loc.X * loc.X + loc.Z * loc.Z) > limit * 1.04 || !MapPipeline.ToScreen(W(loc), out var sp) || !InMapArea(sp)) { hv = false; continue; }
-                if (hv) MapPipeline.ScreenLine(pv, sp, faint, 1.2f * u);
-                pv = sp; hv = true;
+                if (Math.Sqrt(loc.X * loc.X + loc.Z * loc.Z) > limit * 1.04 || !MapPipeline.ToScreen(W(loc), out var sp) || !InMapArea(sp))
+                { MapStyle.Plan(run, false, faint, MapStyle.Thin(u), u); run.Clear(); continue; }
+                run.Add(sp);
             }
+            MapStyle.Plan(run, false, faint, MapStyle.Thin(u), u);
         }
 
         DrawLibration(lagPlan, t, toMap, W, u);
@@ -421,15 +425,16 @@ public static class Maneuvers
                 var faintCol = HudPanel.Alpha(col, 0.45f);
                 int m = 96;
                 double a0 = l.T1, a1 = l.T0 + l.El.Period;
-                Vector2 pv = default; bool hv = false;
+                var run = new List<Vector2>();
                 for (int k = 0; k <= m; k++)
                 {
                     double tk = a0 + (a1 - a0) * k / m;
                     Vector3D loc = Loc(l.Body, OrbitPropagation.StateAt(l.El, tk).Position, l.T0);
-                    if (Math.Sqrt(loc.X * loc.X + loc.Z * loc.Z) > limit * 1.04 || MapPipeline.Occluded(W(loc)) || !MapPipeline.ToScreen(W(loc), out var sp) || !InMapArea(sp)) { hv = false; continue; }
-                    if (hv) MapPipeline.ScreenDashed(pv, sp, faintCol, 1.6f * u, u);
-                    pv = sp; hv = true;
+                    if (Math.Sqrt(loc.X * loc.X + loc.Z * loc.Z) > limit * 1.04 || MapPipeline.Occluded(W(loc)) || !MapPipeline.ToScreen(W(loc), out var sp) || !InMapArea(sp))
+                    { MapStyle.Plan(run, false, faintCol, MapStyle.Thin(u), u); run.Clear(); continue; }
+                    run.Add(sp);
                 }
+                MapStyle.Plan(run, false, faintCol, MapStyle.Thin(u), u);
                 // Its apsides, once per body (the orbit about Verdure after leaving Palatine: Pe / Ap).
                 if (!shown.Add(l.Body.Name)) continue;
                 double R = SystemHost.Registry?.FindDefinition(l.Body.Name)?.RadiusMeters ?? 0;
@@ -1235,8 +1240,8 @@ public static class Maneuvers
         Vector3D pt = SectorHomes.Where(home, reg, tE, out Vector3D centre);
         var col = new ColorSRGB(0.95f, 0.75f, 0.35f, 0.9f);
         bool On(Vector3D off, out Vector2 sp) => MapPipeline.ToScreen(W(toMap(pt + Turn(off, plan.Axis, turn), tE)), out sp) && InMapArea(sp);
-        // The region, dotted.
-        var bcol = HudPanel.Alpha(col, 0.6f);
+        // The region: a boundary (dim, dotted; gold is for you).
+        var bcol = MapStyle.Zone;
         if (home.Point >= 3)
         {
             double P = SectorHomes.Period(home, reg);
@@ -1251,21 +1256,21 @@ public static class Maneuvers
                 if (MapPipeline.ToScreen(W(toMap(centre + r * (1 - ki), tE)), out var si)) inner.Add(si);
             }
             var lens = new List<Vector2>(outer); for (int i = inner.Count - 1; i >= 0; i--) lens.Add(inner[i]);
-            MapPipeline.ScreenDotted(lens, true, bcol, 1.4f * u, 6f * u, 5f * u);
+            MapStyle.Boundary(lens, true, bcol, MapStyle.Thin(u), u);
         }
         else
         {
             var host = reg.Find(home.Host);
             double R = 0.15 * SectorHomes.HillRadius(host);
             Vector3D e1 = Vector3D.Normalize(pt - centre), e2 = Vector3D.Normalize(Vector3D.Cross(Vector3D.Cross(e1, host.StateInParentAt(tE).Velocity), e1));
-            Vector2 pv = default; bool hv = false;
-            for (int i = 0; i <= 48; i++)
+            var zone = new List<Vector2>(48);
+            for (int i = 0; i < 48; i++)
             {
                 double a = 2 * Math.PI * i / 48;
-                if (!On((e1 * Math.Cos(a) + e2 * Math.Sin(a)) * R, out var sp)) { hv = false; continue; }
-                if (hv) MapPipeline.ScreenDashed(pv, sp, bcol, 1.4f * u, u);
-                pv = sp; hv = true;
+                if (!On((e1 * Math.Cos(a) + e2 * Math.Sin(a)) * R, out var sp)) { zone.Clear(); break; }
+                zone.Add(sp);
             }
+            MapStyle.Boundary(zone, true, bcol, MapStyle.Thin(u), u);
         }
         // The calm core, ringed (when big enough to see).
         bool hasC = On(Vector3D.Zero, out var cs);
@@ -1283,7 +1288,7 @@ public static class Maneuvers
             {
                 float rpx = (es - cs).Length();
                 var ccol = HudPanel.Alpha(new ColorSRGB(0.55f, 0.85f, 1f, 1f), 0.5f);
-                if (rpx > 4f * u) MapPipeline.ScreenCircle(cs, rpx, ccol, 1.2f * u);
+                if (rpx > 4f * u) MapStyle.BoundaryCircle(cs, rpx, ccol, MapStyle.Thin(u), u);
                 if (rpx > 40f * u) HudPanel.TagAt(cs + new Vector2(0, rpx + 8f * u), "Calm core", ccol, u, diamond: false);
             }
         }
@@ -1294,7 +1299,7 @@ public static class Maneuvers
         foreach (var off in plan.Path)
         {
             if (!On(off, out var sp)) { hp = false; continue; }
-            if (hp) MapPipeline.ScreenLine(prev, sp, col, 1.8f * u);
+            if (hp) MapPipeline.ScreenLine(prev, sp, col, MapStyle.Thick(u));
             prev = sp; hp = true;
         }
         if (!plan.Now && On(plan.Path[0], out var en))
@@ -1305,13 +1310,13 @@ public static class Maneuvers
         if (!double.IsNaN(plan.TX))
         {
             var fcol = HudPanel.Alpha(YouColor, 0.55f);
-            Vector2 pa = default; bool ha = false;
+            var run = new List<Vector2>();
             foreach (var off in plan.After)
             {
-                if (!On(off, out var sp)) { ha = false; continue; }
-                if (ha) MapPipeline.ScreenDashed(pa, sp, fcol, 1.6f * u, u);
-                pa = sp; ha = true;
+                if (!On(off, out var sp)) { MapStyle.Plan(run, false, fcol, MapStyle.Thick(u), u); run.Clear(); continue; }
+                run.Add(sp);
             }
+            MapStyle.Plan(run, false, fcol, MapStyle.Thick(u), u);
             if (On(plan.Path[plan.Path.Count - 1], out var ex))
             {
                 Marker(ex, col, u);

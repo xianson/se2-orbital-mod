@@ -35,7 +35,7 @@ public static partial class CleanMap
             Vector3D ml = Lv(mp);
             {
                 var mel = OrbitalMath.ToElements(moon.StateInParentAt(t), planet.Mu, t);
-                if (mel.IsElliptic) Curve(nu => Lv(OrbitSampler.PositionAtTrueAnomaly(mel, nu)), W, 0, 2 * Math.PI, 64, HudPanel.Alpha(Dim, 0.35f), 1.1f, depthCue: true);
+                if (mel.IsElliptic) Curve(nu => Lv(OrbitSampler.PositionAtTrueAnomaly(mel, nu)), W, 0, 2 * Math.PI, 64, HudPanel.Alpha(Dim, 0.35f), 1.0f, depthCue: true);
             }
             if (!MapPipeline.ToScreen(W(ml), out var mls) || !InOpenArea(mls)) continue;   // off view: not over the game's panels
             MapGlobes.Use(moon.Name, W(ml), (reg.FindDefinition(moon.Name)?.RadiusMeters ?? 2e4) * scaleSys * _wscale, globes);
@@ -149,8 +149,20 @@ public static partial class CleanMap
         {
             if (!SystemHost.BeaconOf.ContainsKey(p.Name)) continue;
             var el = OrbitalMath.ToElements(p.StateInParentAt(t), root.Mu, t);
+            // Not inside the planet's own space (the dotted circle round it): its system sits clear of its orbit line.
+            Func<Vector2, bool> skip = null;
+            {
+                var own = bands.Find(bb => bb.Home.Kind == SectorHomes.Kind.Body && !bb.Home.Future && bb.Home.Host == p.Name);
+                double rOwn = own != null ? own.Home.Outer : p.SoiRadius;
+                Vector3D pc = S(p.StateInParentAt(t).Position);
+                if (IsFinite(rOwn) && rOwn > 0 && MapPipeline.ToScreen(W(pc), out var psc) && MapPipeline.ToScreen(W(pc + new Vector3D(Rs(rOwn), 0, 0)), out var pse))
+                {
+                    float rr = (pse - psc).Length();
+                    skip = sp => (sp - psc).LengthSquared() < rr * rr;
+                }
+            }
             // Faint while a planet's own system has the view (its sweep across the screen is not the point there).
-            if (el.IsElliptic) Curve(nu => S(OrbitSampler.PositionAtTrueAnomaly(el, nu)), W, 0, 2 * Math.PI, 96, _planetLevel ? HudPanel.Alpha(Line, 0.1f) : Line, 1.2f);
+            if (el.IsElliptic) Curve(nu => S(OrbitSampler.PositionAtTrueAnomaly(el, nu)), W, 0, 2 * Math.PI, 96, _planetLevel ? HudPanel.Alpha(Line, 0.1f) : Line, 1.0f, skip: skip);
             Vector3D hp = p.StateInParentAt(t).Position;
             Vector3D c = S(hp);
             MapGlobes.Use(p.Name, W(c), (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer * _wscale, globes);   // true size
@@ -211,7 +223,7 @@ public static partial class CleanMap
         }
         if (ring.Count == n)
         {
-            MapPipeline.ScreenDotted(ring, true, col, (b.Selected ? 1.8f : 1.3f) * u, 6f * u, 5f * u);
+            MapStyle.Boundary(ring, true, col, b.Selected ? MapStyle.Medium(u) : MapStyle.Thin(u), u);
             // Its area stops orbit lines (a body's own space: its moons' orbits run through it by nature).
             if (b.Home?.Kind != SectorHomes.Kind.Body) MapPipeline.OccludeArea(ring);
         }

@@ -325,14 +325,14 @@ public static partial class CleanMap
         float fa = faint ? 0.06f : b.Selected ? 0.30f : b.Name == Hovered ? 0.34f : Quiet(b) ? 0.08f : 0.18f;
         // Just a dotted edge, never filled (selected or hovered: a brighter edge); orbit lines stop at it.
         if (!ring) MapPipeline.OccludeArea(poly);   // (a belt is crossed by orbits by nature: they stay)
-        var edge = HudPanel.Alpha(c, faint ? 0.3f : b.Selected ? 0.95f : Quiet(b) ? 0.3f : 0.7f);
-        float ew = (b.Selected ? 1.8f : 1.3f) * u;
+        var edge = HudPanel.Alpha(c, faint ? 0.3f : b.Selected ? 0.95f : b.Name == Hovered ? 0.9f : Quiet(b) ? 0.3f : 0.6f);
+        float ew = b.Selected ? MapStyle.Medium(u) : MapStyle.Thin(u);
         if (ring)
         {
-            MapPipeline.ScreenDotted(outer, true, edge, ew, 6f * u, 5f * u);
-            MapPipeline.ScreenDotted(inner, true, edge, ew, 6f * u, 5f * u);
+            MapStyle.Boundary(outer, true, edge, ew, u);
+            MapStyle.Boundary(inner, true, edge, ew, u);
         }
-        else MapPipeline.ScreenDotted(poly, true, edge, ew, 6f * u, 5f * u);   // round the whole lens
+        else MapStyle.Boundary(poly, true, edge, ew, u);   // round the whole lens
     }
 
     /// <summary>Height above or below the planet's plane: a dashed drop line to the plane and a dot at its foot.</summary>

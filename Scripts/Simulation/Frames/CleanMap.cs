@@ -283,7 +283,7 @@ public static partial class CleanMap
     /// near the view (zoomed onto a planet, the sun's circles are a straight line through it; a
     /// fixed number of chords missed the planet by a good part of the screen).
     /// </summary>
-    static void Curve(Func<double, Vector3D> at, Func<Vector3D, Vector3D> W, double a0, double a1, int n, ColorSRGB col, float px, bool depthCue = false)
+    static void Curve(Func<double, Vector3D> at, Func<Vector3D, Vector3D> W, double a0, double a1, int n, ColorSRGB col, float px, bool depthCue = false, Func<Vector2, bool> skip = null)
     {
         var dim = HudPanel.Alpha(col, col.A / 255f * 0.4f);
         bool runDim = false;
@@ -303,6 +303,7 @@ public static partial class CleanMap
             {
                 if (MapPipeline.Occluded(W((pa + pb) * 0.5))) { Flush(); return; }   // behind a body's globe
                 if (MapPipeline.InSectorArea(0.5f * (sa + sb))) { Flush(); return; }   // through a sector: not drawn
+                if (skip != null && skip(0.5f * (sa + sb))) { Flush(); return; }
                 Emit(sa, sb, depthCue && (pa.Y + pb.Y) < 0);
                 return;
             }

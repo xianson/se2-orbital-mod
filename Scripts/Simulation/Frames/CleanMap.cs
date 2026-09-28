@@ -1028,7 +1028,7 @@ public static class CleanMap
         var scr = MapPipeline.ScreenSize;
         if (!haveTop || top.Y < scr.Y * 0.2f || top.X < scr.X * 0.26f || top.X > scr.X * 0.77f) return;
         var sz = MapPipeline.MeasureText(b.Name, 0.8f);
-        MapPipeline.ScreenText(new Vector2(top.X - sz.X / 2, top.Y - sz.Y - 4f * u), b.Name, b.Selected ? LineSel : Dim, 0.8f);
+        MapPipeline.TextScreen(new Vector2(top.X, top.Y - sz.Y * 0.5f - 4f * u), b.Name, b.Selected ? LineSel : Dim, 0.8f);   // clear of the title lines
     }
 
     private static double si_own_outer(SectorHomes.Home h) => h.A + h.Size * 0.5 * SystemHost.SectorOrbitScale;

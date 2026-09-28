@@ -10,6 +10,7 @@ maybe_map() { if [ $(( RANDOM % 2 )) = 0 ]; then $O "map on" >/dev/null; else $O
 tp()  { if [ $(( RANDOM % 3 )) = 0 ]; then $O "camview" >/dev/null; fi; }
 
 say "orbit"; $O "orbit Verdure 250 250" >/dev/null; sleep 12
+$O "target Echelon" >/dev/null
 say "coast, map and camera at random"
 for k in 1 2 3 4; do maybe_map; tp; sleep $(( 5 + RANDOM % 10 )); done
 say "warp up"; $O "map off" >/dev/null

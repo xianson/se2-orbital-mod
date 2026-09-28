@@ -346,7 +346,15 @@ public static class GameMap
             // Its glow (looped particle effects) is what makes the star bright; Deactivate stopped it and
             // left a model lit only by the sun's direction (dark from most angles). Activate(false): glow
             // on, label off (ours names it).
-            try { star.GetType().GetMethod("Activate", new[] { typeof(bool) })?.Invoke(star, new object[] { false }); } catch { }
+            // Given back with the map closed: Deactivate, as the game would (Activate there left its orange
+            // glow and model drawn at the map's spot, which follows you: a ball at your feet).
+            try
+            {
+                bool open = map.IsVisible;
+                if (visible && !open) star.GetType().GetMethod("Deactivate", Type.EmptyTypes)?.Invoke(star, null);
+                else star.GetType().GetMethod("Activate", new[] { typeof(bool) })?.Invoke(star, new object[] { false });
+            }
+            catch { }
             // Its model too: the star's entity is moved far outside the map through its ordinary
             // transform (not its render model: scaling that crashed the renderer), and put back after.
             // Left in place it drew a brown-dwarf globe over whichever planet sat at its charted spot.

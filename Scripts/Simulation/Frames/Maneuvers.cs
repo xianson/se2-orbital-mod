@@ -1033,7 +1033,7 @@ public static class Maneuvers
                 {
                     // Right-click it through the map's own path: the mouse there, and a right press.
                     var sz = MapPipeline.ScreenSize;
-                    UnifiedMap.DevMouse = new Vector2(l[i].s.X / sz.X, l[i].s.Y / sz.Y);
+                    GameMap.DevMouse = new Vector2(l[i].s.X / sz.X, l[i].s.Y / sz.Y);
                     MapInput.DevRightClick();
                 }
                 _devOp = null;
@@ -1080,7 +1080,7 @@ public static class Maneuvers
         double start = BurnStart(node);   // half the burn before the node (as KSP)
         BurnLine = (AutoBurn.Flying ? "Auto-burning " : node.Auto ? "Auto-burn " : "Next burn ") + $"{left:F1} m/s" + (IsFinite(burn) ? (burn < 60 ? $" ({Math.Max(1, burn):F0} s)" : $" ({Clock(burn)})") : "")
                    + (start > t ? $"   ·   in {Clock(start - t)}" : "   ·   now");
-        if (MapView.Visible || OrbitalMap.Active) return;
+        if (MapView.Visible) return;
         if (!FrameMarkers.BeginHud(session)) return;
         try
         {

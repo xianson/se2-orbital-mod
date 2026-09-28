@@ -22,7 +22,7 @@ public static class WarpBar
     /// <summary>In flight: its own HUD batch (the map draws it inside the map's batch).</summary>
     public static void DrawHud(Keen.VRage.Core.Game.Systems.Session session)
     {
-        if (MapView.Visible || OrbitalMap.Active || !SystemHost.Built) return;
+        if (MapView.Visible || !SystemHost.Built) return;
         if (FrameHost.PlayerFrame == null) return;   // on a planet (not on rails): no warp to show
         if (!FrameMarkers.BeginHud(session)) return;
         try

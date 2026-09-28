@@ -221,6 +221,6 @@ public static class MapCamera
         if (a.Length > 3 && a[1] == "pan") { _pan = new Vector3D(double.Parse(a[2]), 0, double.Parse(a[3])); return "pan " + _pan; }
         if (a.Length > 2 && a[1] == "zoom") { DevZoom = double.Parse(a[2]); return "map zoom " + DevZoom; }
         if (a.Length > 2) { _yaw = double.Parse(a[1]) * Math.PI / 180; _pitch = Math.Clamp(double.Parse(a[2]) * Math.PI / 180, MinPitch, MaxPitch); _init = true; }
-        return "map camera: " + Status + " | view " + CleanMap.Status + " | " + CleanMap.Frame +  " | vec " + MapPipeline.VectorStatus + " | " + UnifiedMap.StarDebug + " focus " + CleanMap.ViewFocus + " | click " + CleanMap.ClickDebug;
+        return "map camera: " + Status + " | view " + CleanMap.Status + " | " + CleanMap.Frame +  " | vec " + MapPipeline.VectorStatus + " | " + GameMap.StarDebug + " focus " + CleanMap.ViewFocus + " | click " + CleanMap.ClickDebug;
     }
 }

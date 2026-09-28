@@ -214,7 +214,7 @@ public static class OrbitHud
             else GameUi.UpdateCard(_card, title, content);
         }
         // Pe / Ap tags on the drawn orbit (world HUD annotations, like the game's markers).
-        if (r == null || MapView.Visible || OrbitalMap.Active) return;
+        if (r == null || MapView.Visible) return;
         if (!FrameMarkers.BeginHud(session)) return;
         try
         {

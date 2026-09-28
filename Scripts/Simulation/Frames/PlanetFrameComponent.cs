@@ -173,7 +173,7 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
             if (SpecCam.Current.HasValue) camera = SpecCam.Current.Value; // DEV spectator: build proxies for its viewpoint
             double mult = 1;
             try { mult = session.Get<Keen.VRage.Physics.IPhysics>().GravityMultiplier; } catch { }
-            try { UnifiedMap.Safety(session); } catch { }
+            try { GameMap.Safety(session); } catch { }
             try { FrameHost.Tick(session, camera, mult); } // once per frame (clock-deduped)
             catch (Exception ex) { FrameHost.Fault("FrameHost", ex); }
 
@@ -185,7 +185,7 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
             if (_beacon != null && _beacon.GravityReach > 0) { _law = _beacon.Gravity; _gravityReach = _beacon.GravityReach; }
             try { _law.Multiplier = session.Get<Keen.VRage.Physics.IPhysics>().GravityMultiplier; } catch { }
             PlanetRenderBridge.TickTerrain(_handles);
-            if (FrameHost.PlayerFrame == null && !OrbitalMap.Active && !MapView.Visible) OrbitDisplay.Consider(this, session, camera, center, _handles.Radius, _law, _planetName);
+            if (FrameHost.PlayerFrame == null && !MapView.Visible) OrbitDisplay.Consider(this, session, camera, center, _handles.Radius, _law, _planetName);
 
             // FRAMES MODE (the SE-Aerospace model): the observer is in a planet cell or a conjunction.
             if (TickFramesMode(camera, distance)) return;
@@ -354,7 +354,7 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
         _law = beacon?.Gravity ?? default;
         _beacon = beacon;
         _planetName = beacon != null ? DevHarness.PlanetName(beacon) : _name;
-        OrbitalMap.RegisterGlobe(_handles, center);
+        MapGlobes.Register(_handles, center);
 
         Log.Default?.Info($"[ORBIT] {_name}: resolved after {_setupAttempts} frames center={ServerPlanetBeacon.Fmt(center)} " +
                           $"beacon={(beacon != null ? beacon.Name : "NONE")} (of {PlanetBeacons.Count}) " +

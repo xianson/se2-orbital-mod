@@ -78,7 +78,7 @@ public static class FrameMarkers
         _hidden.RemoveWhere(h => !markers.Contains(h));
         Status = $"gps {markers.Count} marker(s), {moved} frame-transferred{(MapPipeline.GpsError.Length > 0 ? " (game draw: " + MapPipeline.GpsError + ")" : "")}";
 
-        if (_proxies.Count > 0 && !MapView.Visible && !OrbitalMap.Active) Draw(session);
+        if (_proxies.Count > 0 && !MapView.Visible) Draw(session);
     }
 
     /// <summary>Open a HUD draw batch in the map's font (the caller ends it with MapPipeline.UiEnd).</summary>

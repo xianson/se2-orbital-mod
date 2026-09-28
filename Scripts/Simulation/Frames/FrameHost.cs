@@ -171,7 +171,7 @@ public static class FrameHost
             Event($"warp x{SystemHost.Timescale} -> x1 (player is materialized; warp is rails-only)");
             SystemHost.Timescale = 1.0;
         }
-        if (OrbitalMap.Active || MapView.Visible) OrbitDisplay.Clear();
+        if (MapView.Visible) OrbitDisplay.Clear();
         else if (PlayerFrame != null && Observer.HasValue)
             OrbitDisplay.DrawFrameOrbit(session, camera, Observer.Value, PlayerFrame, reg, t);
         Guard("MapInput.Poll", () => MapInput.Poll());
@@ -188,7 +188,6 @@ public static class FrameHost
         Guard("WarpBar", () => WarpBar.DrawHud(session));
         // On rails the game's SPD (your velocity in the frame) is 0: show your speed about the body.
         Guard("HudSpeed", () => { if (PlayerFrame != null && OrbitHud.Current != null) GameUi.SetHudSpeed(session, (float)OrbitHud.Current.Speed); });
-        Guard("OrbitalMap.Tick", () => OrbitalMap.Tick(session, t));
         Guard("SunDriver.Tick", () => SunDriver.Tick(session, camera.Position, t));
     }
 

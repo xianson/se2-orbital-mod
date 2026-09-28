@@ -137,7 +137,7 @@ public static class EncounterFrames
         var reg = SystemHost.Registry;
         SectorsSessionComponent sectors = null;
         try { sectors = session.SessionComponents.TryGet<SectorsSessionComponent>(); } catch { }
-        var homes = sectors != null ? UnifiedMap.HomesBySector(sectors, reg) : new Dictionary<string, SectorHomes.Home>();
+        var homes = sectors != null ? GameMap.HomesBySector(sectors, reg) : new Dictionary<string, SectorHomes.Home>();
 
         // Candidates: unframed encounter / NPC grids outside every planet cell.
         var cand = new List<OrbitalGridComponent>();
@@ -541,7 +541,7 @@ public static class EncounterFrames
         Vector3D world = sc.Area.Center;
         GridMembers.SetPosition(g, world);
         GridMembers.SetVelocity(g, Vector3D.Zero);
-        var f = MakeSite(sectors, UnifiedMap.HomesBySector(sectors, SystemHost.Registry), world, g.DisplayName, t);
+        var f = MakeSite(sectors, GameMap.HomesBySector(sectors, SystemHost.Registry), world, g.DisplayName, t);
         if (f == null) { Event("devsite: no home for that sector"); return; }
         SystemHost.Frames.AddMember(f, gridId);
         _built = true;

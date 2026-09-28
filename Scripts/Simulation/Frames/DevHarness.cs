@@ -283,23 +283,6 @@ public static class DevHarness
                 SunDriver.Enabled = On(a[1]);
                 return $"sun driver={SunDriver.Enabled}";
 
-            case "omap":
-                // omap on|off | omap focus <system|auto|planet> | omap size <m> | omap view <bearing> <elev> [zoom] | omap spin <deg/s> | omap auto on|off
-                switch (a[1].ToLowerInvariant())
-                {
-                    case "on": return OrbitalMap.Open();
-                    case "off": return OrbitalMap.Close(session);
-                    case "focus": OrbitalMap.Focus = a[2]; return "focus=" + a[2];
-                    case "size": OrbitalMap.Size = D(a[2]); return "size=" + a[2];
-                    case "view":
-                        OrbitalMap.Bearing = D(a[2]); OrbitalMap.Elevation = D(a[3]);
-                        if (a.Length > 4) OrbitalMap.ZoomFactor = D(a[4]);
-                        return $"view {OrbitalMap.Bearing}/{OrbitalMap.Elevation} zoom {OrbitalMap.ZoomFactor}";
-                    case "spin": OrbitalMap.SpinDegPerSec = D(a[2]); return "spin=" + a[2];
-                    case "auto": OrbitalMap.AutoWithMapTab = On(a[2]); return "auto=" + On(a[2]);
-                }
-                return "omap on|off|focus|size|view|spin|auto";
-
             case "mapdiag":
                 MapView.DiagCross = On(a[1]);
                 return "mapdiag=" + MapView.DiagCross;
@@ -452,7 +435,7 @@ public static class DevHarness
 
             case "rclickat":
                 // rclickat <fx> <fy>: right click at a screen fraction (the map's context menu)
-                UnifiedMap.DevMouse = new Vector2((float)D(a[1]), (float)D(a[2]));
+                GameMap.DevMouse = new Vector2((float)D(a[1]), (float)D(a[2]));
                 MapInput.DevRightClick();
                 return $"right click at {a[1]},{a[2]}";
 
@@ -491,12 +474,12 @@ public static class DevHarness
 
             case "pickat":
                 // pickat <fx> <fy> | pickat off: a mouse position for the map pick (screen fractions)
-                if (a[1] == "off") { UnifiedMap.DevMouse = null; return "pickat off"; }
-                UnifiedMap.DevMouse = new Vector2((float)D(a[1]), (float)D(a[2]));
+                if (a[1] == "off") { GameMap.DevMouse = null; return "pickat off"; }
+                GameMap.DevMouse = new Vector2((float)D(a[1]), (float)D(a[2]));
                 return $"pickat {a[1]},{a[2]}";
 
             case "mapclick":
-                UnifiedMap.DevClick = true;
+                GameMap.DevClick = true;
                 return "mapclick queued";
 
             case "devfar":
@@ -542,12 +525,8 @@ public static class DevHarness
             }
 
             case "hidesectors":
-                UnifiedMap.HideGameSectors = On(a[1]);
-                return "hide game sector mesh=" + UnifiedMap.HideGameSectors;
-
-            case "bands":
-                UnifiedMap.BandSections = On(a[1]);
-                return "band sections=" + UnifiedMap.BandSections;
+                GameMap.HideGameSectors = On(a[1]);
+                return "hide game sector mesh=" + GameMap.HideGameSectors;
 
             case "perf":   // GPU / render / main thread ms (average/max since the last stats log)
                 return PlanetRenderBridge.FrameStats(session) + $" | mapcam {MapCamera.Enabled}: {MapCamera.Status}";
@@ -593,7 +572,7 @@ public static class DevHarness
                 return $"warp to t={SystemHost.WarpStopAt:F0} (now {SystemHost.Now:F0}), x{SystemHost.Timescale}";
 
             case "dblclick":   // dblclick <x> <y>: screen fractions
-                UnifiedMap.DevMouse = new Vector2((float)D(a[1]), (float)D(a[2]));
+                GameMap.DevMouse = new Vector2((float)D(a[1]), (float)D(a[2]));
                 MapInput.DevDoubleClick();
                 return "double-click queued";
 
@@ -613,8 +592,8 @@ public static class DevHarness
                 return "clean map=" + CleanMap.Enabled;
 
             case "unified":
-                UnifiedMap.Enabled = On(a[1]);
-                return "unified map=" + UnifiedMap.Enabled;
+                GameMap.Enabled = On(a[1]);
+                return "unified map=" + GameMap.Enabled;
 
             case "mapview":
                 MapView.Mode = (MapView.ViewMode)Enum.Parse(typeof(MapView.ViewMode), a[1], ignoreCase: true);
@@ -814,7 +793,7 @@ public static class DevHarness
     {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"restore {SavedState.LastRestore} | save {LastSave}");
-        sb.AppendLine($"mapview {MapView.Mode}: {MapView.Status} | omap {OrbitalMap.Status} | cam {SpecCam.Status}");
+        sb.AppendLine($"mapview {MapView.Mode}: {MapView.Status} | cam {SpecCam.Status}");
         sb.AppendLine($"sun {SunDriver.Status}");
         try
         {

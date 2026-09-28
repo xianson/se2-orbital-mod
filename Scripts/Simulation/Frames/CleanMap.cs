@@ -319,7 +319,7 @@ public static class CleanMap
         Vector3D Map(Vector3D rootPos) => Flat(rootPos - aPos);
         // The closest zoom: the body stays smaller than the camera's distance.
         double aR = anchor.IsRoot ? SystemHost.StarRadius : (reg.FindDefinition(anchor.Name)?.RadiusMeters ?? 6e4);
-        UnifiedMap.MinZoom = Math.Max(1e-7, 2.5 * aR * Sigma);
+        GameMap.MinZoom = Math.Max(1e-7, 2.5 * aR * Sigma);
 
         // Screen pixels per map unit at the view's centre (the level of detail goes by it).
         _pxPerV = 0;
@@ -353,7 +353,7 @@ public static class CleanMap
             _fitPending = false;
         }
 
-        Frame = $"anchor {anchor.Name} pxPerV {_pxPerV:G3} d {MapCamera.Distance:G3} min {UnifiedMap.MinZoom:G3} focusV {MapCamera.FocusV.Length():G3} scale {_wscale:G3}";
+        Frame = $"anchor {anchor.Name} pxPerV {_pxPerV:G3} d {MapCamera.Distance:G3} min {GameMap.MinZoom:G3} focusV {MapCamera.FocusV.Length():G3} scale {_wscale:G3}";
         _hits.Clear(); _crumbs.Clear();
         GravityBody focusPlanet = anchor.IsRoot ? null : anchor.Parent != null && !anchor.Parent.IsRoot ? anchor.Parent : anchor;
         string focus = focusPlanet?.Name;
@@ -774,8 +774,8 @@ public static class CleanMap
         Vector3D S(Vector3D helio) { double r = Math.Sqrt(helio.X * helio.X + helio.Y * helio.Y); double f = r > 0 ? Rs(r) / r : 0; return new Vector3D(helio.X * f, 0, helio.Y * f); }
 
         // The sun: a warm disc (its own section, coloured below), and its name.
-        StarWorld = W(Vector3D.Zero);   // the game's star model goes here (UnifiedMap.PlaceStar)
-        if (!UnifiedMap.StarPlaced && MapPipeline.ToScreen(W(Vector3D.Zero), out var sunS) && InOpenArea(sunS))
+        StarWorld = W(Vector3D.Zero);   // the game's star model goes here (GameMap.PlaceStar)
+        if (!GameMap.StarPlaced && MapPipeline.ToScreen(W(Vector3D.Zero), out var sunS) && InOpenArea(sunS))
         {
             float su = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
             float srpx = MapPipeline.ToScreen(W(new Vector3D(SystemHost.StarRadius * SolarRadius / outer, 0, 0)), out var sunE) ? (sunE - sunS).Length() : 0f;

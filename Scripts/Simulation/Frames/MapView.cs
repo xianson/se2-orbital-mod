@@ -83,12 +83,12 @@ public static class MapView
     {
         var map = Map(session);
         Visible = map != null && map.IsVisible;
-        if (map == null || !map.IsVisible || !SystemHost.Built) { MapCamera.Release(session); CleanMap.ResetView(); if (map != null) UnifiedMap.RestoreGame(map); MapGlobes.HideAll(); Clear(); Status = map == null ? "no map component" : "map closed"; return; }
+        if (map == null || !map.IsVisible || !SystemHost.Built) { MapCamera.Release(session); CleanMap.ResetView(); if (map != null) GameMap.RestoreGame(map); MapGlobes.HideAll(); Clear(); Status = map == null ? "no map component" : "map closed"; return; }
         SectorsSessionComponent sectors = null;
         try { sectors = session.SessionComponents.TryGet<SectorsSessionComponent>(); } catch { }
         if (sectors == null) { Status = "no sectors component"; return; }
 
-        FrameHost.Guard("MapCamera", () => { bool hm = UnifiedMap.TryMouse(map, out var mm); MapCamera.Tick(session, map, hm, mm); if (hm) DebugPanel.Tick(session, mm); });
+        FrameHost.Guard("MapCamera", () => { bool hm = GameMap.TryMouse(map, out var mm); MapCamera.Tick(session, map, hm, mm); if (hm) DebugPanel.Tick(session, mm); });
 
         _builder ??= CreateBuilder(session);
         if (_builder == null) { Status = "no mesh builder"; return; }
@@ -110,8 +110,8 @@ public static class MapView
 
         var reg = SystemHost.Registry;
         bool unified;
-        lock (ServerFrames.FramesLock) unified = UnifiedMap.Draw(session, _builder, map, sectors, camera.Position, mapPos, orient, t);
-        if (unified) { Status = UnifiedMap.Status; }
+        lock (ServerFrames.FramesLock) unified = GameMap.Draw(session, _builder, map, sectors, camera.Position, mapPos, orient, t);
+        if (unified) { Status = GameMap.Status; }
         // The old debug layers only on request (a world without map data drew their yellow text).
         else if (LegacyLayers) lock (ServerFrames.FramesLock)
         {

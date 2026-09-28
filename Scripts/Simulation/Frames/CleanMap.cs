@@ -663,6 +663,8 @@ public static class CleanMap
             double T = ht;
             title = "Trajectory  ·  in " + Maneuvers.Clock(T - t);
             items.Add(new MapMenu.Item("Add maneuver", () => Maneuvers.AddNodeAt(T)));
+            // Warp until the ship gets there (as KSP); other stops (burns, spheres) still come first.
+            if (T - t > 30) items.Add(new MapMenu.Item("Warp here", () => { SystemHost.WarpStopAt = T; WarpControl.SetLevel(WarpControl.Levels.Length - 1); }, FrameHost.PlayerFrame != null));
             if (hasNodes) items.Add(new MapMenu.Item("Remove all maneuvers", Maneuvers.ClearAll));
         }
         else if (Hovered != null)

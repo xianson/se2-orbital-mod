@@ -35,6 +35,9 @@ public static class SystemHost
     /// <summary>A body's name as shown to the player: the root is the star, named as the game names it.</summary>
     public static string DisplayName(string body) => body == Registry?.Root?.Name ? CleanMap.StarName : body;
 
+    /// <summary>Warp stops here (game time), NaN for none: 'Warp here' on the map.</summary>
+    public static double WarpStopAt = double.NaN;
+
     public const double SectorOrbitScale = 0.4;
     public const double AU = 1.495978707e11 * K * OrbitScale;   // 147,900 km
     public const double StarRadius = 6.9634e8 * K * OrbitScale;   // 689 km
@@ -165,6 +168,15 @@ public static class SystemHost
                 Timescale = 1.0;
             }
         }
+        // And at a time asked for ('Warp here' on the map).
+        if (Timescale > 1.0 && !double.IsNaN(WarpStopAt) && WarpStopAt <= next)
+        {
+            next = Math.Max(Now, WarpStopAt);
+            Log.Default?.Info($"[ORBIT-FRAME] warp x{Timescale} -> x1 at the point asked for (t={WarpStopAt:F1})");
+            Timescale = 1.0; WarpStopAt = double.NaN;
+            WarpControl.Say("Warp stopped: arrived");
+        }
+        if (Timescale <= 1.0) WarpStopAt = double.NaN;
         // And at a sphere-of-influence change on your path (as KSP): a flyby is seen, not skipped
         // (at x10000 one frame took the whole Palatine pass, periapsis and all).
         if (Timescale > 1.0 && FrameHost.PlayerFrame != null)

@@ -587,6 +587,11 @@ public static class DevHarness
                 Maneuvers.Target = a[1] == "off" ? null : string.Join(" ", a, 1, a.Length - 1);
                 return "target " + (Maneuvers.Target ?? "none");
 
+            case "warphere":   // warphere <minFromNow>: as the map menu's Warp here
+                SystemHost.WarpStopAt = SystemHost.Now + D(a[1]) * 60;
+                WarpControl.SetLevel(WarpControl.Levels.Length - 1);
+                return $"warp to t={SystemHost.WarpStopAt:F0} (now {SystemHost.Now:F0}), x{SystemHost.Timescale}";
+
             case "dblclick":   // dblclick <x> <y>: screen fractions
                 UnifiedMap.DevMouse = new Vector2((float)D(a[1]), (float)D(a[2]));
                 MapInput.DevDoubleClick();

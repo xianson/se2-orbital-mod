@@ -114,8 +114,40 @@ public static class Maneuvers
         string sig = Signature(t);
         if (t == _cT && sig == _cSig && _cLegs != null) { legs = _cLegs; applied = _cApplied; return _cOk; }
         _cOk = TrajectoryUncached(t, out legs, out applied);
+        if (_cOk) CutAtImpact(legs);
         _cT = t; _cSig = Signature(t); _cLegs = legs; _cApplied = applied;   // after: re-targeting clears Dirty
         return _cOk;
+    }
+
+    /// <summary>
+    /// A path that hits a body ends there: the leg is cut at the impact and nothing follows (it drew a
+    /// 'Palatine Escape' after the impact). The current orbit on the ground is handled elsewhere.
+    /// </summary>
+    private static void CutAtImpact(List<Leg> legs)
+    {
+        for (int i = 0; i < legs.Count; i++)
+        {
+            var l = legs[i];
+            double R = SystemHost.Registry?.FindDefinition(l.Body.Name)?.RadiusMeters ?? 0;
+            if (!(R > 0) || !(l.El.PeriapsisRadius < R) || !(l.T1 > l.T0)) continue;
+            double span = l.T1 - l.T0, prev = l.T0, hit = double.NaN;
+            if (OrbitPropagation.StateAt(l.El, l.T0).Position.Length() < R) continue;   // starts inside: leave it
+            for (int k = 1; k <= 240; k++)
+            {
+                double tk = l.T0 + span * k / 240;
+                if (OrbitPropagation.StateAt(l.El, tk).Position.Length() < R)
+                {
+                    double a = prev, b = tk;
+                    for (int q = 0; q < 30; q++) { double m = 0.5 * (a + b); if (OrbitPropagation.StateAt(l.El, m).Position.Length() < R) b = m; else a = m; }
+                    hit = 0.5 * (a + b); break;
+                }
+                prev = tk;
+            }
+            if (double.IsNaN(hit)) continue;
+            l.T1 = hit; legs[i] = l;
+            legs.RemoveRange(i + 1, legs.Count - i - 1);
+            return;
+        }
     }
 
     private static string Signature(double t)
@@ -316,11 +348,15 @@ public static class Maneuvers
             var col = legColour[li];
             MapPipeline.ScreenCircle(sp, 3.5f * u, col, 2f * u);
             bool escape = nb == pa.Body.Parent;
+            // A moon's comings and goings are too small to tell apart in the system view: not labelled there.
+            bool sysView = focusBody == null || focusBody == SystemHost.Registry?.Root?.Name;
+            GravityBody moonSide = escape ? pa.Body : nb;
+            bool moonAtSolarScale = sysView && moonSide.Parent != null && !moonSide.Parent.IsRoot;
             // Where the crossing really is (about the view's body): marked and named after the body
             // crossed: "Caligo Entry" going in, "Caligo Escape" coming out, "Kemik Escape" to the sun.
             {
                 Vector3D tl = toMap(RootAt(pa, tp), tp);
-                if (Math.Sqrt(tl.X * tl.X + tl.Z * tl.Z) <= limit * 1.04 && MapPipeline.ToScreen(W(tl), out var st) && InMapArea(st))
+                if (!moonAtSolarScale && Math.Sqrt(tl.X * tl.X + tl.Z * tl.Z) <= limit * 1.04 && MapPipeline.ToScreen(W(tl), out var st) && InMapArea(st))
                 {
                     MapPipeline.ScreenCircle(st, 5f * u, col, 2f * u);
                     MapPipeline.ScreenCircle(st, 1.5f * u, col, 2.5f * u);
@@ -329,7 +365,6 @@ public static class Maneuvers
                 }
             }
             // An encounter: the body where it will be, named (the ghost the arc is drawn about).
-            bool moonAtSolarScale = focusBody == null && nb.Parent != null && !nb.Parent.IsRoot;   // too small to tell apart there
             if (!escape && !nb.IsRoot && nb.Name != focusBody && !moonAtSolarScale && MapPipeline.ToScreen(W(Loc(nb, Vector3D.Zero, tp)), out var gs) && InMapArea(gs))
             {
                 // The ghost ring: padded round the body's true size on the map (its radius mapped like everything else).
@@ -562,7 +597,7 @@ public static class Maneuvers
                 AxisLabel(tip, dir, 11f * u, txt, c, u);
             }
         }
-        if (Selected != null && selS != default)
+        if (Selected != null && selS != default && InMapArea(selS))   // not pinned at the edge when off view
         {
             double dvm = Math.Sqrt(Selected.Pro * Selected.Pro + Selected.Nor * Selected.Nor + Selected.Rad * Selected.Rad);
             double left = selA.Dv.Length();

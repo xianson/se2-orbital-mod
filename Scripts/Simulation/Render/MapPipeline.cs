@@ -344,6 +344,18 @@ public static class MapPipeline
         try { _measureArgs[0] = text; return (Vector2)_measure.Invoke(_font, _measureArgs); } catch { return Vector2.Zero; }
     }
 
+    /// <summary>Text centred on a screen point, clear of labels placed before it (else left out).</summary>
+    public static void TextScreen(Vector2 s, string text, ColorSRGB color, float scale)
+    {
+        if (_batch == null || _drawString == null || _font == null) return;
+        var size = MeasureText(text, scale);
+        var box = new BoundingBox2(s - size * 0.5f - new Vector2(4, 2), s + size * 0.5f + new Vector2(4, 2));
+        foreach (var placed in _placed) if (placed.Intersects(box)) return;
+        _placed.Add(box);
+        if (PickName != null) AddPick(box.Min, box.Max);
+        ScreenText(s - size * 0.5f, text, color, scale);
+    }
+
     public static void Text(Vector3D at, string text, ColorSRGB color, float scale)
     {
         if (_batch == null || _drawString == null || _font == null || !Screen(at, out var s)) return;

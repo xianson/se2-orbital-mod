@@ -406,7 +406,7 @@ public static class CleanMap
         MapGlobes.Use(planet.Name, W(Vector3D.Zero), planetR, globes);
         BodyRing(W, Vector3D.Zero, planetR, 9f, Text, 1.5f);
         Hit(planet, W(Vector3D.Zero), W(new Vector3D(planetR, 0, 0)), 9f);
-        MapPipeline.Text(W(new Vector3D(0, 0, LabelGap(W, Vector3D.Zero, planetR, 9f, fit * 0.05))), planet.Name, Text, 0.9f);
+        BodyLabel(W, Vector3D.Zero, planetR, 9f, SystemHost.DisplayName(planet.Name), Text, 0.9f);
         foreach (var moon in planet.Children)
         {
             if (!SystemHost.BeaconOf.ContainsKey(moon.Name)) continue;
@@ -415,7 +415,7 @@ public static class CleanMap
             MapGlobes.Use(moon.Name, W(ml), (reg.FindDefinition(moon.Name)?.RadiusMeters ?? 2e4) * scaleSys, globes);
             BodyRing(W, ml, (reg.FindDefinition(moon.Name)?.RadiusMeters ?? 2e4) * scaleSys, 5f, Dim, 1.2f);
             Hit(moon, W(ml), W(ml + new Vector3D((reg.FindDefinition(moon.Name)?.RadiusMeters ?? 2e4) * scaleSys, 0, 0)), 5f);
-            MapPipeline.Text(W(ml + new Vector3D(0, 0, LabelGap(W, ml, (reg.FindDefinition(moon.Name)?.RadiusMeters ?? 2e4) * scaleSys, 5f, fit * 0.035))), moon.Name, Dim, 0.6f);
+            BodyLabel(W, ml, (reg.FindDefinition(moon.Name)?.RadiusMeters ?? 2e4) * scaleSys, 5f, moon.Name, Dim, 0.6f);
         }
 
         foreach (var bd in mine)
@@ -543,7 +543,7 @@ public static class CleanMap
         parts.Add(Annulus(SunPart, 0, Math.PI, 0, Math.Max(SystemHost.StarRadius * SolarRadius / outer, SolarRadius * 0.004)));   // true size
         BodyRing(W, Vector3D.Zero, SystemHost.StarRadius * SolarRadius / outer, 10f, new ColorSRGB(1f, 0.85f, 0.4f, 0.9f), 1.5f);
         Hit(root, W(Vector3D.Zero), W(new Vector3D(SystemHost.StarRadius * SolarRadius / outer, 0, 0)), 10f);
-        MapPipeline.Text(W(new Vector3D(0, 0, LabelGap(W, Vector3D.Zero, SystemHost.StarRadius * SolarRadius / outer, 10f, SolarRadius * 0.085))), StarName, Text, 0.85f);
+        BodyLabel(W, Vector3D.Zero, SystemHost.StarRadius * SolarRadius / outer, 10f, StarName, Text, 0.85f);
 
         // The belt: a torus of its own, and its sectors as band sections on it.
         double b0 = Rs(SectorHomes.BeltInnerAU * SystemHost.AU), b1 = Rs(SectorHomes.BeltOuterAU * SystemHost.AU);
@@ -595,7 +595,7 @@ public static class CleanMap
             BodyRing(W, c, (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, 8f, p.Name == playerPlanet ? You : Text, 1.5f);
             Hit(p, W(c), W(c + new Vector3D((reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, 0, 0)), 8f);
             int n = 0; foreach (var bd in bands) if (bd.Host == p.Name && bd.Home.Kind != SectorHomes.Kind.OwnPlanet) n++;
-            MapPipeline.Text(W(c + new Vector3D(0, 0, LabelGap(W, c, (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, 8f, SolarRadius * 0.045))), p.Name, p.Name == playerPlanet ? You : Text, 0.9f);
+            BodyLabel(W, c, (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, 8f, p.Name, p.Name == playerPlanet ? You : Text, 0.9f);
         }
         // You, orbiting the star: your orbit and where you are (planning: the planner draws it).
         if (playerPlanet == root.Name && playerOrbit.HasValue && !Planning)
@@ -755,6 +755,7 @@ public static class CleanMap
         bool same = ViewFocus == b.Name || (_viewBody != null && _viewBody == b);
         ViewFocus = b.Name;
         MapCamera.PanTo(W(Vector3D.Zero), smooth: same);
+        if (!same && UnifiedMap.DefaultDistance > 0) MapCamera.ZoomTo(UnifiedMap.DefaultDistance);   // another body: its view at the usual zoom
     }
 
     /// <summary>A breadcrumb part's size: the font's measure, but never under ~8 px a character per unit
@@ -818,6 +819,21 @@ public static class CleanMap
         float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
         double perPx = r / rpx;
         return (Math.Max(rpx, ringPx * u) + 16 * u) * perPx;
+    }
+
+    /// <summary>
+    /// A body's name centred just below it on screen: below its drawn disc (largest screen extent of
+    /// its radius, so a tilted view cannot tuck it under the globe) or its ring when that is bigger.
+    /// </summary>
+    static void BodyLabel(Func<Vector3D, Vector3D> W, Vector3D c, double r, float ringPx, string name, ColorSRGB col, float scale)
+    {
+        if (!MapPipeline.ToScreen(W(c), out var sc)) return;
+        float rpx = 0;
+        foreach (var ax in new[] { new Vector3D(r, 0, 0), new Vector3D(0, r, 0), new Vector3D(0, 0, r) })
+            if (MapPipeline.ToScreen(W(c + ax), out var se)) rpx = Math.Max(rpx, (se - sc).Length());
+        float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        float h = MapPipeline.MeasureText(name, scale).Y;
+        MapPipeline.TextScreen(sc + new Vector2(0, Math.Max(rpx, ringPx * u) + 6f * u + h * 0.5f), name, col, scale);
     }
 
     static string Km(double m) => Math.Abs(m) >= 10000 ? $"{m / 1000:N0} km" : $"{m / 1000:F1} km";

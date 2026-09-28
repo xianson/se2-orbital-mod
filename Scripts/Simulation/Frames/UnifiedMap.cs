@@ -38,6 +38,8 @@ public static class UnifiedMap
     private static float _baseMax = -1, _baseMin = -1;
     /// <summary>The game's original farthest map zoom (the unit of CleanMap's zoom u).</summary>
     public static double BaseMax => _baseMax;
+    /// <summary>The game's original opening zoom (camera distance).</summary>
+    public static double DefaultDistance;
     private static bool _gameHidden, _labelsHidden;
 
     // Colours: the colonization states, KSP conventions for orbits.
@@ -77,6 +79,7 @@ public static class UnifiedMap
         if (!_gameHidden)
         {
             float def = _baseMin + (_baseMax - _baseMin) * map.DefaultDistancePercentage / 100f;
+            DefaultDistance = def;
             if (def > 0) PlanetRenderBridge.SettleMapZoom(map, def, def);
         }
         HideGame(map);
@@ -764,6 +767,9 @@ public static class MapGlobes
     {
         var h = OrbitalMap.HandlesFor(body);
         if (h == null) return;
+        // Not over the game's panels (a 3D globe cannot be clipped): only when its centre is in the open area.
+        var scr = MapPipeline.ScreenSize;
+        if (MapPipeline.ToScreen(center, out var cs) && (cs.X < scr.X * 0.255f || cs.X > scr.X * 0.775f || cs.Y < scr.Y * 0.1f || cs.Y > scr.Y * 0.84f)) return;
         if (!_globes.TryGetValue(body, out var g)) { g = PlanetRenderBridge.CreateProxy(h, center, mapOnly: true); if (g == null) return; _globes[body] = g; }
         PlanetRenderBridge.UpdateProxy(h, g, center, radius);
         PlanetRenderBridge.SetProxyVisible(g, true);

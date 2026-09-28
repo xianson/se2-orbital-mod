@@ -74,7 +74,7 @@ public static class PlanetRenderBridge
         public object Model;
         public bool Visible;
         public float LastScale = -1f;
-        /// <summary>A map globe (no atmosphere), else a world proxy.</summary>
+        /// <summary>A map globe, else a world proxy.</summary>
         public bool MapOnly;
         /// <summary>Its atmosphere (the game's PlanetEnvironmentEntity, boxed), where it was made, and at what scale.</summary>
         public object Atmo;
@@ -341,7 +341,7 @@ public static class PlanetRenderBridge
                 FindSetEntityCustomData(p.Model.GetType())?.MakeGenericMethod(_scaleDataType).Invoke(p.Model, new[] { data });
                 p.LastScale = scale;
             }
-            if (ProxyAtmospheres && !p.MapOnly && p.Visible) UpdateAtmosphere(h, p, center, radius);
+            if (ProxyAtmospheres && p.Visible) UpdateAtmosphere(h, p, center, radius);   // world proxies and map globes alike
         }
         catch (Exception e) { WarnOnce("proxy-update", $"proxy update failed for {h.Name}: {Inner(e)}"); }
     }

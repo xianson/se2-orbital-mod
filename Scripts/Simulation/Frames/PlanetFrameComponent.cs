@@ -149,6 +149,13 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
 
     private void Tick(IObservers observers)
     {
+        // The whole job body guarded: an exception here would escape into the engine's job (fatal).
+        try { TickBody(observers); }
+        catch (Exception ex) { FrameHost.Fault("PlanetFrame job", ex); }
+    }
+
+    private void TickBody(IObservers observers)
+    {
         if (_disabled) return;
         if (!observers.TryGetFirstTransform(CameraTag, out WorldTransform camera)) return;
 
@@ -159,6 +166,7 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
             if (SpecCam.Current.HasValue) camera = SpecCam.Current.Value; // DEV spectator: build proxies for its viewpoint
             double mult = 1;
             try { mult = session.Get<Keen.VRage.Physics.IPhysics>().GravityMultiplier; } catch { }
+            try { UnifiedMap.Safety(session); } catch { }
             try { FrameHost.Tick(session, camera, mult); } // once per frame (clock-deduped)
             catch (Exception ex) { FrameHost.Fault("FrameHost", ex); }
 

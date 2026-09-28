@@ -96,8 +96,12 @@ public static class GridMembers
     }
 
     /// <summary>Set linear velocity, keep angular (the pilot's).</summary>
+    /// <summary>A finite vector (NaN from the orbital math must never reach the engine).</summary>
+    public static bool Finite(Vector3D v) => !(double.IsNaN(v.X) || double.IsNaN(v.Y) || double.IsNaN(v.Z) || double.IsInfinity(v.X) || double.IsInfinity(v.Y) || double.IsInfinity(v.Z));
+
     public static bool SetVelocity(OrbitalGridComponent g, Vector3D v)
     {
+        if (!Finite(v)) { NaNRefused++; return false; }
         try
         {
             ref RigidBodyData rb = ref g.Entity.Data.TryGetWritePtr<RigidBodyData>();
@@ -165,8 +169,12 @@ public static class GridMembers
     }
 
     /// <summary>Move the grid (orientation kept), the way the engine's own admin teleport does.</summary>
+    /// <summary>Writes refused for a non-finite value (a sign of bad orbital state upstream).</summary>
+    public static int NaNRefused;
+
     public static bool SetPosition(OrbitalGridComponent g, Vector3D p)
     {
+        if (!Finite(p)) { NaNRefused++; return false; }
         try
         {
             var wt = g.Entity.Data.GetWorldTransform();

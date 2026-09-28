@@ -33,6 +33,7 @@ public static class MapPipeline
     private static object _originalModel;      // the game's own sector model (restored on close)
     private static bool _haveOriginal;
     private static object _ourModel;           // boxed RuntimeModel we own
+    private static object _renderer;           // the sector renderer that state belongs to
     public static string LastError;
 
     private static bool ResolveMesh()
@@ -162,10 +163,19 @@ public static class MapPipeline
             // Swap it into the game's renderer (keep the original to restore).
             FieldInfo fModel = FindField(sectorsRenderer.GetType(), "_proceduralSectorModel");
             if (fModel == null) { LastError = "renderer model field not found"; return false; }
-            if (!_haveOriginal) { _originalModel = fModel.GetValue(sectorsRenderer); _haveOriginal = true; }
+            // State from another renderer (another session): forget it, dispose nothing of it.
+            if (!ReferenceEquals(_renderer, sectorsRenderer)) { _haveOriginal = false; _ourModel = null; _originalModel = null; _renderer = sectorsRenderer; }
+            object cur = fModel.GetValue(sectorsRenderer);
+            if (!_haveOriginal) { _originalModel = cur; _haveOriginal = true; }
+            else if (_ourModel != null && !ReferenceEquals(cur, _ourModel))
+            {
+                // The game rebuilt its model meanwhile (sectors changed) and disposed ours with it:
+                // what it holds now is its own; ours is gone (disposing it again crashes the renderer).
+                _originalModel = cur; _ourModel = null;
+            }
             fModel.SetValue(sectorsRenderer, model);
             ApplyModel(sectorsRenderer);
-            DisposeModel(_ourModel);
+            DisposeModel(_ourModel);   // the previous one of ours, still ours
             _ourModel = model;
             LastError = null;
             return true;
@@ -187,12 +197,19 @@ public static class MapPipeline
     public static void Restore(object sectorsRenderer)
     {
         if (sectorsRenderer == null || !_haveOriginal) return;
+        if (!ReferenceEquals(_renderer, sectorsRenderer)) { _haveOriginal = false; _ourModel = null; _originalModel = null; return; }
         try
         {
-            FindField(sectorsRenderer.GetType(), "_proceduralSectorModel")?.SetValue(sectorsRenderer, _originalModel);
-            ApplyModel(sectorsRenderer);
-            DisposeModel(_ourModel);
-            _ourModel = null;
+            var f = FindField(sectorsRenderer.GetType(), "_proceduralSectorModel");
+            object cur = f?.GetValue(sectorsRenderer);
+            if (f != null && _ourModel != null && ReferenceEquals(cur, _ourModel))
+            {
+                f.SetValue(sectorsRenderer, _originalModel);
+                ApplyModel(sectorsRenderer);
+                DisposeModel(_ourModel);
+            }
+            // else: the game replaced ours (and disposed it); leave its model in place.
+            _ourModel = null; _originalModel = null;
             _haveOriginal = false;
         }
         catch (Exception e) { LastError = (e.InnerException ?? e).Message; }

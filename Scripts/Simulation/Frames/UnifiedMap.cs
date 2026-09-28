@@ -485,7 +485,35 @@ public static class UnifiedMap
         }
         catch (Exception e) { PickStatus = "pick: " + e.Message; }
     }
-    private static object _stashedController;
+    private static object _stashedController, _stashedFrom;
+
+    /// <summary>Put the markers renderer's player controller back (only into the renderer it came from).</summary>
+    static void RestoreController(object mr)
+    {
+        if (_stashedController == null) return;
+        if (ReferenceEquals(mr, _stashedFrom) && PlanetRenderBridge.GetMember(mr, "_playerControllerComponent") == null)
+            PlanetRenderBridge.SetMember(mr, "_playerControllerComponent", _stashedController);
+        _stashedController = null; _stashedFrom = null;
+    }
+
+    /// <summary>
+    /// Every frame, first thing (before anything that can fail): the markers renderer's controller is
+    /// back whenever the map is not ours to draw, or the game has switched the renderer on again (its
+    /// ShowMap does; its UpdateMarkers job dereferences the controller unguarded).
+    /// </summary>
+    public static void Safety(Keen.VRage.Core.Game.Systems.Session session)
+    {
+        if (_stashedController == null) return;
+        try
+        {
+            var map = MapView.Map(session);
+            var mr = map != null ? PlanetRenderBridge.GetMember(map, "MarkersRenderer") : null;
+            if (mr == null || !ReferenceEquals(mr, _stashedFrom)) { _stashedController = null; _stashedFrom = null; return; }   // another session: forget
+            bool enabled = PlanetRenderBridge.GetMember(mr, "Enabled") is bool e && e;
+            if (!map.IsVisible || enabled) RestoreController(mr);
+        }
+        catch { }
+    }
 
     private static void SetGameVisible(ColonizationMapSessionComponent map, bool visible)
     {
@@ -524,13 +552,9 @@ public static class UnifiedMap
                 if (!visible)
                 {
                     var pc = PlanetRenderBridge.GetMember(mr, "_playerControllerComponent");
-                    if (pc != null) { _stashedController = pc; PlanetRenderBridge.SetMember(mr, "_playerControllerComponent", null); }
+                    if (pc != null) { _stashedController = pc; _stashedFrom = mr; PlanetRenderBridge.SetMember(mr, "_playerControllerComponent", null); }
                 }
-                else if (_stashedController != null)
-                {
-                    PlanetRenderBridge.SetMember(mr, "_playerControllerComponent", _stashedController);
-                    _stashedController = null;
-                }
+                else RestoreController(mr);
             }
         }
         catch { }

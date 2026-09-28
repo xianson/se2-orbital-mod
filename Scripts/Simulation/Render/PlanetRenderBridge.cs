@@ -319,6 +319,7 @@ public static class PlanetRenderBridge
     public static void UpdateProxy(PlanetHandles h, Proxy p, Vector3D center, double radius)
     {
         if (p == null) return;
+        if (!GridMembers.Finite(center) || double.IsNaN(radius) || double.IsInfinity(radius) || radius <= 0) return;   // never a NaN transform or scale to the renderer
         try
         {
             _rootUpdateTransform ??= p.Root.GetType().GetMethod("UpdateTransform");
@@ -722,6 +723,7 @@ public static class PlanetRenderBridge
     /// </summary>
     public static bool TeleportPlayer(Keen.VRage.Core.Game.Systems.Session session, WorldTransform target, bool clearMotion = true)
     {
+        if (!GridMembers.Finite(target.Position)) return false;
         try
         {
             if (_teleportPlayer == null)
@@ -777,12 +779,22 @@ public static class PlanetRenderBridge
     /// Scale a colonization-map object (MapObjectRenderComponent.UpdateScale, the engine's own path).
     /// multiplier &lt;= 0 restores its configured scale. Used to hide the game's globes safely.
     /// </summary>
+    private static readonly Dictionary<object, float> _origScale = new Dictionary<object, float>(ReferenceEqualityComparer.Instance);
+
     public static void ScaleMapObject(object mapObject, float multiplier)
     {
         if (mapObject == null) return;
         try
         {
-            float m = multiplier > 0 ? multiplier : (GetMember(mapObject, "_scale") is float s ? s : 1f);
+            // Only on a live model entity (UpdateScale sends SetEntityCustomData unchecked; a dead or
+            // non-model id is fatal on the render thread, as the star's was).
+            object model = GetMember(mapObject, "RenderModelEntity");
+            if (model == null || !(GetMember(model, "IsValid") is bool ok) || !ok || model.GetType().Name != "ModelEntity") return;
+            // Its own scale, remembered before the first change (UpdateScale overwrites _scale, so reading
+            // it back to restore re-applied the tiny hide scale).
+            if (!_origScale.ContainsKey(mapObject)) _origScale[mapObject] = GetMember(mapObject, "_scale") is float s0 && s0 > 0 ? s0 : 1f;
+            float m = multiplier > 0 ? multiplier : _origScale[mapObject];
+            if (!(m > 0) || float.IsInfinity(m)) return;
             mapObject.GetType().GetMethod("UpdateScale")?.Invoke(mapObject, new object[] { m });
         }
         catch (Exception e) { WarnOnce("mapobj-scale", $"map object scale failed: {Inner(e)}"); }

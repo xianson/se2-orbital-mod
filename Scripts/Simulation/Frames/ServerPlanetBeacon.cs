@@ -143,6 +143,13 @@ public partial class ServerPlanetBeacon
     [MustHave(typeof(ServerPlanetBeacon))]
     private static void BeaconJob(ServerPlanetBeacon beacon)
     {
+        // Guarded as a whole (an exception here escapes into the engine's job).
+        try { BeaconJobBody(beacon); }
+        catch (Exception ex) { FrameHost.Fault("Beacon job", ex); }
+    }
+
+    private static void BeaconJobBody(ServerPlanetBeacon beacon)
+    {
         try { ServerFrames.Tick(beacon.Entity.GetSession()); }
         catch (Exception ex) { FrameHost.Fault("ServerFrames", ex); }
         try { ServerGravityMultiplier = beacon.Entity.GetSession().Get<Keen.VRage.Physics.IPhysics>().GravityMultiplier; } catch { }

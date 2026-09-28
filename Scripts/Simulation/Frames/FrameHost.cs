@@ -431,6 +431,9 @@ public static class FrameHost
     /// <summary>Load: back onto the saved HighSpeed conic (the saved position is already on it).</summary>
     public static void RestoreHighSpeed(string body, KeplerianElements el)
     {
+        // A saved state that is not a real orbit (a hand-edited or corrupt save): ignored.
+        if (!IsFinite(el.SemiMajorAxis) || !IsFinite(el.Eccentricity) || !IsFinite(el.MeanMotion) || !IsFinite(el.Epoch) || el.Eccentricity < 0)
+        { Event($"saved HighSpeed state for {body} ignored: not finite"); return; }
         _hsBody = body; _hsEl = el; _hsActive = true; _wasInKeep = true;
         var noDamp = new PlayerRequest { Dampeners = false };
         ServerPlanetBeacon.PendingPlayer = noDamp;
@@ -589,6 +592,7 @@ public static class FrameHost
 
         Vector3D target = cell + Chart.Of(_hsBody, t).FromInertial(st.Position);
         SetVelocity(ch, Vector3D.Zero);
+        if (!GridMembers.Finite(target)) { GridMembers.NaNRefused++; _hsActive = false; Event("HighSpeed left: non-finite state"); return measured; }   // bad orbital state: back to physics
         var wt = ch.Data.GetWorldTransform();
         ch.Data.Set(new WorldTransform(target, wt.Orientation));
         // The client write alone is overridden by the character controller (seen in game);
@@ -762,6 +766,7 @@ public static class FrameHost
         {
             Vector3D p = pos + _pendingShift;
             _pendingShift = Vector3D.Zero;
+            if (!GridMembers.Finite(p)) { GridMembers.NaNRefused++; return false; }
             var wt = ch.Data.GetWorldTransform();
             ch.Data.Set(new WorldTransform(p, wt.Orientation));
             ServerPlanetBeacon.PendingPlayer = new PlayerRequest { Position = p };

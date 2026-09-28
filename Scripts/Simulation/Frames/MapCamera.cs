@@ -32,9 +32,11 @@ public static class MapCamera
     private static QuaternionD _mapQ = QuaternionD.Identity;
 
     /// <summary>Centre the view on a point of the map (world); from the next frame.</summary>
+    static bool Finite(Vector3D v) => !(double.IsNaN(v.X) || double.IsNaN(v.Y) || double.IsNaN(v.Z) || double.IsInfinity(v.X) || double.IsInfinity(v.Y) || double.IsInfinity(v.Z));
+
     public static void PanTo(Vector3D world, bool smooth = false)
     {
-        if (!Focus.HasValue) return;
+        if (!Focus.HasValue || !Finite(world)) return;
         if (smooth) _panGoal = world - _focusGame;
         else { _pan = world - _focusGame; _panGoal = null; }
     }
@@ -164,6 +166,14 @@ public static class MapCamera
         Vector3D dir = Vector3D.Normalize(Math.Cos(_pitch) * (Math.Sin(_yaw) * east + Math.Cos(_yaw) * north) - Math.Sin(_pitch) * up);
         Vector3D camUp = Vector3D.Normalize(Vector3D.Cross(Vector3D.Cross(dir, up), dir));
         var wt = new WorldTransform(focus - dir * d, Quaternion.CreateFromForwardUp((Vector3)dir, (Vector3)camUp));
+        // Never a NaN transform to the engine (it does not check; a NaN camera crashes the renderer).
+        if (!Finite(wt.Position) || !wt.Orientation.IsValidAndRotationIsNormalized() || !Finite(_pan))
+        {
+            _pan = Vector3D.Zero; _panGoal = null;
+            Release(session);
+            Status = "camera reset (invalid transform)";
+            return;
+        }
         cam.SetTransformOverride(wt);
         _overridden = true; Distance = d;
         Status = $"yaw {_yaw * 180 / Math.PI:F0} pitch {_pitch * 180 / Math.PI:F0} dist {d:F3} pan {_pan.Length():F3}{(Dragging ? " " + _mode : "")}";

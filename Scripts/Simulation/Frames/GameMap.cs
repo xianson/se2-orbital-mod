@@ -424,7 +424,12 @@ public static class GameMap
             if (show)
             {
                 var q = (QuaternionD)orient;
-                Vector3D d = at.Value - mapPos;
+                // Bigger on screen, same place: moved toward the camera along its line of sight (its
+                // model cannot be scaled; scaling its render entity crashed the renderer).
+                Vector3D atW = at.Value;
+                var camP = MapPipeline.CameraPosition;
+                if (camP.HasValue && StarScale > 1) atW = camP.Value + (atW - camP.Value) / StarScale;
+                Vector3D d = atW - mapPos;
                 var local = new Vector3((float)Vector3D.Dot(d, q * Vector3D.UnitX), (float)Vector3D.Dot(d, q * Vector3D.UnitY), (float)Vector3D.Dot(d, q * Vector3D.UnitZ));
                 if (float.IsNaN(local.X) || float.IsNaN(local.Y) || float.IsNaN(local.Z)) show = false;
                 else
@@ -441,6 +446,8 @@ public static class GameMap
     }
     /// <summary>The game's star model is on the map this frame (the map then draws no disc of its own).</summary>
     public static bool StarPlaced;
+    /// <summary>How much bigger than its own model Delfos shows on the map.</summary>
+    public static double StarScale = 3.0;
     public static string StarDebug = "-";
 
     private static bool? _starShown; private static object _star;

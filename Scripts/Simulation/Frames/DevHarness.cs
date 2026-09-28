@@ -583,6 +583,10 @@ public static class DevHarness
                 MapCamera.Enabled = On(a[1]);
                 return "map camera " + MapCamera.Enabled;
 
+            case "starscale":   // starscale <n>: Delfos on the map n times its model's size
+                if (a.Length > 1) GameMap.StarScale = Math.Max(1, D(a[1]));
+                return "star scale " + GameMap.StarScale;
+
             case "mapcam":
                 return MapCamera.Dev(a);
 

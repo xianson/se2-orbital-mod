@@ -465,6 +465,7 @@ public static class MapPipeline
 
     /// <summary>A world point on screen (false behind the camera).</summary>
     /// <summary>The map camera's orientation (a screen-aligned offset for sizes on screen).</summary>
+    public static Vector3D? CameraPosition => _cam != null ? _cam.Entity.Data.GetWorldTransform().Position : (Vector3D?)null;
     public static Quaternion CameraOrientation => _cam != null ? _cam.Entity.Data.GetWorldTransform().Orientation : Quaternion.Identity;
     public static bool ToScreen(Vector3D world, out Vector2 s) { s = default; return _cam != null && Screen(world, out s); }
 

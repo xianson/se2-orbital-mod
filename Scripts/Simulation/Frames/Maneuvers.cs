@@ -301,20 +301,40 @@ public static class Maneuvers
             bool ownConic = l.Body.Name == focusBody || !l.Body.IsRoot;
             if (ownConic && l.El.IsElliptic && IsFinite(l.El.Period) && span > l.El.Period) span = l.El.Period;
             int n = Math.Max(24, Math.Min(200, (int)(160 * Math.Min(1.0, span / (l.El.IsElliptic && IsFinite(l.El.Period) ? l.El.Period : span)))));
-            Vector2 prev = default; bool hp = false;
+            Vector2 prev = default; bool hp = false; double prevT = l.T0;
+            // Evenly in time, then refined where the screen gap is large: a hyperbolic pass spends
+            // almost all its time far out, and its periapsis came out as a few straight kinks.
+            bool Pt(double tk, out Vector2 sp)
+            {
+                sp = default;
+                Vector3D loc = LegLoc(l, tk);
+                if (Math.Sqrt(loc.X * loc.X + loc.Z * loc.Z) > limit * 1.04) return false;
+                return MapPipeline.ToScreen(W(loc), out sp) && InMapArea(sp);
+            }
+            void Emit(double tk, Vector2 sp)
+            {
+                samples.Add(new Sample { T = tk, S = sp, Planned = l.Planned });
+                if (hp && drawn)
+                {
+                    if (l.Planned) MapPipeline.ScreenDashed(prev, sp, col, 2f * u, u);
+                    else MapPipeline.ScreenLine(prev, sp, col, 2.2f * u);
+                }
+                prev = sp; prevT = tk; hp = true;
+            }
+            void Refine(double ta, Vector2 sa, double tb, Vector2 sb, int depth)
+            {
+                if (depth < 7 && (sb - sa).Length() > 8f * u)
+                {
+                    double tm = 0.5 * (ta + tb);
+                    if (Pt(tm, out var sm)) { Refine(ta, sa, tm, sm, depth + 1); Emit(tm, sm); Refine(tm, sm, tb, sb, depth + 1); }
+                }
+            }
             for (int k = 0; k <= n; k++)
             {
                 double tk = l.T0 + span * k / n;
-                Vector3D loc = LegLoc(l, tk);
-                if (Math.Sqrt(loc.X * loc.X + loc.Z * loc.Z) > limit * 1.04) { hp = false; continue; }
-                if (!MapPipeline.ToScreen(W(loc), out var s) || !InMapArea(s)) { hp = false; continue; }
-                samples.Add(new Sample { T = tk, S = s, Planned = l.Planned });
-                if (hp && drawn)
-                {
-                    if (l.Planned) MapPipeline.ScreenDashed(prev, s, col, 2f * u, u);
-                    else MapPipeline.ScreenLine(prev, s, col, 2.2f * u);
-                }
-                prev = s; hp = true;
+                if (!Pt(tk, out var s)) { hp = false; continue; }
+                if (hp) Refine(prevT, prev, tk, s, 0);
+                Emit(tk, s);
             }
             // A pass drawn about a ghost is also drawn where it really is about the view's body, faint
             // and thin: it joins the path before the encounter to the path after it.

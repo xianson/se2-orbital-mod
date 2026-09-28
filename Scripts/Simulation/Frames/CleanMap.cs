@@ -830,18 +830,11 @@ public static class CleanMap
     /// <summary>The title block's height: the path, your situation, and the burn and target lines when there are.</summary>
     static float TitleHeight(Vector2 sc)
     {
-        int lines = 2 + (Maneuvers.BurnLine != null ? 1 : 0) + (Maneuvers.TargetLine(SystemHost.Now) != null ? 1 : 0);
-        return sc.Y * (0.034f + 0.028f * lines);
+        return sc.Y * 0.045f;   // the path line only
     }
 
     static void Title(GravityBody view, string playerPlanet, KeplerianElements? orbit)
     {
-        // A dark plate under the title lines: orbit lines pass behind them.
-        {
-            var sc = MapPipeline.ScreenSize;
-            var p0 = new Vector2(sc.X * 0.26f, sc.Y * 0.118f);
-            MapPipeline.ScreenRect(p0, p0 + new Vector2(sc.X * 0.3f, TitleHeight(sc)), new ColorSRGB(0.01f, 0.02f, 0.03f, 0.85f));
-        }
         var scr = MapPipeline.ScreenSize;
         var at = new Vector2(scr.X * 0.265f, scr.Y * 0.125f);
         // The breadcrumb: each part a click target (up to the star, down to what is in view).
@@ -865,24 +858,9 @@ public static class CleanMap
                 x += gap; MapPipeline.ScreenText(new Vector2(x, at.Y), ">", Dim, 1.05f); x += CrumbSize(">").X + gap;
             }
         }
-        MapPipeline.Reserve(at - new Vector2(4, 4), at + new Vector2(scr.X * 0.3f, scr.Y * 0.09f));
+        MapPipeline.Reserve(at - new Vector2(4, 4), at + new Vector2(scr.X * 0.3f, scr.Y * 0.035f));
         _titleAt = at;
-        string you;
-        if (FrameHost.PlayerFrame == null && FrameHost.Grounded && playerPlanet != null) you = $"You: on {playerPlanet}";
-        else if (orbit.HasValue && playerPlanet != null)
-        {
-            var o = orbit.Value;
-            double r = SystemHost.Registry?.FindDefinition(playerPlanet)?.RadiusMeters ?? 0;
-            string pe = Km(o.PeriapsisRadius - r);
-            string ap = o.IsElliptic ? Km(o.SemiMajorAxis * (1 + o.Eccentricity) - r) : "escape";
-            you = $"You: orbiting {SystemHost.DisplayName(playerPlanet)}   Pe {pe}   Ap {ap}";
-        }
-        else you = playerPlanet != null ? $"You: near {SystemHost.DisplayName(playerPlanet)}" : "";
-        if (you.Length > 0) MapPipeline.ScreenText(at + new Vector2(0, scr.Y * 0.034f), you, You, 0.78f);
-        string burn = Maneuvers.BurnLine;
-        if (burn != null) MapPipeline.ScreenText(at + new Vector2(0, scr.Y * 0.062f), burn, Dim, 0.78f);
-        string tgt = Maneuvers.TargetLine(SystemHost.Now);
-        if (tgt != null) MapPipeline.ScreenText(at + new Vector2(0, scr.Y * (burn != null ? 0.09f : 0.062f)), tgt, TargetText, 0.78f);
+        // (Only the path: the title box and the you / burn / target lines were removed on request.)
     }
 
     /// <summary>

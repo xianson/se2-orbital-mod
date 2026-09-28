@@ -226,6 +226,7 @@ public static class FrameHost
         StateVector borg = node.OriginInRoot(t);
         Chart chart = legacy ? default : Chart.Of(body, t);
         Vector3D relChart = pos - cell;
+        double chartSpeed = vel.Length();   // speed in the planet's world (before the inertial conversion)
         Vector3D rel = chart.ToInertial(relChart);
         if (!_hsActive) vel = chart.VelToInertial(relChart, vel);   // HighSpeed carries the inertial velocity
         Vector3D cel = borg.Position + rel;
@@ -239,7 +240,9 @@ public static class FrameHost
         if (d < keep)
         {
             _wasInKeep = true;
-            if (!ForceStow)
+            // Faster than the world allows, well above the ground: onto rails (the rails carry the speed).
+            bool tooFast = def != null && chartSpeed > SpeedCap * 1.02 && d - def.RadiusMeters > SurfaceGuard * 1.5;
+            if (!ForceStow && !tooFast)
             {
                 if (d < shell * PlanetBerths.StowShellMargin) return;                       // voxel frame owns low flight
                 if (!IsFinite(elBody.SemiMajorAxis) || !FrameRails.EscapesShell(elBody, t, shell, keep, MaterializeLead)) return;
@@ -384,21 +387,14 @@ public static class FrameHost
         Vector3D worldPos = cellCenter + chart.FromInertial(cel.Position);   // the cell is the planet's rotating chart
         Vector3D worldVel = chart.VelFromInertial(cel.Position, cel.Velocity);
         double speed = worldVel.Length();
-        // Above the cap the planet cell runs HighSpeed: land with zero physics velocity and carry the
-        // true velocity virtually (StepHighSpeed). Below it, plain physics.
-        bool hs = speed > SpeedCap;
-        Vector3D applied = hs ? Vector3D.Zero : worldVel;
-        // HighSpeed continues on the SAME conic the rails were flying (the frame's elements about this body).
-        _hsActive = hs;
-        _hsVel = worldVel;
-        if (hs) { _hsEl = f.Elements; _hsBody = node.Name; }
-        if (hs)
-        {
-            // HighSpeed senses gravity through the physics step; jetpack dampeners would cancel it.
-            var noDamp = new PlayerRequest { Dampeners = false };
-            ServerPlanetBeacon.ApplyToCharacter(session, noDamp, "client");
-            ServerPlanetBeacon.PendingPlayer = noDamp;
-        }
+        // Faster than the world allows: stay on rails (no HighSpeed; the rails carry any speed). The
+        // world takes over once slower, or down at the surface guard, where the speed is capped.
+        double alt = cel.Position.Length() - def.RadiusMeters;
+        if (speed > SpeedCap && alt > SurfaceGuard) return;
+        bool capped = speed > SpeedCap;
+        Vector3D applied = capped ? worldVel * (SpeedCap / speed) : worldVel;
+        bool hs = false;
+        _hsActive = false;
 
         long fid = f.Id;
         SystemHost.Frames.Dissolve(fid);
@@ -406,7 +402,7 @@ public static class FrameHost
         _wasInKeep = true;
         StartTeleport(session, worldPos, applied, t);
         Event($"ARRIVE frame #{fid} -> {node.Name} cell: r={cel.Position.Length() / 1000:F1} km (shell {shell / 1000:F1}) " +
-              $"|v|={speed:F0} m/s{(hs ? " -> HighSpeed" : "")}");
+              $"|v|={speed:F0} m/s{(capped ? $" -> capped to {SpeedCap:F0} at the surface guard ({alt / 1000:F1} km)" : "")}");
     }
 
     // ───────────────────────────── HighSpeed (planet cell, above the cap) ─────────────────────────────
@@ -434,9 +430,9 @@ public static class FrameHost
         // A saved state that is not a real orbit (a hand-edited or corrupt save): ignored.
         if (!IsFinite(el.SemiMajorAxis) || !IsFinite(el.Eccentricity) || !IsFinite(el.MeanMotion) || !IsFinite(el.Epoch) || el.Eccentricity < 0)
         { Event($"saved HighSpeed state for {body} ignored: not finite"); return; }
-        _hsBody = body; _hsEl = el; _hsActive = true; _wasInKeep = true;
-        var noDamp = new PlayerRequest { Dampeners = false };
-        ServerPlanetBeacon.PendingPlayer = noDamp;
+        // (HighSpeed is gone: a saved HighSpeed conic goes onto rails with the same orbit.)
+        _pendingOrbit = (body, el);
+        ForceStow = true;
     }
     public static Vector3D HighSpeedVelocity => _hsVel;
     public static string HighSpeedElements => _hsActive ? $"a={_hsEl.SemiMajorAxis / 1000:F2}km,e={_hsEl.Eccentricity:F4}" : "-";

@@ -136,6 +136,14 @@ public static class GameMap
                           bands, reg, mapPos, orient, u, t, youPlanet, youRel, youOrbit, usedGlobes);
             MapGlobes.End(usedGlobes);
             PlaceStar(map, mapPos, orient);
+            // Delfos is our own proxy globe (as the planets): its model from the map's star prefab.
+            if (reg.Root != null && !MapGlobes.Has(reg.Root.Name) && !_starModelTried)
+            {
+                _starModelTried = true;
+                var cfg = PlanetRenderBridge.GetMember(map, "_configuration");
+                if (PlanetRenderBridge.GetMember(cfg, "StarVisualPrefab") is Keen.VRage.Core.Game.Definitions.PrefabDefinition sp)
+                    MapGlobes.Set(reg.Root.Name, PlanetRenderBridge.ResolveModelOnly(sp, reg.Root.Name));
+            }
             ApplyPick(map);
             if (DevClick) { DevClick = false; map.OnSelectSector(); }
             Status = $"clean u={u:F2} {CleanMap.Status} {PickStatus}";
@@ -407,6 +415,7 @@ public static class GameMap
     }
     /// <summary>The game's star model is on the map this frame (the map then draws no disc of its own).</summary>
     public static bool StarPlaced;
+    private static bool _starModelTried;
     private static int Frame;
     /// <summary>How much bigger than its own model Delfos shows on the map.</summary>
     public static double StarScale = 1.0;   // (moved off the map plane toward the camera, the model stopped drawing)

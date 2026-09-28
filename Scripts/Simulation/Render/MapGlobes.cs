@@ -12,6 +12,10 @@ public static class MapGlobes
     private static readonly List<(PlanetRenderBridge.PlanetHandles h, Vector3D center)> _pendingHandles = new List<(PlanetRenderBridge.PlanetHandles, Vector3D)>();
 
     /// <summary>A planet's render handles, from its planet component (matched to a body by its cell).</summary>
+    /// <summary>A body's handles set directly (the star: its model from the map configuration).</summary>
+    public static void Set(string body, PlanetRenderBridge.PlanetHandles h) { if (h != null && h.HasProxyModel) _handles[body] = h; }
+    public static bool Has(string body) => _handles.ContainsKey(body);
+
     public static void Register(PlanetRenderBridge.PlanetHandles h, Vector3D center)
     {
         if (h != null && h.HasProxyModel) _pendingHandles.Add((h, center));

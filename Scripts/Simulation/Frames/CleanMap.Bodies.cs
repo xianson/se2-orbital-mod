@@ -116,15 +116,18 @@ public static partial class CleanMap
         Vector3D S(Vector3D helio) { double r = Math.Sqrt(helio.X * helio.X + helio.Y * helio.Y); double f = r > 0 ? Rs(r) / r : 0; return new Vector3D(helio.X * f, 0, helio.Y * f); }
 
         // The sun: a warm disc (its own section, coloured below), and its name.
-        // Delfos: the game's own star model, placed here (GameMap.PlaceStar); a red disc only when it cannot be.
-        StarWorld = W(Vector3D.Zero);
-        if (!GameMap.StarPlaced && MapPipeline.ToScreen(W(Vector3D.Zero), out var sunS) && InOpenArea(sunS))
+        // Delfos: our own globe of the star's map model (as the planets), a fixed size on screen at every
+        // zoom (big; its true size is a dot at system zoom). The game's star object is parked out of view.
+        StarWorld = null;
         {
             float su = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
-            MapPipeline.ScreenDisc(sunS, 30f * su, new ColorSRGB(1f, 0.46f, 0.22f, 1f));
+            double rWorld = _pxPerV > 0 ? 34f * su / _pxPerV * _wscale : SystemHost.StarRadius * SolarRadius / outer * _wscale;
+            MapGlobes.Use(root.Name, W(Vector3D.Zero), rWorld, globes);
+            if (!globes.Contains(root.Name) && MapPipeline.ToScreen(W(Vector3D.Zero), out var sunS) && InOpenArea(sunS))
+                MapPipeline.ScreenDisc(sunS, 30f * su, new ColorSRGB(1f, 0.46f, 0.22f, 1f));   // no model: a red disc
         }
-        Hit(root, W(Vector3D.Zero), W(new Vector3D(SystemHost.StarRadius * SolarRadius / outer, 0, 0)), 24f);
-        BodyLabel(W, Vector3D.Zero, SystemHost.StarRadius * SolarRadius / outer, 26f, StarName, Text, 0.85f);
+        Hit(root, W(Vector3D.Zero), W(new Vector3D(SystemHost.StarRadius * SolarRadius / outer, 0, 0)), 36f);
+        BodyLabel(W, Vector3D.Zero, SystemHost.StarRadius * SolarRadius / outer, 36f, StarName, Text, 0.85f);
 
         // Every planet's L3 / L4 / L5 (with Delfos), sector or not.
         foreach (var p in root.Children)

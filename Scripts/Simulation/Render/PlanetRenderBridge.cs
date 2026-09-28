@@ -103,6 +103,14 @@ public static class PlanetRenderBridge
     /// Resolve everything needed to hide/show and proxy one planet. Never returns null; check
     /// <see cref="PlanetHandles.Terrain"/> and <see cref="PlanetHandles.HasProxyModel"/>.
     /// </summary>
+    /// <summary>Handles with only a proxy model, from a map visual prefab (the star's: no terrain, no atmosphere).</summary>
+    public static PlanetHandles ResolveModelOnly(PrefabDefinition mapVisual, string name)
+    {
+        var h = new PlanetHandles { Name = name };
+        ResolveModel(h, mapVisual, name);
+        return h;
+    }
+
     public static PlanetHandles Resolve(PlanetEnvironmentRenderComponent env, PrefabDefinition mapVisual, string name)
     {
         var h = new PlanetHandles { Name = name };
@@ -161,7 +169,13 @@ public static class PlanetRenderBridge
         }
         catch (Exception e) { WarnOnce("atmo", $"atmosphere resolve failed: {e.Message}"); h.EnvShowArgs = h.EnvHideArgs = null; }
 
-        // Proxy model: the model asset inside the planet's map visual prefab.
+        ResolveModel(h, mapVisual, name);
+        return h;
+    }
+
+    /// <summary>Proxy model: the model asset inside a map visual prefab.</summary>
+    static void ResolveModel(PlanetHandles h, PrefabDefinition mapVisual, string name)
+    {
         try
         {
             var prefab = mapVisual;
@@ -192,8 +206,6 @@ public static class PlanetRenderBridge
             }
         }
         catch (Exception e) { WarnOnce("model", $"proxy model resolve failed: {e.Message}"); h.HasProxyModel = false; }
-
-        return h;
     }
 
     // ─────────────────────────────────────────────────────────────────────────

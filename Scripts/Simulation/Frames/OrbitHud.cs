@@ -72,6 +72,7 @@ public static class HudPanel
     {
         float r = 5f * u;
         if (!diamond) { LabelAt(s + new Vector2(9f * u, 0), text, c, u); return; }
+        if (MapPipeline.ScreenIcon("diamond", s, r + 1f * u, c)) { LabelAt(s + new Vector2(r + 6f * u, 0), text, c, u); return; }
         MapPipeline.ScreenLine(s + new Vector2(0, -r), s + new Vector2(r, 0), c, 1.8f * u);
         MapPipeline.ScreenLine(s + new Vector2(r, 0), s + new Vector2(0, r), c, 1.8f * u);
         MapPipeline.ScreenLine(s + new Vector2(0, r), s + new Vector2(-r, 0), c, 1.8f * u);

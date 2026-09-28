@@ -88,6 +88,7 @@ public static class WarpBar
     /// <summary>A right-pointing triangle, filled with horizontal strokes when lit.</summary>
     static void Arrow(Vector2 a0, float w, float h, ColorSRGB fill, ColorSRGB edge, bool filled, float u)
     {
+        if (MapPipeline.ScreenIconBox(filled ? "tri" : "trio", a0, a0 + new Vector2(w, h), filled ? fill : edge)) return;
         Vector2 p0 = a0, p1 = a0 + new Vector2(0, h), p2 = a0 + new Vector2(w, h / 2);
         if (filled)
             for (float y = 1.5f * u; y < h - 1f * u; y += 1.5f * u)

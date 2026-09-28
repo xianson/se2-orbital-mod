@@ -1282,8 +1282,11 @@ public static class CleanMap
         float a = 9f * u;
         // The arrow only with its name (a bare arrow says nothing).
         if (!MapPipeline.TextScreen(e - n * (a + 14f * u), label, c, 0.6f)) return;
-        MapPipeline.ScreenLine(e, e - n * a + side * a * 0.6f, c, 1.8f * u);
-        MapPipeline.ScreenLine(e, e - n * a - side * a * 0.6f, c, 1.8f * u);
+        if (!MapPipeline.ScreenArrow(e - n * a * 0.5f, n, a * 0.75f, c))
+        {
+            MapPipeline.ScreenLine(e, e - n * a + side * a * 0.6f, c, 1.8f * u);
+            MapPipeline.ScreenLine(e, e - n * a - side * a * 0.6f, c, 1.8f * u);
+        }
     }
 
     public const string SunPart = "OrbitalSun", BeltPart = "OrbitalBelt";

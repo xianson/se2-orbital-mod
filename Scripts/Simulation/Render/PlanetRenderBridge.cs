@@ -303,8 +303,10 @@ public static class PlanetRenderBridge
         {
             object root = _createRoot.Invoke(_contracts, new object[] { "OrbitalProxyRoot_" + h.Name, new WorldTransform(center), true });
 
-            // Visible | SkipFarPlaneCulling | ForceHighestLOD, as a Default (world-view) entity.
-            object flags = Enum.ToObject(_renderFlagsType, 0x1 | 0x10 | 0x20);
+            // Visible | SkipCulling | SkipFarPlaneCulling | ForceHighestLOD, as a Default (world-view) entity.
+            // SkipCulling: the globe is scaled in its shader (ScaleCustomData), so the renderer culls it by
+            // the model's own small bounds; scaled up, a planet vanished once its centre left the view.
+            object flags = Enum.ToObject(_renderFlagsType, 0x1 | 0x2 | 0x10 | 0x20);
             object entityType = mapOnly ? Enum.Parse(_entityTypeType, "Map") : Enum.ToObject(_entityTypeType, 0);
             object model = _createModel.Invoke(_contracts, new object[]
             {

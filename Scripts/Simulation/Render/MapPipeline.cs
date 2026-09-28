@@ -451,21 +451,14 @@ public static class MapPipeline
     {
         if (_batch == null || _drawLine == null || !Screen(at, out var c)) return;
         AddPick(c, c);
-        const int n = 24;
-        Vector2 prev = c + new Vector2(radiusPx, 0);
-        for (int i = 1; i <= n; i++)
-        {
-            double a = 2 * Math.PI * i / n;
-            Vector2 p = c + new Vector2((float)(Math.Cos(a) * radiusPx), (float)(Math.Sin(a) * radiusPx));
-            Seg(prev, p, color, width);
-            prev = p;
-        }
+        ScreenCircle(c, radiusPx, color, width);
     }
 
     /// <summary>A fixed-size diamond on screen around a world point (GPS markers on the map).</summary>
     public static void ScreenDiamond(Vector3D at, float r, ColorSRGB color, float width)
     {
         if (_batch == null || _drawLine == null || !Screen(at, out var c)) return;
+        if (ScreenIcon("diamond", c, r + width * 0.5f, color)) return;
         var d = new[] { c + new Vector2(0, -r), c + new Vector2(r, 0), c + new Vector2(0, r), c + new Vector2(-r, 0), c + new Vector2(0, -r) };
         for (int i = 0; i < 4; i++) Seg(d[i], d[i + 1], color, width);
     }
@@ -662,7 +655,7 @@ public static class MapPipeline
     /// </summary>
     public static bool ScreenIcon(string name, Vector2 c, float half, ColorSRGB color)
     {
-        if (_batch == null || _drawImageM == null || _mapConfig == null) return false;
+        if (_batch == null || _drawImageM == null || (_mapConfig == null && !MapIcons.Has(name))) return false;
         if (ClipRect.HasValue && ClipRect.Value.Contains(c) != ContainmentType.Contains) return true;   // off the open area: nothing to draw
         if (!_icons.TryGetValue(name, out var h))
         {
@@ -710,6 +703,24 @@ public static class MapPipeline
         ScreenFill(poly, color);
     }
 
+    /// <summary>One of our icons stretched over a screen box (the warp bar's triangles).</summary>
+    public static bool ScreenIconBox(string name, Vector2 min, Vector2 max, ColorSRGB color)
+    {
+        if (_batch == null || _drawImageM == null || !MapIcons.Has(name)) return false;
+        object h = MapIcons.Handle(name);
+        if (h == null) return false;
+        try { _drawImageM.Invoke(_batch, new object[] { h, new BoundingBox2(min, max), color, false, null, null }); return true; }
+        catch { return false; }
+    }
+
+    /// <summary>An edge arrow pointing along a screen direction (16 steps).</summary>
+    public static bool ScreenArrow(Vector2 c, Vector2 dir, float half, ColorSRGB color)
+    {
+        double th = Math.Atan2(-dir.Y, dir.X);
+        int k = ((int)Math.Round(th / (Math.PI / 8)) % 16 + 16) % 16;
+        return ScreenIcon("edge" + k, c, half, color);
+    }
+
     /// <summary>A pick target for the current PickName (a segment on screen).</summary>
     public static void Pick(Vector2 a, Vector2 b) => AddPick(a, b);
 
@@ -724,6 +735,16 @@ public static class MapPipeline
     public static void ScreenCircle(Vector2 c, float r, ColorSRGB color, float width)
     {
         if (_batch == null || _drawLine == null) return;
+        // Small: a texture (a ring, or a dot when tiny); larger: a smooth closed path.
+        if (r <= 18f && ScreenIcon(r < 2.2f ? "dot" : "ring", c, r + width * 0.5f, color)) return;
+        if (r > 18f && _path != null)
+        {
+            int m = Math.Clamp((int)(r * 0.6f), 24, 96);
+            var pts = new List<Vector2>(m);
+            for (int i = 0; i < m; i++) { double a = 2 * Math.PI * i / m; pts.Add(c + new Vector2((float)(Math.Cos(a) * r), (float)(Math.Sin(a) * r))); }
+            ScreenPath(pts, true, color, width);
+            return;
+        }
         const int n = 20;
         Vector2 prev = c + new Vector2(r, 0);
         for (int i = 1; i <= n; i++)
@@ -757,6 +778,7 @@ public static class MapPipeline
     public static void ScreenDot(Vector2 c, float r, ColorSRGB color)
     {
         if (_batch == null || _drawLine == null) return;
+        if (ScreenIcon("dot", c, r, color)) return;
         for (float rr = 0.8f; rr <= r; rr += 1.2f)
         {
             const int n = 14;
@@ -822,7 +844,7 @@ public static class MapPipeline
             float r = 9f * u;
             Vector2 up = new Vector2(0, -r), rt = new Vector2(r, 0);
             var dia = new[] { s + up, s + rt, s - up, s - rt, s + up };
-            for (int i = 0; i < 4; i++) Seg(dia[i], dia[i + 1], color, 2f * u);
+            if (!ScreenIcon("diamond", s, 8f * u, color)) for (int i = 0; i < 4; i++) Seg(dia[i], dia[i + 1], color, 2f * u);
             ScreenDot(s, 2.5f * u, color);
             ScreenText(s + new Vector2(14, -14) * u, name ?? "", color, 0.62f * u);
             ScreenText(s + new Vector2(14, 4) * u, distance + (edge ? "  >" : ""), new ColorSRGB(0.85f, 0.9f, 1f, 0.9f), 0.55f * u);

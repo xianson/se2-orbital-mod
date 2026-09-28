@@ -90,7 +90,9 @@ public static partial class CleanMap
         Vector3D Map(Vector3D rootPos) => Flat(rootPos - aPos);
         // The closest zoom: the body stays smaller than the camera's distance.
         double aR = anchor.IsRoot ? SystemHost.StarRadius : (reg.FindDefinition(anchor.Name)?.RadiusMeters ?? 6e4);
-        GameMap.MinZoom = Math.Max(1e-7, 2.5 * aR * Sigma);
+        // (Only near the body: looking elsewhere, at a sector or a ship out in the system, zoom right in.)
+        bool nearBody = !cam || MapCamera.FocusV.Length() < 20 * aR * Sigma;
+        GameMap.MinZoom = nearBody ? Math.Max(1e-7, 2.5 * aR * Sigma) : 1e-7;
 
         // Screen pixels per map unit at the view's centre (the level of detail goes by it).
         _pxPerV = 0;

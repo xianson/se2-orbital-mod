@@ -182,6 +182,7 @@ public static partial class CleanMap
     /// <summary>DEV: focus a body as a double-click on it would.</summary>
     public static string DevFocus(string name)
     {
+        if (_markerAt.ContainsKey(name)) { CentreOn(name); return "centre on sector " + name; }   // a sector: centre on it
         var reg = SystemHost.Registry; var b = reg?.Find(name) ?? (name == StarName ? reg?.Root : null);
         if (b == null || _lastW == null) return "no body / map not drawn";
         FocusOn(b, reg, SystemHost.Now, _lastW, _lastSolar);

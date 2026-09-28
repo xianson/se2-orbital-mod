@@ -51,7 +51,12 @@ public static class SectorHomes
     public const double LyapunovLambda = 2.53, LyapunovKappa = 3.2, LyapunovAmplitude = 0.12;
 
     /// <summary>Planet sectors that are a belt round their planet (the whole ring of the orbit): Kemik's outermost.</summary>
-    public static readonly HashSet<string> Belts = new HashSet<string>();
+    /// <summary>Sectors that are a whole ring round Delfos (a belt), not a section of their orbit.</summary>
+    public static readonly HashSet<string> Belts = new HashSet<string> { "Zarkon", "Pyrethra" };
+    /// <summary>Delfos Sector's zone round the star (AU, inner and outer).</summary>
+    public static readonly double[] StarZoneAU = { 0.08, 0.3 };
+    /// <summary>Sectors that will be planets (kept as sectors until then).</summary>
+    public static readonly HashSet<string> FuturePlanets = new HashSet<string> { "Byblos Sector" };
     /// <summary>Ring sectors' orbits about the star (AU); others at RingAU.</summary>
     public static readonly Dictionary<string, double> RingOrbits = new Dictionary<string, double> { { "Delfos Sector", 0.45 }, { "Zarkon", 1.85 } };
 
@@ -65,7 +70,7 @@ public static class SectorHomes
     /// its charted distance from Delfos (in Verdure's charted distance = 1 AU) and charted bearing.
     /// </summary>
     public static Home MakeHelio(string sector, string host, double au, double phase, double size)
-        => new Home { Sector = sector, Host = host, Size = size, Kind = Kind.Ring, AU = au, Phase = phase, E = 0 };
+        => new Home { Sector = sector, Host = host, Size = size, Kind = Kind.Ring, AU = au, Phase = phase, E = 0, Belt = Belts.Contains(sector) };
 
     /// <summary>Ellipse eccentricity and orientation, deterministic per sector name.</summary>
     public static Home Make(string sector, string host, double chartDistance, double chartBearing, double size, int slot)

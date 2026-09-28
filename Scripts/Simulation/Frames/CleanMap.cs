@@ -575,12 +575,12 @@ public static class CleanMap
     /// The sector itself: an area of its orbit (a band section about where it is now), filled in its
     /// state colour and outlined; its orbit carries it round.
     /// </summary>
-    static void SectorArea(Func<Vector3D, Vector3D> W, Func<double, Vector3D> relAt, Func<Vector3D, Vector3D> toLocal, Band b, double span = SectorSpan)
+    static void SectorArea(Func<Vector3D, Vector3D> W, Func<double, Vector3D> relAt, Func<Vector3D, Vector3D> toLocal, Band b, double span = SectorSpan, double kWidth = 0)
     {
         float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
-        double k = Math.Clamp(b.Home.Size * 0.5 * SystemHost.SectorOrbitScale / Math.Max(1, b.Home.A), 0.03, 0.065);
+        double k = kWidth > 0 ? kWidth : Math.Clamp(b.Home.Size * 0.5 * SystemHost.SectorOrbitScale / Math.Max(1, b.Home.A), 0.03, 0.065);
         bool ring = span >= 0.5;
-        if (ring) k = Math.Min(k, 0.03);   // a belt: a thin ring
+        if (ring && !(kWidth > 0)) k = Math.Min(k, 0.03);   // a belt: a thin ring
         int n = ring ? 96 : 24;
         var outer = new List<Vector2>(n + 1); var inner = new List<Vector2>(n + 1);
         for (int i = 0; i <= n; i++)
@@ -799,7 +799,7 @@ public static class CleanMap
             MapPipeline.PickName = bd.Name;
             Vector3D hp = SectorHomes.HelioBelt(bd.Home, root.Mu, t);
             double ang = Math.Atan2(hp.Y, hp.X), r = Rs(hp.Length());
-            Curve(a => new Vector3D(Math.Cos(a) * r, 0, Math.Sin(a) * r), W, ang + 2 * Math.PI * SectorSpan, ang + 2 * Math.PI * (1 - SectorSpan), 90, OrbitLine(bd), bd.Selected ? 2f : 1.2f);
+            // (No orbit line: only the planets and moons have one; a line per sector ringed the star in circles.)
             {
                 var bs = bd; var h0 = bd.Home; var W0 = W; double Tb = 2 * Math.PI * Math.Sqrt(Math.Pow(hp.Length(), 3) / root.Mu);
                 Vector3D mk = new Vector3D(Math.Cos(ang) * r, 0, Math.Sin(ang) * r);
@@ -835,7 +835,11 @@ public static class CleanMap
                 _deferred.Add(() =>
                 {
                     MapPipeline.PickName = bs.Name;
-                    SectorArea(W0, q => SectorHomes.HelioRing(h0, root.Mu, t + Tb * q), S, bs);
+                    if (bs.Name == SectorHomes.StarSector)
+                        // Delfos's own: a zone round the star (not an orbit), open in the middle for the star.
+                        SectorArea(W0, q => new Vector3D(Math.Cos(2 * Math.PI * q), Math.Sin(2 * Math.PI * q), 0) * (SectorHomes.StarZoneAU[0] + SectorHomes.StarZoneAU[1]) * 0.5 * SystemHost.AU,
+                                   S, bs, 0.5, (SectorHomes.StarZoneAU[1] - SectorHomes.StarZoneAU[0]) / (SectorHomes.StarZoneAU[0] + SectorHomes.StarZoneAU[1]));
+                    else SectorArea(W0, q => SectorHomes.HelioRing(h0, root.Mu, t + Tb * q), S, bs, h0.Belt ? 0.5 : SectorSpan);
                     Marker(W0(mk), bs);
                     if (MapPipeline.ToScreen(W0(mk), out var ms))
                     {

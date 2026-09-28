@@ -847,6 +847,8 @@ public static class CleanMap
         if (you.Length > 0) MapPipeline.ScreenText(at + new Vector2(0, scr.Y * 0.034f), you, You, 0.78f);
         string burn = Maneuvers.BurnLine;
         if (burn != null) MapPipeline.ScreenText(at + new Vector2(0, scr.Y * 0.062f), burn, Dim, 0.78f);
+        string tgt = Maneuvers.TargetLine(SystemHost.Now);
+        if (tgt != null) MapPipeline.ScreenText(at + new Vector2(0, scr.Y * (burn != null ? 0.09f : 0.062f)), tgt, TargetText, 0.78f);
     }
 
     /// <summary>

@@ -421,7 +421,7 @@ public static class Maneuvers
                     MapPipeline.ScreenCircle(cs2, 7f * u, TargetColor, 1.6f * u);
                     MapPipeline.ScreenDashed(cs1, cs2, HudPanel.Alpha(TargetColor, 0.6f), 1.2f * u);
                 }
-                HudPanel.TagAt(cs1 + new Vector2(8f * u, 0), $"Closest {HudPanel.Km(ca.d)}  in {Clock(ca.t - t)}", TargetColor, u, diamond: false);
+                HudPanel.TagAt(cs1 + new Vector2(8f * u, 0), $"Closest {HudPanel.Km(ca.d)}  in {Clock(ca.t - t)}  ·  {RelSpeed(ca):N0} m/s", TargetColor, u, diamond: false);
             }
         }
 
@@ -768,6 +768,21 @@ public static class Maneuvers
         }
         if (best < double.MaxValue) _ca = (true, bestT, best, bestLeg, site);
         return _ca;
+    }
+
+    /// <summary>Speed relative to the target at the closest approach (m/s), NaN when unknown.</summary>
+    static double RelSpeed((bool ok, double t, double d, Leg leg, EncounterFrames.Site site) ca)
+    {
+        if (!ca.ok || !EncounterFrames.Ephemeris(ca.site, ca.t, out var p, out var rel) || p != ca.leg.Body) return double.NaN;
+        return (OrbitPropagation.StateAt(ca.leg.El, ca.t).Velocity - rel.Velocity).Length();
+    }
+
+    /// <summary>The target's closest approach as a line for the orbit card (null: no target or no approach).</summary>
+    public static string TargetLine(double t)
+    {
+        if (Target == null || !Trajectory(t, out var legs, out _)) return null;
+        var ca = ClosestApproach(legs);
+        return ca.ok ? $"Target {Target}  ·  closest {HudPanel.Km(ca.d)} in {Clock(ca.t - t)}  ·  {RelSpeed(ca):N0} m/s" : $"Target {Target}  ·  no approach on this path";
     }
 
     public struct Crossing { public string Name; public double T; public bool Entry; public Leg Leg; }

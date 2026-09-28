@@ -188,6 +188,8 @@ public static class OrbitHud
                 sb.Append(r.Mode);
             }
             if (burn != null) sb.Append((sb.Length > 0 ? "\n" : "") + burn);
+            string tgt = Maneuvers.TargetLine(SystemHost.Now);
+            if (tgt != null) sb.Append((sb.Length > 0 ? "\n" : "") + tgt);
             string content = sb.ToString();
             if (_card == null || (now >= _nextCheck && !GameUi.IsOpen(_card)))
             {

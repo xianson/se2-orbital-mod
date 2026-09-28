@@ -319,7 +319,9 @@ public static class EncounterFrames
         if (!_sites.TryGetValue(frameId, out var s) || s.Home == null || s.Home.Kind != SectorHomes.Kind.Lagrange) return false;
         var body = SystemHost.Registry?.Find(s.Home.Host);
         if (!SectorHomes.LagrangeOrbit(body, t, out var omega, out var w)) return false;
-        relAccel = (d, v) => SectorHomes.LagrangeAccel(d, v, omega, w);
+        double core = SectorHomes.LagrangeCore(s.Home, SystemHost.Registry);
+        Vector3D omDot = SectorHomes.LagrangeTurnRate(body, t);
+        relAccel = (d, v) => SectorHomes.LagrangeAccel(d, v, omega, w, core, omDot);
         return true;
     }
 
@@ -416,9 +418,11 @@ public static class EncounterFrames
                 for (int k = 0; k < nSub && dtAll > 0; k++)
                 {
                     if (!SectorHomes.LagrangeOrbit(body, tt, out var om, out var w)) break;
-                    Vector3D a1 = SectorHomes.LagrangeAccel(ride.D, ride.V, om, w);
+                    double core = SectorHomes.LagrangeCore(ride.Site.Home, reg);
+                    Vector3D omDot = SectorHomes.LagrangeTurnRate(body, tt);
+                    Vector3D a1 = SectorHomes.LagrangeAccel(ride.D, ride.V, om, w, core, omDot);
                     Vector3D dMid = ride.D + ride.V * (h / 2), vMid = ride.V + a1 * (h / 2);
-                    Vector3D a2 = SectorHomes.LagrangeAccel(dMid, vMid, om, w);
+                    Vector3D a2 = SectorHomes.LagrangeAccel(dMid, vMid, om, w, core, omDot);
                     ride.D += vMid * h; ride.V += a2 * h;
                     tt += h;
                 }

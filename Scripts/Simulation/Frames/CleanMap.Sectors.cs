@@ -312,6 +312,8 @@ public static partial class CleanMap
         var poly = new List<Vector2>(outer);
         for (int i = inner.Count - 1; i >= 0; i--) poly.Add(inner[i]);
         var c = b.Selected ? LineSel : StateColor(b);
+        // Under the ghost of a sector you will enter (drawn where it will be then): today's sector steps back.
+        if (!faint && Maneuvers.UnderGhost(0.5f * (outer[n / 2] + inner[n / 2]), b.Name)) faint = true;
         float fa = faint ? 0.06f : b.Selected ? 0.30f : b.Name == Hovered ? 0.34f : Quiet(b) ? 0.08f : 0.18f;
         // A dark base first: the lines under the sector are hidden, not showing through it.
         if (!faint) MapPipeline.ScreenFill(poly, new ColorSRGB(0.04f, 0.06f, 0.09f, 0.82f));   // (a point with no sector: no base, lines show through)
@@ -356,7 +358,8 @@ public static partial class CleanMap
         {
             float mu = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
             string icon = b.State == Keen.Game2.Simulation.GameSystems.Colonization.SectorColonizationState.Locked ? "LockedIcon" : "DefaultIcon";
-            if (MapPipeline.ScreenIcon(icon, ms, (Quiet(b) ? 7f : b.Selected ? 11f : 9f) * mu, Quiet(b) ? HudPanel.Alpha(c, 0.5f) : c)) return;
+            bool dim = Quiet(b) || Maneuvers.UnderGhost(ms, b.Name);
+            if (MapPipeline.ScreenIcon(icon, ms, (dim ? 7f : b.Selected ? 11f : 9f) * mu, dim ? HudPanel.Alpha(c, 0.35f) : c)) return;
         }
         if (Quiet(b)) { MapPipeline.ScreenRing(world, 5f, HudPanel.Alpha(c, 0.5f), 1.4f); MapPipeline.ScreenRing(world, 2f, HudPanel.Alpha(c, 0.5f), 2f); return; }
         MapPipeline.ScreenRing(world, 8f, c, 2f);

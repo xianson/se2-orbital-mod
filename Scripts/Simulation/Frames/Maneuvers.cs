@@ -201,9 +201,25 @@ public static class Maneuvers
             }
             KeplerianElements after;
             Vector3D dv;
+            // A node in a Lagrange sector (last plan's stay): the sector's own directions (prograde your
+            // drift relative to the point), re-targeted every pass until its burn is near (the Kepler
+            // guess of where you will be drifts off the sector's orbit); frozen from then, so the burn
+            // closes on it.
+            var lg = _lag;
+            Vector3D lom = Vector3D.Zero;
+            bool inLagSector = lg != null && Tn >= lg.TE - 1 && (double.IsNaN(lg.TX) || Tn <= lg.TX)
+                               && SectorHomes.LagrangeOrbit(SystemHost.Registry?.Find(lg.Site.Home.Host), Tn, out lom, out _);
+            if (inLagSector && t < BurnStart(n) - AutoBurn.AlignLead - 5) n.Dirty = true;
             if (n.Dirty || n.TBody != body.Name)
             {
                 Axes(st, out var P, out var N, out var R);
+                if (inLagSector)
+                {
+                    SectorHomes.LagrangeState(lg.Site.Home, SystemHost.Registry, Tn, out var llp, out var llv);
+                    var bo = body.OriginInRoot(Tn);
+                    Vector3D ld = bo.Position + st.Position - llp, lu = bo.Velocity + st.Velocity - llv - Vector3D.Cross(lom, bo.Position + st.Position - llp);
+                    Axes(new StateVector(ld, lu), out P, out N, out R);
+                }
                 dv = P * n.Pro + N * n.Nor + R * n.Rad;
                 after = FiniteBurn(body, el, tc, Tn, st, dv);
                 if (!IsFinite(after.SemiMajorAxis)) return true;
@@ -388,7 +404,7 @@ public static class Maneuvers
             }
         }
 
-        DrawLibration(lagPlan, toMap, W, u);
+        DrawLibration(lagPlan, t, toMap, W, u);
 
         // The orbit each patch puts you on (KSP): where a patch about a body is cut short by its next
         // event (a moon's escape into its planet, then back into the moon), the rest of its ellipse is
@@ -538,7 +554,7 @@ public static class Maneuvers
         foreach (var a in applied)
         {
             Vector3D loc = Loc(a.Body, a.Before.Position, a.Node.T);
-            if (lagPlan != null && lagPlan.NodeAt.TryGetValue(a.Node, out var lagOff)) loc = toMap(lagPlan.Point + lagOff, lagPlan.TE);   // on the Lagrange path
+            if (lagPlan != null && lagPlan.NodeAt.TryGetValue(a.Node, out var lagOff)) loc = LagLoc(lagPlan, lagOff, t, toMap);   // on the Lagrange path
             if (!MapPipeline.ToScreen(W(loc), out var s)) continue;
             nodeScreen.Add((a.Node, s, a));
             bool sel = a.Node == Selected;
@@ -571,10 +587,20 @@ public static class Maneuvers
             selS = nodeScreen.Find(x => x.n == Selected).s;
             Axes(selA.Before, out var P, out var N, out var R);
             Vector3D relAt = selA.Before.Position;
+            // A node in a Lagrange sector: its handles along the sector's own directions, on its path.
+            bool inLag = lagPlan != null && lagPlan.NodeAxes.TryGetValue(Selected, out var lax) && lagPlan.NodeAt.ContainsKey(Selected);
+            if (inLag) { var ax3 = lagPlan.NodeAxes[Selected]; P = ax3.P; N = ax3.N; R = ax3.R; }
             Vector2 Dir(Vector3D v)
             {
                 double eps = Math.Max(1.0, selA.Before.Position.Length() * 0.01);
-                Vector3D a0 = Loc(selA.Body, relAt, Selected.T), a1 = Loc(selA.Body, relAt + v * eps, Selected.T);
+                Vector3D a0, a1;
+                if (inLag)
+                {
+                    Vector3D at = lagPlan.NodeAt[Selected];
+                    double e2 = Math.Max(1000.0, lagPlan.Amp * 0.05);
+                    a0 = LagLoc(lagPlan, at, t, toMap); a1 = LagLoc(lagPlan, at + v * e2, t, toMap);
+                }
+                else { a0 = Loc(selA.Body, relAt, Selected.T); a1 = Loc(selA.Body, relAt + v * eps, Selected.T); }
                 if (!MapPipeline.ToScreen(W(a0), out var s0) || !MapPipeline.ToScreen(W(a1), out var s1)) return Vector2.Zero;
                 var d = s1 - s0;
                 return d.LengthSquared() > 1e-4f ? Vector2.Normalize(d) : Vector2.Zero;
@@ -922,6 +948,7 @@ public static class Maneuvers
         const double enter = 10000, leave = ServerFrames.SlotRadius;
         foreach (var site in EncounterFrames.Sites)
         {
+            if (site.Home?.Kind == SectorHomes.Kind.Lagrange) continue;   // its region is its sphere of influence (the Lagrange preview)
             foreach (var l in legs)
             {
                 double span = l.T1 - l.T0;
@@ -968,9 +995,26 @@ public static class Maneuvers
         public Vector3D Point;                                 // the point at TE (root)
         public double BestT = double.NaN, BestU, BestD;        // closest to the point before any burn: when, drift speed, distance
         public Vector3D BestX, BestV, Axis;                    // there: offset and drift (turning frame); the frame's axis
-        public double W;                                       // the sector's rate (rad/s)
+        public double W, Core;                                 // the sector's rate (rad/s), its calm core (m)
+        public Dictionary<Node, (Vector3D P, Vector3D N, Vector3D R)> NodeAxes = new Dictionary<Node, (Vector3D, Vector3D, Vector3D)>();
+        public Vector3D Omega;                                  // at BestT: the planet's turn (W above: the sector's rate there)
+        public Vector3D P0; public GravityBody Host;           // the planet's place at TE (for its turn since)
+        /// <summary>How far the planet has turned since TE (about Axis): offsets are kept as at TE.</summary>
+        public double Theta(double t)
+        {
+            Vector3D p = Host.StateInParentAt(t).Position;
+            return Math.Atan2(Vector3D.Dot(Axis, Vector3D.Cross(P0, p)), Vector3D.Dot(P0, p));
+        }
     }
     private static LagPlan _lag;
+    // The ghost (a sector drawn where it will be when you enter it) on screen last frame: the map fades
+    // today's sectors under it, so the two times do not read as one.
+    private static Vector2 _ghostAt; private static float _ghostR; private static string _ghostName; private static double _ghostWall;
+    public static bool UnderGhost(Vector2 s, string sector)
+    {
+        double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+        return _ghostName != null && sector != _ghostName && now - _ghostWall < 0.3 && (s - _ghostAt).Length() < _ghostR;
+    }
     /// <summary>A Lagrange sector ahead or around you: the planner draws your path (cut at its entry).</summary>
     public static bool LagActive => _lag != null;
     public static LagPlan Lag => _lag;
@@ -989,7 +1033,8 @@ public static class Maneuvers
         double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
         var pf = FrameHost.PlayerFrame;
         bool inSector = pf != null && (EncounterFrames.RideOf(pf.Id) != null || EncounterFrames.SiteOf(pf.Id)?.Home?.Kind == SectorHomes.Kind.Lagrange);
-        if (inSector || now - _lagWall > 0.25 || (_lag != null && _lag.Now))
+        double every = inSector || (_lag != null && _lag.Now) ? 0.1 : 0.25;
+        if (now - _lagWall > every)
         {
             try { _lag = PlanLagrange(t, legs, applied); } catch (Exception e) { _lag = null; LibDebug = "plan failed: " + e.Message; }
             _lagWall = now;
@@ -1074,55 +1119,66 @@ public static class Maneuvers
         if (!SectorHomes.LagrangeOrbit(body, tE, out var om, out var w)) return null;
         var plan = new LagPlan { Site = site, TE = tE, Now = nowIn, Period = 2 * Math.PI / w };
         LibStart = $"{site.Sector} from {(nowIn ? "now" : "entry")}: offset {d.Length() / 1000:F1} km, speed {v.Length():F1} m/s";
-        // Stepped in the frame turning with the planet (axes as at tE): out of the core the pull is a plain
-        // spring (the ellipse); in the core nothing pulls, so only the turning's own terms show.
-        double wo = om.Length();
-        Vector3D ax = wo > 0 ? om / wo : Vector3D.UnitY;
-        Vector3D x = d, uu = v - Vector3D.Cross(om, d);
+        // Stepped exactly as the sector flies you (EncounterFrames.RefreshRides: the same pull, with the
+        // planet's turn and rate as they are at each moment: an eccentric planet's vary), then turned into
+        // the frame turning with the planet (axes as at tE) to be drawn.
+        double core = SectorHomes.LagrangeCore(site.Home, reg);
+        Vector3D ax = Vector3D.Normalize(om);
+        Vector3D p0 = body.StateInParentAt(tE).Position;
+        plan.Core = core; plan.Axis = ax; plan.P0 = p0; plan.Host = body;
+        Vector3D D = d, V = v;
         var burns = new List<Applied>();
         foreach (var ab in applied) if (ab.Node.T >= tE) burns.Add(ab);
-        double horizon = plan.Period;
-        if (burns.Count > 0) horizon = Math.Min(4 * plan.Period, burns[burns.Count - 1].Node.T - tE + plan.Period);
-        double h0 = Math.Min(plan.Period, wo > 0 ? 2 * Math.PI / wo : plan.Period) / 256;
-        int steps = (int)Math.Max(64, Math.Min(20000, horizon / h0));
-        double h = horizon / steps, core2 = SectorHomes.LagrangeCore * SectorHomes.LagrangeCore;
-        Vector3D Acc(Vector3D p, Vector3D q) => p.LengthSquared() < core2
-            ? -2 * Vector3D.Cross(om, q) - Vector3D.Cross(om, Vector3D.Cross(om, p))
-            : -w * w * p;
-        var inside = SectorHomes.LagrangeRegion(site.Home, reg, tE);
+        double horizon = 2.5 * plan.Period;   // a slow orbit round the calm core takes a while: shown whole
+        if (burns.Count > 0) horizon = Math.Min(5 * plan.Period, burns[burns.Count - 1].Node.T - tE + 2.5 * plan.Period);   // a slow orbit round the calm core: shown whole
+        int steps = (int)Math.Max(64, Math.Min(6000, horizon / 60.0));
+        double h = horizon / steps;
         Vector3D lp0 = SectorHomes.Where(site.Home, reg, tE, out var cen);
         int every = Math.Max(1, steps / 400), bi = 0;
-        double tau = 0, amp = x.Length();
-        plan.Path.Add(x);
+        double tau = 0, amp = D.Length();
+        plan.Path.Add(D);
         for (int k = 1; k <= steps; k++)
         {
-            while (bi < burns.Count && burns[bi].Node.T <= tE + tau + h)
+            double tk = tE + tau;
+            if (!SectorHomes.LagrangeOrbit(body, tk, out var omk, out var wk)) break;
+            while (bi < burns.Count && burns[bi].Node.T <= tk + h)
             {
                 // In a sector a node's directions are the sector's own: prograde along your drift
-                // relative to the point, radial away from it (so a retrograde burn of your drift parks you).
+                // relative to the point (as it turns), radial away from it.
                 var bn = burns[bi].Node;
-                Axes(new StateVector(x, uu), out var bP, out var bN, out var bR);
-                uu += bP * bn.Pro + bN * bn.Nor + bR * bn.Rad;
-                plan.NodeAt[bn] = x;
-                amp = x.Length();   // the size you settle into, after the burn
+                Vector3D u0 = V - Vector3D.Cross(omk, D);
+                Axes(new StateVector(D, u0), out var bP, out var bN, out var bR);
+                V += bP * bn.Pro + bN * bn.Nor + bR * bn.Rad;
+                double thb = plan.Theta(tk);
+                plan.NodeAxes[bn] = (Turn(bP, ax, -thb), Turn(bN, ax, -thb), Turn(bR, ax, -thb));
+                plan.NodeAt[bn] = Turn(D, ax, -thb);
+                amp = D.Length();   // the size you settle into, after the burn
                 bi++;
             }
-            Vector3D a1 = Acc(x, uu);
-            Vector3D xm = x + uu * (h / 2), um = uu + a1 * (h / 2);
-            Vector3D a2 = Acc(xm, um);
-            x += um * h; uu += a2 * h; tau += h;
-            amp = Math.Max(amp, x.Length());
-            if (bi == 0 && (double.IsNaN(plan.BestT) || x.Length() < plan.BestD)) { plan.BestT = tE + tau; plan.BestD = x.Length(); plan.BestU = uu.Length(); plan.BestX = x; plan.BestV = uu; }
-            if (inside != null && !inside(lp0 + x)) { plan.Path.Add(x); plan.TX = tE + tau; break; }
-            if (k % every == 0 || k == steps) plan.Path.Add(x);
+            Vector3D omDot = SectorHomes.LagrangeTurnRate(body, tk);
+            Vector3D a1 = SectorHomes.LagrangeAccel(D, V, omk, wk, core, omDot);
+            Vector3D dm = D + V * (h / 2), vm = V + a1 * (h / 2);
+            Vector3D a2 = SectorHomes.LagrangeAccel(dm, vm, omk, wk, core, omDot);
+            D += vm * h; V += a2 * h; tau += h;
+            tk = tE + tau;
+            amp = Math.Max(amp, D.Length());
+            if (bi == 0 && (double.IsNaN(plan.BestT) || D.Length() < plan.BestD))
+            {
+                plan.BestT = tk; plan.BestD = D.Length(); plan.BestX = D; plan.Omega = omk; plan.W = wk;
+                plan.BestV = V - Vector3D.Cross(omk, D); plan.BestU = plan.BestV.Length();
+            }
+            var inside = SectorHomes.LagrangeRegion(site.Home, reg, tk);
+            bool gone = inside != null && !inside(SectorHomes.Where(site.Home, reg, tk) + D);
+            if (gone || k % every == 0 || k == steps) plan.Path.Add(Turn(D, ax, -plan.Theta(tk)));
+            if (gone) { plan.TX = tk; break; }
         }
-        plan.Amp = amp; plan.Point = lp0; plan.W = w; plan.Axis = ax;
+        plan.Amp = amp; plan.Point = lp0;
         if (!double.IsNaN(plan.TX))
         {
             // Back on a plain orbit: drawn in the same turning frame, drifting off the sector.
-            double tX = plan.TX, th = wo * tau;
+            double tX = plan.TX;
             SectorHomes.LagrangeState(site.Home, reg, tX, out var lpX, out var lvX);
-            Vector3D pos = lpX + Turn(x, ax, th), vel = lvX + Turn(uu + Vector3D.Cross(om, x), ax, th);
+            Vector3D pos = lpX + D, vel = lvX + V;
             var b2 = reg.Root.DeepestSoiContaining(pos, tX) ?? reg.Root;
             var o2 = b2.OriginInRoot(tX);
             var el = CaptureMath.CaptureElements(new StateVector(pos - o2.Position, vel - o2.Velocity), b2.Mu, tX);
@@ -1132,7 +1188,7 @@ public static class Maneuvers
                 {
                     double tk = tX + plan.Period * k / 160;
                     Vector3D q = b2.OriginInRoot(tk).Position + OrbitPropagation.StateAt(el, tk).Position - SectorHomes.Where(site.Home, reg, tk);
-                    Vector3D rq = Turn(q, ax, -wo * (tk - tE));
+                    Vector3D rq = Turn(q, ax, -plan.Theta(tk));
                     plan.After.Add(rq);
                     if (rq.Length() > far) break;
                 }
@@ -1154,6 +1210,13 @@ public static class Maneuvers
         return cut;
     }
 
+    /// <summary>A plan offset (turning frame, axes as at TE) on the map, as DrawLibration places it.</summary>
+    static Vector3D LagLoc(LagPlan p, Vector3D off, double t, Func<Vector3D, double, Vector3D> toMap)
+    {
+        double tD = p.Now ? t : p.TE;
+        return toMap(SectorHomes.Where(p.Site.Home, SystemHost.Registry, tD) + Turn(off, p.Axis, p.Theta(tD)), tD);
+    }
+
     static void Marker(Vector2 s, ColorSRGB col, float u)
     {
         if (!MapPipeline.ScreenIcon("ring", s, 6f * u, col)) MapPipeline.ScreenCircle(s, 5f * u, col, 2f * u);
@@ -1164,15 +1227,15 @@ public static class Maneuvers
     /// it is when you enter (or now); your orbit inside it, from the Entry to the Exit; past the Exit the
     /// plain orbit you leave on, dashed; the calm core ringed. Size and period on the point.
     /// </summary>
-    static void DrawLibration(LagPlan plan, Func<Vector3D, double, Vector3D> toMap, Func<Vector3D, Vector3D> W, float u)
+    static void DrawLibration(LagPlan plan, double t, Func<Vector3D, double, Vector3D> toMap, Func<Vector3D, Vector3D> W, float u)
     {
         if (plan == null || plan.Path.Count < 2) return;
         var reg = SystemHost.Registry;
         var home = plan.Site.Home;
-        double tE = plan.TE;
+        double tE = plan.Now ? t : plan.TE, turn = plan.Theta(tE);
         Vector3D pt = SectorHomes.Where(home, reg, tE, out Vector3D centre);
         var col = new ColorSRGB(0.95f, 0.75f, 0.35f, 0.9f);
-        bool On(Vector3D off, out Vector2 sp) => MapPipeline.ToScreen(W(toMap(pt + off, tE)), out sp) && InMapArea(sp);
+        bool On(Vector3D off, out Vector2 sp) => MapPipeline.ToScreen(W(toMap(pt + Turn(off, plan.Axis, turn), tE)), out sp) && InMapArea(sp);
         // The region, dotted.
         var bcol = HudPanel.Alpha(col, 0.6f);
         if (home.Point >= 3)
@@ -1206,14 +1269,22 @@ public static class Maneuvers
         }
         // The calm core, ringed (when big enough to see).
         bool hasC = On(Vector3D.Zero, out var cs);
+        if (!plan.Now && hasC && On(Vector3D.Normalize(plan.Point - centre) * (0.035 * (pt - centre).Length()), out var gw))
+        {
+            // The ghost's reach on screen: about its half-length (six times its half-width).
+            _ghostAt = cs; _ghostR = Math.Max(20f * u, 6f * (gw - cs).Length()); _ghostName = plan.Site.Sector;
+            _ghostWall = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+        }
         if (hasC)
         {
-            Vector3D side = Vector3D.Cross(pt - centre, Vector3D.UnitY);
+            Vector3D side = Vector3D.Cross(plan.Axis, plan.Point - centre);
             side = side.LengthSquared() > 0 ? Vector3D.Normalize(side) : Vector3D.UnitX;
-            if (On(side * SectorHomes.LagrangeCore, out var es))
+            if (plan.Core > 0 && On(side * plan.Core, out var es))
             {
                 float rpx = (es - cs).Length();
-                if (rpx > 4f * u) MapPipeline.ScreenCircle(cs, rpx, HudPanel.Alpha(new ColorSRGB(0.55f, 0.85f, 1f, 1f), 0.45f), 1.2f * u);
+                var ccol = HudPanel.Alpha(new ColorSRGB(0.55f, 0.85f, 1f, 1f), 0.5f);
+                if (rpx > 4f * u) MapPipeline.ScreenCircle(cs, rpx, ccol, 1.2f * u);
+                if (rpx > 40f * u) HudPanel.TagAt(cs + new Vector2(0, rpx + 8f * u), "Calm core", ccol, u, diamond: false);
             }
         }
         // The point itself (as it will be, for an entry ahead).
@@ -1229,8 +1300,7 @@ public static class Maneuvers
         if (!plan.Now && On(plan.Path[0], out var en))
         {
             Marker(en, col, u);
-            string stay = double.IsNaN(plan.TX) ? "stays" : $"exit after {Clock(plan.TX - plan.TE)}";
-            HudPanel.TagAt(en + new Vector2(10f * u, 0), $"{plan.Site.Sector} Entry  ·  L{home.Point} orbit ±{HudPanel.Km(plan.Amp)}, {stay}", col, u, diamond: false);
+            HudPanel.TagAt(en + new Vector2(10f * u, 0), $"{plan.Site.Sector} Entry  ·  in {Clock(plan.TE - SystemHost.Now)}", col, u, diamond: false);
         }
         if (!double.IsNaN(plan.TX))
         {
@@ -1249,10 +1319,15 @@ public static class Maneuvers
             }
         }
         LibDebug = $"{(plan.Now ? "in" : "entry in " + Clock(plan.TE - SystemHost.Now))} {plan.Site.Sector}: amp {plan.Amp / 1000:F0} km, {(double.IsNaN(plan.TX) ? "stays" : "exits after " + Clock(plan.TX - plan.TE))}, points {plan.Path.Count}+{plan.After.Count}";
-        if (hasC && plan.Now)
+        // The orbit's size and fate on the point: now, or (for an entry ahead) once the ghost is big
+        // enough to read, named, so it is not taken for whatever sector sits there today.
+        bool readable = plan.Now;
+        if (!readable && hasC && On(Vector3D.Normalize(plan.Point - centre) * (0.035 * (pt - centre).Length()), out var ws)) readable = (ws - cs).Length() > 40f * u;
+        if (hasC && readable)
         {
-            string stay = double.IsNaN(plan.TX) ? "" : $"  ·  exit in {Clock(plan.TX - plan.TE)}";
-            HudPanel.TagAt(cs, $"L{home.Point} orbit ±{HudPanel.Km(plan.Amp)}  ·  {Clock(plan.Period)}{stay}", col, u);
+            string stay = double.IsNaN(plan.TX) ? "stays" : $"exit {(plan.Now ? "in" : "after")} {Clock(plan.TX - plan.TE)}";
+            string who = plan.Now ? $"L{home.Point}" : $"{plan.Site.Sector} (L{home.Point}, in {Clock(plan.TE - SystemHost.Now)})";
+            HudPanel.TagAt(cs, $"{who}  ·  orbit ±{HudPanel.Km(plan.Amp)}  ·  {stay}", col, u);
         }
     }
 

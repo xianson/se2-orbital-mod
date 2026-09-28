@@ -499,8 +499,9 @@ public static class DevHarness
                 // Circularise round the point: sideways at w r (the sense you already turn), as a KSP circularise.
                 Vector3D side = Vector3D.Cross(lp.Axis, lp.BestX);
                 if (side.LengthSquared() < 1e-9) return "at the point";
-                side = Vector3D.Normalize(side) * (lp.W * lp.BestD);
+                side = Vector3D.Normalize(side) * SectorHomes.LagrangeCircleSpeed(lp.BestD, lp.W, lp.Core);
                 if (Vector3D.Dot(side, lp.BestV) < 0) side = -side;
+                if (lp.BestD <= lp.Core) side = -Vector3D.Cross(lp.Omega, lp.BestX);   // in the calm core: at rest (no drift at all)
                 Vector3D dv = side - lp.BestV;
                 Maneuvers.Axes(new SEAerospace.Orbital.StateVector(lp.BestX, lp.BestV), out var P, out var N, out var R);
                 Maneuvers.Restore(lp.BestT, Vector3D.Dot(dv, P), Vector3D.Dot(dv, N), Vector3D.Dot(dv, R));

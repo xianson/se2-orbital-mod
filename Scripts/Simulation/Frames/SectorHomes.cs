@@ -204,19 +204,54 @@ public static class SectorHomes
         return w > 0;
     }
 
-    /// <summary>The calm core: this close to a Lagrange point there is no pull at all (Newtonian flight, a place to park or build).</summary>
-    public const double LagrangeCore = 20000.0;
+    /// <summary>The calm core, as a share of the sector's half-width (L3-L5) or of its sphere (L1 / L2).</summary>
+    public const double LagrangeCoreShare = 0.6;
 
     /// <summary>
-    /// The pull (non-turning axes) of the Lagrange orbit: a harmonic pull toward the point in the turning
-    /// frame, plus the turning's own terms; none in the calm core.
+    /// The calm core: this close to a Lagrange point there is no pull at all (Newtonian flight, a big
+    /// quiet place to park or build): 60 % of the sector's half-width (about 330 km at Kemik's L4).
     /// </summary>
-    public static Vector3D LagrangeAccel(Vector3D d, Vector3D v, Vector3D omega, double w)
+    public static double LagrangeCore(Home h, SystemRegistry reg)
     {
-        if (d.LengthSquared() < LagrangeCore * LagrangeCore) return Vector3D.Zero;
-        Vector3D vRot = v - Vector3D.Cross(omega, d);
-        return -w * w * d + 2 * Vector3D.Cross(omega, vRot) + Vector3D.Cross(omega, Vector3D.Cross(omega, d));
+        var s = h?.Kind == Kind.Lagrange ? reg?.Find(h.Host) : null;
+        if (s?.Parent == null) return 0;
+        if (h.Point <= 2) return LagrangeCoreShare * 0.15 * HillRadius(s);
+        return LagrangeCoreShare * 0.035 * s.StateInParentAt(0).Position.Length();
     }
+
+    /// <summary>
+    /// The pull (non-turning axes) of the Lagrange orbit: out of the calm core a spring toward the point
+    /// in the turning frame, starting at the core's edge, plus the turning's own terms; none in the core.
+    /// </summary>
+    public static Vector3D LagrangeAccel(Vector3D d, Vector3D v, Vector3D omega, double w, double core, Vector3D omegaDot)
+    {
+        double r = d.Length();
+        if (r <= core) return Vector3D.Zero;
+        Vector3D vRot = v - Vector3D.Cross(omega, d);
+        // The turning's own terms, all of them: an eccentric planet turns faster at periapsis, and
+        // without the last (Euler) term that change pumped orbits up (20x the spring at Kemik's L4).
+        return -w * w * (1 - core / r) * d + 2 * Vector3D.Cross(omega, vRot) + Vector3D.Cross(omega, Vector3D.Cross(omega, d))
+               + Vector3D.Cross(omegaDot, d);
+    }
+
+    /// <summary>How fast the body's turn changes (rad/s^2): an eccentric orbit turns faster near periapsis.</summary>
+    public static Vector3D LagrangeTurnRate(GravityBody s, double t)
+    {
+        const double e = 30.0;
+        if (!LagrangeOrbit(s, t + e, out var a, out _) || !LagrangeOrbit(s, t - e, out var b, out _)) return Vector3D.Zero;
+        return (a - b) / (2 * e);
+    }
+
+    /// <summary>The same pull as seen in the turning frame (x offset, u velocity there).</summary>
+    public static Vector3D LagrangeAccelTurning(Vector3D x, Vector3D u, Vector3D omega, double w, double core)
+    {
+        double r = x.Length();
+        if (r <= core) return -2 * Vector3D.Cross(omega, u) - Vector3D.Cross(omega, Vector3D.Cross(omega, x));
+        return -w * w * (1 - core / r) * x;
+    }
+
+    /// <summary>The drift (turning frame) that circles the point at distance r: none in the core (you stay put).</summary>
+    public static double LagrangeCircleSpeed(double r, double w, double core) => r <= core ? 0 : w * Math.Sqrt(r * (r - core));
 
     /// <summary>
     /// The Lagrange sector as a region (a sphere of influence): L3-L5 the teardrop on the body's orbit

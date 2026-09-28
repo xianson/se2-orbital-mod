@@ -827,7 +827,7 @@ public static class CleanMap
         {
             var sc = MapPipeline.ScreenSize;
             var p0 = new Vector2(sc.X * 0.26f, sc.Y * 0.118f);
-            MapPipeline.ScreenRect(p0, p0 + new Vector2(sc.X * 0.3f, TitleHeight(sc)), new ColorSRGB(0.01f, 0.02f, 0.03f, 0.55f));
+            MapPipeline.ScreenRect(p0, p0 + new Vector2(sc.X * 0.3f, TitleHeight(sc)), new ColorSRGB(0.01f, 0.02f, 0.03f, 0.85f));
         }
         var scr = MapPipeline.ScreenSize;
         var at = new Vector2(scr.X * 0.265f, scr.Y * 0.125f);

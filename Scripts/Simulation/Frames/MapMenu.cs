@@ -53,8 +53,11 @@ public static class MapMenu
         w += pad * 2 + 8f * u;
         float h = head + row * _items.Count + 6f * u;
         Vector2 at = _at;
-        if (at.X + w > sz.X - 8) at.X = sz.X - 8 - w;
-        if (at.Y + h > sz.Y - 8) at.Y = sz.Y - 8 - h;
+        // Inside the map's open area (not over the game's panels).
+        if (at.X + w > sz.X * 0.775f) at.X = sz.X * 0.775f - w;
+        if (at.X < sz.X * 0.255f) at.X = sz.X * 0.255f;
+        if (at.Y + h > sz.Y * 0.84f) at.Y = sz.Y * 0.84f - h;
+        if (at.Y < sz.Y * 0.1f) at.Y = sz.Y * 0.1f;
         Vector2 max = at + new Vector2(w, h);
 
         MapPipeline.ScreenRect(at, max, Bg);

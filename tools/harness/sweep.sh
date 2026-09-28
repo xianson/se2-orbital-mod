@@ -34,8 +34,8 @@ for i in $(seq -w 1 $N); do
     7) # flight, maybe third person
       cmds+=("map off" "mapcam reset")
       [ $(r 2) = 0 ] && cmds+=("camview");;
-    8) # clear the plan now and then
-      cmds+=("node clear");;
+    8) # clear the plan, or set / clear a target
+      case $(r 3) in 0) cmds+=("node clear");; 1) cmds+=("map on" "target Echelon");; 2) cmds+=("target off");; esac;;
   esac
   echo "$i: ${cmds[*]}" >> "$LOG"
   "$SP/orb.sh" "${cmds[@]}" >/dev/null

@@ -10,7 +10,7 @@ maybe_map() { if [ $(( RANDOM % 2 )) = 0 ]; then $O "map on" >/dev/null; else $O
 tp()  { if [ $(( RANDOM % 3 )) = 0 ]; then $O "camview" >/dev/null; fi; }
 flight() { $O "flight" >/dev/null; sleep 1; grep "> flight" $S | tail -1 | cut -c10-110; }
 
-say "orbit"; $O "orbit Verdure 250 250" >/dev/null; sleep 12
+say "orbit"; $O "orbit Verdure 250 250" >/dev/null; sleep 12; $O "target Echelon" >/dev/null
 say "plan an arrival at Palatine, Pe 20-80 km up"
 $O "map on" >/dev/null; sleep 3
 $O "node findarr Palatine 40 100" >/dev/null; sleep 8; grep "> node findarr" $S | tail -1 | cut -c10-200

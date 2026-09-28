@@ -24,7 +24,12 @@ public static class SystemHost
 {
     /// <summary>Synthetic star: mu = g * R^2 = 28 * (6000 km)^2 ~ 1.0e15 (SampleSystems.Sol).</summary>
     /// <summary>The sun's mass as in SE-Aerospace (28 m/s^2 at its k-scaled radius); kept when the orbits shrink.</summary>
-    public const double StarMu = 28.0 * (6.9634e8 * K) * (6.9634e8 * K);
+    /// <summary>
+    /// Delfos, a red dwarf, and a compact system about it: light enough that each planet's own space
+    /// (its sphere of influence) is about an eighth of its orbit, so a planet's system and the star's
+    /// read on one map (with the sun's mass the planets' systems were ~2% of their orbits: specks).
+    /// </summary>
+    public const double StarMu = 1.41e13;
     public const double StarSurfaceGravity = StarMu / (StarRadius * StarRadius);
     /// <summary>The system scale (SE-Aerospace's rule): Verdure plays Earth, k = 63 km / 6371 km.</summary>
     public const double K = 63.0 / 6371.0;
@@ -39,8 +44,10 @@ public static class SystemHost
     public static double WarpStopAt = double.NaN;
 
     public const double SectorOrbitScale = 0.4;
-    public const double AU = 1.495978707e11 * K * OrbitScale;   // 147,900 km
-    public const double StarRadius = 6.9634e8 * K * OrbitScale;   // 689 km
+    /// <summary>The system's unit distance: Verdure's orbit (30,000 km; Kemik 1.524 of it, the belt 2.2-3.2, the ring 3.9).</summary>
+    public const double AU = 3.0e7;
+    /// <summary>Delfos's radius: a red dwarf, some twenty radii from Verdure.</summary>
+    public const double StarRadius = 1.5e6;
     /// <summary>First planet's orbit around the star, and the spacing factor for the next ones.</summary>
     public const double FirstOrbit = AU;                  // Verdure = Earth, 1 AU
     public const double OrbitSpacing = 1.524;             // Kemik = Mars, 1.524 AU

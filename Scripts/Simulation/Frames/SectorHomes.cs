@@ -25,6 +25,10 @@ public static class SectorHomes
         public Kind Kind;
         public double A, E, Omega, M0;   // ellipse
         public double Size;              // charted size, m
+        /// <summary>Inclination and ascending node of an ellipse sector's orbit (about its planet's equator plane).</summary>
+        public double I, Node;
+        /// <summary>A belt: the sector is the whole ring of its orbit round the planet, not a section of it.</summary>
+        public bool Belt;
         public int Slot;                 // index within an L-point group
     }
 
@@ -39,6 +43,9 @@ public static class SectorHomes
     // lambda ~ 2.53 n, along-track/radial amplitude ratio ~ 3.2.
     public const double LyapunovLambda = 2.53, LyapunovKappa = 3.2, LyapunovAmplitude = 0.12;
 
+    /// <summary>Planet sectors that are a belt round their planet (the whole ring of the orbit): Kemik's outermost.</summary>
+    public static readonly HashSet<string> Belts = new HashSet<string> { "Zarkon" };
+
     /// <summary>Ellipse eccentricity and orientation, deterministic per sector name.</summary>
     public static Home Make(string sector, string host, double chartDistance, double chartBearing, double size, int slot)
     {
@@ -47,9 +54,20 @@ public static class SectorHomes
         uint hash = 2166136261;
         foreach (char c in sector) hash = (hash ^ c) * 16777619;
         h.A = chartDistance * SystemHost.SectorOrbitScale;   // the charted distance, scaled for sectors
-        h.E = 0.06 + 0.22 * ((hash & 0xFFFF) / 65535.0);
+        // Near circular (eccentric orbits of similar size crossed each other into a tangle), and tilted:
+        // most a little, some steeply, some polar or retrograde, so a planet's sectors spread in 3D.
+        h.E = 0.02 + 0.08 * ((hash & 0xFFFF) / 65535.0);
         h.Omega = ((hash >> 16) & 0xFFFF) / 65535.0 * 2 * Math.PI;
-        h.M0 = chartBearing - h.Omega;   // starts near its charted bearing
+        // (A proper mix: the name hash's own high bits were alike for alike names, and four of Kemik's
+        // seven sectors came out the same.)
+        uint h2 = hash; h2 ^= h2 >> 16; h2 *= 0x85EBCA6Bu; h2 ^= h2 >> 13; h2 *= 0xC2B2AE35u; h2 ^= h2 >> 16;
+        double[] tilts = { 0, 6, 14, 28, 45, 65, 90, 115 };
+        h.I = tilts[(h2 >> 5) % (uint)tilts.Length] * Math.PI / 180;
+        h.Node = ((h2 >> 12) & 0x3FF) / 1023.0 * 2 * Math.PI;
+        // A belt: a ring of rock round the planet (flat-ish and circular), chosen by name.
+        h.Belt = Belts.Contains(sector);
+        if (h.Belt) { h.E = 0.01; h.I = Math.Min(h.I, 12 * Math.PI / 180); }
+        h.M0 = chartBearing - h.Omega - h.Node;   // starts near its charted bearing
         return h;
     }
 
@@ -71,7 +89,9 @@ public static class SectorHomes
                 for (int i = 0; i < 12; i++) E -= (E - h.E * Math.Sin(E) - M) / (1 - h.E * Math.Cos(E));
                 double nu = 2 * Math.Atan2(Math.Sqrt(1 + h.E) * Math.Sin(E / 2), Math.Sqrt(1 - h.E) * Math.Cos(E / 2));
                 double r = h.A * (1 - h.E * Math.Cos(E));
-                rel = new Vector3D(Math.Cos(h.Omega + nu) * r, Math.Sin(h.Omega + nu) * r, 0);
+                // In its own plane (argument of latitude u from the node), tilted by I about the node line.
+                double u = h.Omega + nu, cu = Math.Cos(u), su = Math.Sin(u), cn = Math.Cos(h.Node), sn = Math.Sin(h.Node), ci = Math.Cos(h.I);
+                rel = new Vector3D(r * (cn * cu - sn * su * ci), r * (sn * cu + cn * su * ci), r * su * Math.Sin(h.I));
                 return true;
             }
             case Kind.L1:

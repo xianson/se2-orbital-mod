@@ -563,6 +563,19 @@ public static class PlanetRenderBridge
         catch (Exception e) { return "stats: " + e.Message; }
     }
 
+    /// <summary>DEV: call a private parameterless method (the game's own input handlers).</summary>
+    public static bool CallPrivate(object target, string method)
+    {
+        try
+        {
+            var m = target?.GetType().GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public, null, Type.EmptyTypes, null);
+            if (m == null) return false;
+            m.Invoke(target, null);
+            return true;
+        }
+        catch (Exception e) { WarnOnce("call-" + method, method + " failed: " + Inner(e)); return false; }
+    }
+
     /// <summary>
     /// Zoom the colonization map's own camera to a distance: its private CameraData.TargetDistance, and
     /// its CameraNeedsUpdateTag so it eases there itself (the same as its wheel zoom does). The wheel
@@ -600,6 +613,32 @@ public static class PlanetRenderBridge
     /// then ran on after the map closed: re-showing the map's planet labels in flight and moving its
     /// camera controller.
     /// </summary>
+    private static Type _mapCd; private static object _mapData; private static MethodInfo _mapGet; private static object _mapFor;
+    /// <summary>The map camera's own state: its focus offset from the map entity, and its distance.</summary>
+    public static bool TryGetMapCamera(object map, out Vector3 focusOffset, out float distance)
+    {
+        focusOffset = default; distance = 0;
+        try
+        {
+            if (!ReferenceEquals(map, _mapFor))
+            {
+                Type mt = map.GetType();
+                _mapCd = mt.GetNestedType("CameraData", BindingFlags.NonPublic | BindingFlags.Public);
+                _mapData = mt.GetProperty("Data", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(map);
+                _mapGet = null;
+                foreach (var m in _mapData?.GetType().GetMethods() ?? new MethodInfo[0])
+                    if (m.IsGenericMethodDefinition && m.Name == "Get" && m.GetParameters().Length == 0) { _mapGet = m.MakeGenericMethod(_mapCd); break; }
+                _mapFor = map;
+            }
+            if (_mapGet == null) return false;
+            object v = _mapGet.Invoke(_mapData, null);
+            focusOffset = (Vector3)_mapCd.GetField("FocusPointOffset").GetValue(v);
+            distance = (float)_mapCd.GetField("Distance").GetValue(v);
+            return distance > 0 && distance < 1e6f;
+        }
+        catch { _mapFor = null; return false; }
+    }
+
     public static bool SettleMapZoom(object map, float min, float max)
     {
         try

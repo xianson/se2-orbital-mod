@@ -104,6 +104,7 @@ public static class DevHarness
     }
 
     private static WorldTransform _lastCamera;
+    static bool IsFiniteV(Vector3D v) => !(double.IsNaN(v.X) || double.IsNaN(v.Y) || double.IsNaN(v.Z) || double.IsInfinity(v.X) || double.IsInfinity(v.Y) || double.IsInfinity(v.Z));
 
     /// <summary>Run one harness command now (the debug panel's entries), as the file-driven poll would.</summary>
     public static string Run(Keen.VRage.Core.Game.Systems.Session session, string line)
@@ -537,6 +538,30 @@ public static class DevHarness
             case "debugpanel":
                 DebugPanel.DevOpen = true;
                 return "debug panel toggled";
+
+            case "camview":   // camview: toggle first / third person exactly as the game's key does
+            {
+                var cs = session.SessionComponents.TryGet<Keen.Game2.Client.GameSystems.PlayerControl.ClientPlayersSessionComponent>()?.LocalPlayerController?.CameraSystem;
+                if (cs == null) return "no camera system";
+                // (Setting a mode by index with no camera state crashed the renderer: a NaN distance.)
+                bool ok = PlanetRenderBridge.CallPrivate(cs, "ToggleCameraView");
+                return $"camera toggled: {ok} (active {cs.ActiveCameraModeIndex})";
+            }
+
+            case "camdiag":   // orientations the third-person camera starts from: character, controller, render camera
+            {
+                string Q(Quaternion q) => $"({q.X:F4},{q.Y:F4},{q.Z:F4},{q.W:F4}) |q|={Math.Sqrt(q.X * q.X + q.Y * q.Y + q.Z * q.Z + q.W * q.W):F6} valid={q.IsValidAndRotationIsNormalized()}";
+                var ch = FrameHost.PlayerCharacter(session);
+                var pl = session.SessionComponents.TryGet<Keen.Game2.Client.GameSystems.PlayerControl.ClientPlayersSessionComponent>()?.LocalPlayerController;
+                var ctrl = pl?.CameraSystem?.ActiveCameraController;
+                var rc = SpecCam.CameraOf(session);
+                var sb = new System.Text.StringBuilder();
+                if (ch != null) { var w = ch.Data.GetWorldTransform(); sb.Append($"char {Q(w.Orientation)} pos ok={IsFiniteV(w.Position)}; "); }
+                if (ctrl != null) sb.Append($"ctrl {Q(ctrl.Data.GetWorldTransform().Orientation)}; ");
+                if (rc != null) sb.Append($"render {Q(rc.Data.GetWorldTransform().Orientation)}; ");
+                sb.Append($"mode {pl?.CameraSystem?.ActiveCameraModeIndex}");
+                return sb.ToString();
+            }
 
             case "dblclick":   // dblclick <x> <y>: screen fractions
                 UnifiedMap.DevMouse = new Vector2((float)D(a[1]), (float)D(a[2]));

@@ -72,6 +72,13 @@ public static class UnifiedMap
         if (_baseMin < 0) _baseMin = map.MinDistance;
         float minD = Math.Max(0.08f, _baseMin / (float)ZoomInFactor);   // closer, the globes clip at the camera's near plane
         if (map.MinDistance > minD) map.MinDistance = minD;
+        // Opening: the game starts at a percentage of its zoom range, which our wider range turned into
+        // a far zoom (the system view, sometimes); open at its original default distance instead.
+        if (!_gameHidden)
+        {
+            float def = _baseMin + (_baseMax - _baseMin) * map.DefaultDistancePercentage / 100f;
+            if (def > 0) PlanetRenderBridge.SettleMapZoom(map, def, def);
+        }
         HideGame(map);
         _labelsHidden = true;
 
@@ -109,8 +116,24 @@ public static class UnifiedMap
             string youPlanet = null; Vector3D youRel = default; KeplerianElements? youOrbit = null;
             if (SunDriver.TryObserverCelestial(FrameHost.PlayerPosition, t, out Vector3D ycel))
             {
-                double bestD = double.MaxValue;
-                foreach (var p in planets) { double d = (ycel - p.OriginInRoot(t).Position).Length(); if (d < bestD) { bestD = d; youPlanet = p.Name; } }
+                // The body you are about: your frame's, else the smallest sphere of influence you are in
+                // (moons too: at Palatine it said Verdure), else the nearest planet.
+                var pf = FrameHost.PlayerFrame;
+                if (pf != null && reg.Find(pf.ParentBodyName) != null) youPlanet = pf.ParentBodyName;
+                else
+                {
+                    double bestSoi = double.MaxValue;
+                    foreach (var body in reg.Bodies)
+                    {
+                        if (body.IsRoot || !(body.SoiRadius < bestSoi)) continue;
+                        if ((ycel - body.OriginInRoot(t).Position).Length() <= body.SoiRadius) { bestSoi = body.SoiRadius; youPlanet = body.Name; }
+                    }
+                    if (youPlanet == null)
+                    {
+                        double bestD = double.MaxValue;
+                        foreach (var p in planets) { double d = (ycel - p.OriginInRoot(t).Position).Length(); if (d < bestD) { bestD = d; youPlanet = p.Name; } }
+                    }
+                }
                 if (youPlanet != null)
                 {
                     youRel = ycel - reg.Find(youPlanet).OriginInRoot(t).Position;

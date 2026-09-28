@@ -83,20 +83,34 @@ public static class HudPanel
     /// <summary>Start of a frame's labels: later labels step down until clear of earlier ones.</summary>
     public static void BeginLabels() => _placed.Clear();
 
-    /// <summary>Text on a dark plate, vertically centred on the point (moved down clear of earlier labels).</summary>
+    /// <summary>
+    /// Text on a dark plate beside its point: right of it, else left, above or below, whichever is clear
+    /// of the labels already placed (tags and the map's own names). When none is, it stays on the right:
+    /// a label that wanders off (it used to step down until clear) names the wrong place.
+    /// </summary>
     public static void LabelAt(Vector2 p, string text, ColorSRGB c, float u)
     {
         var ts = MapPipeline.MeasureText(text, 0.5f * u);
-        var at = p - new Vector2(0, ts.Y * 0.5f);
-        for (int tries = 0; tries < 8; tries++)
+        var pad = new Vector2(4f * u, 3f * u);
+        Vector2 anchor = p - new Vector2(9f * u, 0);   // the point being named (callers pass it +9 px)
+        var cands = new[]
         {
+            p - new Vector2(0, ts.Y * 0.5f),                                          // right
+            anchor - new Vector2(ts.X + 9f * u, ts.Y * 0.5f),                         // left
+            anchor + new Vector2(-ts.X * 0.5f, -ts.Y - 9f * u),                       // above
+            anchor + new Vector2(-ts.X * 0.5f, 9f * u),                               // below
+        };
+        Vector2 at = cands[0];
+        foreach (var cand in cands)
+        {
+            Vector2 mn = cand - pad, mx = cand + ts + pad;
             bool hit = false;
             foreach (var b in _placed)
-                if (at.X < b.max.X && at.X + ts.X > b.min.X && at.Y < b.max.Y && at.Y + ts.Y > b.min.Y) { hit = true; break; }
-            if (!hit) break;
-            at.Y += ts.Y * 1.35f + 4f * u;
+                if (mn.X < b.max.X && mx.X > b.min.X && mn.Y < b.max.Y && mx.Y > b.min.Y) { hit = true; break; }
+            if (!hit && MapPipeline.Free(mn, mx)) { at = cand; break; }
         }
-        _placed.Add((at - new Vector2(4f * u, 3f * u), at + ts * new Vector2(1f, 1.25f) + new Vector2(4f * u, 3f * u)));
+        _placed.Add((at - pad, at + ts + pad));
+        MapPipeline.Reserve(at - pad, at + ts + pad);
         MapPipeline.ScreenRect(at - new Vector2(4f * u, 1f * u), at + ts + new Vector2(4f * u, 1f * u), new ColorSRGB(0.02f, 0.045f, 0.07f, 0.65f));
         MapPipeline.ScreenText(at, text, c, 0.5f * u);
     }

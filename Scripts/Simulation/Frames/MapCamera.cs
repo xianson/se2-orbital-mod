@@ -81,6 +81,10 @@ public static class MapCamera
         double d = Vector3D.Dot(mapPos - g.Position, up) / den;
         if (!(d > 0)) { Status = "camera faces away"; return; }
         Vector3D focusGame = g.Position + gf * d;
+        // Better, the map camera's own state relative to the map entity: read now, it moves with the
+        // map (which follows you). The controller's transform is a frame old, and when you move fast
+        // (free flight, 300 m/s) that put the metre-wide map off screen: the map drew empty.
+        if (PlanetRenderBridge.TryGetMapCamera(map, out var off, out var dist)) { focusGame = mapPos + (Vector3D)off; d = dist; }
         // Glides (focus on a body): ease the pan and the zoom toward their goals.
         double wall = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
         double dt = _lastWall > 0 ? Math.Min(0.1, wall - _lastWall) : 0; _lastWall = wall;

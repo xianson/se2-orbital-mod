@@ -341,6 +341,35 @@ public static class Maneuvers
             }
         }
 
+        // Impact: where a leg dips inside its body (KSP marks it). A red cross and 'Impact', on the
+        // first such point of the whole path.
+        foreach (var l in legs)
+        {
+            double R = SystemHost.Registry?.FindDefinition(l.Body.Name)?.RadiusMeters ?? 0;
+            if (!(R > 0) || !(l.El.PeriapsisRadius < R) || !(l.T1 > l.T0)) continue;
+            double span = l.T1 - l.T0, prev = l.T0, hitT = double.NaN;
+            for (int k = 1; k <= 240; k++)
+            {
+                double tk = l.T0 + span * k / 240;
+                if (OrbitPropagation.StateAt(l.El, tk).Position.Length() < R)
+                {
+                    double a = prev, b = tk;
+                    for (int q = 0; q < 30; q++) { double m = 0.5 * (a + b); if (OrbitPropagation.StateAt(l.El, m).Position.Length() < R) b = m; else a = m; }
+                    hitT = 0.5 * (a + b); break;
+                }
+                prev = tk;
+            }
+            if (double.IsNaN(hitT)) continue;
+            if (Live(l.Body) && MapPipeline.ToScreen(W(LegLoc(l, hitT)), out var hs) && InMapArea(hs))
+            {
+                float r = 6f * u;
+                MapPipeline.ScreenLine(hs - new Vector2(r, r), hs + new Vector2(r, r), ImpactColor, 2.2f * u);
+                MapPipeline.ScreenLine(hs - new Vector2(r, -r), hs + new Vector2(r, -r), ImpactColor, 2.2f * u);
+                HudPanel.TagAt(hs + new Vector2(8f * u, 0), $"{l.Body.Name} Impact  in {Clock(hitT - t)}", ImpactColor, u, diamond: false);
+            }
+            break;
+        }
+
         // Sector crossings: where the path comes within the merge range of a sector's site (you arrive
         // there, by conjunction) and where it leaves the site's bubble again.
         foreach (var c in SectorCrossings(t, legs))
@@ -583,6 +612,7 @@ public static class Maneuvers
         return ts.TotalDays >= 1 ? $"{(int)ts.TotalDays}d {ts.Hours}h" : ts.TotalHours >= 1 ? $"{(int)ts.TotalHours}h {ts.Minutes:D2}m" : $"{ts.Minutes}:{ts.Seconds:D2}";
     }
 
+    static readonly ColorSRGB ImpactColor = new ColorSRGB(1.00f, 0.30f, 0.25f, 1f);
     static readonly ColorSRGB SectorIn = new ColorSRGB(0.45f, 1.00f, 0.55f, 1f);
     static readonly ColorSRGB SectorOut = new ColorSRGB(0.70f, 0.85f, 0.75f, 0.9f);
 

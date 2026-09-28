@@ -253,6 +253,14 @@ public static class MapPipeline
 
     /// <summary>Keep map labels out of a screen area (the sector list, the title) for this frame.</summary>
     public static void Reserve(Vector2 min, Vector2 max) => _placed.Add(new BoundingBox2(min, max));
+
+    /// <summary>No map label (or reserved area) placed this frame overlaps the box.</summary>
+    public static bool Free(Vector2 min, Vector2 max)
+    {
+        var box = new BoundingBox2(min, max);
+        foreach (var p in _placed) if (p.Intersects(box)) return false;
+        return true;
+    }
     private static MethodInfo _drawLine, _drawString;
     private static object _font;
     private static Keen.Game2.Client.GameSystems.CameraSystems.CameraComponent _cam;

@@ -197,7 +197,7 @@ public static class OrbitDisplay
         var el = frame.Elements;
         var parentOrg = parent.OriginInRoot(t).Position;
         OrbitPath path = OrbitSampler.SamplePath(el, PathPoints, parent.SoiRadius);
-        var color = el.IsElliptic ? ColorSRGB.Yellow : ColorSRGB.Red;
+        var color = el.IsElliptic ? You : ColorSRGB.Red;   // your orbit: cyan, as on the map
         var pts = path.Points;
         if (pts != null && pts.Length > 1)
         {

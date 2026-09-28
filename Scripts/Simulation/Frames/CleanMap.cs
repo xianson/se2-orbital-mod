@@ -66,6 +66,8 @@ public static partial class CleanMap
     public static string Status = "-";
     /// <summary>Where the star is on the map this frame (world), for the game's star model.</summary>
     public static Vector3D? StarWorld;
+    /// <summary>A planet's own system has the view (the star's lines step back).</summary>
+    private static bool _planetLevel;
     /// <summary>DEV: this frame's view (the body it is about, the zoom).</summary>
     public static string Frame = "-";
 
@@ -134,6 +136,7 @@ public static partial class CleanMap
         string focus = focusPlanet?.Name;
         // The planet's own level (its sectors listed) while its system shows.
         bool sys = focusPlanet == null || !_detailPrev.Contains(focusPlanet.Name);
+        _planetLevel = !sys;
         _viewBody = anchor.IsRoot ? null : anchor;
         ViewKey = sys ? "system" : anchor.Name;
 

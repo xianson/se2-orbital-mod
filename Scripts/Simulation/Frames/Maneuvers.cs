@@ -284,12 +284,16 @@ public static class Maneuvers
         var samples = new List<Sample>();
         int patch = 0;
         var legColour = new List<ColorSRGB>();
+        var legPatch = new List<int>();
         for (int li = 0; li < legs.Count; li++)
         {
             var l = legs[li];
             if (li > 0 && l.Body != legs[li - 1].Body) patch++;
-            var col = PatchColors[patch % PatchColors.Length];
-            legColour.Add(col);
+            // Each later patch fainter; past MaxPatches none (KSP's conic patch limit: every predicted
+            // encounter drawn was a tangle of loops and repeated labels).
+            var col = HudPanel.Alpha(PatchColors[patch % PatchColors.Length], Math.Max(0.4f, 1f - 0.2f * patch));
+            legColour.Add(col); legPatch.Add(patch);
+            if (patch > MaxPatches) continue;
             bool planning = applied.Count > 0;
             // Without nodes the map draws your orbit; with nodes, your orbit up to the first node
             // is drawn here (gold) and the rest of it faint, and the plan takes over from the node.
@@ -370,8 +374,10 @@ public static class Maneuvers
 
         // Patch points: where the trajectory leaves one SOI for another.
         var entryNamed = new HashSet<string>();
+        var labelled = new HashSet<string>();   // each crossing named once
         for (int li = 1; li < legs.Count; li++)
         {
+            if (legPatch[li] > MaxPatches) break;
             var pa = legs[li - 1]; var nb = legs[li].Body;
             if (nb == pa.Body) continue;
             double tp = legs[li].T0;
@@ -392,7 +398,8 @@ public static class Maneuvers
                 {
                     MapPipeline.ScreenCircle(st, 5f * u, col, 2f * u);
                     MapPipeline.ScreenCircle(st, 1.5f * u, col, 2.5f * u);
-                    HudPanel.TagAt(st + new Vector2(10f * u, 0), escape ? $"{SystemHost.DisplayName(pa.Body.Name)} Escape" : $"{SystemHost.DisplayName(nb.Name)} Entry", col, u, diamond: false);
+                    string what = escape ? $"{SystemHost.DisplayName(pa.Body.Name)} Escape" : $"{SystemHost.DisplayName(nb.Name)} Entry";
+                    if (labelled.Add(what)) HudPanel.TagAt(st + new Vector2(10f * u, 0), what, col, u, diamond: false);
                     if (!escape) entryNamed.Add(nb.Name);
                 }
             }
@@ -889,6 +896,9 @@ public static class Maneuvers
         _cross = list;
         return list;
     }
+
+    /// <summary>Patches drawn after your orbit (KSP's conic patch limit).</summary>
+    public static int MaxPatches = 3;
 
     static readonly ColorSRGB[] PatchColors =
     {

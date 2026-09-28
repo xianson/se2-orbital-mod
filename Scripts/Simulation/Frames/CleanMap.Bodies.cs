@@ -214,7 +214,8 @@ public static partial class CleanMap
         {
             if (!SystemHost.BeaconOf.ContainsKey(p.Name)) continue;
             var el = OrbitalMath.ToElements(p.StateInParentAt(t), root.Mu, t);
-            if (el.IsElliptic) Curve(nu => S(OrbitSampler.PositionAtTrueAnomaly(el, nu)), W, 0, 2 * Math.PI, 96, Line, 1.2f);
+            // Faint while a planet's own system has the view (its sweep across the screen is not the point there).
+            if (el.IsElliptic) Curve(nu => S(OrbitSampler.PositionAtTrueAnomaly(el, nu)), W, 0, 2 * Math.PI, 96, _planetLevel ? HudPanel.Alpha(Line, 0.1f) : Line, 1.2f);
             Vector3D hp = p.StateInParentAt(t).Position;
             Vector3D c = S(hp);
             var own = bands.Find(b => b.Host == p.Name && b.Home.Kind == SectorHomes.Kind.OwnPlanet);

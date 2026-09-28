@@ -385,6 +385,44 @@ public static class Maneuvers
             }
         }
 
+        // The orbit each patch puts you on (KSP): where a patch about a body is cut short by its next
+        // event (a moon's escape into its planet, then back into the moon), the rest of its ellipse is
+        // drawn faint and dashed, with its Pe / Ap, so the orbit you would be on reads at a glance.
+        {
+            var shown = new HashSet<string>();
+            for (int li = 1; li < legs.Count; li++)
+            {
+                if (legPatch[li] > MaxPatches) break;
+                var l = legs[li];
+                if (l.Body == legs[li - 1].Body || l.Body.IsRoot || !l.El.IsElliptic || !IsFinite(l.El.Period)) continue;
+                if (l.T1 - l.T0 >= l.El.Period * 0.98) continue;   // drawn whole already
+                var col = legColour[li];
+                var faintCol = HudPanel.Alpha(col, 0.45f);
+                int m = 96;
+                double a0 = l.T1, a1 = l.T0 + l.El.Period;
+                Vector2 pv = default; bool hv = false;
+                for (int k = 0; k <= m; k++)
+                {
+                    double tk = a0 + (a1 - a0) * k / m;
+                    Vector3D loc = Loc(l.Body, OrbitPropagation.StateAt(l.El, tk).Position, l.T0);
+                    if (Math.Sqrt(loc.X * loc.X + loc.Z * loc.Z) > limit * 1.04 || MapPipeline.Occluded(W(loc)) || !MapPipeline.ToScreen(W(loc), out var sp) || !InMapArea(sp)) { hv = false; continue; }
+                    if (hv) MapPipeline.ScreenDashed(pv, sp, faintCol, 1.6f * u, u);
+                    pv = sp; hv = true;
+                }
+                // Its apsides, once per body (the orbit about Verdure after leaving Palatine: Pe / Ap).
+                if (!shown.Add(l.Body.Name)) continue;
+                double R = SystemHost.Registry?.FindDefinition(l.Body.Name)?.RadiusMeters ?? 0;
+                void Apsis(double nu, string what, double alt)
+                {
+                    Vector3D loc = Loc(l.Body, OrbitSampler.PositionAtTrueAnomaly(l.El, nu), l.T0);
+                    if (Math.Sqrt(loc.X * loc.X + loc.Z * loc.Z) > limit * 1.04 || !MapPipeline.ToScreen(W(loc), out var sp) || !InMapArea(sp)) return;
+                    HudPanel.TagAt(sp, $"{what} {HudPanel.Km(alt)}", col, u);
+                }
+                Apsis(0, "Pe", l.El.PeriapsisRadius - R);
+                if (l.El.Eccentricity > 0.002) Apsis(Math.PI, "Ap", l.El.SemiMajorAxis * (1 + l.El.Eccentricity) - R);
+            }
+        }
+
         // Patch points: where the trajectory leaves one SOI for another.
         var entryNamed = new HashSet<string>();
         var labelled = new HashSet<string>();   // each crossing named once

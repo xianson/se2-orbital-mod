@@ -403,7 +403,7 @@ public static class GameMap
     /// <summary>The game's star model is on the map this frame (the map then draws no disc of its own).</summary>
     public static bool StarPlaced;
     /// <summary>How much bigger than its own model Delfos shows on the map.</summary>
-    public static double StarScale = 3.0;
+    public static double StarScale = 1.0;   // (moved off the map plane toward the camera, the model stopped drawing)
     public static string StarDebug = "-";
 
     private static bool? _starShown; private static object _star;

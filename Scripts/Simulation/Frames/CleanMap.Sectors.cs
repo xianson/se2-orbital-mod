@@ -221,7 +221,11 @@ public static partial class CleanMap
                                v => toLocal(centre + v), b0, 0.5, (h.Outer - h.Inner) / (h.Outer + h.Inner));
                     break;
                 case SectorHomes.Kind.Lagrange when h.Point >= 3:
-                    SectorArea(W0, q => SectorHomes.Where(h, reg, t + P * q) - centre, v => toLocal(centre + v), b0, SectorSpan, 0.035, taper: true);   // a thin lens
+                {
+                    // You are in it: only its dotted boundary (the preview draws it, as a planet's SOI), no fill.
+                    var pf = FrameHost.PlayerFrame;
+                    bool inIt = pf != null && EncounterFrames.SiteOf(pf.Id)?.Sector == b0.Name;
+                    if (!inIt) SectorArea(W0, q => SectorHomes.Where(h, reg, t + P * q) - centre, v => toLocal(centre + v), b0, SectorSpan, 0.035, taper: true);   // a thin lens
                     // Hovered or selected: the triangle (or line) it makes with Delfos and its planet.
                     if (b0.Selected || b0.Name == Hovered)
                     {
@@ -238,6 +242,7 @@ public static partial class CleanMap
                         }
                     }
                     break;
+                }
                 case SectorHomes.Kind.Lagrange:   // L1 / L2: a small zone round the point
                 {
                     var s = reg.Find(h.Host);

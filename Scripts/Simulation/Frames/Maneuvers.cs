@@ -978,7 +978,7 @@ public static class Maneuvers
             double T = 2 * Math.PI * Math.Sqrt(a * a * a / body.Parent.Mu);
             double mu = body.Mu / (body.Mu + body.Parent.Mu);
             _libPeriod = T / Math.Sqrt(27.0 / 4.0 * mu);
-            double horizon = Math.Min(2 * _libPeriod, 20 * 86400.0);
+            double horizon = Math.Min(_libPeriod + T, 20 * 86400.0);   // one libration (and an orbit to average over)
             int n = 1200; double dt = horizon / n;
             Vector3D d = FrameHost.RiderOffset, v = FrameHost.RiderVelocity;
             LibStart = $"start offset {d.Length() / 1000:F2} km, speed {v.Length():F2} m/s";
@@ -1007,6 +1007,21 @@ public static class Maneuvers
                 v += (k1v + 2 * k2v + 2 * k3v + k4v) * (dt / 6);
                 if (!IsFinite(d.X) || d.Length() > 5e6) break;   // (left the sector's reach: no longer a libration)
             }
+            // One clean line: the slow swing alone (the path averaged over an orbit, the small loops taken
+            // out), over one libration: the tadpole, closed round the point.
+            int win = Math.Max(1, (int)Math.Round(T / dt));
+            var smooth = new List<Vector3D>();
+            if (pts.Count > win)
+            {
+                Vector3D sum = Vector3D.Zero;
+                for (int i = 0; i < win; i++) sum += pts[i];
+                for (int i = win; i < pts.Count; i++)
+                {
+                    smooth.Add(sum / win);
+                    sum += pts[i] - pts[i - win];
+                }
+            }
+            if (smooth.Count > 2) { pts = smooth; amp = 0; foreach (var q in pts) amp = Math.Max(amp, q.Length()); }
             _lib = pts; _libAmp = amp;
         }
         Vector3D? pt = EncounterFrames.SitePoint(pf.Id, t);

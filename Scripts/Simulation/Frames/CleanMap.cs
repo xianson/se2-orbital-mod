@@ -746,7 +746,6 @@ public static class CleanMap
             if (MapPipeline.ToScreen(W(yl), out var ys) && InOpenArea(ys))
             {
                 float uu = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
-                HudPanel.TagAt(ys + new Vector2(12f * uu, 0), "you", You, uu, diamond: false);
             }
             // Pe / Ap on your orbit (as KSP), plan or not; after 'you', which has the first claim.
             if (!Planning && playerOrbit.HasValue && IsFinite(playerOrbit.Value.SemiMajorAxis)
@@ -906,7 +905,6 @@ public static class CleanMap
             {
                 float uu = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
                 if (!MapPipeline.ScreenIcon("PlayerIcon", ys, 10f * uu, You)) MapPipeline.ScreenText(ys - new Vector2(6f * uu, 12f * uu), "+", You, 1.2f);
-                HudPanel.TagAt(ys + new Vector2(12f * uu, 0), "you", You, uu, diamond: false);
             }
         }
         MapPipeline.PickName = null;

@@ -104,9 +104,11 @@ public static class SystemHost
 
     /// <summary>Palatine plays the Moon (384,400 km x k); other moons keep their charted distance (Caligo is Phobos-like).</summary>
     /// <summary>Caligo's charted distance (~195 km) sat it almost on Kemik; three times out (~585 km) it reads as a moon.</summary>
-    public const double CaligoOrbitFactor = 3.0;
+    /// <summary>Caligo's orbit over its charted distance (195 km): 6x = 1,170 km. More and its own sphere of
+    /// influence (a third of its distance) would reach past Kemik's (~1,980 km, Kemik being the inner planet).</summary>
+    public const double CaligoOrbitFactor = 6.0;
     private static double MoonOrbit(string name, double charted) =>
-        name == "Palatine" ? 3.844e8 * K * OrbitScale : name == "Caligo" ? charted * CaligoOrbitFactor : charted;
+        name == "Palatine" ? 3 * 3.844e8 * K * OrbitScale : name == "Caligo" ? charted * CaligoOrbitFactor : charted;   // Palatine x3 (1,140 km)
     private static double MoonEccentricity(string name) => name == "Palatine" ? 0.0549 : 0.015;
     private static double PlanetEccentricity(string name) => name == "Verdure" ? 0.0167 : name == "Kemik" ? 0.0934 : 0.02;
     public const double MoonMaxDistance = 1.0e6;   // m

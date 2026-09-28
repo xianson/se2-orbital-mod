@@ -144,23 +144,19 @@ public static class OrbitDisplay
         }
 
         OrbitPath path = OrbitSampler.SamplePath(el, PathPoints, law.Reach);
-        var color = el.IsElliptic ? You : ColorSRGB.Red;   // your orbit: cyan, as on the map
+        // Drawn by the HUD (OrbitHud.DrawPath: a smooth screen curve, hidden behind the planet); the
+        // orbit passes through the camera by construction, so the points near it are left out.
         var pts = path.Points;
+        Vector3D[] world = null;
         if (pts != null && pts.Length > 1)
         {
-            // The orbit passes through the camera by construction. Thin (default) lines only, and
-            // skip segments touching the camera's neighbourhood: a world-width line at the eye
-            // fills the screen (seen in game with thickness 3).
-            int n = pts.Length;
-            int segments = path.IsClosed ? n : n - 1;
-            for (int i = 0; i < segments; i++)
+            var list = new List<Vector3D>(pts.Length);
+            foreach (var q in pts)
             {
-                Vector3D p0 = center + chart.FromInertial(pts[i]);
-                Vector3D p1 = center + chart.FromInertial(pts[(i + 1) % n]);
-                if ((p0 - camera.Position).LengthSquared() < NearCameraSkip * NearCameraSkip ||
-                    (p1 - camera.Position).LengthSquared() < NearCameraSkip * NearCameraSkip) continue;
-                _builder.AddLine(p0, p1, color);
+                Vector3D w = center + chart.FromInertial(q);
+                list.Add((w - camera.Position).LengthSquared() < NearCameraSkip * NearCameraSkip ? new Vector3D(double.NaN, 0, 0) : w);
             }
+            world = list.ToArray();
         }
 
         double pe = el.PeriapsisRadius - radius;
@@ -175,6 +171,7 @@ public static class OrbitDisplay
             Period = el.IsElliptic ? el.Period : 0, IncDeg = el.Inclination * 180 / Math.PI, Escape = !el.IsElliptic,
             PeWorld = center + chart.FromInertial(OrbitSampler.PositionAtTrueAnomaly(el, 0)),
             ApWorld = el.IsElliptic ? center + chart.FromInertial(OrbitSampler.PositionAtTrueAnomaly(el, Math.PI)) : (Vector3D?)null,
+            Path = world, PathClosed = path.IsClosed, BodyWorld = center, BodyRadius = radius,
         };
         _builder.Commit();
         _drewLastFrame = true;
@@ -197,37 +194,16 @@ public static class OrbitDisplay
         var el = frame.Elements;
         var parentOrg = parent.OriginInRoot(t).Position;
         OrbitPath path = OrbitSampler.SamplePath(el, PathPoints, parent.SoiRadius);
-        var color = el.IsElliptic ? You : ColorSRGB.Red;   // your orbit: cyan, as on the map
+        // The orbit itself is drawn by the HUD (OrbitHud.DrawPath: a smooth screen curve, behind the
+        // planet hidden); here only its points in the world.
         var pts = path.Points;
+        Vector3D[] world = null;
         if (pts != null && pts.Length > 1)
         {
-            int n = pts.Length;
-            int segments = path.IsClosed ? n : n - 1;
-            for (int i = 0; i < segments; i++)
-            {
-                Vector3D p0 = SEAerospace.PlanetBerths.WorldFromCelestial(obs, parentOrg + pts[i]);
-                Vector3D p1 = SEAerospace.PlanetBerths.WorldFromCelestial(obs, parentOrg + pts[(i + 1) % n]);
-                Line(p0, p1, camera.Position, color);
-            }
+            world = new Vector3D[pts.Length];
+            for (int i = 0; i < pts.Length; i++) world[i] = SEAerospace.PlanetBerths.WorldFromCelestial(obs, parentOrg + pts[i]);
         }
-
         var def = reg.FindDefinition(frame.ParentBodyName);
-        // Ship position and the apsides, so the ellipse reads at any distance.
-        {
-            StateVector now = OrbitPropagation.StateAt(el, t);
-            double rad0 = def != null ? def.RadiusMeters : 0;
-            void Mark(Vector3D cel)
-            {
-                Vector3D w = SEAerospace.PlanetBerths.WorldFromCelestial(obs, parentOrg + cel);
-                double size = Math.Max(50, (w - camera.Position).Length() * 0.004);
-                _builder.AddSphere(new WorldTransform(w, Quaternion.Identity), size, color, color, true);
-            }
-            if (el.IsElliptic)
-            {
-                Mark(OrbitSampler.PositionAtTrueAnomaly(el, 0));
-                Mark(OrbitSampler.PositionAtTrueAnomaly(el, Math.PI));
-            }
-        }
         double radius = def != null ? def.RadiusMeters : 0;
         StateVector cur = OrbitPropagation.StateAt(el, t);
         string ap = el.IsElliptic ? $"Ap {(el.ApoapsisRadius - radius) / 1000:F1} km  T {el.Period / 60:F1} min" : "escape";
@@ -242,6 +218,8 @@ public static class OrbitDisplay
             Period = el.IsElliptic ? el.Period : 0, IncDeg = el.Inclination * 180 / Math.PI, Escape = !el.IsElliptic,
             PeWorld = SEAerospace.PlanetBerths.WorldFromCelestial(obs, parentOrg + OrbitSampler.PositionAtTrueAnomaly(el, 0)),
             ApWorld = el.IsElliptic ? SEAerospace.PlanetBerths.WorldFromCelestial(obs, parentOrg + OrbitSampler.PositionAtTrueAnomaly(el, Math.PI)) : (Vector3D?)null,
+            Path = world, PathClosed = path.IsClosed,
+            BodyWorld = SEAerospace.PlanetBerths.WorldFromCelestial(obs, parentOrg), BodyRadius = radius,
         };
         _builder.Commit();
         _drewLastFrame = true;

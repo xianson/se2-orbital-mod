@@ -67,12 +67,12 @@ public static class HudPanel
         TagAt(s, text, c, u);
     }
 
-    /// <summary>A small labelled tag at a screen point: diamond, text on a dark plate.</summary>
+    /// <summary>A small labelled tag at a screen point: a small dot on the point, quiet text beside it.</summary>
     public static void TagAt(Vector2 s, string text, ColorSRGB c, float u, bool diamond = true)
     {
         float r = 5f * u;
         if (!diamond) { LabelAt(s + new Vector2(9f * u, 0), text, c, u); return; }
-        if (MapPipeline.ScreenIcon("diamond", s, r + 1f * u, c)) { LabelAt(s + new Vector2(r + 6f * u, 0), text, c, u); return; }
+        if (MapPipeline.ScreenIcon("dot", s, 3f * u, c)) { LabelAt(s + new Vector2(9f * u, 0), text, c, u); return; }
         MapPipeline.ScreenLine(s + new Vector2(0, -r), s + new Vector2(r, 0), c, 1.8f * u);
         MapPipeline.ScreenLine(s + new Vector2(r, 0), s + new Vector2(0, r), c, 1.8f * u);
         MapPipeline.ScreenLine(s + new Vector2(0, r), s + new Vector2(-r, 0), c, 1.8f * u);
@@ -110,8 +110,9 @@ public static class HudPanel
     /// </summary>
     public static void LabelAt(Vector2 p, string text, ColorSRGB c, float u)
     {
-        var ts = MapPipeline.MeasureText(text, 0.5f * u);
-        var pad = new Vector2(4f * u, 3f * u);
+        const float Scale = 0.36f;   // small and quiet (at 0.5 on a dark plate the tags shouted)
+        var ts = MapPipeline.MeasureText(text, Scale * u);
+        var pad = new Vector2(3f * u, 2f * u);
         Vector2 anchor = p - new Vector2(9f * u, 0);   // the point being named (callers pass it +9 px)
         var cands = new[]
         {
@@ -140,8 +141,7 @@ public static class HudPanel
         MapPipeline.MarkShown(key, chosen);   // no clear spot: left out (drawn anyway, labels landed on each other)
         _placed.Add((at - pad, at + ts + pad));
         MapPipeline.Reserve(at - pad, at + ts + pad);
-        MapPipeline.ScreenRect(at - new Vector2(4f * u, 1f * u), at + ts + new Vector2(4f * u, 1f * u), new ColorSRGB(0.02f, 0.045f, 0.07f, 0.65f));
-        MapPipeline.ScreenText(at, text, c, 0.5f * u);
+        MapPipeline.ScreenText(at, text, c, Scale * u);   // no plate: the font's own shadow is enough
     }
 
     public static string Km(double m) => Math.Abs(m) >= 1e6 ? $"{m / 1000:N0} km" : Math.Abs(m) >= 1e4 ? $"{m / 1000:F0} km" : $"{m / 1000:F1} km";
@@ -159,6 +159,11 @@ public static class OrbitHud
         public double Alt, Speed, Pe, Ap, Period, IncDeg;
         public bool Escape;
         public Vector3D? PeWorld, ApWorld;
+        /// <summary>The orbit in the world (a closed loop when elliptic), and the body it is about (world centre, radius).</summary>
+        public Vector3D[] Path;
+        public bool PathClosed;
+        public Vector3D BodyWorld;
+        public double BodyRadius;
     }
 
     public static Readout Current;
@@ -216,10 +221,35 @@ public static class OrbitHud
             HudPanel.BeginLabels();
             HudPanel.ReserveGameHud();
             float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+            DrawPath(r, u);
             if (r.PeWorld.HasValue) HudPanel.Tag(r.PeWorld.Value, "Pe " + HudPanel.Km(r.Pe), Orbit, u);
             if (r.ApWorld.HasValue && !r.Escape) HudPanel.Tag(r.ApWorld.Value, "Ap " + HudPanel.Km(r.Ap), Orbit, u);
         }
         finally { MapPipeline.UiEnd(); }
+    }
+
+    /// <summary>
+    /// Your orbit in flight: a smooth screen-space curve (as on the map), hidden behind the planet.
+    /// (It was 3D line geometry: widths guessed from the distance, jagged, through the globe.)
+    /// </summary>
+    static void DrawPath(Readout r, float u)
+    {
+        var pts = r.Path;
+        if (pts == null || pts.Length < 2) return;
+        MapPipeline.Occlude(r.BodyWorld, r.BodyRadius);
+        var col = HudPanel.Alpha(Orbit, 0.75f);
+        var run = new List<Vector2>();
+        bool whole = true;
+        int n = pts.Length, segs = r.PathClosed ? n : n - 1;
+        void Flush() { if (run.Count > 1) MapPipeline.ScreenPath(run, false, col, 1.6f * u); run = new List<Vector2>(); }
+        for (int i = 0; i <= segs; i++)
+        {
+            Vector3D w = pts[i % n];
+            if (double.IsNaN(w.X) || MapPipeline.Occluded(w) || !MapPipeline.ToScreen(w, out var s)) { whole = false; Flush(); continue; }   // (NaN: a gap, at the camera)
+            run.Add(s);
+        }
+        if (whole && r.PathClosed && run.Count > 2) { run.RemoveAt(run.Count - 1); MapPipeline.ScreenPath(run, true, col, 1.6f * u); }
+        else Flush();
     }
 
     static double Wall() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;

@@ -350,7 +350,7 @@ public static class PlanetRenderBridge
     // The game's own atmosphere (RenderContracts.CreatePlanetEnvironmentEntity, as
     // PlanetEnvironmentRenderComponent makes a planet's), with the real planet's definition and its
     // radii scaled by the proxy's size (the definition's heights are fractions of the radius). Its
-    // position is fixed at creation: it is made again once the proxy has moved (throttled); a size
+    // position is fixed at creation: it is made again as soon as the proxy has moved; a size
     // change goes through SetParameters. Any failure turns them off for the session.
     public static bool ProxyAtmospheres = true;
     private static MethodInfo _createEnv;
@@ -365,8 +365,9 @@ public static class PlanetRenderBridge
         double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
         try
         {
-            bool moved = p.Atmo != null && (center - p.AtmoAt).Length() > radius * 0.01;
-            if (p.Atmo == null || (moved && now - p.AtmoMadeAt > 0.2))
+            // Remade as soon as the proxy has moved visibly (a throttle made it trail the globe in warp).
+            bool moved = p.Atmo != null && (center - p.AtmoAt).Length() > radius * 0.002;
+            if (p.Atmo == null || moved)
             {
                 DisposeAtmosphere(p);
                 if (_createEnv == null)

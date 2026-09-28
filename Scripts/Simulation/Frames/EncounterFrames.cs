@@ -304,8 +304,8 @@ public static class EncounterFrames
     }
 
     /// <summary>
-    /// A Lagrange site's dynamics, kept simple (a game): at L4 / L5 the pair's own pull (from their mu)
-    /// minus the site's own acceleration, exactly; they are stable, so you wobble gently round the point.
+    /// A Lagrange site's dynamics, kept simple (a game): at L4 / L5 the pair's own pull (from their mu),
+    /// relative to its pull at the point; they are stable, so you wobble gently round the point.
     /// L1 / L2 / L3 hold you: no relative pull at all (the real ones are unstable; drifting off is no fun).
     /// False for any frame that is not a Lagrange site.
     /// </summary>
@@ -319,11 +319,13 @@ public static class EncounterFrames
         if (s.Home.Point <= 3) { relAccel = _ => Vector3D.Zero; return true; }
         var body = SystemHost.Registry?.Find(s.Home.Host);
         if (body?.Parent == null) return false;
-        const double h = 1.0;
+        // Relative to the pull at the point itself (not the point's actual path): an eccentric planet's
+        // points breathe in and out, and that breathing drove thousands of km of drift. What is left is
+        // the stable wobble round the point, as big as your arrival was off.
         Vector3D p = SiteRoot(s, t);
-        Vector3D aF = (SiteRoot(s, t - h) - 2 * p + SiteRoot(s, t + h)) / (h * h);
-        if (!IsFinite(aF)) return false;
-        relAccel = d => SectorHomes.PairGravity(body, p + d, t) - aF;
+        Vector3D g0 = SectorHomes.PairGravity(body, p, t);
+        if (!IsFinite(g0)) return false;
+        relAccel = d => SectorHomes.PairGravity(body, p + d, t) - g0;
         return true;
     }
 

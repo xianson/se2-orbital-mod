@@ -575,10 +575,33 @@ public static class UnifiedMap
         if (star != null && (_starShown != visible || !ReferenceEquals(star, _star)))
         {
             try { star.GetType().GetMethod(visible ? "Activate" : "Deactivate", visible ? new[] { typeof(bool) } : Type.EmptyTypes)?.Invoke(star, visible ? new object[] { false } : null); } catch { }
+            // Its model too: the star's entity is moved far outside the map through its ordinary
+            // transform (not its render model: scaling that crashed the renderer), and put back after.
+            // Left in place it drew a brown-dwarf globe over whichever planet sat at its charted spot.
+            try
+            {
+                if (!ReferenceEquals(star, _star)) _starMoved = false;   // a new map (session): nothing of ours on it
+                var ent = PlanetRenderBridge.GetMember(star, "Entity") as Entity;
+                if (ent != null)
+                {
+                    if (!visible)
+                    {
+                        if (!_starMoved) { _starRel = ent.Data.GetRelativeTransform(); _starMoved = true; }
+                        ent.Data.Set(new RelativeTransform(_starRel.Position + new Vector3(0, -1e4f, 0), _starRel.Orientation));
+                    }
+                    else if (_starMoved)
+                    {
+                        ent.Data.Set(_starRel);
+                        _starMoved = false;
+                    }
+                }
+            }
+            catch { }
             _starShown = visible; _star = star;
         }
     }
     private static bool? _starShown; private static object _star;
+    private static bool _starMoved; private static RelativeTransform _starRel;
     private static readonly Dictionary<object, bool> _objShown = new Dictionary<object, bool>();
     private static readonly Dictionary<object, string> _names = new Dictionary<object, string>();
 

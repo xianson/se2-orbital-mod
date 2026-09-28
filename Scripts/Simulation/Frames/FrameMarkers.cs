@@ -84,6 +84,9 @@ public static class FrameMarkers
     /// <summary>Open a HUD draw batch in the map's font (the caller ends it with MapPipeline.UiEnd).</summary>
     public static bool BeginHud(Keen.VRage.Core.Game.Systems.Session session)
     {
+        // The flight HUD is not drawn while a screen has the UI (the terminal, a dialog, a menu): it
+        // showed through the terminal (a world without map data opened on a dim flight HUD).
+        if (!MapView.Visible && GameUi.TopScreenNeedingInput(session) != null) return false;
         object config = null;
         try
         {

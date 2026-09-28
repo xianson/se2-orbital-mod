@@ -30,6 +30,8 @@ public static class MapView
     public static ViewMode Mode = ViewMode.Auto;
     /// <summary>Zoom fraction (0 = closest, 1 = farthest) above which Auto shows the system layer.</summary>
     public static double SystemZoomFraction = 0.7;
+    /// <summary>DEV: draw the old LOCAL/SYSTEM debug layers when the unified map is not drawing.</summary>
+    public static bool LegacyLayers;
     public static string Status = "map closed";
     public static bool DiagCross;
     /// <summary>The map globe model's own radius (1.03 units): globes render at radius x this.</summary>
@@ -110,7 +112,8 @@ public static class MapView
         bool unified;
         lock (ServerFrames.FramesLock) unified = UnifiedMap.Draw(session, _builder, map, sectors, camera.Position, mapPos, orient, t);
         if (unified) { Status = UnifiedMap.Status; }
-        else lock (ServerFrames.FramesLock)
+        // The old debug layers only on request (a world without map data drew their yellow text).
+        else if (LegacyLayers) lock (ServerFrames.FramesLock)
         {
             if (system) DrawSystem(reg, mapPos, orient, map.MaxDistance, t);
             else

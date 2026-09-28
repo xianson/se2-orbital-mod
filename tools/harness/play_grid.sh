@@ -6,7 +6,7 @@
 SP="$(dirname "$0")"; O="$SP/orb.sh"
 S=/c/Users/slob/AppData/Local/Temp/OrbitalMod/status.txt
 say() { echo "$(date +%T) $*"; }
-tp()  { if [ $(( RANDOM % 3 )) = 0 ]; then $O "camview" >/dev/null; fi; }
+tp()  { if [ $(( RANDOM % 3 )) = 0 ]; then $O "camview" >/dev/null; fi; if [ $(( RANDOM % 2 )) = 0 ]; then $O "map on" >/dev/null; else $O "map off" >/dev/null; fi; }
 
 say "seat"; $O "seat Blue Fighter" >/dev/null; sleep 6; grep "> seat" $S | tail -1 | cut -c10-120
 $O "legacy on" >/dev/null; sleep 8

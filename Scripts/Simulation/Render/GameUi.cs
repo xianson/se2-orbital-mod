@@ -201,7 +201,20 @@ public static class GameUi
     /// The top screen taking UI input (a dialog, the terminal, a menu), by its view model's type name,
     /// or null in flight. Keys we read raw (warp) must not act while one of these has the keyboard.
     /// </summary>
+    private static double _topAt = -1, _topRetry; private static string _topCached;
+
     public static string TopScreenNeedingInput(Keen.VRage.Core.Game.Systems.Session session)
+    {
+        double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+        if (now - _topAt < 0.03) return _topCached;            // once a frame is enough
+        if (_shared == null && now < _topRetry) return null;    // failed lately: not every frame
+        _topAt = now;
+        _topCached = TopScreenUncached(session);
+        if (_shared == null) _topRetry = now + 5;
+        return _topCached;
+    }
+
+    private static string TopScreenUncached(Keen.VRage.Core.Game.Systems.Session session)
     {
         try
         {

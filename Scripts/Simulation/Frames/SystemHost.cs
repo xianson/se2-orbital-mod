@@ -181,7 +181,9 @@ public static class SystemHost
         // (at x10000 one frame took the whole Palatine pass, periapsis and all).
         if (Timescale > 1.0 && FrameHost.PlayerFrame != null)
         {
-            double ts = Maneuvers.NextSoiChange(Now);
+            double ts = double.NaN;
+            try { ts = Maneuvers.NextSoiChange(Now); }
+            catch (Exception ex) { FrameHost.Fault("warp SOI stop", ex); }
             if (!double.IsNaN(ts) && ts <= next)
             {
                 next = Math.Max(Now, ts + 1.0);

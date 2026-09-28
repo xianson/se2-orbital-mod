@@ -346,7 +346,7 @@ public static class CleanMap
             Hints();
             WarpBar.DrawMap(Mouse);
         }
-        finally { MapPipeline.ClipRect = null; if (ui) MapPipeline.UiEnd(); }
+        finally { MapPipeline.ClipRect = null; if (ui) MapPipeline.UiEnd(); _fitPending = false; }   // first frame only
 
         // Every sector keeps a (possibly zero-size) part: the game colours parts by sector name and
         // must always find them.
@@ -827,7 +827,7 @@ public static class CleanMap
     /// <summary>The title block's height: the path, your situation, and the burn and target lines when there are.</summary>
     static float TitleHeight(Vector2 sc)
     {
-        int lines = 2 + (Maneuvers.BurnLine != null ? 1 : 0) + (Maneuvers.Target != null ? 1 : 0);
+        int lines = 2 + (Maneuvers.BurnLine != null ? 1 : 0) + (Maneuvers.TargetLine(SystemHost.Now) != null ? 1 : 0);
         return sc.Y * (0.034f + 0.028f * lines);
     }
 
@@ -896,10 +896,6 @@ public static class CleanMap
         return (Math.Max(rpx, ringPx * u) + 16 * u) * perPx;
     }
 
-    /// <summary>
-    /// A body's name centred just below it on screen: below its drawn disc (largest screen extent of
-    /// its radius, so a tilted view cannot tuck it under the globe) or its ring when that is bigger.
-    /// </summary>
     /// <summary>The map's open area on screen (between the game's panels, above the warp bar).</summary>
     public static bool InOpenArea(Vector2 s)
     {
@@ -907,6 +903,10 @@ public static class CleanMap
         return s.X >= scr.X * 0.255f && s.X <= scr.X * 0.775f && s.Y >= scr.Y * 0.1f && s.Y <= scr.Y * 0.84f;
     }
 
+    /// <summary>
+    /// A body's name centred just below it on screen: below its drawn disc (largest screen extent of
+    /// its radius, so a tilted view cannot tuck it under the globe) or its ring when that is bigger.
+    /// </summary>
     static void BodyLabel(Func<Vector3D, Vector3D> W, Vector3D c, double r, float ringPx, string name, ColorSRGB col, float scale)
     {
         if (!MapPipeline.ToScreen(W(c), out var sc)) return;
@@ -1023,7 +1023,6 @@ public static class CleanMap
             Pin(toLocal(model), limit, W, name, color, diamond: true);
     }
 
-    /// <summary>A marker and label at a map point, or pinned to the view's edge with an arrow.</summary>
     /// <summary>
     /// A marker (an encounter, a station): where it is when in the map's open area; otherwise an arrow at
     /// the open area's edge in its direction, with its name ("Vallation Station >" sat in the title row).

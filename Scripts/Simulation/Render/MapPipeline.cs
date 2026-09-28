@@ -434,7 +434,6 @@ public static class MapPipeline
         return new Vector2(Math.Max(v.X, est.X), Math.Max(v.Y, est.Y));
     }
 
-    /// <summary>A screen-space line (px).</summary>
     /// <summary>While set, lines are clipped to this screen rectangle (the map's open area: orbit and
     /// sector lines ran across the game's panels and tab bar).</summary>
     public static BoundingBox2? ClipRect;
@@ -469,6 +468,7 @@ public static class MapPipeline
         _drawLine.Invoke(_batch, new object[] { a, b, color, width, _solid, 1f, false });
     }
 
+    /// <summary>A screen-space line (px).</summary>
     public static void ScreenLine(Vector2 a, Vector2 b, ColorSRGB color, float width)
     {
         if (_batch == null || _drawLine == null || !Clip(ref a, ref b)) return;

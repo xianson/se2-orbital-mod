@@ -114,7 +114,7 @@ public static class Maneuvers
         string sig = Signature(t);
         if (t == _cT && sig == _cSig && _cLegs != null) { legs = _cLegs; applied = _cApplied; return _cOk; }
         _cOk = TrajectoryUncached(t, out legs, out applied);
-        if (_cOk) CutAtImpact(legs);
+        if (_cOk) CutAtImpact(legs, applied);
         _cT = t; _cSig = Signature(t); _cLegs = legs; _cApplied = applied;   // after: re-targeting clears Dirty
         return _cOk;
     }
@@ -123,7 +123,7 @@ public static class Maneuvers
     /// A path that hits a body ends there: the leg is cut at the impact and nothing follows (it drew a
     /// 'Palatine Escape' after the impact). The current orbit on the ground is handled elsewhere.
     /// </summary>
-    private static void CutAtImpact(List<Leg> legs)
+    private static void CutAtImpact(List<Leg> legs, List<Applied> applied)
     {
         for (int i = 0; i < legs.Count; i++)
         {
@@ -132,9 +132,12 @@ public static class Maneuvers
             if (!(R > 0) || !(l.El.PeriapsisRadius < R) || !(l.T1 > l.T0)) continue;
             double span = l.T1 - l.T0, prev = l.T0, hit = double.NaN;
             if (OrbitPropagation.StateAt(l.El, l.T0).Position.Length() < R) continue;   // starts inside: leave it
-            for (int k = 1; k <= 240; k++)
+            // At least 64 samples a revolution (a long leg spans many; one dip is a small part of each).
+            int n = 240;
+            if (l.El.IsElliptic && IsFinite(l.El.Period) && l.El.Period > 0) n = (int)Math.Min(20000, Math.Max(240, span / l.El.Period * 64));
+            for (int k = 1; k <= n; k++)
             {
-                double tk = l.T0 + span * k / 240;
+                double tk = l.T0 + span * k / n;
                 if (OrbitPropagation.StateAt(l.El, tk).Position.Length() < R)
                 {
                     double a = prev, b = tk;
@@ -146,6 +149,7 @@ public static class Maneuvers
             if (double.IsNaN(hit)) continue;
             l.T1 = hit; legs[i] = l;
             legs.RemoveRange(i + 1, legs.Count - i - 1);
+            applied?.RemoveAll(a => a.Node != null && a.Node.T > hit);   // nothing is flown after the impact
             return;
         }
     }
@@ -572,6 +576,9 @@ public static class Maneuvers
             var el = OrbitalMath.ToElements(aa.Before, aa.Body.Mu, n.T);
             double P = el.IsElliptic && IsFinite(el.Period) ? el.Period : 7200;
             double lo = Math.Max(now + 5, n.T - P / 2), hi = n.T + P / 2;
+            // Not across a sphere-of-influence change: from the start of the leg the node is on (same
+            // body), and forward only while the pre-burn orbit stays in that body's sphere (see below).
+            foreach (var lg in legs) if (lg.Body == aa.Body && lg.T0 <= n.T + 1e-6 && n.T <= lg.T1 + 1e-6) { lo = Math.Max(lo, lg.T0); break; }
             lock (Nodes) foreach (var o in Nodes)
             {
                 if (o == n) continue;
@@ -585,6 +592,7 @@ public static class Maneuvers
             for (int k = 0; k <= N; k++)
             {
                 double tk = lo + (hi - lo) * k / N;
+                if (tk > n.T && !double.IsInfinity(aa.Body.SoiRadius) && OrbitPropagation.StateAt(el, tk).Position.Length() > aa.Body.SoiRadius) break;
                 if (!MapPipeline.ToScreen(W(LegLoc(leg, tk)), out var sp)) { havePrev = false; continue; }
                 if (havePrev)
                 {
@@ -728,7 +736,7 @@ public static class Maneuvers
     /// <summary>The sector targeted from the map (its site): the path's closest approach to it is marked.</summary>
     public static string Target;
     static readonly ColorSRGB TargetColor = new ColorSRGB(0.95f, 0.45f, 0.85f, 1f);
-    private static double _caAt = -1; private static string _caSig; private static (bool ok, double t, double d, Leg leg, EncounterFrames.Site site) _ca;
+    private static double _caAt = -1, _caGameT; private static string _caSig; private static (bool ok, double t, double d, Leg leg, EncounterFrames.Site site) _ca;
 
     /// <summary>
     /// Closest approach of the path to the target's site, on the legs about the site's own body (as
@@ -737,9 +745,14 @@ public static class Maneuvers
     static (bool ok, double t, double d, Leg leg, EncounterFrames.Site site) ClosestApproach(List<Leg> legs)
     {
         double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
-        string sig = _cSig + "|" + Target;
-        if (sig == _caSig && now - _caAt < 1.0) return _ca;
-        _caSig = sig; _caAt = now; _ca = default;
+        // Keyed on the plan (not the base orbit, which a planet cell re-derives every frame), and
+        // refreshed once a second of real time or 30 s of game time (warp).
+        var ks = new System.Text.StringBuilder(Target ?? "");
+        lock (Nodes) foreach (var nd in Nodes) ks.Append('|').Append(nd.T).Append(nd.Pro).Append(nd.Nor).Append(nd.Rad);
+        string sig = ks.ToString();
+        double gt = SystemHost.Now;
+        if (sig == _caSig && now - _caAt < 1.0 && Math.Abs(gt - _caGameT) < 30) return _ca;
+        _caSig = sig; _caAt = now; _caGameT = gt; _ca = default;
         EncounterFrames.Site site = null;
         foreach (var s in EncounterFrames.Sites) if (s.Sector == Target && (site == null || s.Anchor)) site = s;
         if (site == null) return _ca;
@@ -924,9 +937,9 @@ public static class Maneuvers
     public static void DevPull(string label, double px, double seconds) { _devOp = "pull"; _devArg = label; _devPx = px; _devUntil = seconds; _devPhase = 0; }
     /// <summary>DEV: left-click the trajectory at minutes from now (adds a node).</summary>
     public static void DevClickAt(double minutes) { _devOp = "click"; _devT = minutes * 60; _devPhase = 0; }
-    /// <summary>DEV: right-click node i (deletes it).</summary>
     /// <summary>DEV: drag node i along the path toward minutes-from-now over a few frames, then release.</summary>
     public static void DevSlide(int i, double minutes) { _devOp = "slide"; _devPx = i; _devT = minutes * 60; _devPhase = 0; }
+    /// <summary>DEV: right-click node i (its menu).</summary>
     public static void DevRightClickNode(int i) { _devOp = "rclick"; _devPx = i; _devPhase = 0; }
 
     private static void DevStep(ref Vector2 mouse, float u)
@@ -1128,7 +1141,9 @@ public static class Maneuvers
     /// <summary>Warp: the next sphere-of-influence change on the path after t0 (NaN if none).</summary>
     public static double NextSoiChange(double t0)
     {
-        if (!Trajectory(t0, out var legs, out _)) return double.NaN;
+        // Last frame's path when there is one (its times are absolute): not a second full solve per warp frame.
+        List<Leg> legs = _cLegs;
+        if (legs == null || !_cOk) { if (!Trajectory(t0, out legs, out _)) return double.NaN; }
         for (int i = 1; i < legs.Count; i++)
             if (legs[i].Body != legs[i - 1].Body && legs[i].T0 > t0) return legs[i].T0;
         return double.NaN;

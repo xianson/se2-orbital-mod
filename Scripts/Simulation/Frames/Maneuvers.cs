@@ -242,6 +242,12 @@ public static class Maneuvers
         double dt = _lastFrame > 0 ? Math.Min(0.1, now - _lastFrame) : 0; _lastFrame = now;
         if (!Trajectory(t, out var legs, out var applied)) { Status = "no trajectory"; return; }
         HudPanel.BeginLabels();
+        // The selected node's gizmo (as drawn last frame) comes first: other tags keep clear of it.
+        if (Selected != null)
+        {
+            foreach (var h in _lastHandles) MapPipeline.Reserve(h.at - new Vector2(13f * u, 13f * u), h.at + new Vector2(13f * u, 13f * u));
+            foreach (var ln in _lastNodes) if (ln.n == Selected) MapPipeline.Reserve(ln.s - new Vector2(12f * u, 12f * u), ln.s + new Vector2(12f * u, 12f * u));
+        }
 
         // The PATCHED trajectory: each patch (an arc about one body) in its own colour, drawn about its
         // body. About the view's body, or the sun, at true time; about any other body (an encounter),

@@ -81,7 +81,26 @@ public static class HudPanel
 
     private static readonly List<(Vector2 min, Vector2 max)> _placed = new List<(Vector2, Vector2)>();
     /// <summary>Start of a frame's labels: later labels step down until clear of earlier ones.</summary>
-    public static void BeginLabels() => _placed.Clear();
+    public static void BeginLabels() { _placed.Clear(); SkipWhenBlocked = false; }
+
+    /// <summary>A label with no clear spot is left out (flight), instead of drawn over what is there.</summary>
+    public static bool SkipWhenBlocked;
+
+    /// <summary>
+    /// Flight: the game's own HUD (objectives, the orbit card, the suit and ship panels, the toolbar)
+    /// is off limits to our labels for this batch.
+    /// </summary>
+    public static void ReserveGameHud()
+    {
+        var s = MapPipeline.ScreenSize;
+        MapPipeline.Reserve(Vector2.Zero, new Vector2(s.X * 0.25f, s.Y * 0.19f));                     // objectives
+        MapPipeline.Reserve(new Vector2(s.X * 0.74f, 0), new Vector2(s.X, s.Y * 0.17f));             // cards
+        MapPipeline.Reserve(new Vector2(0, s.Y * 0.76f), new Vector2(s.X * 0.18f, s.Y));             // suit / status
+        MapPipeline.Reserve(new Vector2(s.X * 0.82f, s.Y * 0.76f), s);                             // ship panel
+        MapPipeline.Reserve(new Vector2(s.X * 0.26f, s.Y * 0.78f), new Vector2(s.X * 0.8f, s.Y));    // toolbar, hints
+        MapPipeline.Reserve(new Vector2(s.X * 0.39f, 0), new Vector2(s.X * 0.61f, s.Y * 0.08f));     // warp bar
+        SkipWhenBlocked = true;
+    }
 
     /// <summary>
     /// Text on a dark plate beside its point: right of it, else left, above or below, whichever is clear
@@ -100,15 +119,16 @@ public static class HudPanel
             anchor + new Vector2(-ts.X * 0.5f, -ts.Y - 9f * u),                       // above
             anchor + new Vector2(-ts.X * 0.5f, 9f * u),                               // below
         };
-        Vector2 at = cands[0];
+        Vector2 at = cands[0]; bool placed = false;
         foreach (var cand in cands)
         {
             Vector2 mn = cand - pad, mx = cand + ts + pad;
             bool hit = false;
             foreach (var b in _placed)
                 if (mn.X < b.max.X && mx.X > b.min.X && mn.Y < b.max.Y && mx.Y > b.min.Y) { hit = true; break; }
-            if (!hit && MapPipeline.Free(mn, mx)) { at = cand; break; }
+            if (!hit && MapPipeline.Free(mn, mx)) { at = cand; placed = true; break; }
         }
+        if (!placed && SkipWhenBlocked) return;   // flight: never on top of the game's HUD
         _placed.Add((at - pad, at + ts + pad));
         MapPipeline.Reserve(at - pad, at + ts + pad);
         MapPipeline.ScreenRect(at - new Vector2(4f * u, 1f * u), at + ts + new Vector2(4f * u, 1f * u), new ColorSRGB(0.02f, 0.045f, 0.07f, 0.65f));
@@ -183,6 +203,7 @@ public static class OrbitHud
         try
         {
             HudPanel.BeginLabels();
+            HudPanel.ReserveGameHud();
             float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
             if (r.PeWorld.HasValue) HudPanel.Tag(r.PeWorld.Value, "Pe " + HudPanel.Km(r.Pe), Orbit, u);
             if (r.ApWorld.HasValue && !r.Escape) HudPanel.Tag(r.ApWorld.Value, "Ap " + HudPanel.Km(r.Ap), Orbit, u);

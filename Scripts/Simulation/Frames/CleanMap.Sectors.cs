@@ -323,8 +323,7 @@ public static partial class CleanMap
         // Under the ghost of a sector you will enter (drawn where it will be then): today's sector steps back.
         if (!faint && Maneuvers.UnderGhost(0.5f * (outer[n / 2] + inner[n / 2]), b.Name)) faint = true;
         float fa = faint ? 0.06f : b.Selected ? 0.30f : b.Name == Hovered ? 0.34f : Quiet(b) ? 0.08f : 0.18f;
-        // Just a dotted edge (tinted inside only when it has your attention); orbit lines stop at it.
-        if (b.Selected || b.Name == Hovered) MapPipeline.ScreenFill(poly, HudPanel.Alpha(c, fa));
+        // Just a dotted edge, never filled (selected or hovered: a brighter edge); orbit lines stop at it.
         if (!ring) MapPipeline.OccludeArea(poly);   // (a belt is crossed by orbits by nature: they stay)
         var edge = HudPanel.Alpha(c, faint ? 0.3f : b.Selected ? 0.95f : Quiet(b) ? 0.3f : 0.7f);
         float ew = (b.Selected ? 1.8f : 1.3f) * u;

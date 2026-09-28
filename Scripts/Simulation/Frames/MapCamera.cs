@@ -73,6 +73,7 @@ public static class MapCamera
     private static ColonizationMapSessionComponent _map;
 
     private static Vector3D? _panGoal;
+    private static double _devWheelD;
     private static double _lastWall;
     public const double MinZoomDistance = 0.08;   // closer, the globes clip at the camera's near plane
 
@@ -120,7 +121,11 @@ public static class MapCamera
             if ((_panGoal.Value - _pan).Length() < Math.Max(1e-12, d * 1e-4)) { _pan = _panGoal.Value; _panGoal = null; }
         }
         _map = map;
-        if (DevZoom > 0) d = DevZoom;   // DEV: a set zoom instead of the game's wheel
+        // DEV: a set zoom instead of the game's wheel, until the wheel is turned (it left the player's
+        // zoom stuck after a harness shot: focusing a body then could not zoom).
+        if (DevZoom > 0 && _devWheelD > 0 && Math.Abs(d - _devWheelD) > 1e-6 * Math.Max(1e-9, _devWheelD)) DevZoom = 0;
+        _devWheelD = d;
+        if (DevZoom > 0) d = DevZoom;
         if (!_init)
         {
             // Start from the game's angle, so opening the map looks as it always has.
@@ -207,6 +212,7 @@ public static class MapCamera
     public static void Release(Keen.VRage.Core.Game.Systems.Session session)
     {
         _mode = Mode.None; _init = false; Distance = 0; Focus = null;
+        DevZoom = 0; _devWheelD = 0;   // a harness zoom never outlives the map
         _panGoal = null; _lastWall = 0; _map = null;
         if (!_overridden) return;
         _overridden = false;

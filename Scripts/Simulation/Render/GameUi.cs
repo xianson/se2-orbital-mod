@@ -194,6 +194,25 @@ public static class GameUi
         return null;
     }
 
+    private static object _shared; private static MethodInfo _topInput;
+    public static string TopInputScreen = "";
+
+    /// <summary>
+    /// The top screen taking UI input (a dialog, the terminal, a menu), by its view model's type name,
+    /// or null in flight. Keys we read raw (warp) must not act while one of these has the keyboard.
+    /// </summary>
+    public static string TopScreenNeedingInput(Keen.VRage.Core.Game.Systems.Session session)
+    {
+        try
+        {
+            if (_shared == null) { _shared = Service(session, "Keen.Game2.Client.UI.Library.SharedUIComponent"); _topInput = _shared?.GetType().GetMethod("TryGetTopScreenNeedingInput"); }
+            object vm = _topInput?.Invoke(_shared, null);
+            TopInputScreen = vm?.GetType().Name ?? "";
+            return vm?.GetType().Name;
+        }
+        catch { _shared = null; return null; }
+    }
+
     private static object Service(Keen.VRage.Core.Game.Systems.Session session, string typeName)
     {
         var t = FindType(typeName);

@@ -495,6 +495,19 @@ public static class CleanMap
         // You.
         if (playerPlanet == planet.Name)
         {
+            // Opening the map: framed on your orbit when it is small on screen (as KSP), so a low orbit
+            // and its tags are not crammed into a few pixels round the planet.
+            if (_fitPending && playerOrbit.HasValue && IsFinite(playerOrbit.Value.SemiMajorAxis) && MapCamera.Distance > 0)
+            {
+                _fitPending = false;
+                var o = playerOrbit.Value;
+                double far = o.IsElliptic ? o.SemiMajorAxis * (1 + o.Eccentricity) : planet.SoiRadius;
+                if (MapPipeline.ToScreen(W(Vector3D.Zero), out var c0) && MapPipeline.ToScreen(W(L(0, R(far))), out var c1))
+                {
+                    float px = (c1 - c0).Length(), want = MapPipeline.ScreenSize.Y * 0.28f;
+                    if (px > 1 && px < want * 0.6f) MapCamera.ZoomTo(MapCamera.Distance * px / want);
+                }
+            }
             if (!Planning && playerOrbit.HasValue && IsFinite(playerOrbit.Value.SemiMajorAxis))   // planning: the planner draws it
             {
                 var path = OrbitSampler.SamplePath(playerOrbit.Value, 128, planet.SoiRadius);
@@ -862,7 +875,8 @@ public static class CleanMap
     }
 
     /// <summary>The map closed: the next opening starts from where you are.</summary>
-    public static void ResetView() { ViewFocus = null; _wasSolar = null; }
+    public static void ResetView() { ViewFocus = null; _wasSolar = null; _fitPending = true; }
+    private static bool _fitPending = true;
 
     /// <summary>The planet the view is about (null: the system view). Only its own things are drawn.</summary>
     private static GravityBody _viewBody;

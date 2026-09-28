@@ -44,6 +44,7 @@ public static class MapMenu
     public static bool Draw(Vector2 mouse, bool leftPressed, bool rightPressed, float u)
     {
         if (_items == null) return false;
+        if (MapInput.KeyPressed(Keen.VRage.Core.Input.KeyboardInputs.Escape)) { Close(); return true; }   // Esc closes it
         var sz = MapPipeline.ScreenSize;
         float row = 30f * u, pad = 12f * u, ts = 0.58f * u, head = _title != null ? 26f * u : 0;
         float w = 0;

@@ -15,8 +15,12 @@ public static class WarpControl
 
     public static void Tick()
     {
-        bool up = MapInput.KeyPressed(KeyboardInputs.OemPeriod), down = MapInput.KeyPressed(KeyboardInputs.OemComma),
-             stop = MapInput.KeyPressed(KeyboardInputs.OemForwardSlash);
+        // Not while typing: the keys act in flight and on the map, never in a dialog, another terminal
+        // tab or a menu (a '.' typed into a name changed the warp).
+        string top = Session != null ? GameUi.TopScreenNeedingInput(Session) : null;
+        bool keysLive = top == null || (MapView.Visible && top.IndexOf("Terminal", StringComparison.OrdinalIgnoreCase) >= 0);
+        bool up = keysLive && MapInput.KeyPressed(KeyboardInputs.OemPeriod), down = keysLive && MapInput.KeyPressed(KeyboardInputs.OemComma),
+             stop = keysLive && MapInput.KeyPressed(KeyboardInputs.OemForwardSlash);
         up |= MapInput.DevKeys.Remove("period"); down |= MapInput.DevKeys.Remove("comma"); stop |= MapInput.DevKeys.Remove("slash");
         if (!up && !down && !stop) { if (Wall() > _noticeUntil) Notice = null; return; }
         if (stop) { SystemHost.Timescale = 1; Say("Warp ×1"); return; }

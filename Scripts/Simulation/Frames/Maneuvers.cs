@@ -396,6 +396,8 @@ public static class Maneuvers
             bool sel = a.Node == Selected;
             MapPipeline.ScreenCircle(s, (sel ? 9f : 7f) * u, NodeColor, (sel ? 2.6f : 2f) * u);
             MapPipeline.ScreenCircle(s, 2.5f * u, NodeColor, 3f * u);
+            // Armed for auto-burn: said on the node itself (only the menu said so before).
+            if (a.Node.Auto) HudPanel.TagAt(s + new Vector2((sel ? 12f : 10f) * u, 0), AutoBurn.Flying ? "auto-burning" : "auto-burn", AutoColor, u, diamond: false);
         }
 
         // Handles of the selected node.
@@ -488,7 +490,14 @@ public static class Maneuvers
         else if (_drag == Drag.Slide && Selected != null)
         {
             if (!lDown) _drag = Drag.None;
-            else if (!double.IsNaN(hoverT) && hoverT > t + 5) { Selected.T = hoverT; Selected.Edit(); }
+            else
+            {
+                // Slide along the orbit the node sits on (its pre-burn orbit, which does not change as
+                // it moves), between its neighbours: the nearest point to the mouse, no pick radius. On
+                // the drawn path it jumped onto its own new trajectory and stopped 12 px off the line.
+                double st = SlideT(Selected, mouse, t);
+                if (!double.IsNaN(st) && Math.Abs(st - Selected.T) > 0.5) { Selected.T = st; Selected.Edit(); }
+            }
         }
         else if (lPressed)
         {
@@ -496,6 +505,39 @@ public static class Maneuvers
             else if (hoverNode != null) { Selected = hoverNode; _drag = Drag.Slide; }
             else if (!double.IsNaN(hoverT) && hoverT > t + 5) { _addPending = true; _addT = hoverT; _addAt = mouse; }
             else Selected = null;
+        }
+
+        double SlideT(Node n, Vector2 m, double now)
+        {
+            var aa = applied.Find(x => x.Node == n);
+            if (aa.Node == null) return double.NaN;
+            var el = OrbitalMath.ToElements(aa.Before, aa.Body.Mu, n.T);
+            double P = el.IsElliptic && IsFinite(el.Period) ? el.Period : 7200;
+            double lo = Math.Max(now + 5, n.T - P / 2), hi = n.T + P / 2;
+            lock (Nodes) foreach (var o in Nodes)
+            {
+                if (o == n) continue;
+                if (o.T < n.T) lo = Math.Max(lo, o.T + 5); else hi = Math.Min(hi, o.T - 5);
+            }
+            if (!(hi > lo)) return double.NaN;
+            var leg = new Leg { Body = aa.Body, El = el, T0 = lo, T1 = hi };
+            double best = double.NaN; float bd = float.MaxValue;
+            const int N = 240;
+            Vector2 prev = default; bool havePrev = false; double prevT = lo;
+            for (int k = 0; k <= N; k++)
+            {
+                double tk = lo + (hi - lo) * k / N;
+                if (!MapPipeline.ToScreen(W(LegLoc(leg, tk)), out var sp)) { havePrev = false; continue; }
+                if (havePrev)
+                {
+                    Vector2 ab = sp - prev; float L = ab.LengthSquared();
+                    float f = L > 1e-6f ? Math.Clamp(Vector2.Dot(m - prev, ab) / L, 0f, 1f) : 0f;
+                    float d = (prev + ab * f - m).Length();
+                    if (d < bd) { bd = d; best = prevT + (tk - prevT) * f; }
+                }
+                prev = sp; prevT = tk; havePrev = true;
+            }
+            return best;
         }
 
         // The handles: KSP's navball symbols on arms from the node; the one under the mouse (or being
@@ -615,6 +657,7 @@ public static class Maneuvers
         return ts.TotalDays >= 1 ? $"{(int)ts.TotalDays}d {ts.Hours}h" : ts.TotalHours >= 1 ? $"{(int)ts.TotalHours}h {ts.Minutes:D2}m" : $"{ts.Minutes}:{ts.Seconds:D2}";
     }
 
+    static readonly ColorSRGB AutoColor = new ColorSRGB(0.96f, 0.62f, 0.18f, 1f);
     static readonly ColorSRGB ImpactColor = new ColorSRGB(1.00f, 0.30f, 0.25f, 1f);
     static readonly ColorSRGB SectorIn = new ColorSRGB(0.45f, 1.00f, 0.55f, 1f);
     static readonly ColorSRGB SectorOut = new ColorSRGB(0.70f, 0.85f, 0.75f, 0.9f);
@@ -753,6 +796,8 @@ public static class Maneuvers
     /// <summary>DEV: left-click the trajectory at minutes from now (adds a node).</summary>
     public static void DevClickAt(double minutes) { _devOp = "click"; _devT = minutes * 60; _devPhase = 0; }
     /// <summary>DEV: right-click node i (deletes it).</summary>
+    /// <summary>DEV: drag node i along the path toward minutes-from-now over a few frames, then release.</summary>
+    public static void DevSlide(int i, double minutes) { _devOp = "slide"; _devPx = i; _devT = minutes * 60; _devPhase = 0; }
     public static void DevRightClickNode(int i) { _devOp = "rclick"; _devPx = i; _devPhase = 0; }
 
     private static void DevStep(ref Vector2 mouse, float u)
@@ -783,6 +828,21 @@ public static class Maneuvers
                 }
                 mouse = _devAt; _devLeft = false;
                 if (_devPhase++ >= 2) { _devOp = null; _devLeft = null; }
+                return;
+            }
+            case "slide":
+            {
+                var l = new List<(Node n, Vector2 s)>(_lastNodes); l.Sort((a, b) => a.n.T.CompareTo(b.n.T));
+                int i = (int)_devPx;
+                if (i < 0 || i >= l.Count) { _devOp = null; _devLeft = null; return; }
+                if (_devPhase == 0) { _devAt = l[i].s; mouse = _devAt; _devLeft = true; _devPressed = true; _devPhase = 1; return; }
+                double tAbs = SystemHost.Now + _devT; Sample best = default; double bd = double.MaxValue;
+                foreach (var sm in _lastSamples) if (!sm.Planned) { double d = Math.Abs(sm.T - tAbs); if (d < bd) { bd = d; best = sm; } }
+                if (bd == double.MaxValue) { _devOp = null; _devLeft = null; return; }
+                float f = Math.Min(1f, _devPhase / 20f);
+                mouse = _devAt + (best.S - _devAt) * f;
+                _devLeft = _devPhase < 24;
+                if (_devPhase++ > 26) { _devOp = null; _devLeft = null; }
                 return;
             }
             case "rclick":

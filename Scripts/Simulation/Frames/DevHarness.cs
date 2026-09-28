@@ -390,6 +390,9 @@ public static class DevHarness
                     case "clickat":   // node clickat <minFromNow>
                         Maneuvers.DevClickAt(D(a[2]));
                         return "click queued";
+                    case "slide":   // node slide <i> <minFromNow>: drag node i along the path, then release
+                        Maneuvers.DevSlide((int)D(a[2]), D(a[3]));
+                        return "slide queued";
                     case "rclick":   // node rclick <i>
                         Maneuvers.DevRightClickNode((int)D(a[2]));
                         return "right-click queued";
@@ -417,7 +420,7 @@ public static class DevHarness
                 return DevFlight.Thrust(new Vector3((float)D(a[1]), (float)D(a[2]), (float)D(a[3])), D(a[4]));
 
             case "flight":
-                return $"seated={FrameHost.Seated} frame={(FrameHost.PlayerFrame != null ? "#" + FrameHost.PlayerFrame.Id : "-")} {DevFlight.Status} | auto: {AutoBurn.Status} | {DevFlight.Attitude} | {GameUi.SpeedStatus} | {DevFlight.Info}";
+                return $"seated={FrameHost.Seated} frame={(FrameHost.PlayerFrame != null ? "#" + FrameHost.PlayerFrame.Id : "-")} {DevFlight.Status} | auto: {AutoBurn.Status} | {DevFlight.Attitude} | {GameUi.SpeedStatus} | top input: {GameUi.TopInputScreen} | {DevFlight.Info}";
 
             case "floaters":
             {

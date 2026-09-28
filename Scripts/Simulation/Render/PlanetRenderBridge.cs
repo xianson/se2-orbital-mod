@@ -834,6 +834,14 @@ public static class PlanetRenderBridge
     }
 
     /// <summary>Show or hide a game render component's model (its RenderModelEntity's Visible flag).</summary>
+    /// <summary>Visible now, whatever was set before (the game hides some map objects by its own zoom).</summary>
+    public static void ForceRenderComponentVisible(object renderComponent)
+    {
+        if (renderComponent == null) return;
+        _rcVisible.Remove(renderComponent);
+        SetRenderComponentVisible(renderComponent, true);
+    }
+
     public static void SetRenderComponentVisible(object renderComponent, bool visible)
     {
         if (renderComponent == null || !ResolveRender()) return;

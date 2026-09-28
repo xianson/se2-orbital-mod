@@ -396,12 +396,16 @@ public static class GameMap
                 }
             }
             if (!show) ent.Data.Set(new RelativeTransform(_starRel.Position + new Vector3(0, 1e5f, 0), _starRel.Orientation));
+            // The game hides map objects by its own zoom, which ours is not: on the map, it is always drawn.
+            else if (Frame % 30 == 0) PlanetRenderBridge.ForceRenderComponentVisible(star);
+            Frame++;
             StarPlaced = show;
         }
         catch { StarPlaced = false; }
     }
     /// <summary>The game's star model is on the map this frame (the map then draws no disc of its own).</summary>
     public static bool StarPlaced;
+    private static int Frame;
     /// <summary>How much bigger than its own model Delfos shows on the map.</summary>
     public static double StarScale = 1.0;   // (moved off the map plane toward the camera, the model stopped drawing)
     public static string StarDebug = "-";

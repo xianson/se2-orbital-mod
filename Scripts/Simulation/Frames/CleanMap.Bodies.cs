@@ -48,6 +48,15 @@ public static partial class CleanMap
         if (detail)
         {
             Vector3D pRoot = planet.OriginInRoot(t).Position;
+            // Its L3-L5 sectors lie far out on its orbit: when off the view, an arrow at the edge names them.
+            if (planet.Name == _anchor?.Name)
+                foreach (var bd in bands)
+                    if (bd.Home.Kind == SectorHomes.Kind.Lagrange && bd.Home.Host == planet.Name && bd.Home.Point >= 3)
+                    {
+                        Vector3D lp = Lv(SectorHomes.Where(bd.Home, reg, t) - pRoot);
+                        if (MapPipeline.ToScreen(W(lp), out var ls) && InOpenArea(ls)) continue;   // on the view: drawn as itself
+                        Pin(lp, double.PositiveInfinity, W, $"{Label(bd)}  ·  L{bd.Home.Point}", bd.Selected ? LineSel : StateColor(bd));
+                    }
             // Its L1 / L2 (with its primary), and each moon's L1-L5 (with it), sector or not.
             LagrangeMarks(bands, reg, t, W, r => Lv(r - pRoot), planet, 1, 2);
             foreach (var moon in planet.Children)

@@ -144,6 +144,11 @@ public static class OrbitDisplay
         }
 
         OrbitPath path = OrbitSampler.SamplePath(el, PathPoints, law.Reach);
+        // For the orbit disc and the direction markers: the orbit about the body in world axes.
+        Vector3D pI = chart.ToInertial(sv.Position), vI = chart.VelToInertial(sv.Position, sv.Velocity);
+        Vector3D[] rel = null;
+        if (path.Points != null) { rel = new Vector3D[path.Points.Length]; for (int i = 0; i < rel.Length; i++) rel[i] = chart.FromInertial(path.Points[i]); }
+        Vector3D Dir(Vector3D v) => v.LengthSquared() > 0 ? Vector3D.Normalize(chart.FromInertial(v)) : Vector3D.Zero;
         // Drawn by the HUD (OrbitHud.DrawPath: a smooth screen curve, hidden behind the planet); the
         // orbit passes through the camera by construction, so the points near it are left out.
         var pts = path.Points;
@@ -172,6 +177,9 @@ public static class OrbitDisplay
             PeWorld = center + chart.FromInertial(OrbitSampler.PositionAtTrueAnomaly(el, 0)),
             ApWorld = el.IsElliptic ? center + chart.FromInertial(OrbitSampler.PositionAtTrueAnomaly(el, Math.PI)) : (Vector3D?)null,
             Path = world, PathClosed = path.IsClosed, BodyWorld = center, BodyRadius = radius,
+            RelPath = rel, PlayerRel = chart.FromInertial(pI), Pro = Dir(vI), Nor = Dir(Vector3D.Cross(pI, vI)), Rad = Dir(pI),
+            PeRel = chart.FromInertial(OrbitSampler.PositionAtTrueAnomaly(el, 0)),
+            ApRel = el.IsElliptic ? chart.FromInertial(OrbitSampler.PositionAtTrueAnomaly(el, Math.PI)) : (Vector3D?)null,
         };
         _builder.Commit();
         _drewLastFrame = true;
@@ -221,6 +229,17 @@ public static class OrbitDisplay
             Path = world, PathClosed = path.IsClosed,
             BodyWorld = SEAerospace.PlanetBerths.WorldFromCelestial(obs, parentOrg), BodyRadius = radius,
         };
+        {
+            // For the orbit disc and the direction markers: the orbit about the body in world axes.
+            var rd = OrbitHud.Current;
+            Vector3D M(Vector3D x) => SEAerospace.PlanetBerths.WorldFromCelestial(obs, parentOrg + x) - rd.BodyWorld;
+            Vector3D here = M(cur.Position);
+            Vector3D D(Vector3D v) => v.LengthSquared() > 0 ? Vector3D.Normalize(M(cur.Position + Vector3D.Normalize(v) * 1000) - here) : Vector3D.Zero;
+            if (pts != null) { rd.RelPath = new Vector3D[pts.Length]; for (int i = 0; i < pts.Length; i++) rd.RelPath[i] = M(pts[i]); }
+            rd.PlayerRel = here; rd.Pro = D(cur.Velocity); rd.Nor = D(Vector3D.Cross(cur.Position, cur.Velocity)); rd.Rad = D(cur.Position);
+            rd.PeRel = M(OrbitSampler.PositionAtTrueAnomaly(el, 0));
+            rd.ApRel = el.IsElliptic ? M(OrbitSampler.PositionAtTrueAnomaly(el, Math.PI)) : (Vector3D?)null;
+        }
         _builder.Commit();
         _drewLastFrame = true;
     }

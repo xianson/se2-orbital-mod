@@ -164,6 +164,12 @@ public static class OrbitHud
         public bool PathClosed;
         public Vector3D BodyWorld;
         public double BodyRadius;
+        /// <summary>The orbit about the body in world axes (offsets from its centre): path, you, apsides.</summary>
+        public Vector3D[] RelPath;
+        public Vector3D PlayerRel, PeRel;
+        public Vector3D? ApRel;
+        /// <summary>Unit directions (world): prograde, orbit normal, radial out.</summary>
+        public Vector3D Pro, Nor, Rad;
     }
 
     public static Readout Current;
@@ -236,12 +242,109 @@ public static class OrbitHud
             HudPanel.BeginLabels();
             HudPanel.ReserveGameHud();
             float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
-            DrawPath(r, u);
-            if (r.PeWorld.HasValue) HudPanel.Tag(r.PeWorld.Value, "Pe " + HudPanel.Km(r.Pe), Orbit, u);
-            if (r.ApWorld.HasValue && !r.Escape) HudPanel.Tag(r.ApWorld.Value, "Ap " + HudPanel.Km(r.Ap), Orbit, u);
+            // No orbit line in the world (first or third person): the disc above the speedometer shows it,
+            // and the markers show its directions.
+            DrawMarkers(r, u);
+            DrawDisc(r, u);
         }
         finally { MapPipeline.UiEnd(); }
     }
+
+    static readonly ColorSRGB ProCol = new ColorSRGB(0.95f, 0.85f, 0.25f, 1f), NorCol = new ColorSRGB(0.82f, 0.45f, 1f, 1f),
+                              RadCol = new ColorSRGB(0.35f, 0.85f, 1f, 1f);
+
+    /// <summary>
+    /// The orbit's directions on screen (a navball's markers): prograde / retrograde, normal /
+    /// anti-normal, radial out / in, each where it points; full near where you look, faded away from it.
+    /// </summary>
+    static void DrawMarkers(Readout r, float u)
+    {
+        var cp = MapPipeline.CameraPosition;
+        if (!cp.HasValue) return;
+        Vector3D fwd = (QuaternionD)MapPipeline.CameraOrientation * Vector3D.Forward;
+        void M(Vector3D dir, string icon, ColorSRGB c)
+        {
+            if (dir.LengthSquared() < 0.5) return;
+            double ang = Math.Acos(Math.Clamp(Vector3D.Dot(dir, fwd), -1, 1)) * 180 / Math.PI;
+            if (ang > 80) return;   // (behind or far off: the HUD edge would pile them up)
+            if (!MapPipeline.HudPoint(cp.Value + dir * 1e4, out var s, out bool edge) || edge) return;
+            float a = (float)Math.Clamp(1.0 - (ang - 12.0) / 40.0, 0.25, 1.0);
+            var col = HudPanel.Alpha(c, a);
+            if (!MapPipeline.ScreenIcon(icon, s, 11f * u, col)) MapPipeline.ScreenCircle(s, 8f * u, col, 2f * u);
+        }
+        M(r.Pro, "prograde", ProCol); M(-r.Pro, "retrograde", ProCol);
+        M(r.Nor, "normal", NorCol); M(-r.Nor, "antinormal", NorCol);
+        M(r.Rad, "radialout", RadCol); M(-r.Rad, "radialin", RadCol);
+    }
+
+    private static Vector3D _discUp;
+
+    /// <summary>
+    /// The orbit disc, above the speedometer: your orbit seen from above its plane, turned so the way
+    /// you look points up (heading-up, as a sat-nav). The body at its centre, your orbit, you with a
+    /// prograde tick, Pe / Ap; a view wedge from you; and at its left edge how far above or below the
+    /// orbit plane you are looking.
+    /// </summary>
+    static void DrawDisc(Readout r, float u)
+    {
+        if (r.RelPath == null || r.RelPath.Length < 2 || r.Nor.LengthSquared() < 0.5) return;
+        var scr = MapPipeline.ScreenSize;
+        float R = scr.Y * 0.085f;
+        var c = new Vector2(scr.X * 0.087f, scr.Y * 0.29f - R - 14f * u);   // above the game's speed bar (left edge), centred on its box
+        Vector3D n = r.Nor;
+        Vector3D fwd = (QuaternionD)MapPipeline.CameraOrientation * Vector3D.Forward;
+        Vector3D up = fwd - n * Vector3D.Dot(fwd, n);
+        if (up.LengthSquared() > 1e-4) _discUp = Vector3D.Normalize(up);   // looking along the normal: keep the last heading
+        else if (_discUp.LengthSquared() < 0.5) _discUp = Vector3D.Normalize(r.Pro);
+        Vector3D e1 = _discUp - n * Vector3D.Dot(_discUp, n);
+        if (e1.LengthSquared() < 1e-6) return;
+        e1 = Vector3D.Normalize(e1);
+        Vector3D e2 = Vector3D.Cross(e1, n);   // screen right, seen from above the plane
+        // Scale: the orbit's far point (or the body) fills the disc.
+        double far = r.BodyRadius;
+        foreach (var q in r.RelPath) if (IsFinite(q)) far = Math.Max(far, q.Length());
+        double k = (R * 0.86) / Math.Max(1.0, far);
+        Vector2 P(Vector3D q) => c + new Vector2((float)(Vector3D.Dot(q, e2) * k), (float)(-Vector3D.Dot(q, e1) * k));
+        // Panel: a dark disc, a thin rim (as the game's HUD).
+        var rim = new List<Vector2>(64);
+        for (int i = 0; i < 64; i++) { double a = 2 * Math.PI * i / 64; rim.Add(c + new Vector2((float)Math.Cos(a) * R, (float)Math.Sin(a) * R)); }
+        MapPipeline.ScreenFill(rim, new ColorSRGB(0.02f, 0.04f, 0.06f, 0.45f));
+        MapPipeline.ScreenPath(rim, true, new ColorSRGB(0.9f, 0.95f, 1f, 0.55f), 1.2f * u);
+        // The body (never under a few px), its atmosphere as a thin ring.
+        float br = Math.Max(3f * u, (float)(r.BodyRadius * k));
+        MapPipeline.ScreenDisc(c, br, new ColorSRGB(0.55f, 0.6f, 0.68f, 0.9f));
+        float ar = (float)(r.BodyRadius * (1 + SystemHost.AtmosphereFraction) * k);
+        if (ar > br + 1.5f * u) MapStyle.BoundaryCircle(c, ar, new ColorSRGB(0.55f, 0.85f, 1f, 0.45f), MapStyle.Thin(u), u);
+        // Your orbit.
+        var path = new List<Vector2>(r.RelPath.Length);
+        foreach (var q in r.RelPath) if (IsFinite(q)) path.Add(P(q));
+        MapPipeline.ScreenPath(path, r.PathClosed, Orbit, 1.6f * u);
+        // Pe / Ap.
+        void Apsis(Vector3D q, string label)
+        {
+            var s = P(q);
+            MapPipeline.ScreenDisc(s, 2.2f * u, Orbit);
+            MapPipeline.TextScreen(s + new Vector2(0, -9f * u), label, Orbit, 0.42f);
+        }
+        if (r.Pe > -r.BodyRadius) Apsis(r.PeRel, "Pe " + (r.Pe < 0 ? "impact" : HudPanel.Km(r.Pe)));
+        if (r.ApRel.HasValue && !r.Escape) Apsis(r.ApRel.Value, "Ap " + HudPanel.Km(r.Ap));
+        // You: a dot, a prograde tick, and your view as a wedge (straight up: heading-up).
+        var me = P(r.PlayerRel);
+        var pro2 = new Vector2((float)Vector3D.Dot(r.Pro, e2), (float)-Vector3D.Dot(r.Pro, e1));
+        if (pro2.LengthSquared() > 1e-6) MapPipeline.ScreenLine(me, me + Vector2.Normalize(pro2) * 9f * u, ProCol, 1.6f * u);
+        float wl = R * 0.28f;
+        var wedge = HudPanel.Alpha(new ColorSRGB(1f, 1f, 1f, 1f), 0.35f);
+        MapPipeline.ScreenLine(me, me + new Vector2(-0.45f, -1f) * wl, wedge, 1f * u);
+        MapPipeline.ScreenLine(me, me + new Vector2(0.45f, -1f) * wl, wedge, 1f * u);
+        MapPipeline.ScreenDisc(me, 3.2f * u, new ColorSRGB(1f, 1f, 1f, 1f));
+        // How far above / below the orbit plane you look: a notch on the disc's left edge.
+        double tilt = Math.Asin(Math.Clamp(Vector3D.Dot(fwd, n), -1, 1));
+        float ty = (float)(-tilt / (Math.PI / 2)) * R * 0.8f;
+        MapPipeline.ScreenLine(c + new Vector2(-R - 6f * u, -R * 0.8f), c + new Vector2(-R - 6f * u, R * 0.8f), HudPanel.Alpha(new ColorSRGB(1f, 1f, 1f, 1f), 0.3f), 1f * u);
+        MapPipeline.ScreenLine(c + new Vector2(-R - 10f * u, ty), c + new Vector2(-R - 2f * u, ty), NorCol, 2f * u);
+    }
+
+    static bool IsFinite(Vector3D v) => !(double.IsNaN(v.X) || double.IsNaN(v.Y) || double.IsNaN(v.Z) || double.IsInfinity(v.X) || double.IsInfinity(v.Y) || double.IsInfinity(v.Z));
 
     /// <summary>
     /// Your orbit in flight: a smooth screen-space curve (as on the map), hidden behind the planet.

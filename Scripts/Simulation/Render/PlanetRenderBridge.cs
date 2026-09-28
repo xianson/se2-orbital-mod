@@ -926,7 +926,7 @@ public static class PlanetRenderBridge
         throw new MissingMemberException(target.GetType().Name, name);
     }
 
-    private static Type FindType(string assemblyName, string typeName)
+    internal static Type FindType(string assemblyName, string typeName)
     {
         foreach (Assembly a in AppDomain.CurrentDomain.GetAssemblies())
         {

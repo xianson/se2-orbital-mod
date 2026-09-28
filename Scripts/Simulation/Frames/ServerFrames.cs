@@ -78,6 +78,7 @@ public static class ServerFrames
         if (_lastTickStamp != 0 && dt < 0.004) return; // once per frame
         _lastTickStamp = now;
         TickRate.Server.Count();
+        AsteroidBridge.Tick(session);   // no procedural asteroids, ever (encounters and our own system place them)
         // Physics runs on game time (it slows and pauses with the game), so the tidal velocity
         // changes must use game-time dt too; the wall-clock dt above only gates once-per-frame.
         try

@@ -798,6 +798,8 @@ public static class DevHarness
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"restore {SavedState.LastRestore} | save {LastSave}");
         sb.AppendLine($"mapview {MapView.Mode}: {MapView.Status} | cam {SpecCam.Status}");
+        sb.AppendLine("roids " + AsteroidBridge.Status);
+        lock (AsteroidBridge.RingInfo) foreach (var ri in AsteroidBridge.RingInfo) sb.AppendLine("  ring " + ri);
         sb.AppendLine($"sun {SunDriver.Status}");
         try
         {

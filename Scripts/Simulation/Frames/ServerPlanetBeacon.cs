@@ -126,6 +126,7 @@ public partial class ServerPlanetBeacon : Component, IInSceneListener
 
     void IInSceneListener.OnBeforeRemovedFromScene()
     {
+        AsteroidBridge.Restore();   // the session ends: shared definitions get their densities back
         if (_beacon != null) PlanetBeacons.Remove(_beacon);
         _beacon = null;
     }

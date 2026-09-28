@@ -1,0 +1,138 @@
+using System.Reflection;
+using Keen.VRage.Core;
+using Keen.VRage.Core.Game.GameSystems.ProceduralGeneration;
+using Keen.VRage.Core.Game.GameSystems.ProceduralGeneration.Volume;
+using Keen.VRage.Library.Memory;
+
+#pragma warning disable
+namespace OrbitalMod;
+
+/// <summary>
+/// The game never spawns asteroids here: encounters place theirs, and our own system places the
+/// rest. The procedural generator's asteroid path (its entity sectors) spawns from volume
+/// definitions: the default space (InfiniteArea), its random ellipsoid fields, manual volumes (the
+/// rings round planets) and the colonization sectors' volumes. Each of those definitions gets a
+/// negative density while the session runs, so no sample ever passes; encounters come from a
+/// separate path (encounter sectors) and are untouched. Definitions are saved by name only, so
+/// nothing of this reaches the world file; the densities are put back on unload.
+/// Asteroids the generator has already spawned are deleted through the generator itself (not the
+/// player's delete, which would exclude them in the save); player-edited ones (marked manual) stay.
+/// </summary>
+public static class AsteroidBridge
+{
+    public static bool Block = true;
+    public static string Status = "-";
+
+    /// <summary>The game's rings (manual volumes) as found: type, transform, bounds (for the map and the sectors).</summary>
+    public static readonly List<string> RingInfo = new List<string>();
+
+    private static readonly List<(VolumeDefinition v, float density)> _orig = new List<(VolumeDefinition, float)>();
+    private static readonly HashSet<VolumeDefinition> _seen = new HashSet<VolumeDefinition>();
+    private static FieldInfo _density;
+    private static double _next;
+    private static int _deleted;
+    private static bool _loggedRings;
+
+    public static void Tick(Keen.VRage.Core.Game.Systems.Session session)
+    {
+        if (!Block || session == null) return;
+        double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+        if (now < _next) return;
+        _next = now + 2.0;
+        try
+        {
+            var gen = Generator(session);
+            if (gen == null) { Status = "no generator"; return; }
+
+            var def = gen.GenerationData?.Definition;
+            if (def != null)
+            {
+                Kill(def.InfiniteArea);
+                foreach (var f in def.EllipsoidFields) Kill(f.Definition);
+            }
+            // Manual volumes (the rings round planets): their compositions, and what they are.
+            using (var buf = new Buffer<IProceduralVolume>(Allocator.Pool, "OrbitalRings"))
+            {
+                var all = new BoundingBoxD(new Vector3D(-1e13, -1e13, -1e13), new Vector3D(1e13, 1e13, 1e13));
+                gen.QueryManualVolumes(in all, buf);
+                var en = ((BufferReference<IProceduralVolume>)buf).GetEnumerator();
+                var info = new List<string>();
+                while (en.MoveNext())
+                {
+                    var vol = en.Current;
+                    Kill(vol.Composition);
+                    var box = vol.GetOrientedBoundingBox().GetAABB();
+                    var wt = vol.Transform;
+                    info.Add($"{vol.GetType().Name} at {Km(wt.Position)} up {wt.Orientation.GetUp()} box {Km(box.Min)}..{Km(box.Max)}");
+                }
+                en.Dispose();
+                lock (RingInfo) { RingInfo.Clear(); RingInfo.AddRange(info); }
+                if (!_loggedRings && info.Count > 0)
+                {
+                    _loggedRings = true;
+                    foreach (var s in info) Log.Default?.Info("[ORBIT-ROIDS] manual volume: " + s);
+                }
+            }
+            var col = session.SessionComponents.TryGet<Keen.Game2.Simulation.GameSystems.ProceduralGeneration.ColonizationSectorProceduralGenerationDataSessionComponent>();
+            if (col?.Definition != null) foreach (var kv in col.Definition.SectorVolumes) Kill(kv.Value);
+
+            // What the generator already spawned (not player-edited ones).
+            var ids = new List<Keen.VRage.Core.Game.GameSystems.ProceduralGeneration.SpaceEntityId>();
+            foreach (var kv in gen.Entities)
+            {
+                bool manual = false;
+                try { manual = IsManual(kv.Value); } catch { }
+                if (!manual) ids.Add(kv.Key);
+            }
+            foreach (var id in ids) { try { gen.DeleteEntity(id); _deleted++; } catch { } }
+            Status = $"asteroids blocked: {_orig.Count} volume definition(s) at no density, {_deleted} deleted, {RingInfo.Count} ring(s)";
+        }
+        catch (Exception e) { Status = "asteroid block failed: " + (e.InnerException ?? e).Message; }
+    }
+
+    // The server generator and the voxel component live in assemblies mods cannot reference: by name.
+    private static MethodInfo _sessionTryGet, _entityTryGet;
+    static ProceduralGeneratorSessionComponent Generator(Keen.VRage.Core.Game.Systems.Session session)
+    {
+        if (_sessionTryGet == null)
+        {
+            Type t = PlanetRenderBridge.FindType("VRage.Game", "Keen.VRage.Game.ProceduralGeneration.ProceduralGeneratorServerSessionComponent");
+            var m = session.SessionComponents.GetType().GetMethods().FirstOrDefault(x => x.Name == "TryGet" && x.IsGenericMethodDefinition && x.GetParameters().Length == 0);
+            if (t == null || m == null) return null;
+            _sessionTryGet = m.MakeGenericMethod(t);
+        }
+        return _sessionTryGet.Invoke(session.SessionComponents, null) as ProceduralGeneratorSessionComponent;
+    }
+
+    static bool IsManual(Entity e)
+    {
+        if (e == null) return false;
+        if (_entityTryGet == null)
+        {
+            Type t = PlanetRenderBridge.FindType("VRage.Voxels", "Keen.VRage.Voxels.Components.ProceduralVoxelEntityComponent");
+            var m = typeof(Entity).GetMethods().FirstOrDefault(x => x.Name == "TryGet" && x.IsGenericMethodDefinition && x.GetParameters().Length == 0);
+            if (t == null || m == null) return true;   // unsure: leave it be
+            _entityTryGet = m.MakeGenericMethod(t);
+        }
+        object c = _entityTryGet.Invoke(e, null);
+        return c != null && PlanetRenderBridge.GetMember(c, "IsManual") is bool b && b;
+    }
+
+    static void Kill(VolumeDefinition v)
+    {
+        if (v == null || !_seen.Add(v)) return;
+        _density ??= typeof(VolumeDefinition).GetField("<Density>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
+        if (_density == null) return;
+        _orig.Add((v, v.Density));
+        _density.SetValue(v, -1f);   // (0 still passes when the draw is exactly 0)
+    }
+
+    /// <summary>The session ends: the definitions (shared by the whole process) get their densities back.</summary>
+    public static void Restore()
+    {
+        if (_density != null) foreach (var (v, d) in _orig) { try { _density.SetValue(v, d); } catch { } }
+        _orig.Clear(); _seen.Clear(); _loggedRings = false;
+    }
+
+    static string Km(Vector3D v) => $"({v.X / 1000:F1}, {v.Y / 1000:F1}, {v.Z / 1000:F1}) km";
+}

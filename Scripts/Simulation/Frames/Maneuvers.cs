@@ -797,8 +797,7 @@ public static class Maneuvers
         else if (!double.IsNaN(hoverT) && _drag == Drag.None)
             HudPanel.TagAt(mouse + new Vector2(16f * u, 14f * u), $"Add maneuver  (in {Clock(hoverT - t)})", PlanColor, u, diamond: false);
 
-        // Closest approach to the selected sector's site along the whole trajectory.
-        if (selectedSector != null) ClosestTo(selectedSector, legs, toMap, W, limit, t);
+        // (Selecting a sector no longer marks your closest approach to it: that is what 'Set as target' is for.)
         Status = $"nodes {Nodes.Count}, legs {legs.Count}, mouse {MapInput.Status}";
     }
 

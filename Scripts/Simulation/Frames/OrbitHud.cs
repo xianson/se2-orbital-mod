@@ -167,6 +167,21 @@ public static class OrbitHud
     }
 
     public static Readout Current;
+
+    /// <summary>Under this speed (m/s) and low (under the atmosphere's top) you are walking or flying about, not orbiting.</summary>
+    public const double WalkSpeed = 200;
+    /// <summary>
+    /// Walking about (slow and low): no orbit stats, line or apsides anywhere (map included). On an
+    /// ascent you pass 200 m/s quickly and your Ap is back.
+    /// </summary>
+    public static bool Walking
+    {
+        get
+        {
+            var r = Current;
+            return r != null && r.Speed < WalkSpeed && r.Alt < Math.Max(2000.0, r.BodyRadius * SystemHost.AtmosphereFraction);
+        }
+    }
     static readonly ColorSRGB Orbit = new ColorSRGB(0.35f, 0.88f, 1.00f, 1f);   // your orbit: cyan, as on the map
 
     private static GameUi.Card _card;
@@ -178,7 +193,7 @@ public static class OrbitHud
     /// </summary>
     public static void Draw(Keen.VRage.Core.Game.Systems.Session session)
     {
-        var r = Current;
+        var r = Walking ? null : Current;   // walking about: no orbit stats
         double now = Wall();
         string burn = Maneuvers.BurnLine;
         // Not over the map: the card would sit on the terminal's close button, and the map's own title

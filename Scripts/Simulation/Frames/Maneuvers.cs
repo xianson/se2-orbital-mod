@@ -276,6 +276,7 @@ public static class Maneuvers
         double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
         double dt = _lastFrame > 0 ? Math.Min(0.1, now - _lastFrame) : 0; _lastFrame = now;
         if (!Trajectory(t, out var legs, out var applied)) { Status = "no trajectory"; return; }
+        if (OrbitHud.Walking && Nodes.Count == 0) { Status = "walking about"; return; }   // no path while walking about (a plan still shows)
         // A Lagrange sector ahead (or around you) takes over the path from its entry.
         var lagPlan = LagrangeCached(t, legs, applied);
         if (lagPlan != null) legs = CutAtLagrange(legs, lagPlan.TE);

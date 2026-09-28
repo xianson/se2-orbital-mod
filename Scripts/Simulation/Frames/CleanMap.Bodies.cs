@@ -73,7 +73,7 @@ public static partial class CleanMap
         // You.
         if (playerPlanet == planet.Name)
         {
-            if (!Planning && !Maneuvers.LagActive && playerOrbit.HasValue && IsFinite(playerOrbit.Value.SemiMajorAxis))   // planning (or a Lagrange sector ahead): the planner draws it
+            if (!Planning && !Maneuvers.LagActive && !OrbitHud.Walking && playerOrbit.HasValue && IsFinite(playerOrbit.Value.SemiMajorAxis))   // planning (or a Lagrange sector ahead): the planner draws it
             {
                 var path = OrbitSampler.SamplePath(playerOrbit.Value, 128, planet.SoiRadius);
                 var pts = path.Points;
@@ -90,7 +90,7 @@ public static partial class CleanMap
                 float uu = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
             }
             // Pe / Ap on your orbit (as KSP), plan or not; after 'you', which has the first claim.
-            if (!Planning && playerOrbit.HasValue && IsFinite(playerOrbit.Value.SemiMajorAxis)
+            if (!Planning && !OrbitHud.Walking && playerOrbit.HasValue && IsFinite(playerOrbit.Value.SemiMajorAxis)
                 && (!(_pxPerV > 0) || playerOrbit.Value.PeriapsisRadius * Sigma * _pxPerV > 30))
             {
                 var po = playerOrbit.Value; double pr = reg.FindDefinition(planet.Name)?.RadiusMeters ?? 0;
@@ -175,7 +175,7 @@ public static partial class CleanMap
         {
             var path = OrbitSampler.SamplePath(playerOrbit.Value, 256);
             var pts = path.Points;
-            if (pts != null && !Maneuvers.LagActive)
+            if (pts != null && !Maneuvers.LagActive && !OrbitHud.Walking)
                 for (int i = 0; i < pts.Length - (path.IsClosed ? 0 : 1); i++)
                     MapPipeline.Line(W(S(pts[i])), W(S(pts[(i + 1) % pts.Length])), You, 2f);
             var now = OrbitPropagation.StateAt(playerOrbit.Value, t);

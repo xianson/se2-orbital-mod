@@ -304,28 +304,21 @@ public static class EncounterFrames
     }
 
     /// <summary>
-    /// A Lagrange site's dynamics: at L4 / L5 the pair's own pull round the point (a tadpole of realistic
-    /// period, following the teardrop);
+    /// A Lagrange site's dynamics: its Lagrange orbit (SectorHomes.LagrangeOrbit: a closed ellipse round
+    /// the point in the frame turning with the planet, at the pair's real libration rate), at every point;
     /// L1 / L2 / L3 hold you: no relative pull at all (the real ones are unstable; drifting off is no fun).
     /// False for any frame that is not a Lagrange site.
     /// </summary>
     /// <summary>A site's point at t (root frame), or null.</summary>
     public static Vector3D? SitePoint(long frameId, double t) => _sites.TryGetValue(frameId, out var s) ? SiteRoot(s, t) : (Vector3D?)null;
 
-    public static bool LagrangeDynamics(long frameId, double t, out Func<Vector3D, Vector3D> relAccel)
+    public static bool LagrangeDynamics(long frameId, double t, out Func<Vector3D, Vector3D, Vector3D> relAccel)
     {
         relAccel = null;
         if (!_sites.TryGetValue(frameId, out var s) || s.Home == null || s.Home.Kind != SectorHomes.Kind.Lagrange) return false;
-        if (s.Home.Point <= 3) { relAccel = _ => Vector3D.Zero; return true; }
         var body = SystemHost.Registry?.Find(s.Home.Host);
-        if (body?.Parent == null) return false;
-        // The pair's full pull (the elliptic problem: the body's actual orbit), relative to its pull at
-        // the point: small offsets wobble (bounded: checked over 20 librations of Kemik's), big ones bend
-        // along the orbit into the teardrop, as the real Trojans' do.
-        Vector3D p = SiteRoot(s, t);
-        Vector3D g0 = SectorHomes.PairGravity(body, p, t);
-        if (!IsFinite(g0)) return false;
-        relAccel = d => SectorHomes.PairGravity(body, p + d, t) - g0;
+        if (!SectorHomes.LagrangeOrbit(body, t, out var omega, out var w)) return false;
+        relAccel = (d, v) => SectorHomes.LagrangeAccel(d, v, omega, w);
         return true;
     }
 

@@ -957,73 +957,32 @@ public static class Maneuvers
     public static string LibDebug = "-", LibStart = "-";
 
     /// <summary>
-    /// Inside an L4 / L5 sector you are not on a plain orbit: the pair's pull holds you in a slow
-    /// tadpole round the point. Integrated with exactly the sector's own dynamics (RK4, about two of
-    /// its periods), drawn round the point in the frame turning with the planet, with its size and period.
+    /// Inside a Lagrange sector you orbit the point (SectorHomes.LagrangeOrbit): one closed ellipse, drawn
+    /// round the point in the frame turning with the planet, inside the sector's dotted teardrop, with an
+    /// Exit where it would leave; its size and period.
     /// </summary>
     static void DrawLibration(double t, Func<Vector3D, double, Vector3D> toMap, Func<Vector3D, Vector3D> W, float u)
     {
         var pf = FrameHost.PlayerFrame;
         var site = pf != null ? EncounterFrames.SiteOf(pf.Id) : null;
-        if (site?.Home == null || site.Home.Kind != SectorHomes.Kind.Lagrange || site.Home.Point < 4 || FrameHost.RiderFrame != pf.Id) { _libFrame = -1; return; }
+        if (site?.Home == null || site.Home.Kind != SectorHomes.Kind.Lagrange || FrameHost.RiderFrame != pf.Id) { _libFrame = -1; return; }
         var reg = SystemHost.Registry;
         var body = reg?.Find(site.Home.Host);
         if (body?.Parent == null) return;
-        double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
-        if (_lib == null || _libFrame != pf.Id || now - _libWall > 2.0)
+        // Your Lagrange orbit: a closed ellipse round the point (the model the sector flies you on), in the
+        // frame turning with the planet; analytic, as a Kepler orbit is.
+        if (!SectorHomes.LagrangeOrbit(body, t, out var omega, out var w)) return;
+        Vector3D d0 = FrameHost.RiderOffset, v0 = FrameHost.RiderVelocity;
+        LibStart = $"start offset {d0.Length() / 1000:F2} km, speed {v0.Length():F2} m/s";
+        _libPeriod = 2 * Math.PI / w;
+        var pts = new List<Vector3D>(129);
+        double amp = 0;
+        for (int i = 0; i <= 128; i++)
         {
-            _libWall = now; _libFrame = pf.Id; _libT0 = t;
-            // Its period (small-motion theory): Tlib = T / sqrt(27/4 mu), mu = the body's share of the pair.
-            double a = body.StateInParentAt(t).Position.Length();
-            double T = 2 * Math.PI * Math.Sqrt(a * a * a / body.Parent.Mu);
-            double mu = body.Mu / (body.Mu + body.Parent.Mu);
-            _libPeriod = T / Math.Sqrt(27.0 / 4.0 * mu);
-            double horizon = Math.Min(_libPeriod + T, 20 * 86400.0);   // one libration (and an orbit to average over)
-            int n = 1200; double dt = horizon / n;
-            Vector3D d = FrameHost.RiderOffset, v = FrameHost.RiderVelocity;
-            LibStart = $"start offset {d.Length() / 1000:F2} km, speed {v.Length():F2} m/s";
-            Vector3D A(double tt, Vector3D x) => EncounterFrames.LagrangeDynamics(pf.Id, tt, out var f) ? f(x) : Vector3D.Zero;
-            var st0 = body.StateInParentAt(t);
-            Vector3D p0 = st0.Position, nrm = Vector3D.Normalize(Vector3D.Cross(st0.Position, st0.Velocity));
-            var pts = new List<Vector3D>(n + 1);
-            double amp = 0;
-            for (int i = 0; i <= n; i++)
-            {
-                double tt = t + i * dt;
-                // Into the frame turning with the planet (at t): turned back by how far the planet has gone.
-                Vector3D pi = body.StateInParentAt(tt).Position;
-                double ang = Math.Atan2(Vector3D.Dot(nrm, Vector3D.Cross(p0, pi)), Vector3D.Dot(p0, pi));
-                double c = Math.Cos(-ang), s = Math.Sin(-ang);
-                Vector3D rot = d * c + Vector3D.Cross(nrm, d) * s + nrm * Vector3D.Dot(nrm, d) * (1 - c);
-                pts.Add(rot);
-                amp = Math.Max(amp, rot.Length());
-                if (i == n) break;
-                // RK4 on (d, v) with the sector's own relative acceleration.
-                Vector3D k1v = A(tt, d), k1x = v;
-                Vector3D k2v = A(tt + dt / 2, d + k1x * (dt / 2)), k2x = v + k1v * (dt / 2);
-                Vector3D k3v = A(tt + dt / 2, d + k2x * (dt / 2)), k3x = v + k2v * (dt / 2);
-                Vector3D k4v = A(tt + dt, d + k3x * dt), k4x = v + k3v * dt;
-                d += (k1x + 2 * k2x + 2 * k3x + k4x) * (dt / 6);
-                v += (k1v + 2 * k2v + 2 * k3v + k4v) * (dt / 6);
-                if (!IsFinite(d.X) || d.Length() > 5e6) break;   // (left the sector's reach: no longer a libration)
-            }
-            // One clean line: the slow swing alone (the path averaged over an orbit, the small loops taken
-            // out), over one libration: the tadpole, closed round the point.
-            int win = Math.Max(1, (int)Math.Round(T / dt));
-            var smooth = new List<Vector3D>();
-            if (pts.Count > win)
-            {
-                Vector3D sum = Vector3D.Zero;
-                for (int i = 0; i < win; i++) sum += pts[i];
-                for (int i = win; i < pts.Count; i++)
-                {
-                    smooth.Add(sum / win);
-                    sum += pts[i] - pts[i - win];
-                }
-            }
-            if (smooth.Count > 2) { pts = smooth; amp = 0; foreach (var q in pts) amp = Math.Max(amp, q.Length()); }
-            _lib = pts; _libAmp = amp;
+            var q = SectorHomes.LagrangeOrbitAt(d0, v0, omega, w, _libPeriod * i / 128);
+            pts.Add(q); amp = Math.Max(amp, q.Length());
         }
+        _lib = pts; _libAmp = amp; _libFrame = pf.Id;
         Vector3D? pt = EncounterFrames.SitePoint(pf.Id, t);
         if (!pt.HasValue || _lib == null || _lib.Count < 2) return;
         var col = new ColorSRGB(0.95f, 0.75f, 0.35f, 0.9f);
@@ -1066,7 +1025,7 @@ public static class Maneuvers
             prev = sp; hp = true;
         }
         if (MapPipeline.ToScreen(W(toMap(pt.Value, t)), out var cs) && InMapArea(cs))
-            HudPanel.TagAt(cs, $"L{home.Point} drift ±{HudPanel.Km(_libAmp)}  ·  {Clock(_libPeriod)}", col, u);
+            HudPanel.TagAt(cs, $"L{home.Point} orbit ±{HudPanel.Km(_libAmp)}  ·  {Clock(_libPeriod)}", col, u);
     }
 
     /// <summary>Patches drawn after your orbit (KSP's conic patch limit).</summary>

@@ -185,6 +185,39 @@ public static class SectorHomes
         return e1 * gx + e2 * gy;
     }
 
+    /// <summary>
+    /// The Lagrange orbit (a game's approximation, a distorted Kepler): in the frame turning with the body
+    /// you orbit the point on a closed ellipse, as round a small body, at the pair's real libration rate
+    /// (w = n sqrt(27 mu / 4): six days at Kemik's). Out: the body's angular velocity (the frame's turn)
+    /// and w.
+    /// </summary>
+    public static bool LagrangeOrbit(GravityBody s, double t, out Vector3D omega, out double w)
+    {
+        omega = Vector3D.Zero; w = 0;
+        if (s?.Parent == null) return false;
+        var st = s.StateInParentAt(t);
+        double r = st.Position.Length();
+        if (!(r > 0)) return false;
+        omega = Vector3D.Cross(st.Position, st.Velocity) / (r * r);
+        double mu = s.Mu / (s.Mu + s.Parent.Mu);
+        w = omega.Length() * Math.Sqrt(27.0 / 4.0 * mu);
+        return w > 0;
+    }
+
+    /// <summary>The pull (non-turning axes) that makes that ellipse: a harmonic pull toward the point in the turning frame, plus the turning's own terms.</summary>
+    public static Vector3D LagrangeAccel(Vector3D d, Vector3D v, Vector3D omega, double w)
+    {
+        Vector3D vRot = v - Vector3D.Cross(omega, d);
+        return -w * w * d + 2 * Vector3D.Cross(omega, vRot) + Vector3D.Cross(omega, Vector3D.Cross(omega, d));
+    }
+
+    /// <summary>Where on its Lagrange orbit you are after tau (turning frame, axes as at the start): the ellipse through (d, v).</summary>
+    public static Vector3D LagrangeOrbitAt(Vector3D d, Vector3D v, Vector3D omega, double w, double tau)
+    {
+        Vector3D vRot = v - Vector3D.Cross(omega, d);
+        return d * Math.Cos(w * tau) + vRot * (Math.Sin(w * tau) / w);
+    }
+
     /// <summary>Gravity at a root-frame point from a primary and its body, with the indirect term (what balances a Lagrange point).</summary>
     public static Vector3D PairGravity(GravityBody s, Vector3D x, double t)
     {

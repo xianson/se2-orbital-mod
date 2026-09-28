@@ -91,17 +91,16 @@ public static class AsteroidBridge
     }
 
     // The server generator and the voxel component live in assemblies mods cannot reference: by name.
-    private static MethodInfo _sessionTryGet, _entityTryGet;
+    private static MethodInfo _entityTryGet;
     static ProceduralGeneratorSessionComponent Generator(Keen.VRage.Core.Game.Systems.Session session)
     {
-        if (_sessionTryGet == null)
+        // The session's components: the server's generator (the one that spawns).
+        ProceduralGeneratorSessionComponent server = null, any = null;
+        session.SessionComponents?.ForEach(delegate (Keen.VRage.Core.Game.Components.SessionComponent sc)
         {
-            Type t = PlanetRenderBridge.FindType("VRage.Game", "Keen.VRage.Game.ProceduralGeneration.ProceduralGeneratorServerSessionComponent");
-            var m = session.SessionComponents.GetType().GetMethods().FirstOrDefault(x => x.Name == "TryGet" && x.IsGenericMethodDefinition && x.GetParameters().Length == 0);
-            if (t == null || m == null) return null;
-            _sessionTryGet = m.MakeGenericMethod(t);
-        }
-        return _sessionTryGet.Invoke(session.SessionComponents, null) as ProceduralGeneratorSessionComponent;
+            if (sc is ProceduralGeneratorSessionComponent g) { any ??= g; if (g.GetType().Name.Contains("Server")) server = g; }
+        });
+        return server ?? any;
     }
 
     static bool IsManual(Entity e)

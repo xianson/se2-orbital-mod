@@ -133,6 +133,11 @@ public static partial class CleanMap
         return txt;
     }
 
+    /// <summary>A sector as shown: a body's own sector is named after the body ("Verdure", not "Verdure Sector").</summary>
+    public static string Label(Band b) => b.Home?.Kind == SectorHomes.Kind.Body
+        ? (b.Home.Future ? b.Name.Replace(" Sector", "") : SystemHost.DisplayName(b.Home.Host))
+        : b.Name;
+
     static string WherePlace(Band b)
     {
         var h = b.Home;
@@ -176,7 +181,7 @@ public static partial class CleanMap
         }
         MapPipeline.PickName = null;
         var b0 = bd; var W0 = W;
-        string label = $"{bd.Number}  {bd.Name}";
+        string label = $"{bd.Number}  {Label(bd)}";
         _deferred.Add(() =>
         {
             MapPipeline.PickName = b0.Name;

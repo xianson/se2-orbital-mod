@@ -61,7 +61,7 @@ public static partial class CleanMap
             MapPipeline.PickName = b.Name;
             MapPipeline.ScreenText(new Vector2(x, r.y), b.Number.ToString(), Dim, scale);
             MapPipeline.ScreenDot(new Vector2(x + scr.Y * 0.030f * k, r.y + line * 0.42f), 4.5f, StateColor(b));
-            MapPipeline.ScreenText(new Vector2(x + scr.Y * 0.045f * k, r.y), b.Name == Maneuvers.Target ? b.Name + "  · target" : b.Name, b.Name == Maneuvers.Target ? TargetText : c, scale);
+            MapPipeline.ScreenText(new Vector2(x + scr.Y * 0.045f * k, r.y), b.Name == Maneuvers.Target ? Label(b) + "  · target" : Label(b), b.Name == Maneuvers.Target ? TargetText : c, scale);
             MapPipeline.ScreenText(new Vector2(x + scr.Y * 0.19f * k, r.y), Fit(Where(b), x1 - (x + scr.Y * 0.19f * k) - 6f, scale * 0.85f), Dim, scale * 0.85f);
             MapPipeline.PickName = null;
         }
@@ -133,8 +133,10 @@ public static partial class CleanMap
         else if (Hovered != null)
         {
             string sec = Hovered;
-            title = sec;
-            items.Add(new MapMenu.Item("Centre on " + sec, () => CentreOn(sec)));
+            var hb = bands.Find(x => x.Name == sec);
+            string shown = hb != null ? Label(hb) : sec;
+            title = shown;
+            items.Add(new MapMenu.Item("Centre on " + shown, () => CentreOn(sec)));
             items.Add(Maneuvers.Target == sec ? new MapMenu.Item("Clear target", () => Maneuvers.Target = null)
                                               : new MapMenu.Item("Set as target", () => Maneuvers.Target = sec));
             if (hasNodes) items.Add(new MapMenu.Item("Remove all maneuvers", Maneuvers.ClearAll));

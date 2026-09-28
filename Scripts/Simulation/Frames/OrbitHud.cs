@@ -158,7 +158,7 @@ public static class OrbitHud
         if (now >= _nextUpdate)
         {
             _nextUpdate = now + 0.5;
-            string title = r != null ? $"Orbit  ·  {r.Body}" : "Maneuver";
+            string title = r != null ? $"Orbit  ·  {SystemHost.DisplayName(r.Body)}" : "Maneuver";
             var sb = new System.Text.StringBuilder();
             if (r != null)
             {

@@ -13,6 +13,8 @@ if (Test-Path "$PSScriptRoot\world.txt") {
     if ($w.StartsWith('content:')) { $a = $a -replace '"-start:[^"]*"', ('"-startContent:' + $w.Substring(8) + '"') }
     else { $a = $a -replace '"-start:[^"]*"', ('"-start:' + $w + '"') }
 }
+# Test launches never send crash reports (the harness provokes crashes while testing).
+$a = $a + ' -forceDisableCrashReporting'
 $game = 'C:\Program Files (x86)\Steam\steamapps\common\SpaceEngineers2\Game2'
 Set-Content -Path "$PSScriptRoot\last-launch-args.txt" -Value $a
 Start-Process -FilePath "$game\SpaceEngineers2.exe" -ArgumentList $a -WorkingDirectory $game

@@ -32,6 +32,9 @@ public static class SystemHost
     public const double OrbitScale = 0.1;
     /// <summary>Sectors about a planet: their charted distance x this (less shrunk than the planets' own
     /// orbits: at 0.1 Kemik's sectors crowded within 800 km). Kemik's land at ~1,300-3,200 km (apoapses under ~3,900), inside its 4,574 km SOI.</summary>
+    /// <summary>A body's name as shown to the player: the root is the star, named as the game names it.</summary>
+    public static string DisplayName(string body) => body == Registry?.Root?.Name ? CleanMap.StarName : body;
+
     public const double SectorOrbitScale = 0.4;
     public const double AU = 1.495978707e11 * K * OrbitScale;   // 147,900 km
     public const double StarRadius = 6.9634e8 * K * OrbitScale;   // 689 km

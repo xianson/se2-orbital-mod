@@ -313,17 +313,24 @@ public static class CleanMap
         bool ui = MapPipeline.UiBegin(session, mapConfig);
         try
         {
-            DrawList(ordered, b => solar
+            // The game's own panels (left column, tab bar, bottom hints): map labels keep off them.
+            var scrR = MapPipeline.ScreenSize;
+            MapPipeline.Reserve(Vector2.Zero, new Vector2(scrR.X * 0.255f, scrR.Y));
+            MapPipeline.Reserve(Vector2.Zero, new Vector2(scrR.X, scrR.Y * 0.1f));
+            MapPipeline.Reserve(new Vector2(0, scrR.Y * 0.93f), scrR);
+            // The system layout: zoomed out, or about the star itself (orbiting it).
+            bool sys = solar || planet == null || planet.Parent == null;
+            DrawList(ordered, b => sys
                 ? b.Home.Kind == SectorHomes.Kind.Belt || b.Home.Kind == SectorHomes.Kind.Ring || b.Selected
                 : b.Host == focus && b.Home.Kind != SectorHomes.Kind.Belt && b.Home.Kind != SectorHomes.Kind.Ring,
                 // A planet's view lists that planet's sectors only; the system view lists them all.
-                b => solar || (b.Host == focus && b.Home.Kind != SectorHomes.Kind.Belt && b.Home.Kind != SectorHomes.Kind.Ring));
-            Title(solar ? null : planet, playerPlanet, playerOrbit);
+                b => sys || (b.Host == focus && b.Home.Kind != SectorHomes.Kind.Belt && b.Home.Kind != SectorHomes.Kind.Ring));
+            Title(sys ? null : planet, playerPlanet, playerOrbit);
             if (!solar && planet != null && planet.Parent != null) DrawSystem(parts, bands, reg, planet, t, playerPlanet, playerRel, playerOrbit, globes, W);
-            else DrawSolar(parts, bands, reg, t, playerPlanet, globes, W);
+            else DrawSolar(parts, bands, reg, t, playerPlanet, globes, W, playerOrbit);
             string selName = null;
             foreach (var bd in bands) if (bd.Selected) selName = bd.Name;
-            if (_toMap != null && ManeuverEditor) Maneuvers.MapDraw(_toMap, W, _limit, t, Mouse, selName, solar ? null : planet?.Name);
+            if (_toMap != null && ManeuverEditor) Maneuvers.MapDraw(_toMap, W, _limit, t, Mouse, selName, sys ? reg.Root?.Name : planet?.Name);   // editable in every view
             if (ManeuverEditor) ContextMenu(bands, t);
             _lastW = W; _lastSolar = solar;
             FocusInput(reg, t, W, solar);
@@ -510,7 +517,7 @@ public static class CleanMap
     // ───────────────────────────── solar view ─────────────────────────────
 
     private static void DrawSolar(List<MapPipeline.Part> parts, List<Band> bands, SystemRegistry reg, double t, string playerPlanet,
-                                  HashSet<string> globes, Func<Vector3D, Vector3D> W)
+                                  HashSet<string> globes, Func<Vector3D, Vector3D> W, KeplerianElements? playerOrbit = null)
     {
         var root = reg.Root;
         double outer = SectorHomes.RingAU * 1.05 * SystemHost.AU;
@@ -523,7 +530,7 @@ public static class CleanMap
         parts.Add(Annulus(SunPart, 0, Math.PI, 0, Math.Max(SystemHost.StarRadius * SolarRadius / outer, SolarRadius * 0.004)));   // true size
         BodyRing(W, Vector3D.Zero, SystemHost.StarRadius * SolarRadius / outer, 10f, new ColorSRGB(1f, 0.85f, 0.4f, 0.9f), 1.5f);
         Hit(root, W(Vector3D.Zero), W(new Vector3D(SystemHost.StarRadius * SolarRadius / outer, 0, 0)), 10f);
-        MapPipeline.Text(W(new Vector3D(0, 0, SolarRadius * 0.085)), StarName, Text, 0.85f);
+        MapPipeline.Text(W(new Vector3D(0, 0, LabelGap(W, Vector3D.Zero, SystemHost.StarRadius * SolarRadius / outer, 10f, SolarRadius * 0.085))), StarName, Text, 0.85f);
 
         // The belt: a torus of its own, and its sectors as band sections on it.
         double b0 = Rs(SectorHomes.BeltInnerAU * SystemHost.AU), b1 = Rs(SectorHomes.BeltOuterAU * SystemHost.AU);
@@ -575,7 +582,23 @@ public static class CleanMap
             BodyRing(W, c, (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, 8f, p.Name == playerPlanet ? You : Text, 1.5f);
             Hit(p, W(c), W(c + new Vector3D((reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, 0, 0)), 8f);
             int n = 0; foreach (var bd in bands) if (bd.Host == p.Name && bd.Home.Kind != SectorHomes.Kind.OwnPlanet) n++;
-            MapPipeline.Text(W(c + new Vector3D(0, 0, SolarRadius * 0.045)), p.Name, p.Name == playerPlanet ? You : Text, 0.9f);
+            MapPipeline.Text(W(c + new Vector3D(0, 0, LabelGap(W, c, (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, 8f, SolarRadius * 0.045))), p.Name, p.Name == playerPlanet ? You : Text, 0.9f);
+        }
+        // You, orbiting the star: your orbit and where you are (planning: the planner draws it).
+        if (playerPlanet == root.Name && playerOrbit.HasValue && !Planning)
+        {
+            var path = OrbitSampler.SamplePath(playerOrbit.Value, 256);
+            var pts = path.Points;
+            if (pts != null)
+                for (int i = 0; i < pts.Length - (path.IsClosed ? 0 : 1); i++)
+                    MapPipeline.Line(W(S(pts[i])), W(S(pts[(i + 1) % pts.Length])), You, 2f);
+            var now = OrbitPropagation.StateAt(playerOrbit.Value, t);
+            if (MapPipeline.ToScreen(W(S(now.Position)), out var ys))
+            {
+                float uu = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+                MapPipeline.ScreenText(ys - new Vector2(6f * uu, 12f * uu), "+", You, 1.2f);
+                HudPanel.TagAt(ys + new Vector2(12f * uu, 0), "you", You, uu, diamond: false);
+            }
         }
         MapPipeline.PickName = null;
         Overlay(r => S(r), SolarRadius * 1.02, W, t, reg);
@@ -762,9 +785,9 @@ public static class CleanMap
             double r = SystemHost.Registry?.FindDefinition(playerPlanet)?.RadiusMeters ?? 0;
             string pe = Km(o.PeriapsisRadius - r);
             string ap = o.IsElliptic ? Km(o.SemiMajorAxis * (1 + o.Eccentricity) - r) : "escape";
-            you = $"You: orbiting {playerPlanet}   Pe {pe}   Ap {ap}";
+            you = $"You: orbiting {SystemHost.DisplayName(playerPlanet)}   Pe {pe}   Ap {ap}";
         }
-        else you = playerPlanet != null ? $"You: near {playerPlanet}" : "";
+        else you = playerPlanet != null ? $"You: near {SystemHost.DisplayName(playerPlanet)}" : "";
         if (you.Length > 0) MapPipeline.ScreenText(at + new Vector2(0, scr.Y * 0.034f), you, You, 0.78f);
         string burn = Maneuvers.BurnLine;
         if (burn != null) MapPipeline.ScreenText(at + new Vector2(0, scr.Y * 0.062f), burn, Dim, 0.78f);

@@ -10,7 +10,7 @@ end=$(( $(date +%s) + T )); n=0
 while [ $(date +%s) -lt $end ]; do
   sleep $(( 4 + RANDOM % 22 ))
   n=$(( n + 1 )); id=$(printf '%02d' $n)
-  timeout 90 "$SP/eshot.sh" "${P}_$id" 0 "flight" >/dev/null 2>&1
+  timeout 90 "$SP/eshot.sh" "${P}_$id" 0 "shotui on" "flight" >/dev/null 2>&1
   st=$(grep "> flight" $S | tail -1 | cut -c1-200)
   echo "$id $(date +%T) $st" >> "$LOG"
 done

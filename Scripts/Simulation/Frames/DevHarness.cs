@@ -104,6 +104,21 @@ public static class DevHarness
     }
 
     private static WorldTransform _lastCamera;
+
+    /// <summary>
+    /// Toggle the camera in the phase where the game's input does it (before the camera update). Called
+    /// from inside our own job instead, the new camera started from an invalid orientation and the
+    /// renderer crashed on a NaN distance.
+    /// </summary>
+    private static async void ToggleCameraLater(Entity ch, object cs)
+    {
+        try
+        {
+            await ch.Scene.MoveToDCS<Keen.Game2.Client.ControlledEntityInputMovementUpdate>();
+            PlanetRenderBridge.CallPrivate(cs, "ToggleCameraView");
+        }
+        catch (Exception e) { Log.Default?.Warning("[ORBIT-DEV] camera toggle failed: " + e.Message); }
+    }
     static bool IsFiniteV(Vector3D v) => !(double.IsNaN(v.X) || double.IsNaN(v.Y) || double.IsNaN(v.Z) || double.IsInfinity(v.X) || double.IsInfinity(v.Y) || double.IsInfinity(v.Z));
 
     /// <summary>Run one harness command now (the debug panel's entries), as the file-driven poll would.</summary>
@@ -539,13 +554,13 @@ public static class DevHarness
                 DebugPanel.DevOpen = true;
                 return "debug panel toggled";
 
-            case "camview":   // camview: toggle first / third person exactly as the game's key does
+            case "camview":   // camview: toggle first / third person as the game's V key does, in its input phase
             {
+                var ch = FrameHost.PlayerCharacter(session);
                 var cs = session.SessionComponents.TryGet<Keen.Game2.Client.GameSystems.PlayerControl.ClientPlayersSessionComponent>()?.LocalPlayerController?.CameraSystem;
-                if (cs == null) return "no camera system";
-                // (Setting a mode by index with no camera state crashed the renderer: a NaN distance.)
-                bool ok = PlanetRenderBridge.CallPrivate(cs, "ToggleCameraView");
-                return $"camera toggled: {ok} (active {cs.ActiveCameraModeIndex})";
+                if (cs == null || ch == null) return "no camera system";
+                ToggleCameraLater(ch, cs);
+                return "camera toggle queued (input phase)";
             }
 
             case "camdiag":   // orientations the third-person camera starts from: character, controller, render camera

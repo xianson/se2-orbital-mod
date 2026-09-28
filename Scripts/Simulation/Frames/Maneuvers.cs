@@ -305,6 +305,7 @@ public static class Maneuvers
         }
 
         // Patch points: where the trajectory leaves one SOI for another.
+        var entryNamed = new HashSet<string>();
         for (int li = 1; li < legs.Count; li++)
         {
             var pa = legs[li - 1]; var nb = legs[li].Body;
@@ -323,7 +324,8 @@ public static class Maneuvers
                 {
                     MapPipeline.ScreenCircle(st, 5f * u, col, 2f * u);
                     MapPipeline.ScreenCircle(st, 1.5f * u, col, 2.5f * u);
-                    HudPanel.TagAt(st + new Vector2(10f * u, 0), escape ? $"{pa.Body.Name} Escape" : $"{nb.Name} Entry", col, u, diamond: false);
+                    HudPanel.TagAt(st + new Vector2(10f * u, 0), escape ? $"{SystemHost.DisplayName(pa.Body.Name)} Escape" : $"{SystemHost.DisplayName(nb.Name)} Entry", col, u, diamond: false);
+                    if (!escape) entryNamed.Add(nb.Name);
                 }
             }
             // An encounter: the body where it will be, named (the ghost the arc is drawn about).
@@ -337,7 +339,8 @@ public static class Maneuvers
                     if (MapPipeline.ToScreen(W(Loc(nb, ax * R, tp)), out var es)) rpx = Math.Max(rpx, (es - gs).Length());
                 rpx = Math.Max(rpx + 1.5f * u, 9f * u);   // snug on the body, never smaller than the old marker
                 MapPipeline.ScreenCircle(gs, rpx, HudPanel.Alpha(col, 0.55f), 1.3f * u);
-                HudPanel.TagAt(gs + new Vector2(rpx + 6f * u, 0), nb.Name, col, u, diamond: false);
+                // Its name only when no 'Entry' label already names it (the two landed on each other).
+                if (!entryNamed.Contains(nb.Name)) HudPanel.TagAt(gs + new Vector2(rpx + 6f * u, 0), SystemHost.DisplayName(nb.Name), col, u, diamond: false);
             }
         }
 

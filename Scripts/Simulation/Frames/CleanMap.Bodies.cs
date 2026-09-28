@@ -116,20 +116,19 @@ public static partial class CleanMap
         Vector3D S(Vector3D helio) { double r = Math.Sqrt(helio.X * helio.X + helio.Y * helio.Y); double f = r > 0 ? Rs(r) / r : 0; return new Vector3D(helio.X * f, 0, helio.Y * f); }
 
         // The sun: a warm disc (its own section, coloured below), and its name.
-        StarWorld = W(Vector3D.Zero);   // the game's star model goes here (GameMap.PlaceStar)
-        if (!GameMap.StarPlaced && MapPipeline.ToScreen(W(Vector3D.Zero), out var sunS) && InOpenArea(sunS))
+        // Delfos: our own image of a red dwarf, a fixed size on screen (big at every zoom). The game's
+        // star model is parked out of view (StarWorld null): off the map plane it did not draw, and on it
+        // it came and went.
+        StarWorld = null;
+        if (MapPipeline.ToScreen(W(Vector3D.Zero), out var sunS) && InOpenArea(sunS))
         {
             float su = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
-            float srpx = MapPipeline.ToScreen(W(new Vector3D(SystemHost.StarRadius * SolarRadius / outer, 0, 0)), out var sunE) ? (sunE - sunS).Length() : 0f;
-            float sr = Math.Clamp(srpx, 5f * su, 80f * su);
-            // Delfos, a red dwarf: a deep red-orange disc in a soft red glow.
-            MapPipeline.ScreenDisc(sunS, sr * 2.2f, new ColorSRGB(1f, 0.30f, 0.12f, 0.10f));
-            MapPipeline.ScreenDisc(sunS, sr * 1.5f, new ColorSRGB(1f, 0.38f, 0.16f, 0.22f));
-            MapPipeline.ScreenDisc(sunS, sr, new ColorSRGB(1f, 0.46f, 0.22f, 1f));
-            MapPipeline.ScreenDisc(sunS, sr * 0.55f, new ColorSRGB(1f, 0.62f, 0.38f, 1f));
+            float half = 40f * su / 0.6f;   // the disc is 0.6 of the image across
+            if (!MapPipeline.ScreenIconBox("delfos", sunS - new Vector2(half, half), sunS + new Vector2(half, half), new ColorSRGB(1f, 1f, 1f, 1f)))
+                MapPipeline.ScreenDisc(sunS, 40f * su, new ColorSRGB(1f, 0.46f, 0.22f, 1f));
         }
-        Hit(root, W(Vector3D.Zero), W(new Vector3D(SystemHost.StarRadius * SolarRadius / outer, 0, 0)), 10f);
-        BodyLabel(W, Vector3D.Zero, SystemHost.StarRadius * SolarRadius / outer, 10f, StarName, Text, 0.85f);
+        Hit(root, W(Vector3D.Zero), W(new Vector3D(SystemHost.StarRadius * SolarRadius / outer, 0, 0)), 40f);
+        BodyLabel(W, Vector3D.Zero, SystemHost.StarRadius * SolarRadius / outer, 42f, StarName, Text, 0.85f);
 
         // Every planet's L3 / L4 / L5 (with Delfos), sector or not.
         foreach (var p in root.Children)

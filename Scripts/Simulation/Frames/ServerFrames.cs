@@ -48,7 +48,9 @@ public static class ServerFrames
         {
             if (!GridMembers.IsGridId(m)) continue;
             var g = GridMembers.Get(m);
-            if (g != null && g.IsServer && !GridMembers.IsDynamic(g)) { id = m; pos = GridMembers.Position(g); return true; }
+            // Only where the frame is: a static member elsewhere (listed by an older rule) anchors nothing.
+            if (g != null && g.IsServer && !GridMembers.IsDynamic(g) && (GridMembers.Position(g) - f.BerthCenter).Length() <= SlotRadius)
+            { id = m; pos = GridMembers.Position(g); return true; }
         }
         if (AsteroidBridge.NearestAsteroid(f.BerthCenter, AttachRadius, out pos)) { id = AsteroidAnchorId; return true; }
         return false;

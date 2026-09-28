@@ -201,6 +201,16 @@ public static class OrbitDisplay
 
         var el = frame.Elements;
         var parentOrg = parent.OriginInRoot(t).Position;
+        // Riding a frame anchored by something else (a station, an asteroid): your own orbit is the
+        // frame's plus your offset and velocity in it (your jetpack changes it, not the frame's).
+        if (FrameHost.RiderFrame == frame.Id && !EncounterFrames.IsSite(frame))
+        {
+            var fc = OrbitPropagation.StateAt(el, t);
+            var mine = new StateVector(fc.Position + SEAerospace.PlanetBerths.SpinToCelestial(obs, FrameHost.RiderOffset),
+                                       fc.Velocity + SEAerospace.PlanetBerths.SpinToCelestial(obs, FrameHost.RiderVelocity));
+            var own = CaptureMath.CaptureElements(mine, el.Mu, t);
+            if (IsFinite(own.SemiMajorAxis)) el = own;
+        }
         OrbitPath path = OrbitSampler.SamplePath(el, PathPoints, parent.SoiRadius);
         // The orbit itself is drawn by the HUD (OrbitHud.DrawPath: a smooth screen curve, behind the
         // planet hidden); here only its points in the world.

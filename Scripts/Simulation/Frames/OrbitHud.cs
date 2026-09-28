@@ -242,7 +242,7 @@ public static class OrbitHud
             HudPanel.BeginLabels();
             HudPanel.ReserveGameHud();
             float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
-            // No orbit line in the world (first or third person): the disc above the speedometer shows it,
+            // No orbit line in the world (first or third person): the orbit disc shows it,
             // and the markers show its directions.
             DrawMarkers(r, u);
             DrawDisc(r, u);
@@ -280,7 +280,7 @@ public static class OrbitHud
     private static Vector3D _discUp;
 
     /// <summary>
-    /// The orbit disc, above the speedometer: your orbit seen from above its plane, turned so the way
+    /// The orbit disc, mid-height left of centre: your orbit seen from above its plane, turned so the way
     /// you look points up (heading-up, as a sat-nav). The body at its centre, your orbit, you with a
     /// prograde tick, Pe / Ap; a view wedge from you; and at its left edge how far above or below the
     /// orbit plane you are looking.
@@ -290,7 +290,7 @@ public static class OrbitHud
         if (r.RelPath == null || r.RelPath.Length < 2 || r.Nor.LengthSquared() < 0.5) return;
         var scr = MapPipeline.ScreenSize;
         float R = scr.Y * 0.085f;
-        var c = new Vector2(scr.X * 0.087f, scr.Y * 0.29f - R - 14f * u);   // above the game's speed bar (left edge), centred on its box
+        var c = new Vector2(scr.X * 0.30f, scr.Y * 0.5f);   // mid-height, left of centre (inside the game's left bracket)
         Vector3D n = r.Nor;
         Vector3D fwd = (QuaternionD)MapPipeline.CameraOrientation * Vector3D.Forward;
         Vector3D up = fwd - n * Vector3D.Dot(fwd, n);

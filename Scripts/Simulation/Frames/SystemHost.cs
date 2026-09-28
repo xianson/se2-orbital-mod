@@ -165,6 +165,19 @@ public static class SystemHost
                 Timescale = 1.0;
             }
         }
+        // And at a sphere-of-influence change on your path (as KSP): a flyby is seen, not skipped
+        // (at x10000 one frame took the whole Palatine pass, periapsis and all).
+        if (Timescale > 1.0 && FrameHost.PlayerFrame != null)
+        {
+            double ts = Maneuvers.NextSoiChange(Now);
+            if (!double.IsNaN(ts) && ts <= next)
+            {
+                next = Math.Max(Now, ts + 1.0);
+                Log.Default?.Info($"[ORBIT-FRAME] warp x{Timescale} -> x1 at a sphere-of-influence change (t={ts:F1})");
+                Timescale = 1.0;
+                WarpControl.Say("Warp stopped: sphere of influence change");
+            }
+        }
         Now = next;
         return dt;
     }

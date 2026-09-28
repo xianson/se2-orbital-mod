@@ -128,7 +128,7 @@ public static class HudPanel
                 if (mn.X < b.max.X && mx.X > b.min.X && mn.Y < b.max.Y && mx.Y > b.min.Y) { hit = true; break; }
             if (!hit && MapPipeline.Free(mn, mx)) { at = cand; placed = true; break; }
         }
-        if (!placed && SkipWhenBlocked) return;   // flight: never on top of the game's HUD
+        if (!placed) return;   // no clear spot: left out (drawn anyway, labels landed on each other)
         _placed.Add((at - pad, at + ts + pad));
         MapPipeline.Reserve(at - pad, at + ts + pad);
         MapPipeline.ScreenRect(at - new Vector2(4f * u, 1f * u), at + ts + new Vector2(4f * u, 1f * u), new ColorSRGB(0.02f, 0.045f, 0.07f, 0.65f));

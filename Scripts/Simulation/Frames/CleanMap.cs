@@ -991,15 +991,32 @@ public static class CleanMap
     }
 
     /// <summary>A marker and label at a map point, or pinned to the view's edge with an arrow.</summary>
+    /// <summary>
+    /// A marker (an encounter, a station): where it is when in the map's open area; otherwise an arrow at
+    /// the open area's edge in its direction, with its name ("Vallation Station >" sat in the title row).
+    /// </summary>
     private static void Pin(Vector3D p, double limit, Func<Vector3D, Vector3D> W, string label, ColorSRGB c, bool diamond = false)
     {
-        double r = Math.Sqrt(p.X * p.X + p.Z * p.Z);
-        bool edge = r > limit;
-        if (edge) p = p * (limit / r);
-        Vector3D w = W(p);
-        if (diamond) MapPipeline.ScreenDiamond(w, 6f, c, 1.8f);
-        else { MapPipeline.ScreenRing(w, 6f, c, 1.8f); MapPipeline.ScreenRing(w, 2.5f, c, 2.5f); }
-        MapPipeline.Text(W(p * (edge ? 1.07 : 1.0) + new Vector3D(0, 0, limit * 0.045)), edge ? label + " >" : label, c, 0.6f);
+        if (!MapPipeline.ToScreen(W(p), out var s)) return;
+        float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        if (InOpenArea(s))
+        {
+            if (diamond) MapPipeline.ScreenDiamond(W(p), 6f, c, 1.8f);
+            else { MapPipeline.ScreenRing(W(p), 6f, c, 1.8f); MapPipeline.ScreenRing(W(p), 2.5f, c, 2.5f); }
+            MapPipeline.TextScreen(s + new Vector2(0, 16f * u), label, c, 0.6f);
+            return;
+        }
+        // The open area's centre, and where the ray to the marker leaves it.
+        var scr = MapPipeline.ScreenSize;
+        Vector2 min = new Vector2(scr.X * 0.265f, scr.Y * 0.2f), max = new Vector2(scr.X * 0.765f, scr.Y * 0.82f);
+        Vector2 c0 = (min + max) * 0.5f, d = s - c0;
+        if (d.LengthSquared() < 1e-6f) return;
+        float k = Math.Min(Math.Abs((d.X > 0 ? max.X - c0.X : c0.X - min.X) / (Math.Abs(d.X) + 1e-6f)), Math.Abs((d.Y > 0 ? max.Y - c0.Y : c0.Y - min.Y) / (Math.Abs(d.Y) + 1e-6f)));
+        Vector2 e = c0 + d * k, n = Vector2.Normalize(d), side = new Vector2(-n.Y, n.X);
+        float a = 9f * u;
+        MapPipeline.ScreenLine(e, e - n * a + side * a * 0.6f, c, 1.8f * u);
+        MapPipeline.ScreenLine(e, e - n * a - side * a * 0.6f, c, 1.8f * u);
+        MapPipeline.TextScreen(e - n * (a + 14f * u), label, c, 0.6f);
     }
 
     public const string SunPart = "OrbitalSun", BeltPart = "OrbitalBelt";

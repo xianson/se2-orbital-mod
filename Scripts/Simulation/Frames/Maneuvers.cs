@@ -857,7 +857,7 @@ public static class Maneuvers
     static bool InMapArea(Vector2 s)
     {
         var sz = MapPipeline.ScreenSize;
-        return s.X > sz.X * 0.255f && s.X < sz.X * 0.772f && s.Y > sz.Y * 0.14f && s.Y < sz.Y * 0.93f;
+        return s.X > sz.X * 0.255f && s.X < sz.X * 0.772f && s.Y > sz.Y * 0.14f && s.Y < sz.Y * 0.84f;   // above the warp bar and hints
     }
 
     static string HandleName(string l) => l switch
@@ -1119,6 +1119,15 @@ public static class Maneuvers
         return Accel > 1e-3 ? tn - 0.5 * dv / Accel : tn;
     }
 
+    /// <summary>Warp: the next sphere-of-influence change on the path after t0 (NaN if none).</summary>
+    public static double NextSoiChange(double t0)
+    {
+        if (!Trajectory(t0, out var legs, out _)) return double.NaN;
+        for (int i = 1; i < legs.Count; i++)
+            if (legs[i].Body != legs[i - 1].Body && legs[i].T0 > t0) return legs[i].T0;
+        return double.NaN;
+    }
+
     /// <summary>Warp: the next node time after t0 (NaN if none).</summary>
     public static double NextNodeTime(double t0)
     {
@@ -1185,6 +1194,29 @@ public static class Maneuvers
         if (bestMiss < double.MaxValue) { n.T = best.T; n.Pro = best.P; n.Rad = best.R; n.Edit(); Selected = n; return $"closest: Pe off the window by {bestMiss / 1000:F1} km (node kept)"; }
         lock (Nodes) Nodes.Remove(n);
         return "no encounter found";
+    }
+
+    /// <summary>DEV: a capture burn at the next periapsis: retrograde to an orbit with its apoapsis at ~3x the periapsis radius.</summary>
+    public static string DevCapture(double t)
+    {
+        if (!Base(t, out var body, out var el)) return "no orbit";
+        double rp = el.PeriapsisRadius, mu = body.Mu;
+        // time of the next periapsis
+        double tp = double.NaN;
+        if (el.IsElliptic && IsFinite(el.Period)) { double best = double.MaxValue; for (int k = 0; k < 720; k++) { double tk = t + el.Period * k / 720; double r = OrbitPropagation.StateAt(el, tk).Position.Length(); if (r < best) { best = r; tp = tk; } } }
+        else { double best = double.MaxValue; for (int k = 0; k < 2000; k++) { double tk = t + 6 * 3600.0 * k / 2000; double r = OrbitPropagation.StateAt(el, tk).Position.Length(); if (r < best) { best = r; tp = tk; } if (r > best * 1.5 && tk > tp + 60) break; } }
+        if (double.IsNaN(tp) || tp < t + 60) return "periapsis too soon";
+        double v = OrbitPropagation.StateAt(el, tp).Velocity.Length();
+        double ra = Math.Min(3 * rp, double.IsInfinity(body.SoiRadius) ? 3 * rp : 0.5 * body.SoiRadius);   // well inside the sphere
+        if (ra < rp) ra = rp;
+        double a = 0.5 * (rp + ra);
+        double vWant = Math.Sqrt(mu * (2 / rp - 1 / a));
+        if (!(v > vWant)) return $"already bound (v {v:F0} <= {vWant:F0} m/s)";
+        lock (Nodes) Nodes.Clear();
+        var n = new Node { T = tp, Pro = -(v - vWant) };
+        lock (Nodes) Nodes.Add(n);
+        n.Edit(); Selected = n;
+        return $"capture at {body.Name} Pe in {Clock(tp - t)}: {v - vWant:F1} m/s retrograde (v {v:F0} -> {vWant:F0}), Ap radius {ra / 1000:F0} km of reach {body.SoiRadius / 1000:F0} km";
     }
 
     public static string DevFindEncounter(string body, double t)

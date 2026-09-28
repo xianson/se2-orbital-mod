@@ -380,6 +380,8 @@ public static class DevHarness
                         l[i].Auto = a.Length < 4 || On(a[3]);
                         return $"node {i} auto-burn {(l[i].Auto ? "on" : "off")}";
                     }
+                    case "capture":   // node capture: a capture burn at the next periapsis
+                        return Maneuvers.DevCapture(tn);
                     case "findarr":   // node findarr <body> <peMinKm> <peMaxKm>: a pass whose periapsis radius is in the window
                         return Maneuvers.DevFindArrival(a[2], tn, D(a[3]) * 1000, D(a[4]) * 1000);
                     case "findenc":   // node findenc <body>

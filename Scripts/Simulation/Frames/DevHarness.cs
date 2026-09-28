@@ -491,6 +491,23 @@ public static class DevHarness
                 EncounterFrames.RequestDevSite((long)D(a[1]), string.Join(" ", a, 2, a.Length - 2));
                 return "devsite queued";
 
+            case "lagstop":
+            {
+                // lagstop: a node where the path comes closest to the Lagrange point, retrograde by your drift (you park).
+                var lp = Maneuvers.Lag;
+                if (lp == null || double.IsNaN(lp.BestT)) return "no Lagrange plan";
+                // Circularise round the point: sideways at w r (the sense you already turn), as a KSP circularise.
+                Vector3D side = Vector3D.Cross(lp.Axis, lp.BestX);
+                if (side.LengthSquared() < 1e-9) return "at the point";
+                side = Vector3D.Normalize(side) * (lp.W * lp.BestD);
+                if (Vector3D.Dot(side, lp.BestV) < 0) side = -side;
+                Vector3D dv = side - lp.BestV;
+                Maneuvers.Axes(new SEAerospace.Orbital.StateVector(lp.BestX, lp.BestV), out var P, out var N, out var R);
+                Maneuvers.Restore(lp.BestT, Vector3D.Dot(dv, P), Vector3D.Dot(dv, N), Vector3D.Dot(dv, R));
+                Maneuvers.Selected = null;
+                return $"node at {(lp.BestT - SystemHost.Now) / 3600:F1} h: {lp.BestD / 1000:F0} km from {lp.Site.Sector}'s point, dv {dv.Length():F1} m/s (drift {lp.BestU:F1} -> {side.Length():F1} round the point)";
+            }
+
             case "lagtest":
             {
                 // lagtest <sector> <alongKm> <radialKm> <vAlong> <vRadial>: put the player this far from a Lagrange
@@ -505,8 +522,11 @@ public static class DevHarness
                 var host = reg.Find(site.Home.Host);
                 var hs = host.StateInParentAt(t);
                 Vector3D eR = Vector3D.Normalize(lp - centre), nH = Vector3D.Normalize(Vector3D.Cross(hs.Position, hs.Velocity)), eA = Vector3D.Cross(nH, eR);
-                Vector3D pos = lp + eA * (D(a[2]) * 1000) + eR * (D(a[3]) * 1000);
-                Vector3D vel = lv + eA * D(a[4]) + eR * D(a[5]);
+                // Along the orbit (round the star), not along a straight tangent: that tilts the velocity.
+                double phi = D(a[2]) * 1000 / (lp - centre).Length();
+                Vector3D eR2 = Maneuvers.Turn(eR, nH, phi), eA2 = Maneuvers.Turn(eA, nH, phi);
+                Vector3D pos = centre + Maneuvers.Turn(lp - centre, nH, phi) + eR2 * (D(a[3]) * 1000);
+                Vector3D vel = Maneuvers.Turn(lv, nH, phi) + eA2 * D(a[4]) + eR2 * D(a[5]);
                 var b = reg.Root.DeepestSoiContaining(pos, t) ?? reg.Root;
                 var o0 = b.OriginInRoot(t);
                 var rel = new SEAerospace.Orbital.StateVector(pos - o0.Position, vel - o0.Velocity);
@@ -518,7 +538,7 @@ public static class DevHarness
                     if (pf != null && !pf.IsEncounter) { pf.Elements = el; pf.ParentBodyName = b.Name; pf.VirtualVelocity = rel.Velocity; }
                     else FrameHost.SetPendingOrbit(b.Name, el);
                 }
-                return $"placed near {site.Sector} L{site.Home.Point} about {b.Name}: region half-length {halfLen / 1000:F0} km, half-width {0.035 * (lp - centre).Length() / 1000:F0} km; inside={SectorHomes.InLagrangeRegion(site.Home, reg, t, pos)}";
+                return $"placed near {site.Sector} L{site.Home.Point} about {b.Name}: region half-length {halfLen / 1000:F0} km, half-width {0.035 * (lp - centre).Length() / 1000:F0} km; inside={SectorHomes.InLagrangeRegion(site.Home, reg, t, pos)}; |lp|={lp.Length()/1000:F0} km |lv|={lv.Length():F1} vcirc={Math.Sqrt(b.Mu/(pos-o0.Position).Length()):F1} host |v|={hs.Velocity.Length():F1} r={hs.Position.Length()/1000:F0} km; Pe {el.PeriapsisRadius/1000:F0} Ap {el.ApoapsisRadius/1000:F0} km";
             }
 
             case "gotosite":

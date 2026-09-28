@@ -310,7 +310,7 @@ public static class Maneuvers
             var col = HudPanel.Alpha(PatchColors[patch % PatchColors.Length], Math.Max(0.4f, 1f - 0.2f * patch));
             legColour.Add(col); legPatch.Add(patch);
             if (patch > MaxPatches) continue;
-            bool planning = applied.Count > 0;
+            bool planning = applied.Count > 0 || lagPlan != null;
             // Without nodes the map draws your orbit; with nodes, your orbit up to the first node
             // is drawn here (gold) and the rest of it faint, and the plan takes over from the node.
             bool drawn = planning || !(li == 0 && !l.Planned && l.Body.Name == focusBody);
@@ -538,6 +538,7 @@ public static class Maneuvers
         foreach (var a in applied)
         {
             Vector3D loc = Loc(a.Body, a.Before.Position, a.Node.T);
+            if (lagPlan != null && lagPlan.NodeAt.TryGetValue(a.Node, out var lagOff)) loc = toMap(lagPlan.Point + lagOff, lagPlan.TE);   // on the Lagrange path
             if (!MapPipeline.ToScreen(W(loc), out var s)) continue;
             nodeScreen.Add((a.Node, s, a));
             bool sel = a.Node == Selected;
@@ -963,12 +964,20 @@ public static class Maneuvers
         public double Period, Amp;
         public List<Vector3D> Path = new List<Vector3D>();    // offsets from the point, in the frame turning with the planet (axes as at TE)
         public List<Vector3D> After = new List<Vector3D>();   // past the exit, in the same frame
+        public Dictionary<Node, Vector3D> NodeAt = new Dictionary<Node, Vector3D>();   // burns in the sector, where (same frame)
+        public Vector3D Point;                                 // the point at TE (root)
+        public double BestT = double.NaN, BestU, BestD;        // closest to the point before any burn: when, drift speed, distance
+        public Vector3D BestX, BestV, Axis;                    // there: offset and drift (turning frame); the frame's axis
+        public double W;                                       // the sector's rate (rad/s)
     }
     private static LagPlan _lag;
+    /// <summary>A Lagrange sector ahead or around you: the planner draws your path (cut at its entry).</summary>
+    public static bool LagActive => _lag != null;
+    public static LagPlan Lag => _lag;
     private static double _lagWall;
     public static string LibDebug = "-", LibStart = "-";
 
-    static Vector3D Turn(Vector3D v, Vector3D axis, double ang)
+    public static Vector3D Turn(Vector3D v, Vector3D axis, double ang)
     {
         double c = Math.Cos(ang), s = Math.Sin(ang);
         return v * c + Vector3D.Cross(axis, v) * s + axis * (Vector3D.Dot(axis, v) * (1 - c));
@@ -1089,7 +1098,13 @@ public static class Maneuvers
         {
             while (bi < burns.Count && burns[bi].Node.T <= tE + tau + h)
             {
-                uu += Turn(burns[bi].Dv, ax, -wo * (burns[bi].Node.T - tE));
+                // In a sector a node's directions are the sector's own: prograde along your drift
+                // relative to the point, radial away from it (so a retrograde burn of your drift parks you).
+                var bn = burns[bi].Node;
+                Axes(new StateVector(x, uu), out var bP, out var bN, out var bR);
+                uu += bP * bn.Pro + bN * bn.Nor + bR * bn.Rad;
+                plan.NodeAt[bn] = x;
+                amp = x.Length();   // the size you settle into, after the burn
                 bi++;
             }
             Vector3D a1 = Acc(x, uu);
@@ -1097,10 +1112,11 @@ public static class Maneuvers
             Vector3D a2 = Acc(xm, um);
             x += um * h; uu += a2 * h; tau += h;
             amp = Math.Max(amp, x.Length());
+            if (bi == 0 && (double.IsNaN(plan.BestT) || x.Length() < plan.BestD)) { plan.BestT = tE + tau; plan.BestD = x.Length(); plan.BestU = uu.Length(); plan.BestX = x; plan.BestV = uu; }
             if (inside != null && !inside(lp0 + x)) { plan.Path.Add(x); plan.TX = tE + tau; break; }
             if (k % every == 0 || k == steps) plan.Path.Add(x);
         }
-        plan.Amp = amp;
+        plan.Amp = amp; plan.Point = lp0; plan.W = w; plan.Axis = ax;
         if (!double.IsNaN(plan.TX))
         {
             // Back on a plain orbit: drawn in the same turning frame, drifting off the sector.
@@ -1110,7 +1126,7 @@ public static class Maneuvers
             var b2 = reg.Root.DeepestSoiContaining(pos, tX) ?? reg.Root;
             var o2 = b2.OriginInRoot(tX);
             var el = CaptureMath.CaptureElements(new StateVector(pos - o2.Position, vel - o2.Velocity), b2.Mu, tX);
-            double far = 0.12 * (lp0 - cen).Length();
+            double far = 0.35 * (lp0 - cen).Length();
             if (IsFinite(el.SemiMajorAxis))
                 for (int k = 0; k <= 160; k++)
                 {
@@ -1200,6 +1216,8 @@ public static class Maneuvers
                 if (rpx > 4f * u) MapPipeline.ScreenCircle(cs, rpx, HudPanel.Alpha(new ColorSRGB(0.55f, 0.85f, 1f, 1f), 0.45f), 1.2f * u);
             }
         }
+        // The point itself (as it will be, for an entry ahead).
+        if (!plan.Now && hasC && !MapPipeline.ScreenIcon("diamond", cs, 5f * u, col)) MapPipeline.ScreenCircle(cs, 3f * u, col, 2f * u);
         // Your orbit in the sector.
         Vector2 prev = default; bool hp = false;
         foreach (var off in plan.Path)
@@ -1211,7 +1229,8 @@ public static class Maneuvers
         if (!plan.Now && On(plan.Path[0], out var en))
         {
             Marker(en, col, u);
-            HudPanel.TagAt(en + new Vector2(10f * u, 0), $"{plan.Site.Sector} Entry", col, u, diamond: false);
+            string stay = double.IsNaN(plan.TX) ? "stays" : $"exit after {Clock(plan.TX - plan.TE)}";
+            HudPanel.TagAt(en + new Vector2(10f * u, 0), $"{plan.Site.Sector} Entry  ·  L{home.Point} orbit ±{HudPanel.Km(plan.Amp)}, {stay}", col, u, diamond: false);
         }
         if (!double.IsNaN(plan.TX))
         {
@@ -1229,8 +1248,8 @@ public static class Maneuvers
                 HudPanel.TagAt(ex + new Vector2(10f * u, 0), $"{plan.Site.Sector} Exit", col, u, diamond: false);
             }
         }
-        LibDebug = $"{(plan.Now ? "in" : "entry")} {plan.Site.Sector}: amp {plan.Amp / 1000:F0} km, {(double.IsNaN(plan.TX) ? "stays" : "exits after " + Clock(plan.TX - plan.TE))}, points {plan.Path.Count}+{plan.After.Count}";
-        if (hasC)
+        LibDebug = $"{(plan.Now ? "in" : "entry in " + Clock(plan.TE - SystemHost.Now))} {plan.Site.Sector}: amp {plan.Amp / 1000:F0} km, {(double.IsNaN(plan.TX) ? "stays" : "exits after " + Clock(plan.TX - plan.TE))}, points {plan.Path.Count}+{plan.After.Count}";
+        if (hasC && plan.Now)
         {
             string stay = double.IsNaN(plan.TX) ? "" : $"  ·  exit in {Clock(plan.TX - plan.TE)}";
             HudPanel.TagAt(cs, $"L{home.Point} orbit ±{HudPanel.Km(plan.Amp)}  ·  {Clock(plan.Period)}{stay}", col, u);

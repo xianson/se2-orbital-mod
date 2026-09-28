@@ -134,11 +134,10 @@ public static class SectorHomes
     public static Vector3D Where(Home h, SystemRegistry reg, double t) => Where(h, reg, t, out _);
 
     /// <summary>
-    /// A body's Lagrange point with its primary, from their gravity (mu): the balance point, in the frame
-    /// turning with the body at its present rate, of the primary's pull, the body's pull and the pull the
-    /// body gives the primary (the indirect term: the model keeps the primary still). Relative to the
-    /// primary; from the body's actual place and speed, so the points breathe with an eccentric orbit.
-    /// Newton's method from the textbook guesses.
+    /// A body's Lagrange point with its primary, from their gravity (mu). L4 / L5 are the equilateral
+    /// points; L1-L3 the balance, in the frame turning with the body, of the primary's pull, the body's,
+    /// the indirect term (the model keeps the primary still) and the turning, as fractions of the body's
+    /// present distance. Relative to the primary; the points breathe with an eccentric orbit.
     /// </summary>
     public static Vector3D LagrangeRel(GravityBody s, int point, double t)
     {
@@ -147,7 +146,12 @@ public static class SectorHomes
         double r = ps.Length();
         if (!(r > 0) || hv.LengthSquared() < 1e-12) return ps;
         Vector3D e1 = ps / r, n = Vector3D.Normalize(hv), e2 = Vector3D.Cross(n, e1);
-        double m1 = s.Parent.Mu, m2 = s.Mu, w2 = hv.LengthSquared() / (r * r * r * r);
+        // L4 / L5: the equilateral points, exactly, at the body's present distance (so in the elliptic
+        // problem too; a balance at the present turning rate sat ~460 km off Kemik's, and motion round
+        // it ran away).
+        if (point >= 4) return Rotate(ps, n, (point == 4 ? 1 : -1) * Math.PI / 3);
+        // L1-L3: fixed fractions of the present distance (the circular problem's balance, scale-free).
+        double m1 = s.Parent.Mu, m2 = s.Mu, w2 = m1 / (r * r * r);
         double rh = r * Math.Pow(m2 / (3 * m1), 1.0 / 3.0);
         // In the turning plane (x toward the body, y along its motion): pulls + indirect + centrifugal.
         (double, double) Net(double x, double y)

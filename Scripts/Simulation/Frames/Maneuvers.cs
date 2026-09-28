@@ -954,6 +954,7 @@ public static class Maneuvers
     private static List<Vector3D> _lib;      // offsets from the point, in the frame turning with the planet (at _libT0)
     private static double _libWall, _libT0, _libPeriod, _libAmp;
     private static long _libFrame = -1;
+    public static string LibDebug = "-", LibStart = "-";
 
     /// <summary>
     /// Inside an L4 / L5 sector you are not on a plain orbit: the pair's pull holds you in a slow
@@ -980,6 +981,7 @@ public static class Maneuvers
             double horizon = Math.Min(2 * _libPeriod, 20 * 86400.0);
             int n = 1200; double dt = horizon / n;
             Vector3D d = FrameHost.RiderOffset, v = FrameHost.RiderVelocity;
+            LibStart = $"start offset {d.Length() / 1000:F2} km, speed {v.Length():F2} m/s";
             Vector3D A(double tt, Vector3D x) => EncounterFrames.LagrangeDynamics(pf.Id, tt, out var f) ? f(x) : Vector3D.Zero;
             var st0 = body.StateInParentAt(t);
             Vector3D p0 = st0.Position, nrm = Vector3D.Normalize(Vector3D.Cross(st0.Position, st0.Velocity));
@@ -1042,6 +1044,7 @@ public static class Maneuvers
             {
                 MapPipeline.ScreenCircle(sp, 5f * u, col, 2f * u);
                 HudPanel.TagAt(sp + new Vector2(10f * u, 0), $"{site.Sector} Exit", col, u, diamond: false);
+                LibDebug = $"exit at radial {x / 1000:F0} km, along {y / 1000:F0} km (half-length {halfLen / 1000:F0}, half-width {B * taper / 1000:F0}); first offset {_lib[0].Length() / 1000:F1} km, points {_lib.Count}";
                 break;
             }
             if (hp) MapPipeline.ScreenLine(prev, sp, col, 1.8f * u);

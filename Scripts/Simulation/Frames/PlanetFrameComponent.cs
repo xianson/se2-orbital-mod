@@ -75,10 +75,17 @@ public static class OrbitalConfig
     public static bool ShowOrbit = true;
 
     /// <summary>
-    /// DEV ONLY: poll %TEMP%\OrbitalMod\cmd.txt for teleport/view commands (see DevHarness).
-    /// MUST be false in anything shipped.
+    /// DEV ONLY: poll %TEMP%\OrbitalMod\cmd.txt for teleport/view commands (see DevHarness), and the
+    /// F8 debug panel. On only where the developer's harness has put %TEMP%\OrbitalMod\dev.flag (the
+    /// test launcher does): a player's install never runs harness commands.
     /// </summary>
-    public static bool DevHarness = true;
+    public static bool DevHarness => _dev ??= DevFlagPresent();
+    private static bool? _dev;
+    private static bool DevFlagPresent()
+    {
+        try { return System.IO.File.Exists(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "OrbitalMod", "dev.flag")); }
+        catch { return false; }
+    }
     public static double DebugDistance = 300;
     public static double DebugAngularDiameterDeg = 12;
 }

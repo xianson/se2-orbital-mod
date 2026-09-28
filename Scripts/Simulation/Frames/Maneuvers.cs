@@ -224,6 +224,8 @@ public static class Maneuvers
     public static bool ClaimsMouse;
     /// <summary>The mouse is on a node or a handle (or dragging one): the map camera must not pan.</summary>
     public static bool OnGizmo;
+    /// <summary>The selected node's handles are folded away (zoomed out; hover the node to open them).</summary>
+    public static bool GizmoCompact;
     private static bool _addPending; private static double _addT; private static Vector2 _addAt;
 
     private struct Sample { public double T; public Vector2 S; public bool Planned; }
@@ -467,7 +469,17 @@ public static class Maneuvers
         var selA = applied.Find(a => a.Node == Selected);
         Vector2 selS = default;
         bool edit = focusBody != null;   // the solar view shows nodes; editing is in a planet's view
-        if (edit && Selected != null && selA.Node != null && nodeScreen.Exists(x => x.n == Selected && InMapArea(x.s)))   // not when the node is off view
+        // Compact when the orbit is small on screen (zoomed out): the handles would pile onto the planet.
+        // They open when the mouse comes to the node, and stay while one is pulled.
+        bool compact = false;
+        if (Selected != null && selA.Node != null && _drag != Drag.Handle)
+        {
+            var ns0 = nodeScreen.Find(x => x.n == Selected);
+            if (ns0.n != null && MapPipeline.ToScreen(W(Loc(selA.Body, Vector3D.Zero, Selected.T)), out var bc))
+                compact = (ns0.s - bc).Length() < 90f * u && (mouse - ns0.s).Length() > 60f * u;
+        }
+        GizmoCompact = compact;
+        if (edit && !compact && Selected != null && selA.Node != null && nodeScreen.Exists(x => x.n == Selected && InMapArea(x.s)))   // not when the node is off view
         {
             selS = nodeScreen.Find(x => x.n == Selected).s;
             Axes(selA.Before, out var P, out var N, out var R);

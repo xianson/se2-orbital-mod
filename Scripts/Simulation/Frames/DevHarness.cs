@@ -603,6 +603,30 @@ public static class DevHarness
                 }
             }
 
+            case "proxyring":   // proxyring on|off | status | hide on|off | optics on|off
+            {
+                string sub = a.Length > 1 ? a[1].ToLowerInvariant() : "status";
+                switch (sub)
+                {
+                    case "on": case "off":
+                        PlanetRings.Reset();
+                        PlanetRings.ProxyRings = sub == "on";
+                        return "proxy rings " + (PlanetRings.ProxyRings ? "ON" : "OFF");
+                    case "hide":
+                        PlanetRings.Reset();
+                        PlanetRings.HideGameRings = On(a[2]);
+                        return "hide the game's ring with its real planet=" + PlanetRings.HideGameRings;
+                    case "optics":
+                        PlanetRings.Reset();
+                        PlanetRings.ScaleOptics = On(a[2]);
+                        return "proxy ring optics scaled=" + PlanetRings.ScaleOptics;
+                    case "status":
+                        return PlanetRings.Status();
+                    default:
+                        return "proxyring on|off|status|hide on|off|optics on|off";
+                }
+            }
+
             case "hidesectors":
                 GameMap.HideGameSectors = On(a[1]);
                 return "hide game sector mesh=" + GameMap.HideGameSectors;

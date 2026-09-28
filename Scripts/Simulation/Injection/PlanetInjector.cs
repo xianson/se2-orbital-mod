@@ -37,10 +37,12 @@ public class InjectPlanetComponents : Injections
         bool isServerGrid = false;
         bool isServerPlanet = false;
         bool isClientPlanet = false;
+        bool isClientVolume = false;
         foreach (var type in prefab.Composition.Types)
         {
             if (type == typeof(DiscoverablePlanetComponent)) isServerPlanet = true;
             if (type == typeof(PlanetEnvironmentRenderComponent)) isClientPlanet = true;
+            if (type == typeof(Keen.Game2.Client.GameSystems.Render.ProceduralVolumeRenderComponent)) isClientVolume = true;
             if (type == typeof(Keen.Game2.Simulation.WorldObjects.CubeGrids.CubeGridComponent)) isServerGrid = true;
         }
 
@@ -73,6 +75,13 @@ public class InjectPlanetComponents : Injections
             Add(prefab, typeof(PlanetFrameComponent));
             _clientCount++;
             Log.Default?.Info($"[ORBIT] client planet prefab #{_clientCount}: '{prefab.DebugName}' +PlanetFrameComponent");
+        }
+
+        if (isClientVolume)
+        {
+            // Procedural volumes (the planets' rings): followed by PlanetRings (hidden with the real planet).
+            Add(prefab, typeof(OrbitalRingComponent));
+            Log.Default?.Info($"[ORBIT] client procedural volume prefab: '{prefab.DebugName}' +OrbitalRingComponent");
         }
     }
 }

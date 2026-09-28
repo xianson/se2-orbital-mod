@@ -554,6 +554,55 @@ public static class PlanetRenderBridge
         catch (Exception e) { WarnOnce("render", $"render resolve failed: {Inner(e)}"); return false; }
     }
 
+    // ── for other render-side helpers (PlanetRings): the entity calls above, by boxed handle ──
+
+    /// <summary>A render root (RenderContracts.CreateRootEntity), or null.</summary>
+    internal static object CreateRootEntity(string name, WorldTransform at)
+    {
+        if (!ResolveRender()) return null;
+        return _createRoot.Invoke(_contracts, new object[] { name, at, true });
+    }
+
+    /// <summary>A Default-type model entity under a root (RenderContracts.CreateModelEntity), flags as RenderFlags bits.</summary>
+    internal static object CreateModelEntity(string name, ResourceHandle model, object root, int flags)
+    {
+        if (!ResolveRender()) return null;
+        return _createModel.Invoke(_contracts, new object[]
+        {
+            name, model, RelativeTransform.Identity, root, Enum.ToObject(_renderFlagsType, flags), Enum.ToObject(_entityTypeType, 0), null
+        });
+    }
+
+    /// <summary>A model entity's Visible render flag (as <see cref="SetProxyVisible"/>).</summary>
+    internal static void SetModelVisible(object model, bool visible)
+    {
+        if (model == null || !ResolveRender()) return;
+        model.GetType().GetMethod("SetRenderFlagsState")?.Invoke(model, new[] { Enum.ToObject(_renderFlagsType, 0x1), (object)visible });
+    }
+
+    /// <summary>A model entity's entity custom data (boxed struct of the material state's EntityDataType).</summary>
+    internal static bool SetEntityCustomData(object model, object data)
+    {
+        var m = model == null || data == null ? null : FindSetEntityCustomData(model.GetType());
+        if (m == null) return false;
+        m.MakeGenericMethod(data.GetType()).Invoke(model, new[] { data });
+        return true;
+    }
+
+    internal static void UpdateRootTransform(object root, WorldTransform at)
+    {
+        if (root == null) return;
+        _rootUpdateTransform ??= root.GetType().GetMethod("UpdateTransform");
+        _rootUpdateTransform?.Invoke(root, new object[] { at });
+    }
+
+    internal static void DisposeRender(object renderObject)
+    {
+        if (renderObject == null) return;
+        try { renderObject.GetType().GetMethod("Dispose", Type.EmptyTypes)?.Invoke(renderObject, null); }
+        catch (Exception e) { WarnOnce("render-dispose", "render object dispose failed: " + Inner(e)); }
+    }
+
     private static readonly Dictionary<Type, MethodInfo> _setCustomData = new Dictionary<Type, MethodInfo>();
 
     /// <summary>ModelEntity.SetEntityCustomData&lt;T&gt;(in T) — the by-ref generic overload.</summary>

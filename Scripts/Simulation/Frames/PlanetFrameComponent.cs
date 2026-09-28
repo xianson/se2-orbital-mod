@@ -141,7 +141,28 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
             }
             PlanetRenderBridge.DisposeProxy(_proxy);
             _proxy = null;
+            try { PlanetRings.Release(Entity.Data.GetWorldTransform().Position); }
+            catch (Exception e) { Log.Default?.Warning("[ORBIT] ring release failed: " + e.Message); }
         }
+    }
+
+    // What this frame did with the proxy, for the planet's rings (PlanetRings.Sync at the end of the tick).
+    private bool _ringProxyOn;
+    private Vector3D _ringProxyAt;
+    private double _ringK;
+
+    private void RingProxy(Vector3D at, double renderRadius, double realRadius)
+    {
+        _ringProxyOn = realRadius > 0;
+        _ringProxyAt = at;
+        _ringK = realRadius > 0 ? renderRadius / realRadius : 0;
+    }
+
+    private void SyncRings()
+    {
+        if (_handles == null) return;
+        try { PlanetRings.Sync(Entity.Data.GetWorldTransform().Position, _realShown, _ringProxyOn, _ringProxyAt, _ringK); }
+        catch (Exception e) { FrameHost.Fault("PlanetRings", e); }
     }
 
     [After(typeof(RenderSubmissionBegin))]
@@ -188,9 +209,10 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
             if (FrameHost.PlayerFrame == null && !MapView.Visible) OrbitDisplay.Consider(this, session, camera, center, _handles.Radius, _law, _planetName);
 
             // FRAMES MODE (the SE-Aerospace model): the observer is in a planet cell or a conjunction.
-            if (TickFramesMode(camera, distance)) return;
+            _ringProxyOn = false;
+            if (TickFramesMode(camera, distance)) { SyncRings(); return; }
 
-            if (OrbitalConfig.Mode == ProxyMode.AlwaysReal && _realShown && !OrbitalConfig.DebugProxyInFront) return;
+            if (OrbitalConfig.Mode == ProxyMode.AlwaysReal && _realShown && !OrbitalConfig.DebugProxyInFront) { SyncRings(); return; }
 
             double reach = Math.Max(_gravityReach,_handles.Radius * OrbitalConfig.MinFrameRadii);
             bool wasInFrame = _inFrame;
@@ -246,11 +268,13 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
                 }
                 PlanetRenderBridge.UpdateProxy(_handles, _proxy, renderCenter, renderRadius);
                 PlanetRenderBridge.SetProxyVisible(_proxy, true);
+                if (!OrbitalConfig.DebugProxyInFront) RingProxy(renderCenter, renderRadius, _handles.SurfaceRadius > 0 ? _handles.SurfaceRadius : _handles.Radius);
             }
             else
             {
                 PlanetRenderBridge.SetProxyVisible(_proxy, false);
             }
+            SyncRings();
         }
     }
 
@@ -308,6 +332,7 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
         }
         PlanetRenderBridge.UpdateProxy(_handles, _proxy, pp.RenderPos, pp.RenderRadius);
         PlanetRenderBridge.SetProxyVisible(_proxy, true);
+        RingProxy(pp.RenderPos, pp.RenderRadius, radius);
         _lastProxyTrueDistance = pp.TrueDistance;
         return true;
     }

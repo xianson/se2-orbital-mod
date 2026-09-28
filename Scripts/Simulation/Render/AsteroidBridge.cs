@@ -28,6 +28,17 @@ public static class AsteroidBridge
     /// <summary>The game's planetary rings (tori): centre (world), inner / outer radius and half-thickness (m).</summary>
     public static readonly List<(Vector3D C, double In, double Out, double Half)> Rings = new List<(Vector3D, double, double, double)>();
 
+    /// <summary>The asteroids placed on purpose (encounters, players): world positions, refreshed every couple of seconds.</summary>
+    public static readonly List<Vector3D> Asteroids = new List<Vector3D>();
+
+    /// <summary>The nearest placed asteroid within reach of a world point.</summary>
+    public static bool NearestAsteroid(Vector3D at, double reach, out Vector3D pos)
+    {
+        pos = default; double best = reach;
+        lock (Asteroids) foreach (var a in Asteroids) { double d = (a - at).Length(); if (d <= best) { best = d; pos = a; } }
+        return best < reach;
+    }
+
     /// <summary>The ring round a world point (a planet's centre), if the game has one there.</summary>
     public static bool RingAround(Vector3D centre, out double inner, out double outer)
     {
@@ -99,12 +110,15 @@ public static class AsteroidBridge
 
             // What the generator already spawned (not player-edited ones).
             var ids = new List<Keen.VRage.Core.Game.GameSystems.ProceduralGeneration.SpaceEntityId>();
+            var kept = new List<Vector3D>();
             foreach (var kv in gen.Entities)
             {
                 bool manual = false;
                 try { manual = IsManual(kv.Value); } catch { }
                 if (!manual) ids.Add(kv.Key);
+                else try { kept.Add(kv.Value.Data.GetWorldTransform().Position); } catch { }   // an asteroid placed on purpose: a frame anchor
             }
+            lock (Asteroids) { Asteroids.Clear(); Asteroids.AddRange(kept); }
             foreach (var id in ids) { try { gen.DeleteEntity(id); _deleted++; } catch { } }
             Status = $"asteroids blocked: {_orig.Count} volume definition(s) at no density, {_deleted} deleted, {RingInfo.Count} ring(s)";
         }

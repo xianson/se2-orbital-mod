@@ -33,6 +33,26 @@ public static class ServerFrames
     public const double AttachRadius = 5000.0;   // m: grids this close to a stowing player join its frame
     public const double PinTolerance = 200.0;    // m: re-pin the anchor grid (and shift the frame) past this
     public const double SlotRadius = 20000.0;    // m: SE1 FrameManager.SlotRadius (split threshold)
+    /// <summary>The anchor id of a frame anchored by an asteroid (not an entity we track by id).</summary>
+    public const long AsteroidAnchorId = -2;
+
+    /// <summary>
+    /// A frame's static anchor: a static grid in it (a station, a base on its rock), or a placed asteroid
+    /// near its berth. Static things cannot move: they are the frame's fixed point, and everything else
+    /// (the player too) moves about them normally.
+    /// </summary>
+    static bool StaticAnchor(ProximityFrame f, out long id, out Vector3D pos)
+    {
+        id = 0; pos = default;
+        foreach (long m in f.Members)
+        {
+            if (!GridMembers.IsGridId(m)) continue;
+            var g = GridMembers.Get(m);
+            if (g != null && g.IsServer && !GridMembers.IsDynamic(g)) { id = m; pos = GridMembers.Position(g); return true; }
+        }
+        if (AsteroidBridge.NearestAsteroid(f.BerthCenter, AttachRadius, out pos)) { id = AsteroidAnchorId; return true; }
+        return false;
+    }
 
     /// <summary>Guards the frame registry and frame state across the client and server threads.</summary>
     public static readonly object FramesLock = new object();
@@ -411,13 +431,35 @@ public static class ServerFrames
             var g = GridMembers.Get(id);
             if (g != null && g.IsServer && GridMembers.IsDynamic(g)) grids.Add(g);
         }
+        // A static anchor (a static grid, or an asteroid) comes first: nothing is pinned or drained, the
+        // rest (the player too: a rider, not the anchor) move about it normally.
+        bool isStatic = false; Vector3D staticPos = default;
+        if (!f.IsEncounter && StaticAnchor(f, out long sid, out staticPos))
+        {
+            isStatic = true;
+            if (f.AnchorEntityId != sid)
+            {
+                Event($"frame #{f.Id}: anchor -> {(sid == AsteroidAnchorId ? "an asteroid" : $"static grid {sid}")} (the player rides)");
+                f.AnchorEntityId = sid;
+                AnchorAccel.Remove(f.Id);   // no one folds thrust into a static anchor's frame
+            }
+        }
+        else if (!f.IsEncounter && (f.AnchorEntityId == AsteroidAnchorId || (GridMembers.IsGridId(f.AnchorEntityId) && !grids.Exists(g => g.Id == f.AnchorEntityId))))
+        {
+            // The static anchor (or a grid anchor) is gone: the player anchors again if nothing else can.
+            if (grids.Count == 0 && f.HasMember(FrameHost.PlayerId))
+            {
+                f.AnchorEntityId = FrameHost.PlayerId;
+                Event($"frame #{f.Id}: anchor -> the player");
+            }
+        }
         if (grids.Count == 0) return;
 
         // Anchor election: keep a live grid anchor, else the heaviest PLAYER grid (SE1 ElectAnchor).
         // NPC grids never anchor, and an encounter frame has no anchor at all: its origin is the berth
         // (the site, pinned) and its orbit is its own (a site's ephemeris, a procedural spawn's conic).
         OrbitalGridComponent anchor = null;
-        if (!f.IsEncounter)
+        if (!f.IsEncounter && !isStatic)
         {
             foreach (var g in grids) if (g.Id == f.AnchorEntityId && !EncounterFrames.IsNpc(g)) anchor = g;
             bool playerAnchored = f.AnchorEntityId != 0 && !GridMembers.IsGridId(f.AnchorEntityId) && f.HasMember(f.AnchorEntityId);
@@ -436,7 +478,7 @@ public static class ServerFrames
         double t = SystemHost.Now;
         StateVector cur = OrbitPropagation.StateAt(f.Elements, t);
         Vector3D A = Vector3D.Zero;
-        Vector3D anchorPos = f.BerthCenter;
+        Vector3D anchorPos = isStatic ? staticPos : f.BerthCenter;
 
         if (anchor != null)
         {
@@ -461,7 +503,7 @@ public static class ServerFrames
             if (IsFinite(cur.Velocity)) f.VirtualVelocity = cur.Velocity;
             AnchorAccel[f.Id] = A;
         }
-        else if (!f.IsEncounter && AnchorAccel.TryGetValue(f.Id, out var pa)) A = pa;   // the player anchors (client folds)
+        else if (!f.IsEncounter && !isStatic && AnchorAccel.TryGetValue(f.Id, out var pa)) A = pa;   // the player anchors (client folds)
 
         // Other members: CW differential gravity minus the frame acceleration; split beyond the slot.
         // NPC grids are Newtonian inside the frame: no relative-motion terms, and they never split off.

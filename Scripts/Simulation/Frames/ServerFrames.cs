@@ -678,6 +678,8 @@ public sealed class TickRate
 {
     public static readonly TickRate Client = new TickRate();
     public static readonly TickRate Server = new TickRate();
+    /// <summary>Client frames that actually draw (after the once-per-frame dedup).</summary>
+    public static readonly TickRate Draw = new TickRate();
     private long _windowStart; private int _n;
     public volatile float PerSecond;
     public void Count()

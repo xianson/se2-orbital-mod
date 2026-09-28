@@ -113,6 +113,7 @@ public static class FrameHost
         if (!SystemHost.EnsureBuilt(gravityMultiplier)) return;
         double dt = SystemHost.AdvanceClock(session);
         if (dt <= 0) return; // once per frame
+        TickRate.Draw.Count();
         var reg = SystemHost.Registry;
         var frames = SystemHost.Frames;
         if (reg == null || frames == null) return;

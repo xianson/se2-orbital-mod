@@ -23,6 +23,7 @@ public static class WarpBar
     public static void DrawHud(Keen.VRage.Core.Game.Systems.Session session)
     {
         if (MapView.Visible || OrbitalMap.Active || !SystemHost.Built) return;
+        if (FrameHost.PlayerFrame == null) return;   // on a planet (not on rails): no warp to show
         if (!FrameMarkers.BeginHud(session)) return;
         try
         {
@@ -35,6 +36,7 @@ public static class WarpBar
     /// <summary>In the map (inside its batch): clickable.</summary>
     public static void DrawMap(Vector2 mouse)
     {
+        if (FrameHost.PlayerFrame == null) return;   // on a planet (not on rails): no warp to show
         var scr = MapPipeline.ScreenSize;
         Draw(new Vector2(scr.X * 0.265f, scr.Y * 0.85f), centred: false, mouse: mouse,
              click: MapInput.LeftReleased && !MapCamera.DragEnded && !MapMenu.Open);

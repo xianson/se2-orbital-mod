@@ -271,6 +271,22 @@ public static class MapPipeline
     /// <summary>Keep map labels out of a screen area (the sector list, the title) for this frame.</summary>
     public static void Reserve(Vector2 min, Vector2 max) => _placed.Add(new BoundingBox2(min, max));
 
+    // ---- label hysteresis: a label shown lately keeps its place unless clearly overlapped; a new
+    // one needs a clearly free place (labels at a collision edge flickered as orbits moved a pixel).
+    private static readonly Dictionary<string, (double at, int cand)> _shown = new Dictionary<string, (double, int)>();
+    static double NowS() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+    public static string LabelKey(string text)
+    {
+        if (text == null) return "";
+        int i = 0; while (i < text.Length && !char.IsDigit(text[i])) i++;
+        return text.Substring(0, i);
+    }
+    /// <summary>Shown within the last 0.3 s: its last candidate (0.. ), else -1.</summary>
+    public static int ShownLately(string key) => _shown.TryGetValue(key, out var v) && NowS() - v.at < 0.3 ? v.cand : -1;
+    public static void MarkShown(string key, int cand) => _shown[key] = (NowS(), cand);
+    /// <summary>Margin (px) for a collision test: generous for a new label, lenient for one already shown.</summary>
+    public static float Hysteresis(string key) { float u = Math.Max(1f, ScreenSize.Y / 1080f); return ShownLately(key) >= 0 ? -3f * u : 3f * u; }
+
     /// <summary>No map label (or reserved area) placed this frame overlaps the box.</summary>
     public static bool Free(Vector2 min, Vector2 max)
     {
@@ -366,10 +382,12 @@ public static class MapPipeline
         if (_batch == null || _drawString == null || _font == null) return false;
         if (ClipRect.HasValue && ClipRect.Value.Contains(s) != ContainmentType.Contains) return false;
         var size = MeasureText(text, scale);
-        var box = new BoundingBox2(s - size * 0.5f - new Vector2(4, 2), s + size * 0.5f + new Vector2(4, 2));
-        foreach (var placed in _placed) if (placed.Intersects(box)) return false;
+        string key = LabelKey(text); float h = Hysteresis(key);
+        var test = new BoundingBox2(s - size * 0.5f - new Vector2(4 + h, 2 + h), s + size * 0.5f + new Vector2(4 + h, 2 + h));
+        foreach (var placed in _placed) if (placed.Intersects(test)) return false;
         if (dryRun) return true;
-        _placed.Add(box);
+        var box = new BoundingBox2(s - size * 0.5f - new Vector2(4, 2), s + size * 0.5f + new Vector2(4, 2));
+        _placed.Add(box); MarkShown(key, 0);
         if (PickName != null) AddPick(box.Min, box.Max);
         ScreenText(s - size * 0.5f, text, color, scale);
         return true;
@@ -385,9 +403,11 @@ public static class MapPipeline
             Vector2 size = Measure(text) * scale;
             if (size.X <= 0) size = new Vector2(text.Length * 12f * scale, 22f * scale);   // estimate
             // No overlapping labels (first placed wins): zoom in to reveal the rest.
+            string key = LabelKey(text); float h = Hysteresis(key);
+            var test = new BoundingBox2(s - size * 0.5f - new Vector2(4 + h, 2 + h), s + size * 0.5f + new Vector2(4 + h, 2 + h));
+            foreach (var placed in _placed) if (placed.Intersects(test)) return;
             var box = new BoundingBox2(s - size * 0.5f - new Vector2(4, 2), s + size * 0.5f + new Vector2(4, 2));
-            foreach (var placed in _placed) if (placed.Intersects(box)) return;
-            _placed.Add(box);
+            _placed.Add(box); MarkShown(key, 0);
             var shadow = new ColorSRGB(0f, 0f, 0f, 0.8f);
             _drawString.Invoke(_batch, new object[] { _font, s - size * 0.5f + new Vector2(1.5f, 1.5f), shadow, text, scale, false, null, 0f });
             _drawString.Invoke(_batch, new object[] { _font, s - size * 0.5f, color, text, scale, false, null, 0f });

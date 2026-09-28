@@ -412,7 +412,6 @@ public static class CleanMap
         var pdef = reg.FindDefinition(planet.Name);
         double planetR = (pdef?.RadiusMeters ?? 6e4) * scaleSys;      // true size
         MapGlobes.Use(planet.Name, W(Vector3D.Zero), planetR, globes);
-        BodyRing(W, Vector3D.Zero, planetR, 9f, Text, 1.5f);
         Hit(planet, W(Vector3D.Zero), W(new Vector3D(planetR, 0, 0)), 9f);
         BodyLabel(W, Vector3D.Zero, planetR, 9f, SystemHost.DisplayName(planet.Name), Text, 0.9f);
         foreach (var moon in planet.Children)
@@ -611,7 +610,7 @@ public static class CleanMap
                 // The planet's own sector at true size is far below a pixel here: the ring marker stands for it.
             }
             MapGlobes.Use(p.Name, W(c), (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, globes);   // true size
-            BodyRing(W, c, (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, 8f, p.Name == playerPlanet ? You : Text, 1.5f);
+            if (p.Name != playerPlanet) BodyRing(W, c, (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, 8f, Text, 1.5f);
             Hit(p, W(c), W(c + new Vector3D((reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, 0, 0)), 8f);
             int n = 0; foreach (var bd in bands) if (bd.Host == p.Name && bd.Home.Kind != SectorHomes.Kind.OwnPlanet) n++;
             BodyLabel(W, c, (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, 8f, p.Name, p.Name == playerPlanet ? You : Text, 0.9f);

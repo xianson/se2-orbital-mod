@@ -120,15 +120,23 @@ public static class HudPanel
             anchor + new Vector2(-ts.X * 0.5f, 9f * u),                               // below
         };
         Vector2 at = cands[0]; bool placed = false;
-        foreach (var cand in cands)
+        string key = MapPipeline.LabelKey(text);
+        int last = MapPipeline.ShownLately(key);
+        float h = last >= 0 ? -3f * u : 3f * u;                 // lenient to stay, strict to appear
+        var order = new List<int> { 0, 1, 2, 3 };
+        if (last > 0) { order.Remove(last); order.Insert(0, last); }   // keep the side it was on
+        int chosen = -1;
+        foreach (int ci in order)
         {
-            Vector2 mn = cand - pad, mx = cand + ts + pad;
+            var cand = cands[ci];
+            Vector2 mn = cand - pad - new Vector2(h, h), mx = cand + ts + pad + new Vector2(h, h);
             bool hit = false;
             foreach (var b in _placed)
                 if (mn.X < b.max.X && mx.X > b.min.X && mn.Y < b.max.Y && mx.Y > b.min.Y) { hit = true; break; }
-            if (!hit && MapPipeline.Free(mn, mx)) { at = cand; placed = true; break; }
+            if (!hit && MapPipeline.Free(mn, mx)) { at = cand; placed = true; chosen = ci; break; }
         }
-        if (!placed) return;   // no clear spot: left out (drawn anyway, labels landed on each other)
+        if (!placed) return;
+        MapPipeline.MarkShown(key, chosen);   // no clear spot: left out (drawn anyway, labels landed on each other)
         _placed.Add((at - pad, at + ts + pad));
         MapPipeline.Reserve(at - pad, at + ts + pad);
         MapPipeline.ScreenRect(at - new Vector2(4f * u, 1f * u), at + ts + new Vector2(4f * u, 1f * u), new ColorSRGB(0.02f, 0.045f, 0.07f, 0.65f));

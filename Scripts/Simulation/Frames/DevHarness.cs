@@ -575,6 +575,34 @@ public static class DevHarness
                 return "sector renderer visible=" + On(a[1]);
             }
 
+            case "hiresglobe":   // hiresglobe on|off | status | face <i> <tex> <flipU> <flipV> <rot> | clouds on|off | wind ccw|cw | cloudsuv <u> <v>
+            {
+                string sub = a.Length > 1 ? a[1].ToLowerInvariant() : "status";
+                switch (sub)
+                {
+                    case "on": case "off":
+                        PlanetMesh.SetEnabled(sub == "on");
+                        return $"hi-res globe {(PlanetMesh.Enabled ? "ON" : "OFF")} (proxies swap on their next update; gen {PlanetMesh.Generation})";
+                    case "status":
+                        return PlanetMesh.Status();
+                    case "face":
+                        if (a.Length < 7) return "hiresglobe face <i 0-5> <texIndex 0-5> <flipU 0|1> <flipV 0|1> <rot 0-3>";
+                        return PlanetMesh.SetFace(int.Parse(a[2]), int.Parse(a[3]), On(a[4]), On(a[5]), int.Parse(a[6]));
+                    case "clouds":
+                        PlanetMesh.SetClouds(On(a[2]));
+                        return "hi-res globe clouds=" + PlanetMesh.Clouds;
+                    case "wind":
+                        PlanetMesh.SetWinding(!a[2].Equals("cw", StringComparison.OrdinalIgnoreCase));
+                        return "hi-res globe front faces " + (PlanetMesh.CcwOutside ? "counter-clockwise" : "clockwise") + " from outside";
+                    case "cloudsuv":
+                        PlanetMesh.CloudUv = new Vector2((float)D(a[2]), (float)D(a[3]));
+                        PlanetMesh.SetClouds(PlanetMesh.Clouds);   // rebuild
+                        return $"cloud shell samples its displacement atlas at ({PlanetMesh.CloudUv.X:F3}, {PlanetMesh.CloudUv.Y:F3})";
+                    default:
+                        return "hiresglobe on|off|status|face|clouds|wind|cloudsuv";
+                }
+            }
+
             case "hidesectors":
                 GameMap.HideGameSectors = On(a[1]);
                 return "hide game sector mesh=" + GameMap.HideGameSectors;

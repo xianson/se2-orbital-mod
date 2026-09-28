@@ -60,6 +60,8 @@ public static class PlanetRenderBridge
         public MethodInfo EnvSetParameters;
         public object[] EnvShowArgs;
         public object[] EnvHideArgs;
+        /// <summary>The terrain's PlanetOverlayDefinition (its cubemaps locate the hi-res globe's face textures), or null.</summary>
+        public object Overlay;
 
         public bool HasProxyModel;
         public ResourceHandle ProxyModel;
@@ -80,6 +82,10 @@ public static class PlanetRenderBridge
         public object Atmo;
         public Vector3D AtmoAt;
         public double AtmoK, AtmoMadeAt;
+        /// <summary>The hi-res globe it draws (<see cref="PlanetMesh"/>), else the map model; the model's radius; for which PlanetMesh.Generation.</summary>
+        public PlanetMesh.Built Mesh;
+        public double ModelRadius = 1.0;
+        public int MeshGeneration;
     }
 
     // ── Render service (resolved once) ──
@@ -153,6 +159,7 @@ public static class PlanetRenderBridge
             MethodInfo getData = helper?.GetMethod("GetSpherizationData", BindingFlags.Public | BindingFlags.Static);
             if (getData != null) sphereData = getData.Invoke(null, new[] { spherization });
             object overlay = GetMember(GetMember(h.Terrain, "Definition"), "PlanetOverlay");
+            h.Overlay = overlay;
             object atmosphereRadius = GetMember(planet, "AtmosphereRadius");
             object radiusWithMaxHills = GetMember(planet, "RadiusWithMaxHills");
             object spherizeRadius = GetMember(planet, "SpherizeRadius");
@@ -311,8 +318,9 @@ public static class PlanetRenderBridge
     public static Proxy CreateProxy(PlanetHandles h, Vector3D center) => CreateProxy(h, center, false);
 
     /// <summary>
-    /// A globe from the planet's map-visual model. mapOnly: EntityType.Map, drawn only while the
-    /// renderer is in map mode (<see cref="SetDraw3DMap"/>): the orbital map's globes.
+    /// A globe from the planet's map-visual model, or its hi-res globe while <see cref="PlanetMesh.Enabled"/>
+    /// and one can be built. mapOnly: EntityType.Map, drawn only while the renderer is in map mode
+    /// (<see cref="SetDraw3DMap"/>): the orbital map's globes.
     /// </summary>
     public static Proxy CreateProxy(PlanetHandles h, Vector3D center, bool mapOnly)
     {
@@ -326,12 +334,18 @@ public static class PlanetRenderBridge
             // the model's own small bounds; scaled up, a planet vanished once its centre left the view.
             object flags = Enum.ToObject(_renderFlagsType, 0x1 | 0x2 | 0x10 | 0x20);
             object entityType = mapOnly ? Enum.Parse(_entityTypeType, "Map") : Enum.ToObject(_entityTypeType, 0);
+            PlanetMesh.Built mesh = PlanetMesh.Get(h);
             object model = _createModel.Invoke(_contracts, new object[]
             {
-                (mapOnly ? "OrbitalMapGlobe_" : "OrbitalProxy_") + h.Name, h.ProxyModel, RelativeTransform.Identity, root, flags, entityType, null
+                (mapOnly ? "OrbitalMapGlobe_" : "OrbitalProxy_") + h.Name, mesh != null ? mesh.Handle : h.ProxyModel, RelativeTransform.Identity, root, flags, entityType, null
             });
+            PlanetMesh.Acquire(mesh);
 
-            return new Proxy { Root = root, Model = model, Visible = true, MapOnly = mapOnly };
+            return new Proxy
+            {
+                Root = root, Model = model, Visible = true, MapOnly = mapOnly,
+                Mesh = mesh, ModelRadius = mesh != null ? 1.0 : h.ProxyModelRadius, MeshGeneration = PlanetMesh.Generation,
+            };
         }
         catch (Exception e) { WarnOnce("proxy-create", $"proxy create failed for {h.Name}: {Inner(e)}"); return null; }
     }
@@ -345,7 +359,8 @@ public static class PlanetRenderBridge
             _rootUpdateTransform ??= p.Root.GetType().GetMethod("UpdateTransform");
             _rootUpdateTransform?.Invoke(p.Root, new object[] { new WorldTransform(center) });
 
-            float scale = (float)(radius / h.ProxyModelRadius);
+            if (p.MeshGeneration != PlanetMesh.Generation) SwapProxyModel(h, p);
+            float scale = (float)(radius / p.ModelRadius);
             if (p.LastScale < 0 || Math.Abs(scale - p.LastScale) > p.LastScale * 1e-3f)
             {
                 object data = Activator.CreateInstance(_scaleDataType);
@@ -357,6 +372,29 @@ public static class PlanetRenderBridge
             if (ProxyAtmospheres && p.Visible && !p.MapOnly) UpdateAtmosphere(h, p, center, radius);
         }
         catch (Exception e) { WarnOnce("proxy-update", $"proxy update failed for {h.Name}: {Inner(e)}"); }
+    }
+
+    /// <summary>
+    /// The hi-res globe was switched or retuned (<see cref="PlanetMesh.Generation"/>): put the current
+    /// model into this proxy's entity (ModelEntity.UpdateModel) and resend its scale.
+    /// </summary>
+    static void SwapProxyModel(PlanetHandles h, Proxy p)
+    {
+        p.MeshGeneration = PlanetMesh.Generation;
+        PlanetMesh.Built mesh = PlanetMesh.Get(h);
+        if (ReferenceEquals(mesh, p.Mesh)) return;
+        try
+        {
+            var update = p.Model.GetType().GetMethod("UpdateModel", new[] { typeof(ResourceHandle) });
+            if (update == null) { WarnOnce("proxy-swap", "ModelEntity.UpdateModel not found"); return; }
+            update.Invoke(p.Model, new object[] { mesh != null ? mesh.Handle : h.ProxyModel });
+            PlanetMesh.Acquire(mesh);
+            PlanetMesh.Release(p.Mesh);
+            p.Mesh = mesh;
+            p.ModelRadius = mesh != null ? 1.0 : h.ProxyModelRadius;
+            p.LastScale = -1f;
+        }
+        catch (Exception e) { WarnOnce("proxy-swap", $"proxy model swap failed for {h.Name}: {Inner(e)}"); }
     }
 
     // ── proxy atmospheres ──
@@ -449,6 +487,8 @@ public static class PlanetRenderBridge
             p.Root?.GetType().GetMethod("Dispose", Type.EmptyTypes)?.Invoke(p.Root, null);
         }
         catch (Exception e) { WarnOnce("proxy-dispose", $"proxy dispose failed: {Inner(e)}"); }
+        PlanetMesh.Release(p.Mesh);
+        p.Mesh = null;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -956,9 +996,9 @@ public static class PlanetRenderBridge
         return null;
     }
 
-    private static string Inner(Exception e) => (e.InnerException ?? e).Message;
+    internal static string Inner(Exception e) => (e.InnerException ?? e).Message;
 
-    private static void WarnOnce(string key, string message)
+    internal static void WarnOnce(string key, string message)
     {
         lock (_warned)
         {

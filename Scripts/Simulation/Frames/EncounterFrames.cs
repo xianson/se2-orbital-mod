@@ -124,6 +124,7 @@ public static class EncounterFrames
         while (_devSites.TryDequeue(out var ds)) DevMakeSite(session, ds.grid, ds.sector, t);
         while (_devFar.TryDequeue(out long fg)) DevFar(fg, t);
         RefreshSites(t);
+        RefreshRides(t);
         if (tick % 20 == 0) AdoptIntoSites();
         ProcessNewGrids(t);
         if (tick % 60 == 0) Prune();
@@ -354,6 +355,98 @@ public static class EncounterFrames
         StateVector o = parent.OriginInRoot(t);
         rel = new StateVector(p - o.Position, v - o.Velocity);
         return IsFinite(rel.Position) && IsFinite(rel.Velocity);
+    }
+
+    // ───────────────────────────── Lagrange sectors as spheres of influence ─────────────────────────────
+
+    /// <summary>A frame inside a Lagrange sector: its offset and velocity from the point (non-turning axes), as of T.</summary>
+    public sealed class Ride
+    {
+        public Site Site;
+        public Vector3D D, V;
+        public double T;
+        public KeplerianElements Set;   // the elements we last gave the frame (a change means a burn)
+    }
+    private static readonly Dictionary<long, Ride> _rides = new Dictionary<long, Ride>();
+
+    /// <summary>The Lagrange sites (a sector's point each).</summary>
+    public static IEnumerable<Site> LagrangeSites()
+    {
+        foreach (var s in _sites.Values) if (s.Home?.Kind == SectorHomes.Kind.Lagrange) yield return s;
+    }
+
+    /// <summary>A frame's ride in a Lagrange sector, if it has one.</summary>
+    public static Ride RideOf(long frameId) => _rides.TryGetValue(frameId, out var r) ? r : null;
+
+    static bool SameElements(KeplerianElements a, KeplerianElements b) =>
+        a.SemiMajorAxis == b.SemiMajorAxis && a.Eccentricity == b.Eccentricity && a.TrueAnomaly == b.TrueAnomaly && a.Epoch == b.Epoch
+        && a.Inclination == b.Inclination && a.Raan == b.Raan && a.ArgPeriapsis == b.ArgPeriapsis;
+
+    /// <summary>
+    /// Frames entering a Lagrange sector's region (its teardrop; SectorHomes.InLagrangeRegion) switch onto
+    /// its Lagrange orbit, as into a planet's sphere of influence: stepped with the sector's model (a pull
+    /// toward the point in the frame turning with the planet, none in the calm core) and re-osculated every
+    /// tick; a burn (the frame's elements changed under us) seeds it afresh; leaving the region drops it
+    /// back onto its plain orbit.
+    /// </summary>
+    private static void RefreshRides(double t)
+    {
+        var reg = SystemHost.Registry;
+        foreach (var f in SystemHost.Frames.Frames)
+        {
+            if (f.IsEncounter || f.Members.Count == 0) continue;
+            var parent = reg.Find(f.ParentBodyName);
+            if (parent == null) continue;
+            StateVector po = parent.OriginInRoot(t), st = OrbitPropagation.StateAt(f.Elements, t);
+            Vector3D pos = po.Position + st.Position, vel = po.Velocity + st.Velocity;
+            if (!IsFinite(pos) || !IsFinite(vel)) continue;
+            if (_rides.TryGetValue(f.Id, out var ride))
+            {
+                var body = reg.Find(ride.Site.Home.Host);
+                if (!SameElements(f.Elements, ride.Set))
+                {
+                    // A burn: seed from the frame's own state now.
+                    SectorHomes.LagrangeState(ride.Site.Home, reg, t, out var lp0, out var lv0);
+                    ride.D = pos - lp0; ride.V = vel - lv0; ride.T = t;
+                }
+                // Step the ride to now (substeps of at most a minute: warp too).
+                double dtAll = t - ride.T;
+                int nSub = Math.Max(1, (int)Math.Ceiling(dtAll / 60.0));
+                double h = dtAll / nSub, tt = ride.T;
+                for (int k = 0; k < nSub && dtAll > 0; k++)
+                {
+                    if (!SectorHomes.LagrangeOrbit(body, tt, out var om, out var w)) break;
+                    Vector3D a1 = SectorHomes.LagrangeAccel(ride.D, ride.V, om, w);
+                    Vector3D dMid = ride.D + ride.V * (h / 2), vMid = ride.V + a1 * (h / 2);
+                    Vector3D a2 = SectorHomes.LagrangeAccel(dMid, vMid, om, w);
+                    ride.D += vMid * h; ride.V += a2 * h;
+                    tt += h;
+                }
+                ride.T = t;
+                SectorHomes.LagrangeState(ride.Site.Home, reg, t, out var lp, out var lv);
+                Vector3D np = lp + ride.D, nv = lv + ride.V;
+                if (!SectorHomes.InLagrangeRegion(ride.Site.Home, reg, t, np))
+                {
+                    _rides.Remove(f.Id);
+                    Event($"LAGRANGE exit: frame #{f.Id} leaves {ride.Site.Sector}");
+                }
+                var np2 = reg.Root.DeepestSoiContaining(np, t) ?? reg.Root;
+                StateVector o2 = np2.OriginInRoot(t);
+                var el = CaptureMath.CaptureElements(new StateVector(np - o2.Position, nv - o2.Velocity), np2.Mu, t);
+                if (!IsFinite(el.SemiMajorAxis)) continue;
+                f.ParentBodyName = np2.Name; f.Elements = el; f.VirtualVelocity = nv - o2.Velocity;
+                if (_rides.TryGetValue(f.Id, out var still)) still.Set = el;
+                continue;
+            }
+            foreach (var s in LagrangeSites())
+            {
+                if (!SectorHomes.InLagrangeRegion(s.Home, reg, t, pos)) continue;
+                SectorHomes.LagrangeState(s.Home, reg, t, out var lp, out var lv);
+                _rides[f.Id] = new Ride { Site = s, D = pos - lp, V = vel - lv, T = t, Set = f.Elements };
+                Event($"LAGRANGE entry: frame #{f.Id} enters {s.Sector} ({(pos - lp).Length() / 1000:F0} km from its point, {(vel - lv).Length():F1} m/s)");
+                break;
+            }
+        }
     }
 
     /// <summary>Sites ride their prescribed ephemeris: re-osculate the frame's elements every tick.</summary>

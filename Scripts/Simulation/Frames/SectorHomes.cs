@@ -204,11 +204,64 @@ public static class SectorHomes
         return w > 0;
     }
 
-    /// <summary>The pull (non-turning axes) that makes that ellipse: a harmonic pull toward the point in the turning frame, plus the turning's own terms.</summary>
+    /// <summary>The calm core: this close to a Lagrange point there is no pull at all (Newtonian flight, a place to park or build).</summary>
+    public const double LagrangeCore = 20000.0;
+
+    /// <summary>
+    /// The pull (non-turning axes) of the Lagrange orbit: a harmonic pull toward the point in the turning
+    /// frame, plus the turning's own terms; none in the calm core.
+    /// </summary>
     public static Vector3D LagrangeAccel(Vector3D d, Vector3D v, Vector3D omega, double w)
     {
+        if (d.LengthSquared() < LagrangeCore * LagrangeCore) return Vector3D.Zero;
         Vector3D vRot = v - Vector3D.Cross(omega, d);
         return -w * w * d + 2 * Vector3D.Cross(omega, vRot) + Vector3D.Cross(omega, Vector3D.Cross(omega, d));
+    }
+
+    /// <summary>
+    /// The Lagrange sector as a region (a sphere of influence): L3-L5 the teardrop on the body's orbit
+    /// (+-12.6 degrees of it, +-3.5 % of its radius at the middle, tapering to the tips; as thick out of
+    /// the plane); L1 / L2 a sphere of 15 % of the Hill radius round the point.
+    /// </summary>
+    public static bool InLagrangeRegion(Home h, SystemRegistry reg, double t, Vector3D rootPos)
+    {
+        var test = LagrangeRegion(h, reg, t);
+        return test != null && test(rootPos);
+    }
+
+    /// <summary>The same test, set up once for a time t (for many points).</summary>
+    public static Func<Vector3D, bool> LagrangeRegion(Home h, SystemRegistry reg, double t)
+    {
+        if (h?.Kind != Kind.Lagrange) return null;
+        var s = reg.Find(h.Host);
+        if (s?.Parent == null) return null;
+        Vector3D p = Where(h, reg, t, out Vector3D centre);
+        if (h.Point <= 2) { double R = 0.15 * HillRadius(s); return q => (q - p).LengthSquared() <= R * R; }
+        Vector3D b = p - centre;
+        double rb = b.Length();
+        if (!(rb > 0)) return null;
+        var st = s.StateInParentAt(t);
+        Vector3D n = Vector3D.Normalize(Vector3D.Cross(st.Position, st.Velocity));
+        double phiMax = 2 * Math.PI * 0.035;
+        return q =>
+        {
+            Vector3D a = q - centre;
+            double z = Vector3D.Dot(a, n);
+            Vector3D ap = a - n * z;
+            if (!(ap.LengthSquared() > 0)) return false;
+            double phi = Math.Atan2(Vector3D.Dot(n, Vector3D.Cross(b, ap)), Vector3D.Dot(b, ap));
+            if (Math.Abs(phi) > phiMax) return false;
+            double half = 0.035 * rb * Math.Max(0.08, Math.Cos(phi / phiMax * Math.PI / 2));
+            return Math.Abs(ap.Length() - rb) <= half && Math.Abs(z) <= half;
+        };
+    }
+
+    /// <summary>A Lagrange point's place and velocity (root frame) at t.</summary>
+    public static void LagrangeState(Home h, SystemRegistry reg, double t, out Vector3D p, out Vector3D v)
+    {
+        const double e = 1.0;
+        p = Where(h, reg, t);
+        v = (Where(h, reg, t + e) - Where(h, reg, t - e)) / (2 * e);
     }
 
     /// <summary>Where on its Lagrange orbit you are after tau (turning frame, axes as at the start): the ellipse through (d, v).</summary>

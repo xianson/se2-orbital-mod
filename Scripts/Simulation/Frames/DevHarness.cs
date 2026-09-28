@@ -491,6 +491,36 @@ public static class DevHarness
                 EncounterFrames.RequestDevSite((long)D(a[1]), string.Join(" ", a, 2, a.Length - 2));
                 return "devsite queued";
 
+            case "lagtest":
+            {
+                // lagtest <sector> <alongKm> <radialKm> <vAlong> <vRadial>: put the player this far from a Lagrange
+                // sector's point (along its orbit / out from its star), moving this fast relative to it (m/s).
+                var reg = SystemHost.Registry;
+                EncounterFrames.Site site = null;
+                foreach (var ls in EncounterFrames.LagrangeSites()) if (ls.Sector.Equals(a[1], StringComparison.OrdinalIgnoreCase)) site = ls;
+                if (site == null) return "no such Lagrange sector";
+                double t = SystemHost.Now;
+                SectorHomes.LagrangeState(site.Home, reg, t, out var lp, out var lv);
+                SectorHomes.Where(site.Home, reg, t, out var centre);
+                var host = reg.Find(site.Home.Host);
+                var hs = host.StateInParentAt(t);
+                Vector3D eR = Vector3D.Normalize(lp - centre), nH = Vector3D.Normalize(Vector3D.Cross(hs.Position, hs.Velocity)), eA = Vector3D.Cross(nH, eR);
+                Vector3D pos = lp + eA * (D(a[2]) * 1000) + eR * (D(a[3]) * 1000);
+                Vector3D vel = lv + eA * D(a[4]) + eR * D(a[5]);
+                var b = reg.Root.DeepestSoiContaining(pos, t) ?? reg.Root;
+                var o0 = b.OriginInRoot(t);
+                var rel = new SEAerospace.Orbital.StateVector(pos - o0.Position, vel - o0.Velocity);
+                var el = CaptureMath.CaptureElements(rel, b.Mu, t);
+                double halfLen = (lp - centre).Length() * Math.Sin(2 * Math.PI * 0.035);
+                lock (ServerFrames.FramesLock)
+                {
+                    var pf = SystemHost.Frames.FindByMember(FrameHost.PlayerId);
+                    if (pf != null && !pf.IsEncounter) { pf.Elements = el; pf.ParentBodyName = b.Name; pf.VirtualVelocity = rel.Velocity; }
+                    else FrameHost.SetPendingOrbit(b.Name, el);
+                }
+                return $"placed near {site.Sector} L{site.Home.Point} about {b.Name}: region half-length {halfLen / 1000:F0} km, half-width {0.035 * (lp - centre).Length() / 1000:F0} km; inside={SectorHomes.InLagrangeRegion(site.Home, reg, t, pos)}";
+            }
+
             case "gotosite":
             {
                 // gotosite <i> [behindKm]: put the player on the i-th encounter frame's orbit, this far behind it.

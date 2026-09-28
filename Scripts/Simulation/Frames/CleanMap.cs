@@ -326,12 +326,17 @@ public static class CleanMap
                 : b.Host == focus && b.Home.Kind != SectorHomes.Kind.Belt && b.Home.Kind != SectorHomes.Kind.Ring,
                 // A planet's view lists that planet's sectors only; the system view lists them all.
                 b => sys || (b.Host == focus && b.Home.Kind != SectorHomes.Kind.Belt && b.Home.Kind != SectorHomes.Kind.Ring));
-            Title(sys ? null : planet, playerPlanet, playerOrbit);
+            // The title's area is kept free of map labels now; the title itself is drawn after the map, over its lines.
+            MapPipeline.Reserve(new Vector2(scrR.X * 0.26f, scrR.Y * 0.118f), new Vector2(scrR.X * 0.56f, scrR.Y * 0.118f + TitleHeight(scrR)));
+            // The map itself (orbits, sectors, the plan) is clipped to the open area between the panels.
+            MapPipeline.ClipRect = new BoundingBox2(new Vector2(scrR.X * 0.255f, scrR.Y * 0.1f), new Vector2(scrR.X * 0.775f, scrR.Y * 0.84f));
             if (!solar && planet != null && planet.Parent != null) DrawSystem(parts, bands, reg, planet, t, playerPlanet, playerRel, playerOrbit, globes, W);
             else DrawSolar(parts, bands, reg, t, playerPlanet, globes, W, playerOrbit);
             string selName = null;
             foreach (var bd in bands) if (bd.Selected) selName = bd.Name;
             if (_toMap != null && ManeuverEditor) Maneuvers.MapDraw(_toMap, W, _limit, t, Mouse, selName, sys ? reg.Root?.Name : planet?.Name);   // editable in every view
+            MapPipeline.ClipRect = null;   // menus, the warp bar, hints: unclipped
+            Title(sys ? null : planet, playerPlanet, playerOrbit);
             if (ManeuverEditor) ContextMenu(bands, t);
             _lastW = W; _lastSolar = solar;
             FocusInput(reg, t, W, solar);
@@ -340,7 +345,7 @@ public static class CleanMap
             Hints();
             WarpBar.DrawMap(Mouse);
         }
-        finally { if (ui) MapPipeline.UiEnd(); }
+        finally { MapPipeline.ClipRect = null; if (ui) MapPipeline.UiEnd(); }
 
         // Every sector keeps a (possibly zero-size) part: the game colours parts by sector name and
         // must always find them.
@@ -807,8 +812,23 @@ public static class CleanMap
         return MapPipeline.MeasureText(text, 1.05f);   // (now never short)
     }
 
+    private static Vector2 _titleAt;
+
+    /// <summary>The title block's height: the path, your situation, and the burn and target lines when there are.</summary>
+    static float TitleHeight(Vector2 sc)
+    {
+        int lines = 2 + (Maneuvers.BurnLine != null ? 1 : 0) + (Maneuvers.Target != null ? 1 : 0);
+        return sc.Y * (0.034f + 0.028f * lines);
+    }
+
     static void Title(GravityBody view, string playerPlanet, KeplerianElements? orbit)
     {
+        // A dark plate under the title lines: orbit lines pass behind them.
+        {
+            var sc = MapPipeline.ScreenSize;
+            var p0 = new Vector2(sc.X * 0.26f, sc.Y * 0.118f);
+            MapPipeline.ScreenRect(p0, p0 + new Vector2(sc.X * 0.3f, TitleHeight(sc)), new ColorSRGB(0.01f, 0.02f, 0.03f, 0.55f));
+        }
         var scr = MapPipeline.ScreenSize;
         var at = new Vector2(scr.X * 0.265f, scr.Y * 0.125f);
         // The breadcrumb: each part a click target (up to the star, down to what is in view).
@@ -833,6 +853,7 @@ public static class CleanMap
             }
         }
         MapPipeline.Reserve(at - new Vector2(4, 4), at + new Vector2(scr.X * 0.3f, scr.Y * 0.09f));
+        _titleAt = at;
         string you;
         if (FrameHost.PlayerFrame == null && FrameHost.Grounded && playerPlanet != null) you = $"You: on {playerPlanet}";
         else if (orbit.HasValue && playerPlanet != null)

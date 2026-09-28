@@ -313,7 +313,7 @@ public static class MapPipeline
     /// <summary>A smooth screen-space line between two world points (px width).</summary>
     public static void Line(Vector3D a, Vector3D b, ColorSRGB color, float width)
     {
-        if (_batch == null || _drawLine == null || !Screen(a, out var sa) || !Screen(b, out var sb)) return;
+        if (_batch == null || _drawLine == null || !Screen(a, out var sa) || !Screen(b, out var sb) || !Clip(ref sa, ref sb)) return;
         AddPick(sa, sb);
         var ps = _drawLine.GetParameters();
         _drawLine.Invoke(_batch, new object[] { sa, sb, color, width, ps[4].DefaultValue, 1f, false });
@@ -348,6 +348,7 @@ public static class MapPipeline
     public static void TextScreen(Vector2 s, string text, ColorSRGB color, float scale)
     {
         if (_batch == null || _drawString == null || _font == null) return;
+        if (ClipRect.HasValue && ClipRect.Value.Contains(s) != ContainmentType.Contains) return;
         var size = MeasureText(text, scale);
         var box = new BoundingBox2(s - size * 0.5f - new Vector2(4, 2), s + size * 0.5f + new Vector2(4, 2));
         foreach (var placed in _placed) if (placed.Intersects(box)) return;
@@ -359,6 +360,7 @@ public static class MapPipeline
     public static void Text(Vector3D at, string text, ColorSRGB color, float scale)
     {
         if (_batch == null || _drawString == null || _font == null || !Screen(at, out var s)) return;
+        if (ClipRect.HasValue && ClipRect.Value.Contains(s) != ContainmentType.Contains) return;   // not outside the map's area
         scale *= TextScale;
         try
         {
@@ -416,7 +418,7 @@ public static class MapPipeline
     /// <summary>A dashed screen-space line (the batch's own dashing).</summary>
     public static void ScreenDashed(Vector2 a, Vector2 b, ColorSRGB color, float width, float dashScale = 1f)
     {
-        if (_batch == null || _drawLine == null) return;
+        if (_batch == null || _drawLine == null || !Clip(ref a, ref b)) return;
         var ps = _drawLine.GetParameters();
         object dash = Enum.ToObject(ps[4].ParameterType, 1);
         _drawLine.Invoke(_batch, new object[] { a, b, color, width, dash, dashScale, false });
@@ -436,9 +438,33 @@ public static class MapPipeline
     }
 
     /// <summary>A screen-space line (px).</summary>
+    /// <summary>While set, lines are clipped to this screen rectangle (the map's open area: orbit and
+    /// sector lines ran across the game's panels and tab bar).</summary>
+    public static BoundingBox2? ClipRect;
+
+    /// <summary>Clip a segment to ClipRect (Liang-Barsky); false when nothing is left.</summary>
+    static bool Clip(ref Vector2 a, ref Vector2 b)
+    {
+        if (!ClipRect.HasValue) return true;
+        var r = ClipRect.Value;
+        float t0 = 0, t1 = 1; Vector2 d = b - a;
+        bool Edge(float p, float q)
+        {
+            if (Math.Abs(p) < 1e-9f) return q >= 0;
+            float t = q / p;
+            if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t; }
+            else { if (t < t0) return false; if (t < t1) t1 = t; }
+            return true;
+        }
+        if (!Edge(-d.X, a.X - r.Min.X) || !Edge(d.X, r.Max.X - a.X) || !Edge(-d.Y, a.Y - r.Min.Y) || !Edge(d.Y, r.Max.Y - a.Y)) return false;
+        Vector2 a0 = a;
+        a = a0 + d * t0; b = a0 + d * t1;
+        return true;
+    }
+
     public static void ScreenLine(Vector2 a, Vector2 b, ColorSRGB color, float width)
     {
-        if (_batch == null || _drawLine == null) return;
+        if (_batch == null || _drawLine == null || !Clip(ref a, ref b)) return;
         var ps = _drawLine.GetParameters();
         _drawLine.Invoke(_batch, new object[] { a, b, color, width, ps[4].DefaultValue, 1f, false });
     }

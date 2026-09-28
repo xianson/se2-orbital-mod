@@ -158,7 +158,14 @@ public static partial class CleanMap
             Vector3D w = W(toLocal(at));
             if (!MapPipeline.ToScreen(w, out var s) || !InOpenArea(s)) continue;
             // Named after its body: a planet's points (with the star) and its moon's (with the planet) share a screen.
-            MapPipeline.TextScreen(s + new Vector2(0, 12f * u), $"{SystemHost.DisplayName(body.Name)} L{p}", col, 0.5f);
+            // L3-L5: set off the lens, on its parent's side, clear of its edge.
+            Vector2 lab = s + new Vector2(0, 12f * u);
+            if (p >= 3 && MapPipeline.ToScreen(W(toLocal(centre)), out var cs) && MapPipeline.ToScreen(W(toLocal(centre + (at - centre) * (1 - 0.035))), out var es))
+            {
+                Vector2 toC = cs - s;
+                if (toC.LengthSquared() > 1f) lab = s + Vector2.Normalize(toC) * ((es - s).Length() + 14f * u);
+            }
+            MapPipeline.TextScreen(lab, $"{SystemHost.DisplayName(body.Name)} L{p}", col, 0.5f);
         }
     }
 

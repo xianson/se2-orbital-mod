@@ -194,7 +194,7 @@ public static class SectorHomes
     public static double OrbitRadiusToward(GravityBody s, double t, Vector3D dir)
     {
         var st = s.StateInParentAt(t);
-        double mu = s.Parent.Mu + s.Mu, r = st.Position.Length();
+        double mu = s.Parent.Mu, r = st.Position.Length();   // as the map's orbit lines are drawn (the parent's mu)
         Vector3D h = Vector3D.Cross(st.Position, st.Velocity);
         Vector3D ev = ((st.Velocity.LengthSquared() - mu / r) * st.Position - Vector3D.Dot(st.Position, st.Velocity) * st.Velocity) / mu;
         double p = h.LengthSquared() / mu, den = 1 + Vector3D.Dot(ev, Vector3D.Normalize(dir));

@@ -315,8 +315,7 @@ public static class MapPipeline
     {
         if (_batch == null || _drawLine == null || !Screen(a, out var sa) || !Screen(b, out var sb) || !Clip(ref sa, ref sb)) return;
         AddPick(sa, sb);
-        var ps = _drawLine.GetParameters();
-        _drawLine.Invoke(_batch, new object[] { sa, sb, color, width, ps[4].DefaultValue, 1f, false });
+        Seg(sa, sb, color, width);
     }
 
     /// <summary>Text in the map's own font at a world point, centred.</summary>
@@ -382,14 +381,13 @@ public static class MapPipeline
     {
         if (_batch == null || _drawLine == null || !Screen(at, out var c)) return;
         AddPick(c, c);
-        var ps = _drawLine.GetParameters();
         const int n = 24;
         Vector2 prev = c + new Vector2(radiusPx, 0);
         for (int i = 1; i <= n; i++)
         {
             double a = 2 * Math.PI * i / n;
             Vector2 p = c + new Vector2((float)(Math.Cos(a) * radiusPx), (float)(Math.Sin(a) * radiusPx));
-            _drawLine.Invoke(_batch, new object[] { prev, p, color, width, ps[4].DefaultValue, 1f, false });
+            Seg(prev, p, color, width);
             prev = p;
         }
     }
@@ -398,9 +396,8 @@ public static class MapPipeline
     public static void ScreenDiamond(Vector3D at, float r, ColorSRGB color, float width)
     {
         if (_batch == null || _drawLine == null || !Screen(at, out var c)) return;
-        var ps = _drawLine.GetParameters();
         var d = new[] { c + new Vector2(0, -r), c + new Vector2(r, 0), c + new Vector2(0, r), c + new Vector2(-r, 0), c + new Vector2(0, -r) };
-        for (int i = 0; i < 4; i++) _drawLine.Invoke(_batch, new object[] { d[i], d[i + 1], color, width, ps[4].DefaultValue, 1f, false });
+        for (int i = 0; i < 4; i++) Seg(d[i], d[i + 1], color, width);
     }
 
     /// <summary>A world point on screen (false behind the camera).</summary>
@@ -462,25 +459,33 @@ public static class MapPipeline
         return true;
     }
 
+    private static object _solid; private static MethodInfo _solidFor;
+
+    /// <summary>One solid screen segment, clipped (the one path every shape takes).</summary>
+    static void Seg(Vector2 a, Vector2 b, ColorSRGB color, float width)
+    {
+        if (_batch == null || _drawLine == null || !Clip(ref a, ref b)) return;
+        if (!ReferenceEquals(_solidFor, _drawLine)) { _solid = _drawLine.GetParameters()[4].DefaultValue; _solidFor = _drawLine; }
+        _drawLine.Invoke(_batch, new object[] { a, b, color, width, _solid, 1f, false });
+    }
+
     public static void ScreenLine(Vector2 a, Vector2 b, ColorSRGB color, float width)
     {
         if (_batch == null || _drawLine == null || !Clip(ref a, ref b)) return;
-        var ps = _drawLine.GetParameters();
-        _drawLine.Invoke(_batch, new object[] { a, b, color, width, ps[4].DefaultValue, 1f, false });
+        Seg(a, b, color, width);
     }
 
     /// <summary>A screen-space circle (px).</summary>
     public static void ScreenCircle(Vector2 c, float r, ColorSRGB color, float width)
     {
         if (_batch == null || _drawLine == null) return;
-        var ps = _drawLine.GetParameters();
         const int n = 20;
         Vector2 prev = c + new Vector2(r, 0);
         for (int i = 1; i <= n; i++)
         {
             double a = 2 * Math.PI * i / n;
             Vector2 p = c + new Vector2((float)(Math.Cos(a) * r), (float)(Math.Sin(a) * r));
-            _drawLine.Invoke(_batch, new object[] { prev, p, color, width, ps[4].DefaultValue, 1f, false });
+            Seg(prev, p, color, width);
             prev = p;
         }
     }
@@ -507,7 +512,6 @@ public static class MapPipeline
     public static void ScreenDot(Vector2 c, float r, ColorSRGB color)
     {
         if (_batch == null || _drawLine == null) return;
-        var ps = _drawLine.GetParameters();
         for (float rr = 0.8f; rr <= r; rr += 1.2f)
         {
             const int n = 14;
@@ -516,7 +520,7 @@ public static class MapPipeline
             {
                 double a = 2 * Math.PI * i / n;
                 Vector2 p = c + new Vector2((float)(Math.Cos(a) * rr), (float)(Math.Sin(a) * rr));
-                _drawLine.Invoke(_batch, new object[] { prev, p, color, 1.4f, ps[4].DefaultValue, 1f, false });
+                Seg(prev, p, color, 1.4f);
                 prev = p;
             }
         }
@@ -569,12 +573,11 @@ public static class MapPipeline
                 float ax = centre.X - mx, ay = centre.Y - my;   // on an ellipse, as the game clamps its markers
                 s = centre + dir * (1f / (float)Math.Sqrt(dir.X * dir.X / (ax * ax) + dir.Y * dir.Y / (ay * ay)));
             }
-            var ps = _drawLine.GetParameters();
             float u = Math.Max(1f, size.Y / 1080f);
             float r = 9f * u;
             Vector2 up = new Vector2(0, -r), rt = new Vector2(r, 0);
             var dia = new[] { s + up, s + rt, s - up, s - rt, s + up };
-            for (int i = 0; i < 4; i++) _drawLine.Invoke(_batch, new object[] { dia[i], dia[i + 1], color, 2f * u, ps[4].DefaultValue, 1f, false });
+            for (int i = 0; i < 4; i++) Seg(dia[i], dia[i + 1], color, 2f * u);
             ScreenDot(s, 2.5f * u, color);
             ScreenText(s + new Vector2(14, -14) * u, name ?? "", color, 0.62f * u);
             ScreenText(s + new Vector2(14, 4) * u, distance + (edge ? "  >" : ""), new ColorSRGB(0.85f, 0.9f, 1f, 0.9f), 0.55f * u);

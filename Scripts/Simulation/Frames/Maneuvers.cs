@@ -65,7 +65,20 @@ public static class Maneuvers
     public static string BurnLine;
     /// <summary>The next burn's direction (world axes) and what is left (m/s), from the last HUD tick.</summary>
     public static Vector3D BurnDirWorld; public static double BurnLeft;
-    public const double WarpLead = 30.0;      // s: warp stops this long before a node
+    public const double WarpLead = 30.0;      // s: warp stops this long before a burn (time to line up)
+    public const double AutoWarpLead = 5.0;   // s: before an auto-burn (it turns and fires by itself)
+
+    /// <summary>How long before the next burn warp stops: shorter when that node flies itself.</summary>
+    public static double WarpLeadAt(double t0)
+    {
+        double tn = NextNodeTime(t0);
+        if (double.IsNaN(tn)) return WarpLead;
+        bool auto = false;
+        lock (Nodes) foreach (var n in Nodes) if (n.T == tn && n.Auto) auto = true;
+        // An auto-burn needs no time to line up, unless the ship still has to turn (it cannot while on
+        // rails in warp): then the full lead.
+        return auto && DevFlight.OffBurnDeg <= 5 ? AutoWarpLead : WarpLead;
+    }
     public const double DoneDv = 0.1;         // m/s
     public static string Status = "";
 

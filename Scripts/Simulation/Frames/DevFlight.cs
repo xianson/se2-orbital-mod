@@ -111,6 +111,8 @@ public static class DevFlight
     public static string Attitude = "";
     public const double AlignDeg = 3.0;
     public static bool Aligned;
+    /// <summary>Degrees between the nearest ship's main thrust axis and the next burn (NaN: none).</summary>
+    public static double OffBurnDeg = double.NaN;
 
     public static void ServerCommandTick()
     {
@@ -126,6 +128,11 @@ public static class DevFlight
         if (best == null) return;
         var e = best.Entity;
         _serverPos = GridMembers.Position(best);
+        // How far the ship's main thrust is off the next burn, even while nothing flies it (warp uses it).
+        {
+            Vector3D bd0 = Maneuvers.BurnDirWorld;
+            OffBurnDeg = bd0.LengthSquared() > 1e-9 ? Turn(e.Data.GetWorldTransform().Orientation, MainAxis(e, out _), bd0, out _, out _) * 180 / Math.PI : double.NaN;
+        }
         if (!_cmdOn)
         {
             _move = Vector3.Zero; Write(e, false); Aligned = false; Attitude = ""; _steer = false;

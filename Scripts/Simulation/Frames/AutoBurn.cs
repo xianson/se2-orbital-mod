@@ -26,7 +26,7 @@ public static class AutoBurn
         if (fly)
         {
             bool burning = t >= start;
-            if (!Flying) { Flying = true; GameUi.Toast(session, "burn", "Auto-burn", burning ? $"Burning {Maneuvers.BurnLeft:F1} m/s" : "Turning to the burn", 4); }
+            if (!Flying) Flying = true;   // (no toast: the orbit card and the map title say it)
             // Turn first (seated: the gyros bring the main thrust axis onto the burn), thrust from the start.
             DevFlight.Command(session, Maneuvers.BurnDirWorld, burning ? Math.Max(0.25, Math.Min(1.0, Maneuvers.BurnLeft / 5.0)) : 0.0);
             Status = burning ? $"burning, {Maneuvers.BurnLeft:F1} m/s left" : $"turning, burn in {Maneuvers.Clock(start - t)}";
@@ -36,7 +36,7 @@ public static class AutoBurn
             Flying = false;
             DevFlight.Command(session, Vector3D.Zero, 0);
             Status = node == null ? "burn complete" : "paused";
-            if (node == null) GameUi.Toast(session, "burn", "Auto-burn", "Burn complete", 3);
+            if (node == null && !MapView.Visible) GameUi.Toast(session, "burn", "Auto-burn", "Burn complete", 3);
         }
     }
 

@@ -185,7 +185,7 @@ public static class OrbitHud
                 sb.Append($"Altitude {HudPanel.Km(r.Alt)}   ·   {r.Speed:N0} m/s\n");
                 sb.Append($"Periapsis {(r.Pe < 0 ? "impact" : HudPanel.Km(r.Pe))}   ·   Apoapsis {(r.Escape ? "escape" : HudPanel.Km(r.Ap))}\n");
                 if (!r.Escape) sb.Append($"Period {Maneuvers.Clock(r.Period)}   ·   Inclination {r.IncDeg:F1}°\n");
-                sb.Append(r.Mode);
+                if (!string.IsNullOrEmpty(r.Mode)) sb.Append(r.Mode);
             }
             if (burn != null) sb.Append((sb.Length > 0 ? "\n" : "") + burn);
             string tgt = Maneuvers.TargetLine(SystemHost.Now);

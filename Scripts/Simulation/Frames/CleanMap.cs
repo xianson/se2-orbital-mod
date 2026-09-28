@@ -283,7 +283,7 @@ public static class CleanMap
         if (Maneuvers.OnGizmo) h = "Drag a handle to change the burn   \u00b7   Drag the node along the path   \u00b7   Right-click: options";
         else if (!double.IsNaN(Maneuvers.HoverT)) h = "Click: add a maneuver here   \u00b7   Right-click: options   \u00b7   Drag: pan";
         else h = "Drag: pan   \u00b7   Right-drag: orbit   \u00b7   Wheel: zoom   \u00b7   Double-click a body: focus   \u00b7   Right-click: menu   \u00b7   .  ,  /  warp";
-        MapPipeline.ScreenText(new Vector2(scr.X * 0.265f, scr.Y * 0.905f), h, Dim, 0.62f);
+        MapPipeline.ScreenText(new Vector2(scr.X * 0.265f, scr.Y * 0.9f), h, Dim, 0.74f);
     }
 
     private static double _lastMesh;
@@ -308,6 +308,7 @@ public static class CleanMap
         if (!solar && ViewFocus != null) planet = reg.Find(ViewFocus) ?? planet;
         focus = planet?.Name ?? focus;
         _viewBody = !solar && planet != null && planet.Parent != null ? planet : null;
+        ViewKey = _viewBody?.Name ?? "system";
 
         var parts = new List<MapPipeline.Part>();
         var ordered = Ordered(bands);
@@ -523,6 +524,13 @@ public static class CleanMap
                 if (pts != null)
                     for (int i = 0; i < pts.Length - (path.IsClosed ? 0 : 1); i++)
                         MapPipeline.Line(W(Lv(pts[i])), W(Lv(pts[(i + 1) % pts.Length])), You, 2f);
+                // Pe / Ap on your orbit (as KSP), plan or not.
+                var po = playerOrbit.Value; double pr = reg.FindDefinition(planet.Name)?.RadiusMeters ?? 0;
+                float u2 = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+                if (MapPipeline.ToScreen(W(Lv(OrbitSampler.PositionAtTrueAnomaly(po, 0))), out var pes) && InOpenArea(pes))
+                    HudPanel.TagAt(pes, "Pe " + HudPanel.Km(po.PeriapsisRadius - pr), You, u2);
+                if (po.IsElliptic && po.Eccentricity > 0.002 && MapPipeline.ToScreen(W(Lv(OrbitSampler.PositionAtTrueAnomaly(po, Math.PI))), out var aps) && InOpenArea(aps))
+                    HudPanel.TagAt(aps, "Ap " + HudPanel.Km(po.SemiMajorAxis * (1 + po.Eccentricity) - pr), You, u2);
             }
             Vector3D yl = Lv(playerRel);
             MapPipeline.Text(W(yl), "+", You, 1.2f);
@@ -914,6 +922,8 @@ public static class CleanMap
 
     /// <summary>The planet the zoom took you to (zooming in over it); null until a zoom chooses one.</summary>
     public static string ViewFocus;
+    /// <summary>What the map shows (the system, or a body's view): menus close when it changes.</summary>
+    public static string ViewKey = "";
     private static bool? _wasSolar;
 
     /// <summary>
@@ -1147,7 +1157,9 @@ public static class CleanMap
         if (MapPipeline.ToScreen(wc, out var sc))
             foreach (var ax in new[] { new Vector3D(radiusLocal, 0, 0), new Vector3D(0, 0, radiusLocal) })
                 if (MapPipeline.ToScreen(W(centre + ax), out var se)) rpx = Math.Max(rpx, (se - sc).Length());
-        MapPipeline.ScreenRing(wc, Math.Max(rpx + 1.5f, minPx), col, width);   // snug on the limb
+        // Only where the globe is too small to see: a flat ring on a big globe cut across its disc.
+        float uu = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        if (rpx < minPx * uu * 1.2f) MapPipeline.ScreenRing(wc, minPx * uu, col, width);
     }
 
     private static void Circle(Func<Vector3D, Vector3D> W, double r, ColorSRGB col, float px)

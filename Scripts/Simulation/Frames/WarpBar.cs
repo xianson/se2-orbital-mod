@@ -54,7 +54,7 @@ public static class WarpBar
         string clock = Clock(SystemHost.Now);
         string why = !rails ? "on rails only" : null;
         double burn = Maneuvers.NextBurnStart(SystemHost.Now);
-        if (why == null && !double.IsNaN(burn) && burn > SystemHost.Now) why = "burn in " + Maneuvers.Clock(burn - SystemHost.Now);
+        if (why == null && !MapView.Visible && !double.IsNaN(burn) && burn > SystemHost.Now) why = "burn in " + Maneuvers.Clock(burn - SystemHost.Now);
         var lsz = MapPipeline.MeasureText(level, 1.0f);
         var csz = MapPipeline.MeasureText(clock, 0.85f);
         var wsz = why != null ? MapPipeline.MeasureText(why, 0.72f) : Vector2.Zero;

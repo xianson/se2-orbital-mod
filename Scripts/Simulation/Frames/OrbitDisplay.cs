@@ -236,7 +236,7 @@ public static class OrbitDisplay
                       $"Pe {(el.PeriapsisRadius - radius) / 1000:F1} km  {ap}\nrails (warp x{SystemHost.Timescale:F0})";
         OrbitHud.Current = new OrbitHud.Readout
         {
-            Body = frame.ParentBodyName, Mode = SystemHost.Timescale > 1 ? $"On rails   warp ×{SystemHost.Timescale:F0}" : "On rails",
+            Body = frame.ParentBodyName, Mode = null,   // (no 'On rails': the warp bar shows warp)
             Alt = cur.Position.Length() - radius, Speed = cur.Velocity.Length(),
             Pe = el.PeriapsisRadius - radius, Ap = el.IsElliptic ? el.ApoapsisRadius - radius : 0,
             Period = el.IsElliptic ? el.Period : 0, IncDeg = el.Inclination * 180 / Math.PI, Escape = !el.IsElliptic,

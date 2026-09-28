@@ -29,8 +29,11 @@ public static class MapMenu
     static readonly ColorSRGB Dark = new ColorSRGB(0.04f, 0.05f, 0.06f, 1f);
     static readonly ColorSRGB Dim = new ColorSRGB(0.55f, 0.62f, 0.68f, 0.9f);
 
+    private static string _openKey;
+
     public static void Show(Vector2 at, string title, List<Item> items)
     {
+        _openKey = CleanMap.ViewKey;
         if (items == null || items.Count == 0) { Close(); return; }
         _at = at; _title = title; _items = items;
     }
@@ -44,6 +47,7 @@ public static class MapMenu
     public static bool Draw(Vector2 mouse, bool leftPressed, bool rightPressed, float u)
     {
         if (_items == null) return false;
+        if (MapCamera.Dragging || CleanMap.ViewKey != _openKey) { Close(); return false; }   // the view moved on
         if (MapInput.KeyPressed(Keen.VRage.Core.Input.KeyboardInputs.Escape) || MapInput.DevKeys.Remove("escape")) { Close(); return true; }   // Esc closes it
         var sz = MapPipeline.ScreenSize;
         float row = 30f * u, pad = 12f * u, ts = 0.58f * u, head = _title != null ? 26f * u : 0;

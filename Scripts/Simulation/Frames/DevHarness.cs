@@ -581,6 +581,10 @@ public static class DevHarness
                 return sb.ToString();
             }
 
+            case "target":   // target <sector name> | target off
+                Maneuvers.Target = a[1] == "off" ? null : string.Join(" ", a, 1, a.Length - 1);
+                return "target " + (Maneuvers.Target ?? "none");
+
             case "dblclick":   // dblclick <x> <y>: screen fractions
                 UnifiedMap.DevMouse = new Vector2((float)D(a[1]), (float)D(a[2]));
                 MapInput.DevDoubleClick();

@@ -186,6 +186,7 @@ public static class CleanMap
 
     /// <summary>The sector list: grouped, numbered, state dot, name, where; on the right, below the game's index box.</summary>
     static readonly ColorSRGB PanelFill = new ColorSRGB(0.02f, 0.05f, 0.07f, 0.78f);
+    static readonly ColorSRGB TargetText = new ColorSRGB(0.95f, 0.45f, 0.85f, 1f);
     static readonly ColorSRGB RowHover = new ColorSRGB(0.30f, 0.55f, 0.65f, 0.22f);
 
     /// <summary>The list's screen area (last frame): a click there goes to a row.</summary>
@@ -238,7 +239,7 @@ public static class CleanMap
             MapPipeline.PickName = b.Name;
             MapPipeline.ScreenText(new Vector2(x, r.y), b.Number.ToString(), Dim, scale);
             MapPipeline.ScreenDot(new Vector2(x + scr.Y * 0.030f * k, r.y + line * 0.42f), 4.5f, StateColor(b));
-            MapPipeline.ScreenText(new Vector2(x + scr.Y * 0.045f * k, r.y), b.Name, c, scale);
+            MapPipeline.ScreenText(new Vector2(x + scr.Y * 0.045f * k, r.y), b.Name == Maneuvers.Target ? b.Name + "  · target" : b.Name, b.Name == Maneuvers.Target ? TargetText : c, scale);
             MapPipeline.ScreenText(new Vector2(x + scr.Y * 0.19f * k, r.y), Fit(Where(b), x1 - (x + scr.Y * 0.19f * k) - 6f, scale * 0.85f), Dim, scale * 0.85f);
             MapPipeline.PickName = null;
         }
@@ -334,6 +335,7 @@ public static class CleanMap
             if (ManeuverEditor) ContextMenu(bands, t);
             _lastW = W; _lastSolar = solar;
             FocusInput(reg, t, W, solar);
+            BodyTooltip(reg, playerPlanet, playerOrbit);
             ListInput(W);
             Hints();
             WarpBar.DrawMap(Mouse);
@@ -663,6 +665,8 @@ public static class CleanMap
             string sec = Hovered;
             title = sec;
             items.Add(new MapMenu.Item("Centre on " + sec, () => CentreOn(sec)));
+            items.Add(Maneuvers.Target == sec ? new MapMenu.Item("Clear target", () => Maneuvers.Target = null)
+                                              : new MapMenu.Item("Set as target", () => Maneuvers.Target = sec));
             if (hasNodes) items.Add(new MapMenu.Item("Remove all maneuvers", Maneuvers.ClearAll));
         }
         else if (hasNodes)
@@ -715,6 +719,41 @@ public static class CleanMap
         if (b == null || _lastW == null) return "no body / map not drawn";
         FocusOn(b, reg, SystemHost.Now, _lastW, _lastSolar);
         return "focus " + name;
+    }
+
+    /// <summary>
+    /// Hovering a body: a small card by the cursor with what it is, its size and reach, and how to
+    /// focus it (double-click), so the map can be learnt by pointing at things.
+    /// </summary>
+    static void BodyTooltip(SystemRegistry reg, string playerPlanet, KeplerianElements? playerOrbit)
+    {
+        if (MapCamera.Dragging || MapMenu.Open || Maneuvers.OnGizmo || !InOpenArea(Mouse)) return;
+        GravityBody best = null; float bd = float.MaxValue;
+        foreach (var h in _hits) { float d = (h.s - Mouse).Length(); if (d <= h.r && d < bd) { bd = d; best = h.b; } }
+        if (best == null) return;
+        var def = reg.FindDefinition(best.Name);
+        string kind = best.Parent == null ? "Star" : best.Parent.Parent == null ? "Planet" : $"Moon of {best.Parent.Name}";
+        var lines = new List<string> { $"{SystemHost.DisplayName(best.Name)}  ·  {kind}" };
+        if (def != null && def.RadiusMeters > 0) lines.Add($"Radius {HudPanel.Km(def.RadiusMeters)}" + (best.Parent != null && !double.IsInfinity(best.SoiRadius) ? $"  ·  reach {HudPanel.Km(best.SoiRadius)}" : ""));
+        if (best.Name == playerPlanet && playerOrbit.HasValue)
+        {
+            var o = playerOrbit.Value; double r = def?.RadiusMeters ?? 0;
+            lines.Add($"You: Pe {HudPanel.Km(o.PeriapsisRadius - r)}" + (o.IsElliptic ? $"  Ap {HudPanel.Km(o.SemiMajorAxis * (1 + o.Eccentricity) - r)}" : "  escape"));
+        }
+        bool viewing = _viewBody == best || (_viewBody == null && best.Parent == null);
+        lines.Add(viewing ? "Double-click: centre" : "Double-click: focus");
+        float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        float w = 0, lh = 0;
+        foreach (var l in lines) { var m = MapPipeline.MeasureText(l, 0.8f); w = Math.Max(w, m.X); lh = Math.Max(lh, m.Y); }
+        var at = Mouse + new Vector2(18f * u, 14f * u);
+        var size = new Vector2(w + 16f * u, lines.Count * lh + 10f * u);
+        var scr = MapPipeline.ScreenSize;
+        if (at.X + size.X > scr.X * 0.77f) at.X = Mouse.X - 18f * u - size.X;
+        if (at.Y + size.Y > scr.Y * 0.9f) at.Y = Mouse.Y - 14f * u - size.Y;
+        MapPipeline.ScreenRect(at, at + size, PanelFill);
+        MapPipeline.ScreenRect(at, new Vector2(at.X + 2f * u, at.Y + size.Y), LineSel);
+        for (int i = 0; i < lines.Count; i++)
+            MapPipeline.ScreenText(at + new Vector2(8f * u, 5f * u + i * lh), lines[i], i == 0 ? Text : i == lines.Count - 1 ? Dim : Text, i == 0 ? 0.85f : 0.8f);
     }
 
     static void FocusInput(SystemRegistry reg, double t, Func<Vector3D, Vector3D> W, bool solar)

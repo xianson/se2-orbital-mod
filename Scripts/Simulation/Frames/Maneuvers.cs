@@ -408,6 +408,23 @@ public static class Maneuvers
             break;
         }
 
+        // Target: the closest approach on the path, and where the target is then (a ring), joined.
+        if (Target != null)
+        {
+            var ca = ClosestApproach(legs);
+            if (ca.ok && Live(ca.leg.Body) && MapPipeline.ToScreen(W(LegLoc(ca.leg, ca.t)), out var cs1) && InMapArea(cs1))
+            {
+                MapPipeline.ScreenCircle(cs1, 4f * u, TargetColor, 2.2f * u);
+                if (EncounterFrames.Ephemeris(ca.site, ca.t, out var tp, out var trel) && tp == ca.leg.Body
+                    && MapPipeline.ToScreen(W(Loc(tp, trel.Position, ca.t)), out var cs2) && InMapArea(cs2))
+                {
+                    MapPipeline.ScreenCircle(cs2, 7f * u, TargetColor, 1.6f * u);
+                    MapPipeline.ScreenDashed(cs1, cs2, HudPanel.Alpha(TargetColor, 0.6f), 1.2f * u);
+                }
+                HudPanel.TagAt(cs1 + new Vector2(8f * u, 0), $"Closest {HudPanel.Km(ca.d)}  in {Clock(ca.t - t)}", TargetColor, u, diamond: false);
+            }
+        }
+
         // Sector crossings: where the path comes within the merge range of a sector's site (you arrive
         // there, by conjunction) and where it leaves the site's bubble again.
         foreach (var c in SectorCrossings(t, legs))
@@ -701,6 +718,57 @@ public static class Maneuvers
     static readonly ColorSRGB ImpactColor = new ColorSRGB(1.00f, 0.30f, 0.25f, 1f);
     static readonly ColorSRGB SectorIn = new ColorSRGB(0.45f, 1.00f, 0.55f, 1f);
     static readonly ColorSRGB SectorOut = new ColorSRGB(0.70f, 0.85f, 0.75f, 0.9f);
+
+    /// <summary>The sector targeted from the map (its site): the path's closest approach to it is marked.</summary>
+    public static string Target;
+    static readonly ColorSRGB TargetColor = new ColorSRGB(0.95f, 0.45f, 0.85f, 1f);
+    private static double _caAt = -1; private static string _caSig; private static (bool ok, double t, double d, Leg leg, EncounterFrames.Site site) _ca;
+
+    /// <summary>
+    /// Closest approach of the path to the target's site, on the legs about the site's own body (as
+    /// KSP's intercept markers): time and distance. Recomputed at most once a second or on a change.
+    /// </summary>
+    static (bool ok, double t, double d, Leg leg, EncounterFrames.Site site) ClosestApproach(List<Leg> legs)
+    {
+        double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+        string sig = _cSig + "|" + Target;
+        if (sig == _caSig && now - _caAt < 1.0) return _ca;
+        _caSig = sig; _caAt = now; _ca = default;
+        EncounterFrames.Site site = null;
+        foreach (var s in EncounterFrames.Sites) if (s.Sector == Target && (site == null || s.Anchor)) site = s;
+        if (site == null) return _ca;
+        double best = double.MaxValue, bestT = double.NaN; Leg bestLeg = default;
+        foreach (var l in legs)
+        {
+            double span = l.T1 - l.T0;
+            if (!(span > 0)) continue;
+            int n = Math.Min(800, Math.Max(120, (int)(span / 15)));
+            double Dist(double tk)
+            {
+                if (!EncounterFrames.Ephemeris(site, tk, out var p, out var rel) || p != l.Body) return double.MaxValue;
+                return (OrbitPropagation.StateAt(l.El, tk).Position - rel.Position).Length();
+            }
+            for (int k = 0; k <= n; k++)
+            {
+                double tk = l.T0 + span * k / n, d = Dist(tk);
+                if (d < best) { best = d; bestT = tk; bestLeg = l; }
+            }
+            // refine around the best sample of this leg
+            if (bestLeg.Body == l.Body && bestLeg.T0 == l.T0)
+            {
+                double a = Math.Max(l.T0, bestT - span / n), b = Math.Min(l.T1, bestT + span / n);
+                for (int q = 0; q < 40; q++)
+                {
+                    double m1 = a + (b - a) / 3, m2 = b - (b - a) / 3;
+                    if (Dist(m1) < Dist(m2)) b = m2; else a = m1;
+                }
+                double tr = 0.5 * (a + b), dr = Dist(tr);
+                if (dr < best) { best = dr; bestT = tr; }
+            }
+        }
+        if (best < double.MaxValue) _ca = (true, bestT, best, bestLeg, site);
+        return _ca;
+    }
 
     public struct Crossing { public string Name; public double T; public bool Entry; public Leg Leg; }
     private static List<Crossing> _cross = new List<Crossing>();

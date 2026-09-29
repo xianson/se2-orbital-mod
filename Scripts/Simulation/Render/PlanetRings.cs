@@ -63,7 +63,7 @@ public static class PlanetRings
     /// <summary>Hide the game's ring while its planet is a proxy. Uses the same render flag toggle as the proxies.</summary>
     public static bool HideGameRings = true;
     /// <summary>Our scaled ring at the proxy. Off until tested in game.</summary>
-    public static bool ProxyRings = false;
+    public static bool ProxyRings = true;   // verified in game (Verdure, Kemik): on
     public static bool ScaleOptics = true;
     /// <summary>Hull scale below the exact k (see the summary); the band is twice this wide.</summary>
     private const double Margin = 0.02;

@@ -322,6 +322,18 @@ public static class OrbitDisplay
         var reg = SystemHost.Registry;
         var b = reg?.Find(body);
         r.SoiRadius = b != null && !b.IsRoot && IsFinite(b.SoiRadius) ? b.SoiRadius : 0;
+        // The rendezvous with your target, when it is about this same body (the disc's).
+        try
+        {
+            if (Maneuvers.Rendezvous(SystemHost.Now, out var rb, out double rt, out double rd, out var ry, out var rtg) && rb == b
+                && IsFiniteV(ry) && IsFiniteV(rtg))
+            {
+                r.RvRel = toRel(ry); r.RvTargetRel = toRel(rtg);
+                r.RvIn = Math.Max(0, rt - SystemHost.Now); r.RvDist = rd;
+                r.RvLabel = $"{Maneuvers.Target} Rendezvous";
+            }
+        }
+        catch { }
         try
         {
             double t = SystemHost.Now;

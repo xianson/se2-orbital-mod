@@ -564,12 +564,13 @@ public static class PlanetRenderBridge
     }
 
     /// <summary>A Default-type model entity under a root (RenderContracts.CreateModelEntity), flags as RenderFlags bits.</summary>
-    internal static object CreateModelEntity(string name, ResourceHandle model, object root, int flags)
+    internal static object CreateModelEntity(string name, ResourceHandle model, object root, int flags, bool mapOnly = false)
     {
         if (!ResolveRender()) return null;
         return _createModel.Invoke(_contracts, new object[]
         {
-            name, model, RelativeTransform.Identity, root, Enum.ToObject(_renderFlagsType, flags), Enum.ToObject(_entityTypeType, 0), null
+            name, model, RelativeTransform.Identity, root, Enum.ToObject(_renderFlagsType, flags),
+            mapOnly ? Enum.Parse(_entityTypeType, "Map") : Enum.ToObject(_entityTypeType, 0), null
         });
     }
 

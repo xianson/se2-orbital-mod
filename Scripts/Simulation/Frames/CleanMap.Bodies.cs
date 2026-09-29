@@ -166,6 +166,8 @@ public static partial class CleanMap
             Vector3D hp = p.StateInParentAt(t).Position;
             Vector3D c = S(hp);
             MapGlobes.Use(p.Name, W(c), (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer * _wscale, globes);   // true size
+            // Its ring round the globe, flat in the map's plane (the rings lie on the equators, in the ecliptic).
+            if (globes.Contains(p.Name)) MapRing(W, c, reg, p.Name, (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer);
             BodyDot(W, c, (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, p.Name == playerPlanet ? You : Text);
             Hit(p, W(c), W(c + new Vector3D((reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, 0, 0)), 8f);
             BodyLabel(W, c, (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, 8f, p.Name, p.Name == playerPlanet ? You : Text, 0.9f);
@@ -186,6 +188,52 @@ public static partial class CleanMap
             }
         }
         MapPipeline.PickName = null;
+    }
+
+    static readonly ColorSRGB RingBand = new ColorSRGB(0.86f, 0.80f, 0.70f, 1f);
+    // The bands across the ring, inner to outer: how opaque each is (gaps between them, as the game's texture).
+    static readonly float[] RingBands = { 0.10f, 0.22f, 0.05f, 0.34f, 0.40f, 0.16f, 0.30f, 0.08f, 0.20f, 0.06f };
+
+    /// <summary>
+    /// A planet's ring on the map (the game's is a volume, which does not draw at the map's scale): a banded
+    /// translucent annulus at the ring's real radii (to the globe's scale), in the map's plane; where it
+    /// passes behind the globe it is left out.
+    /// </summary>
+    static void MapRing(Func<Vector3D, Vector3D> W, Vector3D c, SystemRegistry reg, string planet, double rLocal)
+    {
+        if (!VoxelBerthRegistry.TryGetCell(planet, reg, out Vector3D cell) || !AsteroidBridge.RingAround(cell, out double inner, out double outer)) return;
+        double R = reg.FindDefinition(planet)?.RadiusMeters ?? 0;
+        if (R <= 0 || !MapPipeline.ToScreen(W(c), out var cs)) return;
+        double k = rLocal / R;
+        // The globe on screen (for what is behind it) and the view's direction.
+        float gr = 0;
+        foreach (var ax in new[] { new Vector3D(rLocal, 0, 0), new Vector3D(0, rLocal, 0), new Vector3D(0, 0, rLocal) })
+            if (MapPipeline.ToScreen(W(c + ax), out var es)) gr = Math.Max(gr, (es - cs).Length());
+        Vector3D gw = W(c);
+        Vector3D eye = MapPipeline.CameraPosition ?? gw;
+        const int N = 96;
+        int nb = RingBands.Length;
+        var quad = new List<Vector2>(4);
+        for (int b = 0; b < nb; b++)
+        {
+            double r0 = (inner + (outer - inner) * b / nb) * k, r1 = (inner + (outer - inner) * (b + 1) / nb) * k;
+            var col = HudPanel.Alpha(RingBand, RingBands[b] * (_planetLevel ? 0.5f : 1f));   // (lighter in a planet's own view: its sectors and rocks are on it)
+            for (int i = 0; i < N; i++)
+            {
+                double a0 = 2 * Math.PI * i / N, a1 = 2 * Math.PI * (i + 1) / N, am = 0.5 * (a0 + a1);
+                // Behind the globe: farther than its centre and inside its disc on screen.
+                Vector3D mid = W(c + new Vector3D(Math.Cos(am) * 0.5 * (r0 + r1), 0, Math.Sin(am) * 0.5 * (r0 + r1)));
+                if (MapPipeline.ToScreen(mid, out var ms) && (ms - cs).Length() < gr && (mid - eye).Length() > (gw - eye).Length()) continue;
+                quad.Clear();
+                bool ok = true;
+                foreach (var (a, r) in new[] { (a0, r0), (a1, r0), (a1, r1), (a0, r1) })
+                {
+                    if (!MapPipeline.ToScreen(W(c + new Vector3D(Math.Cos(a) * r, 0, Math.Sin(a) * r)), out var q)) { ok = false; break; }
+                    quad.Add(q);
+                }
+                if (ok) MapPipeline.ScreenFill(quad, col);
+            }
+        }
     }
 
     /// <summary>

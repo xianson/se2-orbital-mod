@@ -56,6 +56,7 @@ public static class MapGlobes
 
     public static void End(HashSet<string> used)
     {
+        PlanetRings.MapEnd();
         foreach (var kv in _globes) if (!used.Contains(kv.Key)) PlanetRenderBridge.SetProxyVisible(kv.Value, false);
     }
 

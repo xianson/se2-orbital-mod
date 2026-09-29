@@ -675,6 +675,10 @@ public static class DevHarness
                 return sb.ToString();
             }
 
+            case "selrock":   // selrock <rock label> | selrock off (as a click on its map marker)
+                CleanMap.SelectedRock = a[1] == "off" ? null : string.Join(" ", a, 1, a.Length - 1);
+                return "selected rock " + (CleanMap.SelectedRock ?? "none");
+
             case "target":   // target <sector name> | target off
                 Maneuvers.Target = a[1] == "off" ? null : string.Join(" ", a, 1, a.Length - 1);
                 return "target " + (Maneuvers.Target ?? "none");

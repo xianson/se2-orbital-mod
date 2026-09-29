@@ -529,16 +529,18 @@ public static class Maneuvers
         if (Target != null)
         {
             var ca = ClosestApproach(legs);
-            if (ca.ok && Live(ca.leg.Body) && MapPipeline.ToScreen(W(LegLoc(ca.leg, ca.t)), out var cs1) && InMapArea(cs1))
+            if (ca.ok && ca.d <= RendezvousRange && Live(ca.leg.Body) && MapPipeline.ToScreen(W(LegLoc(ca.leg, ca.t)), out var cs1) && InMapArea(cs1))
             {
-                MapPipeline.ScreenCircle(cs1, 4f * u, TargetColor, 2.2f * u);
+                // Marked as an entry / escape is (a ring round a dot, named), in the target's colour.
+                MapPipeline.ScreenCircle(cs1, 5f * u, TargetColor, 2f * u);
+                MapPipeline.ScreenCircle(cs1, 1.5f * u, TargetColor, 2.5f * u);
                 if (EncounterFrames.Ephemeris(ca.site, ca.t, out var tp, out var trel) && tp == ca.leg.Body
                     && MapPipeline.ToScreen(W(Loc(tp, trel.Position, ca.t)), out var cs2) && InMapArea(cs2))
                 {
                     MapPipeline.ScreenCircle(cs2, 7f * u, TargetColor, 1.6f * u);
                     MapPipeline.ScreenDashed(cs1, cs2, HudPanel.Alpha(TargetColor, 0.6f), 1.2f * u);
                 }
-                HudPanel.TagAt(cs1 + new Vector2(8f * u, 0), $"Closest {HudPanel.Km(ca.d)}  in {Clock(ca.t - t)}  ·  {RelSpeed(ca):N0} m/s", TargetColor, u, diamond: false);
+                HudPanel.TagAt(cs1 + new Vector2(10f * u, 0), $"{Target} Rendezvous  ·  {HudPanel.Km(ca.d)}  in {Clock(ca.t - t)}  ·  {RelSpeed(ca):N0} m/s", TargetColor, u, diamond: false);
             }
         }
 
@@ -919,6 +921,25 @@ public static class Maneuvers
         return _ca;
     }
 
+    /// <summary>
+    /// The rendezvous with the target on your path, for the flight disc: when, how close, and where you and
+    /// the target are then (offsets from the body the path is about then). False: no target or no approach.
+    /// </summary>
+    public static bool Rendezvous(double t, out GravityBody body, out double at, out double dist, out Vector3D you, out Vector3D target)
+    {
+        body = null; at = dist = double.NaN; you = target = default;
+        if (Target == null || !Trajectory(t, out var legs, out _)) return false;
+        var ca = ClosestApproach(legs);
+        if (!ca.ok || ca.d > RendezvousRange || !EncounterFrames.Ephemeris(ca.site, ca.t, out var tp, out var trel) || tp != ca.leg.Body) return false;
+        body = ca.leg.Body; at = ca.t; dist = ca.d;
+        you = OrbitPropagation.StateAt(ca.leg.El, ca.t).Position;
+        target = trel.Position;
+        return true;
+    }
+
+    /// <summary>A rendezvous is only one when the path passes this close (m): where frames merge on arrival (a sector's Entry).</summary>
+    public const double RendezvousRange = 10000;
+
     /// <summary>Speed relative to the target at the closest approach (m/s), NaN when unknown.</summary>
     static double RelSpeed((bool ok, double t, double d, Leg leg, EncounterFrames.Site site) ca)
     {
@@ -931,7 +952,7 @@ public static class Maneuvers
     {
         if (Target == null || !Trajectory(t, out var legs, out _)) return null;
         var ca = ClosestApproach(legs);
-        return ca.ok ? $"Target {Target}  ·  closest {HudPanel.Km(ca.d)} in {Clock(ca.t - t)}  ·  {RelSpeed(ca):N0} m/s" : $"Target {Target}  ·  no approach on this path";
+        return ca.ok && ca.d <= RendezvousRange ? $"Target {Target}  ·  rendezvous {HudPanel.Km(ca.d)} in {Clock(ca.t - t)}  ·  {RelSpeed(ca):N0} m/s" : $"Target {Target}  ·  no rendezvous on this path";
     }
 
     public struct Crossing { public string Name; public double T; public bool Entry; public Leg Leg; }

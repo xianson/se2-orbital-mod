@@ -187,6 +187,10 @@ public static class OrbitHud
         public List<double> RelCross;   // out of the anchor's plane along the prediction (m, + along its normal)
         public double RelNowCross;
         public bool RelLeaves;   // the prediction leaves the frame (cut at its boundary)
+        /// <summary>The rendezvous with your target on your path (offsets from the body): you then, the target then.</summary>
+        public Vector3D? RvRel, RvTargetRel;
+        public string RvLabel;
+        public double RvIn, RvDist;
     }
 
     public static Readout Current;
@@ -329,6 +333,7 @@ public static class OrbitHud
         foreach (var q in r.RelPath) if (IsFinite(q)) far = Math.Max(far, q.Length());
         if (r.EventRel.HasValue) far = Math.Max(far, r.EventRel.Value.Length());
         if (r.MoonRel.HasValue) far = Math.Max(far, r.MoonRel.Value.Length() + r.MoonSoi);
+        if (r.RvRel.HasValue) far = Math.Max(far, Math.Max(r.RvRel.Value.Length(), r.RvTargetRel.Value.Length()));
         bool showSoi = r.SoiRadius > 0 && (r.Escape || (r.EventRel.HasValue && !r.MoonRel.HasValue) || far > 0.5 * r.SoiRadius);
         if (showSoi) far = Math.Max(far, r.SoiRadius);
         double k = (R * 0.86) / Math.Max(1.0, far);
@@ -373,6 +378,20 @@ public static class OrbitHud
             var ec = new ColorSRGB(0.85f, 0.55f, 1f, 1f);
             if (!MapPipeline.ScreenIcon("ring", es, 5f * u, ec)) MapPipeline.ScreenCircle(es, 4f * u, ec, 1.6f * u);
             MapPipeline.TextScreen(es + new Vector2(0, 10f * u), $"{r.EventLabel} · {Maneuvers.Clock(r.EventIn)}", ec, 0.4f);
+        }
+        // The rendezvous with your target: marked as the escape / entry is, the target then a ring, joined.
+        if (r.RvRel.HasValue)
+        {
+            var rs = P(r.RvRel.Value);
+            var rc = new ColorSRGB(0.95f, 0.45f, 0.85f, 1f);   // (the map's target colour)
+            var ts = P(r.RvTargetRel.Value);
+            if ((ts - rs).Length() > 3f * u)
+            {
+                MapPipeline.ScreenCircle(ts, 3f * u, rc, 1.2f * u);
+                MapPipeline.ScreenDashed(rs, ts, HudPanel.Alpha(rc, 0.6f), 1f * u);
+            }
+            if (!MapPipeline.ScreenIcon("ring", rs, 5f * u, rc)) MapPipeline.ScreenCircle(rs, 4f * u, rc, 1.6f * u);
+            MapPipeline.TextScreen(rs + new Vector2(0, 10f * u), $"{r.RvLabel} · {HudPanel.Km(r.RvDist)} · {Maneuvers.Clock(r.RvIn)}", rc, 0.4f);
         }
         // You: a dot, a prograde tick, and your view as a wedge (straight up: heading-up).
         var me = P(r.PlayerRel);

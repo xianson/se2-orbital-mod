@@ -87,14 +87,20 @@ public static class PlanetRings
         public object CustomData;   // boxed ProceduralFieldCustomData
         public string MeshError;
 
-        // Ours.
+        /// <summary>As the game laid it (round the chart's +Y): the map's plane is that chart's, so the map copy lies so.</summary>
+        public Quaternion GameOrientation;
+        // Ours: at the proxy, and on the map's globe.
+        public readonly Inst P = new Inst(), M = new Inst { MapOnly = true };
+    }
+
+    /// <summary>One copy of a ring we draw (its model, its scaled material).</summary>
+    private sealed class Inst
+    {
         public object Root, Model, RuntimeModel;
         public AsteroidRingMaterialDefinition Mat;
-        public double KBuilt = -1;
-        public double LastK = -1;
-        public bool ProxyShown;
+        public double KBuilt = -1, LastK = -1, K;
+        public bool Shown, MapOnly;
         public string Error;
-        public double K;
     }
 
     private static readonly List<Ring> _rings = new List<Ring>();
@@ -112,6 +118,7 @@ public static class PlanetRings
             Name = owner.Entity.TryGet<ProceduralVolumeComponent>()?.Name ?? "ring",
             Center = torus.WorldTransform.Position,
             Orientation = orient,
+            GameOrientation = torus.WorldTransform.Orientation,
             Inner = torus.InnerRadius, Outer = torus.OuterRadius, Half = torus.MinorRadii.Y,
         };
         CaptureMesh(r);
@@ -175,10 +182,45 @@ public static class PlanetRings
             if (r.GameShown != gameVisible && (r.GameShown.HasValue || !gameVisible)) SetGameRing(r, gameVisible);
 
             bool want = ProxyRings && !realShown && proxyOn && k > 0 && !double.IsInfinity(k);
-            if (want) UpdateProxy(r, planetCenter, proxyCenter, k);
-            else if (r.ProxyShown) { SafeVisible(r, false); }
+            if (want) UpdateProxy(r, r.P, proxyCenter + (r.Center - planetCenter) * k, k, r.Orientation);
+            else if (r.P.Shown) { SafeVisible(r.P, false); }
         }
     }
+
+    /// <summary>
+    /// The map's globe of a planet (MapGlobes): its rings on it, at the globe's scale (k = globe radius / the
+    /// planet's radius), lying in the map's plane (up: the map's up at the globe). Map entities, so only
+    /// drawn with the map. <see cref="MapEnd"/> after a frame's globes hides the ones not placed.
+    /// </summary>
+    public static void Map(Vector3D cell, double planetRadius, Vector3D globe, double globeRadius, Vector3D up)
+    {
+        if (!MapRings || _rings.Count == 0 || planetRadius <= 0 || !(globeRadius > 0) || up.LengthSquared() < 1e-12) return;
+        lock (PlanetRenderBridge.Lock)
+            foreach (var r in _rings)
+            {
+                if (!Near(r, cell)) continue;
+                double k = globeRadius / planetRadius;
+                Vector3 n0 = Vector3.Normalize(Vector3.Transform(Vector3.UnitY, r.GameOrientation));
+                Quaternion orient = Quaternion.Normalize(Quaternion.Concatenate(r.GameOrientation, Quaternion.CreateFromTwoVectors(n0, (Vector3)Vector3D.Normalize(up))));
+                UpdateProxy(r, r.M, globe, k, orient);
+                _mapUsed.Add(r);
+            }
+    }
+
+    private static readonly HashSet<Ring> _mapUsed = new HashSet<Ring>();
+
+    /// <summary>After a map frame: the map rings not placed in it are hidden.</summary>
+    public static void MapEnd()
+    {
+        lock (PlanetRenderBridge.Lock)
+            foreach (var r in _rings) if (!_mapUsed.Contains(r) && r.M.Shown) SafeVisible(r.M, false);
+        _mapUsed.Clear();
+    }
+
+    /// <summary>Rings on the map's globes.</summary>
+    public static bool MapRings = false;   // (the volume does not draw at the map's scale: CleanMap draws the ring)
+    /// <summary>The map copy as a Map entity (drawn only in map mode); false: a default one, hidden with the map.</summary>
+    public static bool MapRingAsMapEntity = false;
 
     /// <summary>The planet leaves (its component is removed): its rings back to the game's own.</summary>
     public static void Release(Vector3D planetCenter)
@@ -274,41 +316,41 @@ public static class PlanetRings
 
     static Array ToArray(object buffer) => buffer?.GetType().GetMethod("ToArray", Type.EmptyTypes)?.Invoke(buffer, null) as Array;
 
-    private static void UpdateProxy(Ring r, Vector3D planetCenter, Vector3D proxyCenter, double k)
+    private static void UpdateProxy(Ring r, Inst x, Vector3D at, double k, Quaternion orient)
     {
         if (r.MeshError != null) return;
         try
         {
-            r.K = k;
+            x.K = k;
             // Hull inside the custom-data box: rebuilt as soon as k drops below the hull's scale.
-            if (r.Model == null || k < r.KBuilt || k > r.KBuilt * (1 + Margin) * (1 + Margin))
+            if (x.Model == null || k < x.KBuilt || k > x.KBuilt * (1 + Margin) * (1 + Margin))
             {
                 DisposeProxy(r);
                 double kBuilt = k / (1 + Margin);
-                string why = Build(r, kBuilt, k, planetCenter, proxyCenter);
-                if (why != null) { r.Error = why; r.MeshError = why; PlanetRenderBridge.WarnOnce("ring-build-" + r.Name, $"proxy ring '{r.Name}': {why}"); DisposeProxy(r); return; }
-                r.KBuilt = kBuilt;
-                r.Error = null;
+                string why = Build(r, x, kBuilt, k, at, orient);
+                if (why != null) { x.Error = why; r.MeshError = why; PlanetRenderBridge.WarnOnce("ring-build-" + r.Name, $"proxy ring '{r.Name}': {why}"); DisposeInst(x); return; }
+                x.KBuilt = kBuilt;
+                x.Error = null;
             }
-            PlanetRenderBridge.UpdateRootTransform(r.Root, new WorldTransform(proxyCenter + (r.Center - planetCenter) * k, r.Orientation));
-            if (r.LastK < 0 || Math.Abs(k - r.LastK) > r.LastK * 1e-3)
+            PlanetRenderBridge.UpdateRootTransform(x.Root, new WorldTransform(at, orient));
+            if (x.LastK < 0 || Math.Abs(k - x.LastK) > x.LastK * 1e-3)
             {
-                PlanetRenderBridge.SetEntityCustomData(r.Model, ScaledCustomData(r.CustomData, (float)k));
-                r.LastK = k;
+                PlanetRenderBridge.SetEntityCustomData(x.Model, ScaledCustomData(r.CustomData, (float)k));
+                x.LastK = k;
             }
-            if (!r.ProxyShown) SafeVisible(r, true);
+            if (!x.Shown) SafeVisible(x, true);
         }
         catch (Exception e)
         {
-            r.Error = PlanetRenderBridge.Inner(e);
-            r.MeshError = "update: " + r.Error;   // no retry every frame
-            PlanetRenderBridge.WarnOnce("ring-update-" + r.Name, $"proxy ring '{r.Name}' failed (off for it): {r.Error}");
+            x.Error = PlanetRenderBridge.Inner(e);
+            r.MeshError = "update: " + x.Error;   // no retry every frame
+            PlanetRenderBridge.WarnOnce("ring-update-" + r.Name, $"proxy ring '{r.Name}' failed (off for it): {x.Error}");
             DisposeProxy(r);
         }
     }
 
     /// <summary>Hull at kHull (uniformly: the game's hull scaled, inside the box at any k &gt;= kHull), material at k.</summary>
-    private static string Build(Ring r, double kHull, double k, Vector3D planetCenter, Vector3D proxyCenter)
+    private static string Build(Ring r, Inst x, double kHull, double k, Vector3D at, Quaternion orient)
     {
         string why = Resolve();
         if (why != null) return why;
@@ -327,15 +369,15 @@ public static class PlanetRings
         var idx = new Buffer<int>(Allocator.Heap, "OrbitalProxyRing");
         foreach (int i in r.Idx) idx.Add(i);
 
-        r.Mat = ScaledMaterial(r.BaseMat, (float)k);
-        if (r.Mat == null) { idx.Dispose(); return "material creation failed"; }
+        x.Mat = ScaledMaterial(r.BaseMat, (float)k, x.MapOnly);
+        if (x.Mat == null) { idx.Dispose(); return "material creation failed"; }
 
         object subs = Activator.CreateInstance(typeof(Buffer<>).MakeGenericType(_tSub), new object[] { Allocator.Heap, "OrbitalProxyRing" });
         object sub = Activator.CreateInstance(_tSub);
         _tSub.GetField("Name").SetValue(sub, StringId.Get("OrbitalProxyRing_" + r.Name));
         _tSub.GetField("IndexStart").SetValue(sub, 0);
         _tSub.GetField("IndicesCount").SetValue(sub, idx.Count);
-        _tSub.GetField("Material").SetValue(sub, r.Mat);
+        _tSub.GetField("Material").SetValue(sub, x.Mat);
         subs.GetType().GetMethod("Add", new[] { _tSub }).Invoke(subs, new[] { sub });
 
         // As the game: RuntimeMeshData(name, counts) then its streams; ours replace the empty ones.
@@ -347,15 +389,17 @@ public static class PlanetRings
 
         object contracts = PlanetRenderBridge.Contracts;
         object volumes = Enum.ToObject(_createRuntimeModel.GetParameters()[1].ParameterType, (int)RenderRuntimeDataType.Volumes);
-        r.RuntimeModel = _createRuntimeModel.Invoke(contracts, new[] { rmd, volumes, (object)true, (object)false });
-        var handle = (ResourceHandle)_toHandle.Invoke(null, new[] { r.RuntimeModel });
+        x.RuntimeModel = _createRuntimeModel.Invoke(contracts, new[] { rmd, volumes, (object)true, (object)false });
+        var handle = (ResourceHandle)_toHandle.Invoke(null, new[] { x.RuntimeModel });
 
-        r.Root = PlanetRenderBridge.CreateRootEntity("OrbitalProxyRingRoot_" + r.Name, new WorldTransform(proxyCenter + (r.Center - planetCenter) * k, r.Orientation));
+        string tag = x.MapOnly ? "OrbitalMapRing" : "OrbitalProxyRing";
+        x.Root = PlanetRenderBridge.CreateRootEntity(tag + "Root_" + r.Name, new WorldTransform(at, orient));
         // Visible | SkipFarPlaneCulling | ForceHighestLOD: the game's own flags for its ring.
-        r.Model = PlanetRenderBridge.CreateModelEntity("OrbitalProxyRing_" + r.Name, handle, r.Root, 0x1 | 0x10 | 0x20);
-        r.LastK = -1;
-        r.ProxyShown = true;
-        return r.Model != null ? null : "model entity not created";
+        // (the map's copy: a Map entity, drawn only while the renderer is in map mode, as the map's globes)
+        x.Model = PlanetRenderBridge.CreateModelEntity(tag + "_" + r.Name, handle, x.Root, 0x1 | 0x10 | 0x20, x.MapOnly && MapRingAsMapEntity);
+        x.LastK = -1;
+        x.Shown = true;
+        return x.Model != null ? null : "model entity not created";
     }
 
     /// <summary>The game's ProceduralFieldCustomData with every length times k (a boxed copy).</summary>
@@ -383,7 +427,7 @@ public static class PlanetRings
     /// (MaterialSystem.AddRuntimeMaterial is internal: reflection). AsteroidRing is not an
     /// IRuntimeMaterial, so RuntimeMaterialHandle cannot hold it; it is removed in DisposeProxy.
     /// </summary>
-    private static AsteroidRingMaterialDefinition ScaledMaterial(AsteroidRingMaterialDefinition b, float k)
+    private static AsteroidRingMaterialDefinition ScaledMaterial(AsteroidRingMaterialDefinition b, float k, bool fade = false)
     {
         var ob = DefinitionHelper.CreateObjectBuilder<AsteroidRingMaterialDefinitionObjectBuilder>();
         ob.DefaultState = b.DefaultState;
@@ -391,8 +435,9 @@ public static class PlanetRings
         ob.ColorOpacityTexture = b.ColorOpacityTexture;
         ob.AbsorptionLength = ScaleOptics ? b.AbsorptionLength * k : b.AbsorptionLength;
         ob.ScatteringMagnitude = ScaleOptics ? b.ScatteringMagnitude - (float)Math.Log10(k) : b.ScatteringMagnitude;
-        ob.StartDistance = b.StartDistance;
-        ob.FadeDistance = b.FadeDistance;
+        // (the map's copy is seen from map distances, far under the fade-in's 100 m: its fade scaled too)
+        ob.StartDistance = fade ? b.StartDistance * k : b.StartDistance;
+        ob.FadeDistance = fade ? b.FadeDistance * k : b.FadeDistance;
         var mat = RuntimeDefinitionHelper.Create<AsteroidRingMaterialDefinition>(ob, null, keepBuilderGuid: true);
         return MaterialSystemCall("AddRuntimeMaterial", mat) ? mat : null;
     }
@@ -407,27 +452,29 @@ public static class PlanetRings
         return true;
     }
 
-    private static void SafeVisible(Ring r, bool visible)
+    private static void SafeVisible(Inst x, bool visible)
     {
-        try { PlanetRenderBridge.SetModelVisible(r.Model, visible); r.ProxyShown = visible; }
+        try { PlanetRenderBridge.SetModelVisible(x.Model, visible); x.Shown = visible; }
         catch (Exception e) { PlanetRenderBridge.WarnOnce("ring-vis", "proxy ring visibility failed: " + PlanetRenderBridge.Inner(e)); }
     }
 
     /// <summary>Ours gone, in the order the renderer needs: entity, root, model, then its material.</summary>
-    private static void DisposeProxy(Ring r)
+    private static void DisposeProxy(Ring r) { DisposeInst(r.P); DisposeInst(r.M); }
+
+    private static void DisposeInst(Inst x)
     {
-        PlanetRenderBridge.DisposeRender(r.Model);
-        PlanetRenderBridge.DisposeRender(r.Root);
-        PlanetRenderBridge.DisposeRender(r.RuntimeModel);
-        if (r.Mat != null)
+        PlanetRenderBridge.DisposeRender(x.Model);
+        PlanetRenderBridge.DisposeRender(x.Root);
+        PlanetRenderBridge.DisposeRender(x.RuntimeModel);
+        if (x.Mat != null)
         {
-            try { MaterialSystemCall("RemoveMaterial", r.Mat); } catch (Exception e) { PlanetRenderBridge.WarnOnce("ring-mat-remove", "ring material remove failed: " + PlanetRenderBridge.Inner(e)); }
+            try { MaterialSystemCall("RemoveMaterial", x.Mat); } catch (Exception e) { PlanetRenderBridge.WarnOnce("ring-mat-remove", "ring material remove failed: " + PlanetRenderBridge.Inner(e)); }
         }
-        r.Model = r.Root = r.RuntimeModel = null;
-        r.Mat = null;
-        r.KBuilt = -1;
-        r.LastK = -1;
-        r.ProxyShown = false;
+        x.Model = x.Root = x.RuntimeModel = null;
+        x.Mat = null;
+        x.KBuilt = -1;
+        x.LastK = -1;
+        x.Shown = false;
     }
 
     private static void SetField(object boxed, string name, object value)
@@ -448,7 +495,7 @@ public static class PlanetRings
             foreach (var r in _rings)
                 sb.Append($"  '{r.Name}' outer {r.Outer / 1000:F1} km inner {r.Inner / 1000:F1} km half {r.Half / 1000:F2} km | game ring {(r.GameShown == null ? "untouched" : r.GameShown.Value ? "shown" : "HIDDEN")} | " +
                           $"mesh {(r.MeshError ?? $"{r.Pos?.Length} verts, {r.Idx?.Length} idx, mat {r.BaseMat?.Guid}")} | " +
-                          $"proxy {(r.Model != null ? $"k={r.K:G4} hull k={r.KBuilt:G4} {(r.ProxyShown ? "shown" : "hidden")}" : "none")} err={r.Error ?? "-"}\n");
+                          $"proxy {(r.P.Model != null ? $"k={r.P.K:G4} hull k={r.P.KBuilt:G4} {(r.P.Shown ? "shown" : "hidden")}" : "none")} map {(r.M.Model != null ? $"k={r.M.K:G6} {(r.M.Shown ? "shown" : "hidden")}" : "none")} err={r.P.Error ?? r.M.Error ?? "-"}\n");
         return sb.ToString();
     }
 }

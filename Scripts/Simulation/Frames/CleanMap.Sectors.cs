@@ -292,18 +292,38 @@ public static partial class CleanMap
         var roids = AsteroidFrames.Of(belt.Name);
         if (roids.Count == 0) return;
         float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        // A click on a rock selects it (again: unselects); its orbit is drawn while selected or targeted.
+        if (MapInput.LeftReleased && !MapCamera.DragEnded && !MapMenu.Open && Hovered != null && roids.Exists(x => x.label == Hovered))
+            SelectedRock = SelectedRock == Hovered ? null : Hovered;
+        foreach (var (label, home, cluster, live) in roids)
+            if (label == SelectedRock || label == Maneuvers.Target) RoidPath(W, toLocal, reg, t, home, label == Maneuvers.Target ? TargetText : LineSel);
         foreach (var (label, home, cluster, live) in roids)
         {
             Vector3D w = W(toLocal(SectorHomes.Where(home, reg, t)));
             if (!MapPipeline.ToScreen(w, out var s) || !InOpenArea(s)) continue;
             _markerAt[label] = w;
-            bool hot = label == Hovered || label == Maneuvers.Target;
+            bool hot = label == Hovered || label == Maneuvers.Target || label == SelectedRock;
             var c = label == Maneuvers.Target ? TargetText : hot ? LineSel : live ? RoidLive : Quiet(belt) ? HudPanel.Alpha(RoidColor, 0.4f) : RoidColor;
             MapPipeline.PickName = label;
             MapPipeline.ScreenRing(w, (cluster ? 4f : 2.8f) * u, c, (hot ? 2f : 1.4f) * u);
             if (hot || !Quiet(belt)) MapPipeline.TextScreen(s + new Vector2(0, 12f * u), label, c, hot ? 0.6f : 0.5f);
         }
         MapPipeline.PickName = null;
+    }
+
+    /// <summary>The rock selected on the map (clicked), or null.</summary>
+    public static string SelectedRock;
+
+    /// <summary>A rock's trajectory: one revolution of its own orbit about its host, from where it is now (a path: solid).</summary>
+    static void RoidPath(Func<Vector3D, Vector3D> W, Func<Vector3D, Vector3D> toLocal, SystemRegistry reg, double t, SectorHomes.Home home, ColorSRGB col)
+    {
+        Vector3D p0 = SectorHomes.Where(home, reg, t, out Vector3D c0);
+        var host = reg.Find(home.Host) ?? reg.Root;
+        double r = (p0 - c0).Length();
+        if (host == null || !(r > 0) || !(host.Mu > 0)) return;
+        double T = 2 * Math.PI * Math.Sqrt(r * r * r / host.Mu);
+        // (about the host where it is now: the path the rock draws round it, as the planets' orbits are drawn)
+        Curve(q => { var p = SectorHomes.Where(home, reg, t + T * q, out var cq); return toLocal(c0 + (p - cq)); }, W, 0, 1, 128, col, 1.6f);
     }
 
     /// <summary>Lagrange zones on screen (name, outline), for double-click: this frame's and last frame's.</summary>

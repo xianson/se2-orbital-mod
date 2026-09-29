@@ -53,6 +53,8 @@ public static class AsteroidFrames
     public const double MaterializeRange = 50000.0;
     /// <summary>...and taken away this long after neither holds (s).</summary>
     public const double LeaveSeconds = 20.0;
+    /// <summary>At most this many asteroids within range have their rocks out (besides the one you are in).</summary>
+    public const int MaxNearVolumes = 2;
     /// <summary>The volumes' half-sizes (m): a rock (a few boulders), a cluster.</summary>
     public static readonly Vector3D RockRadii = new Vector3D(1500, 1000, 1500), ClusterRadii = new Vector3D(2600, 1600, 2600);
     /// <summary>Density of a reserved composition (entities per km^3): above the generator's sample rate, so every sample in a volume spawns.</summary>
@@ -157,13 +159,20 @@ public static class AsteroidFrames
         foreach (var belt in belts)
         {
             ulong seed = Hash(belt.Sector);
+            // Never on a planet's border: a planet's belt (its ring) keeps its asteroids outside the planet's
+            // keep radius (where frames hand over to its space and back), with a margin.
+            double inner = belt.Inner, outer = belt.Outer;
+            var hostDef = reg.FindDefinition(belt.Host);
+            if (hostDef != null && reg.Find(belt.Host) is GravityBody hb && !hb.IsRoot)
+                inner = Math.Max(inner, PlanetBerths.KeepRadius(hostDef) * 1.1);
+            if (!(outer > inner)) { Event($"{belt.Sector}: the whole band is on {belt.Host}'s border: no asteroids"); continue; }
             int n = MinPerBelt + (int)(Next(ref seed) % (ulong)(MaxPerBelt - MinPerBelt + 1));
             double half = BeltHalfThickness(belt);
             int rocks = 0, clusters = 0;
             for (int i = 0; i < n; i++)
             {
                 bool cluster = Unit(ref seed) < ClusterShare;
-                double r = belt.Inner + (belt.Outer - belt.Inner) * (0.08 + 0.84 * Unit(ref seed));
+                double r = inner + (outer - inner) * (0.08 + 0.84 * Unit(ref seed));
                 double phase = 2 * Math.PI * (i + 0.8 * (Unit(ref seed) - 0.5)) / n + (belt.Phase);
                 double inc = Math.Atan2(half, r) * (2 * Unit(ref seed) - 1);
                 double node = 2 * Math.PI * Unit(ref seed);
@@ -285,19 +294,28 @@ public static class AsteroidFrames
         List<Roid> roids;
         lock (_gate) roids = new List<Roid>(_roids);
         int live = 0;
+        // Which ones are wanted: forced, the one you are in, and of those within range only the nearest few
+        // (every rock volume out samples the generator's sectors; a whole ring's worth was out at once).
+        var inRange = new List<(Roid r, double d)>();
+        var inIt = new HashSet<Roid>();
         foreach (var r in roids)
         {
             var f = SystemHost.Frames.Get(r.FrameId);
-            bool wanted = r.Forced;
-            if (f != null && !wanted)
+            if (f == null) continue;
+            if (EncounterFrames.HasNonNpc(f)) { inIt.Add(r); continue; }   // you (or your grid) are in it
+            if (havePs && pf != f && pf.ParentBodyName == f.ParentBodyName)
             {
-                if (EncounterFrames.HasNonNpc(f)) wanted = true;   // you (or your grid) are in it
-                else if (havePs && pf != f && pf.ParentBodyName == f.ParentBodyName)
-                {
-                    var rs = OrbitPropagation.StateAt(f.Elements, t);
-                    wanted = IsFinite(rs.Position) && (rs.Position - ps.Position).Length() < MaterializeRange;
-                }
+                var rs = OrbitPropagation.StateAt(f.Elements, t);
+                double d = IsFinite(rs.Position) ? (rs.Position - ps.Position).Length() : double.MaxValue;
+                if (d < MaterializeRange) inRange.Add((r, d));
             }
+        }
+        inRange.Sort((x, y) => x.d.CompareTo(y.d));
+        var allowed = new HashSet<Roid>(inIt);
+        for (int i = 0; i < inRange.Count && i < MaxNearVolumes; i++) allowed.Add(inRange[i].r);
+        foreach (var r in roids)
+        {
+            bool wanted = r.Forced || allowed.Contains(r);
             if (wanted) r.LastWanted = now;
             try
             {
@@ -361,7 +379,9 @@ public static class AsteroidFrames
         var e = spawner.SpawnEntity(eob);
         if (e == null) { Warn("spawn " + r.Label, $"{r.Label}: the volume did not spawn"); return; }
         r.Volume = e; r.Comp = comp; r.VolumeSince = now; r.Missing = 0; r.Rocks = 0;
-        _refreshAt = now + 1.5;   // (rebuild the generator's sectors once it is registered)
+        // You are already there (you jumped in): the generator built the sectors round you without it, so they
+        // are rebuilt once it is registered. Approaching normally, it is out long before you arrive.
+        if (ServerPlanetBeacon.PlayerState(out Vector3D pp, out _) && (pp - r.Berth).Length() < 5000) _refreshAt = now + 1.5;
         var vol = e.TryGet<ProceduralVolumeComponent>()?.ProceduralVolume;
         lock (_gate) _owned.Add(new Owned { E = e, Name = r.Name, Vol = vol, C = r.Berth, R = MaxRadius(r.Radii) + ProtectMargin });
         Event($"ROCKS out: {r.Label} (frame #{r.FrameId}) at {ServerPlanetBeacon.Fmt(r.Berth)}, {(r.Cluster ? "cluster" : "rock")} volume {r.Radii.X / 1000:F1}x{r.Radii.Y / 1000:F1} km, {Name(comp)}");

@@ -123,7 +123,7 @@ namespace SEAerospace
         /// atmosphere — you fly toward the planet seeing its full-quality proxy almost all the
         /// way in, and the real voxel materializes only when you're about to enter the
         /// atmosphere (in-game retune, 2026-06-11; the old shell was the whole planet envelope).</summary>
-        public const double ShellAtmosphereMult = 2.0;
+        public const double ShellAtmosphereMult = 1.35;   // just above the air (atmosphere 15% of the radius: ~12 km at Verdure)
 
         /// <summary>Airless-body shell clearance as a fraction of the radius — a STAND-IN for
         /// ~2× a typical voxel hill height. <see cref="BodyDefinition"/> carries no hill data

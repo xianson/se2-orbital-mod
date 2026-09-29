@@ -48,9 +48,6 @@ public static class ServerFrames
         return true;
     }
 
-    /// <summary>Frames whose static anchor the game would not move (they keep their centre).</summary>
-    private static readonly HashSet<long> _uncentrable = new HashSet<long>();
-
     /// <summary>The warp each member's velocity was last scaled for.</summary>
     private static readonly Dictionary<long, double> _gridN = new Dictionary<long, double>();
 
@@ -466,34 +463,20 @@ public static class ServerFrames
                 f.AnchorEntityId = sid;
                 AnchorAccel.Remove(f.Id);   // no one folds thrust into a static anchor's frame
             }
-            // The frame is the base's now: its centre moves onto the base (everything shifts by the
-            // same amount, so nothing moves relative to anything) and its orbit becomes the base's.
-            // (An asteroid cannot be moved: its frame keeps its centre, the offset carried instead.)
+            // The frame is the anchor's: its centre moves onto the anchor and its orbit becomes the anchor's.
+            // Nothing in the world moves (moving a static grid off its rock made the game turn it dynamic,
+            // and an asteroid cannot move at all): only the frame's reference point does.
             Vector3D off = staticPos - f.BerthCenter;
-            if (sid != AsteroidAnchorId && off.Length() > PinTolerance && !_uncentrable.Contains(f.Id))
+            if (off.Length() > PinTolerance)
             {
                 double tn = SystemHost.Now;
                 StateVector c0 = OrbitPropagation.StateAt(f.Elements, tn);
                 var el = CaptureMath.CaptureElements(new StateVector(c0.Position + off, c0.Velocity), f.Elements.Mu, tn);
-                var ag = GridMembers.Get(sid);
-                // The base first: only once it is really at the centre do the orbit and the rest follow
-                // (a static grid the game would not move must not re-shift the orbit every tick).
-                if (ag != null && IsFinite(el.SemiMajorAxis) && IsFinite(el.MeanMotion)
-                    && GridMembers.SetPosition(ag, staticPos - off) && (GridMembers.Position(ag) - f.BerthCenter).Length() < 1.0)
+                if (IsFinite(el.SemiMajorAxis) && IsFinite(el.MeanMotion))
                 {
                     f.Elements = el;
-                    foreach (long m in f.Members)
-                        if (m != sid && GridMembers.IsGridId(m) && GridMembers.Get(m) is OrbitalGridComponent mg && mg.IsServer)
-                            GridMembers.SetPosition(mg, GridMembers.Position(mg) - off);
-                    FrameHost.RequestShift(f.Id, -off);
-                    staticPos = f.BerthCenter;
-                    Event($"frame #{f.Id}: centred on its static anchor (shifted {off.Length() / 1000:F2} km; its orbit is the anchor's)");
-                }
-                else
-                {
-                    if (ag != null) GridMembers.SetPosition(ag, staticPos);   // put it back if it moved partly
-                    _uncentrable.Add(f.Id);
-                    Event($"frame #{f.Id}: its static anchor would not move; the frame keeps its centre (offset {off.Length() / 1000:F2} km)");
+                    f.BerthCenter = staticPos;
+                    Event($"frame #{f.Id}: centred on its static anchor ({off.Length() / 1000:F2} km; its orbit is the anchor's)");
                 }
             }
         }
@@ -502,6 +485,14 @@ public static class ServerFrames
             // The static anchor (or a grid anchor) is gone: the player anchors again if nothing else can.
             if (grids.Count == 0 && f.HasMember(FrameHost.PlayerId))
             {
+                // The centre moves back onto the player (with the player's orbit), as it moved onto the anchor.
+                if (ServerPlanetBeacon.PlayerState(out Vector3D pp, out Vector3D pv) && (pp - f.BerthCenter).Length() > PinTolerance)
+                {
+                    double tn = SystemHost.Now;
+                    StateVector c0 = OrbitPropagation.StateAt(f.Elements, tn);
+                    var el = CaptureMath.CaptureElements(new StateVector(c0.Position + (pp - f.BerthCenter), c0.Velocity + pv), f.Elements.Mu, tn);
+                    if (IsFinite(el.SemiMajorAxis) && IsFinite(el.MeanMotion)) { f.Elements = el; f.BerthCenter = pp; }
+                }
                 f.AnchorEntityId = FrameHost.PlayerId;
                 Event($"frame #{f.Id}: anchor -> the player");
             }
@@ -645,7 +636,14 @@ public static class ServerFrames
             Vector3D off = GridMembers.Position(g) - anchorPos;
             Vector3D vRel = GridMembers.Velocity(g);
             GridMembers.SetPosition(g, cell + chart.FromInertial(cel.Position + off));   // berth offsets are inertial
-            if (!GridMembers.IsDynamic(g)) continue;   // a static grid: placed, nothing to carry
+            if (!GridMembers.IsDynamic(g))
+            {
+                // A static grid keeps its orbit too (placed each tick along it, as a HighSpeed grid): dropped
+                // without its velocity it fell straight down (the game made it dynamic).
+                var sel = CaptureMath.CaptureElements(new StateVector(cel.Position + off, cel.Velocity), node.Mu, epoch);
+                if (IsFinite(sel.SemiMajorAxis)) _gridHighSpeed[g.Id] = (node.Name, sel);
+                continue;
+            }
             if (hs)
             {
                 GridMembers.SetVelocity(g, Vector3D.Zero);

@@ -198,6 +198,10 @@ public partial class ServerPlanetBeacon
     public static void AddRiderDv(Vector3D dv) { lock (_riderLock) _riderDv += dv; }
     public static void SetRiderVelocity(Vector3D v) { lock (_riderLock) { _riderVel = v; _riderDv = Vector3D.Zero; } }
 
+    /// <summary>The player's character on the server (position, velocity), as last seen by a beacon job.</summary>
+    private static Vector3D _playerPos, _playerVel; private static bool _playerSeen;
+    public static bool PlayerState(out Vector3D pos, out Vector3D vel) { pos = _playerPos; vel = _playerVel; return _playerSeen; }
+
     private static void ApplyPlayerRequest(ServerPlanetBeacon beacon)
     {
         Vector3D dv; Vector3D? vset;
@@ -214,6 +218,18 @@ public partial class ServerPlanetBeacon
                 if (!double.IsNaN(v.X + v.Y + v.Z)) ctx.Set(new RigidBodyData { LinearVelocity = (Vector3)v });
             }
         }
+        try
+        {
+            var pc = new List<Entity>();
+            var ss = beacon.Entity.GetSession();
+            if (ss != null && ss.TryFillAliveCharacters(pc) && pc.Count > 0)
+            {
+                _playerPos = pc[0].Data.GetWorldTransform().Position;
+                _playerVel = (Vector3D)pc[0].Data.Get<RigidBodyData>().LinearVelocity;
+                _playerSeen = true;
+            }
+        }
+        catch { }
         var req = System.Threading.Interlocked.Exchange(ref PendingPlayer, null);
         if (req == null) return;
         ApplyToCharacter(beacon.Entity.GetSession(), req, "server");

@@ -904,6 +904,7 @@ public static class DevHarness
         sb.AppendLine("roids " + AsteroidBridge.Status);
         sb.AppendLine("libration " + Maneuvers.LibStart + " | " + Maneuvers.LibDebug);
         sb.AppendLine(FrameHost.RiderDiag);
+        sb.AppendLine(OrbitDisplay.PredDiag);
         lock (AsteroidBridge.RingInfo) foreach (var ri in AsteroidBridge.RingInfo) sb.AppendLine("  ring " + ri);
         sb.AppendLine($"sun {SunDriver.Status}");
         try

@@ -260,6 +260,17 @@ public static class OrbitDisplay
             if (rc.Holding) { rc.Relative = new List<(double, double)> { rc.RelNow, rc.RelNow }; rc.RelVel = (0, 0); }
             rc.RelPeriod = anchorEl.IsElliptic && IsFinite(anchorEl.Period) ? anchorEl.Period : 3600;
             rc.AnchorName = AnchorName(frame);
+            // DEV check: where the plot said you would be 30 s later, against where you are.
+            if (_predList != null && t - _predT >= 30 && _predPeriod > 0)
+            {
+                double fi = (t - _predT) / _predPeriod * (_predList.Count - 1);
+                int i0 = Math.Min(_predList.Count - 2, (int)fi); double w = fi - i0;
+                double pa = _predList[i0].along * (1 - w) + _predList[i0 + 1].along * w, pr = _predList[i0].radial * (1 - w) + _predList[i0 + 1].radial * w;
+                double err = Math.Sqrt((pa - rc.RelNow.along) * (pa - rc.RelNow.along) + (pr - rc.RelNow.radial) * (pr - rc.RelNow.radial));
+                PredDiag = $"prediction after {t - _predT:F0} s: predicted ({pa:F0}, {pr:F0}) m, actual ({rc.RelNow.along:F0}, {rc.RelNow.radial:F0}) m, error {err:F0} m{(rc.Holding ? " (holding)" : "")}";
+                _predList = null;
+            }
+            if (_predList == null && !rc.Holding) { _predList = rc.Relative; _predT = t; _predPeriod = rc.RelPeriod; }
         }
         {
             // For the orbit disc and the direction markers: the orbit about the body in world axes.
@@ -315,6 +326,11 @@ public static class OrbitDisplay
         }
         catch { }
     }
+
+    /// <summary>DEV: the rendezvous prediction check.</summary>
+    public static string PredDiag = "-";
+    private static List<(double along, double radial)> _predList;
+    private static double _predT, _predPeriod;
 
     /// <summary>What anchors a frame, for the plot's title.</summary>
     static string AnchorName(SEAerospace.Frames.ProximityFrame f)

@@ -28,6 +28,8 @@ public static class AsteroidBridge
     /// <summary>The game's planetary rings (tori): centre (world), inner / outer radius and half-thickness (m).</summary>
     public static readonly List<(Vector3D C, double In, double Out, double Half)> Rings = new List<(Vector3D, double, double, double)>();
 
+    private static System.Reflection.MethodInfo _voxelQuery;
+
     /// <summary>The asteroids placed on purpose (encounters, players): world positions, refreshed every couple of seconds.</summary>
     public static readonly List<Vector3D> Asteroids = new List<Vector3D>();
 
@@ -118,9 +120,32 @@ public static class AsteroidBridge
                 if (!manual) ids.Add(kv.Key);
                 else try { kept.Add(kv.Value.Data.GetWorldTransform().Position); } catch { }   // an asteroid placed on purpose: a frame anchor
             }
+            // Every other voxel body that is not a planet (an encounter's rock, one spawned with a prefab,
+            // not through the generator): planets are the voxel bodies at a planet's centre.
+            try
+            {
+                // (Its base class is in VRage.Voxels, which scripts cannot reference: the query by reflection.)
+                if (_voxelQuery == null)
+                {
+                    Type vt = PlanetRenderBridge.FindType("Game2.Simulation", "Keen.Game2.Simulation.WorldObjects.Voxels.VoxelOperationsComponent");
+                    var gm = session.GetType().GetMethods().FirstOrDefault(m => m.Name == "GetEntitiesOfType" && m.IsGenericMethodDefinition && m.GetParameters().Length == 0);
+                    if (vt != null && gm != null) _voxelQuery = gm.MakeGenericMethod(vt);
+                }
+                var found = _voxelQuery?.Invoke(session, null) as System.Collections.IEnumerable;
+                if (found != null)
+                foreach (var o in found)
+                {
+                    if (!(o is Entity ve)) continue;
+                    Vector3D vp = ve.Data.GetWorldTransform().Position;
+                    bool planet = false;
+                    foreach (var b in SystemHost.BeaconOf.Values) if ((b.Center - vp).Length() < 5000) { planet = true; break; }
+                    if (!planet && !kept.Exists(k => (k - vp).Length() < 1.0)) kept.Add(vp);
+                }
+            }
+            catch { }
             lock (Asteroids) { Asteroids.Clear(); Asteroids.AddRange(kept); }
             foreach (var id in ids) { try { gen.DeleteEntity(id); _deleted++; } catch { } }
-            Status = $"asteroids blocked: {_orig.Count} volume definition(s) at no density, {_deleted} deleted, {RingInfo.Count} ring(s)";
+            Status = $"asteroids blocked: {_orig.Count} volume definition(s) at no density, {_deleted} deleted, {RingInfo.Count} ring(s), {Asteroids.Count} asteroid(s) as anchors";
         }
         catch (Exception e) { Status = "asteroid block failed: " + (e.InnerException ?? e).Message; }
     }

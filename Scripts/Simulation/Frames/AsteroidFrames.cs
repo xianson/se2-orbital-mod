@@ -101,7 +101,7 @@ public static class AsteroidFrames
     private static bool _built;
 
     /// <summary>Every volume of ours in the world (live or saved), refreshed each AsteroidBridge pass.</summary>
-    private sealed class Owned { public Entity E; public string Name; public IProceduralVolume Vol; public Vector3D C; public double R; public int Rocks; }
+    private sealed class Owned { public Entity E; public string Name; public IProceduralVolume Vol; public Vector3D C; public double R; }
     private static List<Owned> _owned = new List<Owned>();
 
     /// <summary>Reserved compositions: the definition and the density it came with.</summary>
@@ -308,7 +308,29 @@ public static class AsteroidFrames
             catch (Exception e) { Warn("vol " + r.Label, $"{r.Label}: {(e.InnerException ?? e).Message}"); }
             if (r.Volume != null) live++;
         }
+        CountRocks(gen, roids);
         Status = $"{roids.Count} asteroid frame(s), {live} with rocks out{(gen.IsActive ? "" : " (the game's asteroid generation is OFF: no rocks)")}";
+    }
+
+    /// <summary>
+    /// Rocks per live volume: the generator's bodies whose world box reaches within the volume's protect radius.
+    /// Counted here from the generator's own list, not in the bridge's pass: that pass only asked a body it had
+    /// not already kept as player-edited (and a pass that failed half-way counted nothing), and a voxel body's
+    /// position is its storage corner, not its middle.
+    /// </summary>
+    private static void CountRocks(ProceduralGeneratorSessionComponent gen, List<Roid> roids)
+    {
+        var live = roids.FindAll(r => r.Volume != null);
+        foreach (var r in live) r.Rocks = 0;
+        if (live.Count == 0) return;
+        foreach (var kv in gen.Entities)
+        {
+            BoundingBoxD b;
+            try { b = Keen.VRage.Core.Game.Data.BoundingBoxData.GetWorldAABB(kv.Value); }
+            catch { try { var p = kv.Value.Data.GetWorldTransform().Position; b = new BoundingBoxD(p, p); } catch { continue; } }
+            foreach (var r in live)
+                if (AsteroidBridge.BoxDistance(b, r.Berth) <= MaxRadius(r.Radii) + ProtectMargin) { r.Rocks++; break; }
+        }
     }
 
     private static void Materialize(Keen.VRage.Core.Game.Systems.Session session, ProceduralGeneratorSessionComponent gen, Roid r, double now)
@@ -491,8 +513,8 @@ public static class AsteroidFrames
                 // Just spawned and not listed yet: kept.
                 foreach (var o in _owned) if (!found.Exists(x => ReferenceEquals(x.E, o.E)) && _roids.Exists(r => ReferenceEquals(r.Volume, o.E) && Wall() - r.VolumeSince < 6)) found.Add(o);
                 _owned = found;
-                foreach (var r in _roids) r.Rocks = 0;
             }
+            foreach (var o in found) Undiscoverable(session, o.E);
         }
         catch (Exception e) { Warn("scan", "volume scan: " + (e.InnerException ?? e).Message); }
     }
@@ -527,19 +549,13 @@ public static class AsteroidFrames
         Warn("givenback " + Name(v), $"the game uses composition {Name(v)}: given back (asteroid volumes with it are put out again with another)");
     }
 
-    /// <summary>A generator body inside one of our volumes (a rock of an asteroid frame): kept, and counted.</summary>
-    public static bool Protects(Vector3D p, bool count = true)
+    /// <summary>A generator body inside one of our volumes (a rock of an asteroid frame): kept. (Counted in CountRocks.)</summary>
+    public static bool Protects(Vector3D p)
     {
         if (!Enabled) return false;
         lock (_gate)
             foreach (var o in _owned)
-                if ((p - o.C).Length() <= o.R)
-                {
-                    if (!count) return true;
-                    o.Rocks++;
-                    foreach (var r in _roids) if (ReferenceEquals(r.Volume, o.E)) r.Rocks++;
-                    return true;
-                }
+                if ((p - o.C).Length() <= o.R) return true;
         return false;
     }
 
@@ -549,7 +565,7 @@ public static class AsteroidFrames
         lock (_gate)
         {
             foreach (var kv in _reserved) SetDensity(kv.Key, kv.Value);
-            _reserved.Clear(); _beltComp.Clear(); _givenBack.Clear(); _owned.Clear(); _shared.Clear();
+            _reserved.Clear(); _beltComp.Clear(); _givenBack.Clear(); _owned.Clear(); _shared.Clear(); _hidden.Clear();
         }
     }
 
@@ -559,6 +575,42 @@ public static class AsteroidFrames
         Restore();
         lock (_gate) { _roids.Clear(); _byName.Clear(); }
         _built = false; Status = "not built";
+    }
+
+    // ───────────────────────────── discoveries ─────────────────────────────
+
+    private static FieldInfo _providers;
+    private static MethodInfo _providerRemoved;
+    private static readonly HashSet<Entity> _hidden = new HashSet<Entity>();
+
+    /// <summary>
+    /// A procedural volume is itself a discoverable (ProceduralVolumeComponent is an IDiscoverableProvider: the
+    /// game lists it under Discovered Objects, by its name, once you enter it). It is the volume, so it cannot be
+    /// taken off the prefab: instead the discovery system forgets it as it does when one leaves the scene
+    /// (DiscoveriesServerSessionComponent.ProviderRemoved: its entry for every player, the client's copy, the
+    /// proximity trigger). The same call runs again when the volume is deleted: every step of it tolerates that.
+    /// </summary>
+    private static void Undiscoverable(Keen.VRage.Core.Game.Systems.Session session, Entity e)
+    {
+        if (e == null) return;
+        lock (_gate) if (_hidden.Contains(e)) return;
+        try
+        {
+            var disc = session.SessionComponents.TryGet<Keen.Game2.Simulation.GameSystems.Discoveries.DiscoveriesServerSessionComponent>();
+            if (disc == null) return;
+            var t = typeof(Keen.Game2.Simulation.GameSystems.Discoveries.DiscoveriesServerSessionComponent);
+            _providers ??= t.GetField("_providerEntities", BindingFlags.Instance | BindingFlags.NonPublic);
+            _providerRemoved ??= t.GetMethod("ProviderRemoved", BindingFlags.Instance | BindingFlags.NonPublic, null, new[] { typeof(Entity) }, null);
+            if (_providers == null || _providerRemoved == null) { Warn("undiscover", "the discovery system's provider list was not found: our volumes stay listed as discoveries"); return; }
+            var pv = e.TryGet<ProceduralVolumeComponent>();
+            if (pv == null) return;
+            // Not registered yet (added to the scene later): the next scan catches it.
+            if (!(_providers.GetValue(disc) is System.Collections.IDictionary d) || !d.Contains(pv)) return;
+            _providerRemoved.Invoke(disc, new object[] { e });
+            lock (_gate) { _hidden.RemoveWhere(x => !_owned.Exists(o => ReferenceEquals(o.E, x))); _hidden.Add(e); }
+            Event($"volume '{pv.Name}' taken off the discoveries");
+        }
+        catch (Exception ex) { Warn("undiscover", "discoveries: " + (ex.InnerException ?? ex).Message); }
     }
 
     // ───────────────────────────── map ─────────────────────────────

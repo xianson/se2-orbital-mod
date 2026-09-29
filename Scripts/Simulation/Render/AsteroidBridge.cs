@@ -146,7 +146,7 @@ public static class AsteroidBridge
                     try
                     {
                         Vector3D ep = kv.Value.Data.GetWorldTransform().Position;
-                        if ((ep - dn.at).Length() <= dn.r && !AsteroidFrames.Protects(ep, count: false)) gone.Add(kv.Key);
+                        if ((ep - dn.at).Length() <= dn.r && !AsteroidFrames.Protects(ep)) gone.Add(kv.Key);
                     }
                     catch { }
                 }
@@ -159,10 +159,11 @@ public static class AsteroidBridge
             var boxes = new List<BoundingBoxD>();
             foreach (var kv in gen.Entities)
             {
-                bool manual = false;
-                try { manual = IsManual(kv.Value); } catch { }
                 // A rock of an asteroid frame's volume (AsteroidFrames): placed on purpose, an anchor like a manual one.
-                if (!manual) try { manual = AsteroidFrames.Protects(kv.Value.Data.GetWorldTransform().Position); } catch { }
+                // (By its box's middle: a voxel body's position is its storage corner.)
+                bool manual = false;
+                try { manual = AsteroidFrames.Protects(Keen.VRage.Core.Game.Data.BoundingBoxData.GetWorldAABB(kv.Value).Center); } catch { }
+                if (!manual) try { manual = IsManual(kv.Value); } catch { }
                 if (!manual) ids.Add(kv.Key);
                 else try { kept.Add(kv.Value.Data.GetWorldTransform().Position); boxes.Add(Keen.VRage.Core.Game.Data.BoundingBoxData.GetWorldAABB(kv.Value)); } catch { }   // an asteroid placed on purpose: a frame anchor
             }

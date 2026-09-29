@@ -183,6 +183,8 @@ public static class OrbitHud
         public string EventLabel;
         public double EventIn, MoonSoi;
         public bool Holding;   // dampeners on: station-keeping with the anchor
+        public int RelSamples;   // the prediction's samples over a full revolution (it may be cut short)
+        public bool RelLeaves;   // the prediction leaves the frame (cut at its boundary)
     }
 
     public static Readout Current;
@@ -460,10 +462,11 @@ public static class OrbitHud
         var path = new List<Vector2>(r.Relative.Count);
         foreach (var q in r.Relative) path.Add(P(q));
         MapStyle.Plan(path, false, Orbit, 1.5f * u, u);
-        int n = path.Count - 1;
+        int n = path.Count - 1, full = Math.Max(1, r.RelSamples - 1);
         for (int qd = 1; qd <= 3 && n >= 4; qd++)
         {
-            int i = n * qd / 4;
+            int i = full * qd / 4;
+            if (i > n) break;   // (cut short where it leaves the frame)
             MapPipeline.ScreenDisc(path[i], 2.2f * u, Orbit);
             MapPipeline.TextScreen(path[i] + new Vector2(0, -8f * u), "+" + Maneuvers.Clock(r.RelPeriod * qd / 4), HudPanel.Alpha(Orbit, 0.8f), 0.32f);
         }
@@ -477,6 +480,13 @@ public static class OrbitHud
                 MapPipeline.ScreenLine(path[i], path[i] - d * 6f * u + nrm * 3.5f * u, Orbit, 1.4f * u);
                 MapPipeline.ScreenLine(path[i], path[i] - d * 6f * u - nrm * 3.5f * u, Orbit, 1.4f * u);
             }
+        }
+        // Where the prediction leaves the frame: from there you are on your own orbit.
+        if (r.RelLeaves && path.Count > 0)
+        {
+            var ex = path[path.Count - 1];
+            MapPipeline.ScreenCircle(ex, 4f * u, orange, 1.6f * u);
+            MapPipeline.TextScreen(ex + new Vector2(0, 9f * u), "leaves frame", orange, 0.34f);
         }
         // The anchor (a square) and you (a dot with your relative velocity).
         MapPipeline.ScreenFill(new List<Vector2> { origin + new Vector2(-3.5f * u, -3.5f * u), origin + new Vector2(3.5f * u, -3.5f * u), origin + new Vector2(3.5f * u, 3.5f * u), origin + new Vector2(-3.5f * u, 3.5f * u) }, orange);

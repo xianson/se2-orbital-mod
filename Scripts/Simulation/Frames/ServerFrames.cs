@@ -33,8 +33,9 @@ public static class ServerFrames
     public const double AttachRadius = 5000.0;   // m: grids this close to a stowing player join its frame
     public const double PinTolerance = 200.0;    // m: re-pin the anchor grid (and shift the frame) past this
     public const double SlotRadius = 20000.0;    // m: SE1 FrameManager.SlotRadius (split threshold)
-    /// <summary>A static grid or asteroid captures a frame within this of it (and a rider leaves past it).</summary>
-    public const double CaptureRadius = 10000.0;
+    /// <summary>A static grid or asteroid captures a frame within CaptureEnterRadius of it, and a rider leaves
+    /// only past CaptureRadius (hysteresis: no flapping at the edge).</summary>
+    public const double CaptureRadius = 10000.0, CaptureEnterRadius = 8000.0;
 
     /// <summary>A frame's anchor is static (a static grid or an asteroid): its position, else false.</summary>
     public static bool StaticAnchorOf(ProximityFrame f, out Vector3D pos)
@@ -67,10 +68,11 @@ public static class ServerFrames
             if (!GridMembers.IsGridId(m)) continue;
             var g = GridMembers.Get(m);
             // Only where the frame is: a static member elsewhere (listed by an older rule) anchors nothing.
-            if (g != null && g.IsServer && !GridMembers.IsDynamic(g) && (GridMembers.Position(g) - f.BerthCenter).Length() <= CaptureRadius)
+            double reach = f.AnchorEntityId == m ? CaptureRadius : CaptureEnterRadius;   // hysteresis: in at 8 km, out at 10
+            if (g != null && g.IsServer && !GridMembers.IsDynamic(g) && (GridMembers.Position(g) - f.BerthCenter).Length() <= reach)
             { id = m; pos = GridMembers.Position(g); return true; }
         }
-        if (AsteroidBridge.NearestAsteroid(f.BerthCenter, CaptureRadius, out pos)) { id = AsteroidAnchorId; return true; }
+        if (AsteroidBridge.NearestAsteroid(f.BerthCenter, f.AnchorEntityId == AsteroidAnchorId ? CaptureRadius : CaptureEnterRadius, out pos)) { id = AsteroidAnchorId; return true; }
         return false;
     }
 

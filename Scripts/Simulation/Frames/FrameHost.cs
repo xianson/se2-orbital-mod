@@ -39,7 +39,7 @@ public static class FrameHost
     public const double MaxApparentAccel = 100.0;  // m/s² (SE1 FrameManager)
     public const double MaterializeLead = 15.0;    // s (SE1 MaterializeLeadSeconds)
     public const double PinTolerance = 50.0;       // m: re-pin the anchor to the berth beyond this drift
-    public const double SpeedCap = 290.0;          // m/s: SE2 world cap is 300
+    public const double SpeedCap = 990.0;          // m/s: the world cap, raised to 1000 (SpeedLimitInjector)
     public const double TeleportSettle = 3.0;      // s: give a teleport this long to land
 
     /// <summary>The frame the local observer renders from. Null = legacy space (no frame; literal world).</summary>

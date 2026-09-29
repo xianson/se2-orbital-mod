@@ -253,6 +253,14 @@ public static class OrbitDisplay
         {
             var rc = OrbitHud.Current;
             rc.Relative = Curvilinear(anchorEl, el, t, out rc.RelNow);
+            // Past the frame's boundary you leave it on your own orbit: the prediction stops there.
+            rc.RelSamples = rc.Relative.Count;
+            for (int i = 0; i < rc.Relative.Count; i++)
+            {
+                var q = rc.Relative[i];
+                if (Math.Sqrt(q.along * q.along + q.radial * q.radial) > ServerFrames.CaptureRadius)
+                { rc.Relative.RemoveRange(i + 1, rc.Relative.Count - i - 1); rc.RelLeaves = true; break; }
+            }
             Curvilinear(anchorEl, el, t + 1.0, out var ahead, samples: 0);
             rc.RelVel = (ahead.along - rc.RelNow.along, ahead.radial - rc.RelNow.radial);   // per second
             // Dampeners on: the jetpack keeps station with the anchor: you hold where you are.
@@ -263,14 +271,16 @@ public static class OrbitDisplay
             // DEV check: where the plot said you would be 30 s later, against where you are.
             if (_predList != null && t - _predT >= 30 && _predPeriod > 0)
             {
-                double fi = (t - _predT) / _predPeriod * (_predList.Count - 1);
+                double fi = (t - _predT) / _predPeriod * _predN;
+                if (fi > _predList.Count - 1) { _predList = null; goto predDone; }   // (past where it left the frame)
                 int i0 = Math.Min(_predList.Count - 2, (int)fi); double w = fi - i0;
                 double pa = _predList[i0].along * (1 - w) + _predList[i0 + 1].along * w, pr = _predList[i0].radial * (1 - w) + _predList[i0 + 1].radial * w;
                 double err = Math.Sqrt((pa - rc.RelNow.along) * (pa - rc.RelNow.along) + (pr - rc.RelNow.radial) * (pr - rc.RelNow.radial));
                 PredDiag = $"prediction after {t - _predT:F0} s: predicted ({pa:F0}, {pr:F0}) m, actual ({rc.RelNow.along:F0}, {rc.RelNow.radial:F0}) m, error {err:F0} m{(rc.Holding ? " (holding)" : "")}";
                 _predList = null;
             }
-            if (_predList == null && !rc.Holding) { _predList = rc.Relative; _predT = t; _predPeriod = rc.RelPeriod; }
+            predDone:
+            if (_predList == null && !rc.Holding && rc.Relative.Count > 1) { _predList = rc.Relative; _predT = t; _predPeriod = rc.RelPeriod; _predN = Math.Max(1, rc.RelSamples - 1); }
         }
         {
             // For the orbit disc and the direction markers: the orbit about the body in world axes.
@@ -331,6 +341,7 @@ public static class OrbitDisplay
     public static string PredDiag = "-";
     private static List<(double along, double radial)> _predList;
     private static double _predT, _predPeriod;
+    private static int _predN = 160;
 
     /// <summary>What anchors a frame, for the plot's title.</summary>
     static string AnchorName(SEAerospace.Frames.ProximityFrame f)

@@ -675,6 +675,18 @@ public static class DevHarness
                 return sb.ToString();
             }
 
+            case "mapring":   // mapring on|off | look <dim> [hue sat tint] | depth <v> | spec <a> [fresnel] | mesh on|off
+            {
+                string w = a.Length > 1 ? a[1] : "";
+                if (w == "spec") { MapRingMesh.SpecA = float.Parse(a[2]); if (a.Length > 3) MapRingMesh.Fresnel = float.Parse(a[3]); MapRingMesh.Reset(); }
+                else if (w == "look") { MapRingMesh.Dim = float.Parse(a[2]); if (a.Length > 3) MapRingMesh.Hue = float.Parse(a[3]); if (a.Length > 4) MapRingMesh.Sat = float.Parse(a[4]); if (a.Length > 5) MapRingMesh.Tint = float.Parse(a[5]); MapRingMesh.Reset(); }
+                else if (w == "depth") { MapRingMesh.Depth = float.Parse(a[2]); MapRingMesh.Reset(); }
+                else if (w == "mesh") { MapRingMesh.Enabled = On(a[2]); MapRingMesh.Reset(); }
+                else if (w.Length > 0) PlanetRings.MapRings = On(w);
+                PlanetRings.Reset();   // rebuilt on the next map frame
+                return MapRingMesh.Status + $" | map rings {PlanetRings.MapRings} look dim {MapRingMesh.Dim} hue {MapRingMesh.Hue} sat {MapRingMesh.Sat}";
+            }
+
             case "selrock":   // selrock <rock label> | selrock off (as a click on its map marker)
                 CleanMap.SelectedRock = a[1] == "off" ? null : string.Join(" ", a, 1, a.Length - 1);
                 return "selected rock " + (CleanMap.SelectedRock ?? "none");

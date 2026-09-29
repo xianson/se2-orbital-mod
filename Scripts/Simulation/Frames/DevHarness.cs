@@ -714,6 +714,18 @@ public static class DevHarness
                 // kick <prograde m/s> [radial] [normal]  (HighSpeed only)
                 return FrameHost.Kick(D(a[1]), a.Length > 2 ? D(a[2]) : 0, a.Length > 3 ? D(a[3]) : 0);
 
+            case "devrider":
+            {
+                // devrider on <dxKm> [dyKm dzKm] | off: ride your own frame about its centre, placed this far from it.
+                FrameHost.DevRider = On(a[1]);
+                if (!FrameHost.DevRider) return "devrider off";
+                var pf = FrameHost.PlayerFrame;
+                if (pf == null) return "not in a frame";
+                var off = new Vector3D(a.Length > 2 ? D(a[2]) * 1000 : 5000, a.Length > 3 ? D(a[3]) * 1000 : 0, a.Length > 4 ? D(a[4]) * 1000 : 0);
+                Teleport(session, pf.BerthCenter + off, null, camera.Orientation);
+                return $"devrider on: {off.Length() / 1000:F1} km from frame #{pf.Id}'s centre";
+            }
+
             case "gridorbit":
             {
                 // gridorbit <gridId> <planet> <apoAltKm> <periAltKm> [incDeg] [phaseDeg]

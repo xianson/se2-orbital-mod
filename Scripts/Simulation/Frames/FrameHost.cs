@@ -280,7 +280,7 @@ public static class FrameHost
     private static void UpdatePlayerFrame(Keen.VRage.Core.Game.Systems.Session session, Entity ch, ProximityFrame f,
                                           Vector3D pos, Vector3D vel, double t, double dt)
     {
-        if (f.AnchorEntityId != _playerId || f.IsEncounter)
+        if (f.AnchorEntityId != _playerId || f.IsEncounter || DevRider)
         {
             UpdateRider(session, ch, f, pos, vel, t, dt);
             return;
@@ -324,6 +324,19 @@ public static class FrameHost
         // Warp N: the rails run N times faster than real time, so relative motion must too. Forces scale by
         // N^2 (velocities come out N times the true ones, covering N times the ground per real second); on a
         // change of warp the velocity is rescaled so the motion carries on; readouts divide by N.
+        // Physics warp limit (as KSP's): relative motion in warp needs N times the true speed, which must stay
+        // under the world's speed cap (1000 m/s): riding free (dampeners off), warp is held to N x |v_rel| <= 900
+        // m/s and x25 at most. (x10 is exact: 2 m off over 30 s; past the cap the motion was lost.)
+        if (SystemHost.Timescale > 1.0 && !Dampeners && _riderN > 0)
+        {
+            double vTrue = vel.Length() / _riderN;
+            double nMax = Math.Min(MaxRiderWarp, RiderWarpSpeed / Math.Max(1.0, vTrue));
+            if (SystemHost.Timescale > nMax)
+            {
+                SystemHost.Timescale = Math.Max(1.0, Math.Floor(nMax));
+                RiderWarpLimit = $"warp held to x{SystemHost.Timescale:F0}: relative motion at {vTrue:F0} m/s";
+            }
+        }
         double N = Math.Max(1.0, SystemHost.Timescale);
         if (_riderN > 0 && Math.Abs(N - _riderN) > 1e-9 && _riderFrame == f.Id)
         {
@@ -345,7 +358,7 @@ public static class FrameHost
         catch { AtAnchor = false; }
         // Dampeners: the game's own (they fight these forces as they fight gravity: on, you hold station).
         try { Dampeners = ch.Data.Has<Keen.Game2.Simulation.WorldObjects.Movement.DampeningData>(); } catch { }
-        Vector3D A = ServerFrames.AnchorAccel.TryGetValue(f.Id, out var a) ? a : Vector3D.Zero;
+        Vector3D A = !DevRider && ServerFrames.AnchorAccel.TryGetValue(f.Id, out var a) ? a : Vector3D.Zero;
         StateVector cur = OrbitPropagation.StateAt(f.Elements, t);
         Vector3D rRel = pos - f.BerthCenter;   // the anchor is pinned at the berth
         double mu = f.Elements.Mu;
@@ -365,8 +378,10 @@ public static class FrameHost
                 Vector3D meas = (vel / N - _diagVel) / ((t - _diagT) > 0 ? (t - _diagT) : 1);
                 Vector3D model = 0.5 * (acc + _diagAcc);
                 double ratio = model.LengthSquared() > 1e-12 ? Vector3D.Dot(meas, model) / model.LengthSquared() : double.NaN;
-                RiderDiag = $"rider: |a| model {model.Length():F3} measured {meas.Length():F3} m/s2, along-model ratio {ratio:F2}, warp x{N:F0}, off {rRel.Length() / 1000:F2} km";
+                RiderDiag = $"rider: |a| model {model.Length():F3} measured {meas.Length():F3} m/s2, along-model ratio {ratio:F2}, warp x{N:F0}, off {rRel.Length() / 1000:F2} km, world |v| {vel.Length():F0} m/s, dv/tick {acc.Length() * dt * N * N:F1} m/s, ticks/s {_diagTicks:F0}";
+                _diagTicks = 0;
             }
+            _diagTicks++;
             if (_diagWall <= 0 || wall - _diagWall >= 1.0) { _diagWall = wall; _diagVel = vel / N; _diagT = t; _diagAcc = acc; }
         }
         if (IsFinite(acc) && acc.LengthSquared() > 1e-12)
@@ -389,7 +404,14 @@ public static class FrameHost
 
     /// <summary>DEV: the rider force check (measured vs model relative acceleration).</summary>
     public static string RiderDiag = "-";
-    private static double _diagWall, _diagT; private static Vector3D _diagVel, _diagAcc;
+    private static double _diagWall, _diagT, _diagTicks; private static Vector3D _diagVel, _diagAcc;
+
+    /// <summary>Riding free, warp is held so relative motion (N x its true speed) stays under the world cap.</summary>
+    public const double MaxRiderWarp = 25, RiderWarpSpeed = 900;
+    public static string RiderWarpLimit;
+
+    /// <summary>DEV: ride your own frame (its centre a virtual fixed anchor), to test relative motion.</summary>
+    public static bool DevRider;
 
     /// <summary>Riding, at the anchor itself (within 100 m of its bounding box): no rendezvous plot.</summary>
     public static bool AtAnchor;

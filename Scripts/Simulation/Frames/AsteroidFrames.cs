@@ -42,7 +42,7 @@ namespace OrbitalMod;
 public static class AsteroidFrames
 {
     /// <summary>Off by default: not yet run in the game (see "roids on" in the harness).</summary>
-    public static bool Enabled = false;
+    public static bool Enabled = true;   // verified in game: rocks come out at an Oblivara cluster
     public static string Status = "not built";
 
     public const int MinPerBelt = 12, MaxPerBelt = 20;
@@ -108,6 +108,10 @@ public static class AsteroidFrames
     private static readonly Dictionary<VolumeDefinition, float> _reserved = new Dictionary<VolumeDefinition, float>();
     private static readonly Dictionary<string, VolumeDefinition> _beltComp = new Dictionary<string, VolumeDefinition>();
     private static readonly HashSet<VolumeDefinition> _givenBack = new HashSet<VolumeDefinition>();
+    /// <summary>Compositions shared with the game's own volumes: a density only while ours are out.</summary>
+    private static readonly HashSet<VolumeDefinition> _shared = new HashSet<VolumeDefinition>();
+    private static double _refreshAt;
+    public static string Diag = "-";
 
     private static readonly ConcurrentQueue<(int index, bool on)> _force = new ConcurrentQueue<(int, bool)>();
     private static readonly HashSet<string> _warned = new HashSet<string>();
@@ -235,6 +239,45 @@ public static class AsteroidFrames
         var gen = AsteroidBridge.Generator(session);
         if (gen == null) { Status = "no generator"; return; }
         Reconcile(session, gen, now);
+        // A volume put out where the generator already built its sectors (you jumped straight in) is only
+        // sampled when they are built again: rebuild them once it is registered (as the game does when it
+        // places a manual volume: Deactivate, then its triggers again).
+        if (_refreshAt > 0 && now >= _refreshAt)
+        {
+            _refreshAt = 0;
+            try
+            {
+                var gt = gen.GetType();
+                var de = gt.GetMethod("Deactivate", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public, null, new[] { typeof(bool) }, null);
+                var ct = gt.GetMethod("CreateTriggers", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public, null, Type.EmptyTypes, null);
+                if (de != null && ct != null && gen.IsActive) { de.Invoke(gen, new object[] { false }); ct.Invoke(gen, null); Event("generator sectors rebuilt (a volume of ours is out)"); }
+                else Warn("refresh", "generator sector rebuild not found");
+            }
+            catch (Exception ex) { Warn("refresh", "generator sector rebuild failed: " + (ex.InnerException ?? ex).Message); }
+        }
+
+        // DEV: what the generator makes of the first live volume of ours.
+        try
+        {
+            Roid lv = null; lock (_gate) lv = _roids.Find(x => x.Volume != null);
+            if (lv != null)
+            {
+                int manual = 0, near = 0;
+                var bb = new BoundingBoxD(lv.Berth - new Vector3D(3000, 3000, 3000), lv.Berth + new Vector3D(3000, 3000, 3000));
+                using (var qb = new Buffer<IProceduralVolume>(Allocator.Pool, "OrbitalRoidsDiag"))
+                {
+                    gen.QueryManualVolumes(in bb, qb);
+                    var qe = ((BufferReference<IProceduralVolume>)qb).GetEnumerator();
+                    while (qe.MoveNext()) manual++;
+                    qe.Dispose();
+                }
+                foreach (var kv in gen.Entities) { try { if ((kv.Value.Data.GetWorldTransform().Position - lv.Berth).Length() < 10000) near++; } catch { } }
+                object samples = gen.GetType().GetProperty("MaxSectorSpawnSamples", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(gen);
+                double pd = FrameHost.PlayerId != 0 && ServerPlanetBeacon.PlayerState(out Vector3D pp, out _) ? (pp - lv.Berth).Length() : double.NaN;
+                Diag = $"diag {lv.Label}: generator lists {manual} manual volume(s) at its berth; {near} generator bod(ies) within 10 km; spawn samples {samples}; active {gen.IsActive}; comp density {lv.Comp?.Density}; player {pd / 1000:F1} km from it";
+            }
+        }
+        catch (Exception ex) { Diag = "diag failed: " + ex.Message; }
 
         var pf = FrameHost.PlayerId != 0 ? SystemHost.Frames.FindByMember(FrameHost.PlayerId) : null;
         StateVector ps = default; bool havePs = false;
@@ -271,6 +314,7 @@ public static class AsteroidFrames
     private static void Materialize(Keen.VRage.Core.Game.Systems.Session session, ProceduralGeneratorSessionComponent gen, Roid r, double now)
     {
         var comp = CompositionFor(session, gen, r.Belt);
+        if (comp != null && _shared.Contains(comp)) SetDensity(comp, RockDensity);   // (a shared one is on only while ours are out)
         if (comp == null) return;
         var spawner = Spawner(gen);
         if (spawner == null) { Warn("spawner", "the generator's entity spawner was not found"); return; }
@@ -295,6 +339,7 @@ public static class AsteroidFrames
         var e = spawner.SpawnEntity(eob);
         if (e == null) { Warn("spawn " + r.Label, $"{r.Label}: the volume did not spawn"); return; }
         r.Volume = e; r.Comp = comp; r.VolumeSince = now; r.Missing = 0; r.Rocks = 0;
+        _refreshAt = now + 1.5;   // (rebuild the generator's sectors once it is registered)
         var vol = e.TryGet<ProceduralVolumeComponent>()?.ProceduralVolume;
         lock (_gate) _owned.Add(new Owned { E = e, Name = r.Name, Vol = vol, C = r.Berth, R = MaxRadius(r.Radii) + ProtectMargin });
         Event($"ROCKS out: {r.Label} (frame #{r.FrameId}) at {ServerPlanetBeacon.Fmt(r.Berth)}, {(r.Cluster ? "cluster" : "rock")} volume {r.Radii.X / 1000:F1}x{r.Radii.Y / 1000:F1} km, {Name(comp)}");
@@ -354,16 +399,31 @@ public static class AsteroidFrames
     {
         if (_beltComp.TryGetValue(belt, out var have) && !_givenBack.Contains(have)) return have;
         var used = UsedByGame(session, gen);
+        var why = new System.Text.StringBuilder();
         foreach (var (name, id) in Preference(belt))
         {
-            if (!DefinitionManager.Instance.TryGetDefinition(id, out VolumeDefinition v) || v == null || v.Entities.Length == 0) continue;
-            if (used.Contains(v) || _givenBack.Contains(v)) continue;
+            if (!DefinitionManager.Instance.TryGetDefinition(id, out VolumeDefinition v) || v == null) { why.Append($" {name}: not loaded;"); continue; }
+            if (v.Entities.Length == 0) { why.Append($" {name}: empty;"); continue; }
+            if (used.Contains(v)) { why.Append($" {name}: used by the world;"); continue; }
+            if (_givenBack.Contains(v)) { why.Append($" {name}: given back;"); continue; }
             if (!Reserve(v)) return null;
             _beltComp[belt] = v;
             Event($"{belt}: composition {name} (reserved, density {RockDensity}/km3)");
             return v;
         }
-        Warn("comp " + belt, $"{belt}: no composition the world leaves unused; no rocks");
+        // None unused: SHARE the belt's first choice. The game's own volumes use it too (zeroed by the bridge),
+        // so it has a density only while one of our volumes is out, i.e. only while you are at an asteroid;
+        // any rock their volumes spawn meanwhile is outside ours and the bridge deletes it.
+        foreach (var (name, id) in Preference(belt))
+        {
+            if (!DefinitionManager.Instance.TryGetDefinition(id, out VolumeDefinition v) || v == null || v.Entities.Length == 0) continue;
+            if (!Reserve(v)) return null;
+            lock (_gate) _shared.Add(v);
+            _beltComp[belt] = v;
+            Event($"{belt}: composition {name} SHARED with the game's volumes (a density only while at an asteroid;{why})");
+            return v;
+        }
+        Warn("comp " + belt, $"{belt}: no composition at all; no rocks ({why.ToString().Trim()})");
         return null;
     }
 
@@ -449,7 +509,9 @@ public static class AsteroidFrames
     public static bool IsReserved(VolumeDefinition v)
     {
         if (!Enabled || v == null) return false;
-        lock (_gate) return _reserved.ContainsKey(v) && !_givenBack.Contains(v);
+        lock (_gate)
+            return _reserved.ContainsKey(v) && !_givenBack.Contains(v)
+                   && (!_shared.Contains(v) || _roids.Exists(r => ReferenceEquals(r.Comp, v) && (r.Volume != null || Wall() - r.LastWanted < 30)));   // a shared one: only while ours are (being) put out
     }
 
     /// <summary>The game uses a composition we reserved (one of its own volumes has it): it is the game's again.</summary>
@@ -458,6 +520,7 @@ public static class AsteroidFrames
         if (!IsReserved(v)) return;
         lock (_gate)
         {
+            if (_shared.Contains(v)) return;   // (shared by choice: the game's volumes are zeroed by the bridge meanwhile)
             _givenBack.Add(v);
             if (_reserved.TryGetValue(v, out float d0)) SetDensity(v, d0);
         }
@@ -486,7 +549,7 @@ public static class AsteroidFrames
         lock (_gate)
         {
             foreach (var kv in _reserved) SetDensity(kv.Key, kv.Value);
-            _reserved.Clear(); _beltComp.Clear(); _givenBack.Clear(); _owned.Clear();
+            _reserved.Clear(); _beltComp.Clear(); _givenBack.Clear(); _owned.Clear(); _shared.Clear();
         }
     }
 
@@ -531,6 +594,7 @@ public static class AsteroidFrames
                         _beltComp.TryGetValue(g.Key, out var comp);
                         sb.Append($"\n  {g.Key}: {g.Count(r => !r.Cluster)} rock(s), {g.Count(r => r.Cluster)} cluster(s), composition {(comp != null ? Name(comp) : "-")}");
                     }
+                    sb.Append("\n  " + Diag);
                     sb.Append($"\n  volumes of ours in the world: {_owned.Count}; reserved compositions: {string.Join(", ", _reserved.Keys.Select(Name))}{(_givenBack.Count > 0 ? $"; given back: {string.Join(", ", _givenBack.Select(Name))}" : "")}");
                     foreach (var r in _roids)
                         if (sub == "list" || r.Volume != null || r.Forced)

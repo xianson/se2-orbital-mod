@@ -374,7 +374,7 @@ public static class OrbitHud
         // Panel.
         var box = new List<Vector2> { new Vector2(c.X - R, c.Y - R), new Vector2(c.X + R, c.Y - R), new Vector2(c.X + R, c.Y + R), new Vector2(c.X - R, c.Y + R) };
         MapPipeline.ScreenFill(box, new ColorSRGB(0.02f, 0.04f, 0.06f, 0.45f));
-        MapPipeline.ScreenPath(box, true, new ColorSRGB(0.9f, 0.95f, 1f, 0.55f), 1.2f * u);
+        for (int i = 0; i < 4; i++) MapPipeline.ScreenLine(box[i], box[(i + 1) % 4], new ColorSRGB(0.9f, 0.95f, 1f, 0.55f), 1.2f * u);   // straight sides (a smoothed path rounded it)
         // Axes from the anchor: -V (behind) right, +R (down, toward the planet).
         var ax = HudPanel.Alpha(new ColorSRGB(1f, 1f, 1f, 1f), 0.45f);
         MapPipeline.ScreenLine(o, new Vector2(c.X + R - pad, o.Y), ax, 1f * u);

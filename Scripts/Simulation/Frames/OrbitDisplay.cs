@@ -212,6 +212,13 @@ public static class OrbitDisplay
                                        fc.Velocity + SEAerospace.PlanetBerths.SpinToCelestial(obs, FrameHost.RiderVelocity));
             var own = CaptureMath.CaptureElements(mine, el.Mu, t);
             if (IsFinite(own.SemiMajorAxis)) { el = own; riding = true; }
+            // A static anchor (a station, an asteroid) sits where it is in the frame, not at its centre:
+            // the plot is about it, so its own orbit is the frame's plus its offset.
+            if (ServerFrames.StaticAnchorOf(frame, out Vector3D anchorAt))
+            {
+                var ae = CaptureMath.CaptureElements(new StateVector(fc.Position + SEAerospace.PlanetBerths.SpinToCelestial(obs, anchorAt - frame.BerthCenter), fc.Velocity), anchorEl.Mu, t);
+                if (IsFinite(ae.SemiMajorAxis)) anchorEl = ae;
+            }
         }
         OrbitPath path = OrbitSampler.SamplePath(el, PathPoints, parent.SoiRadius);
         // The orbit itself is drawn by the HUD (OrbitHud.DrawPath: a smooth screen curve, behind the

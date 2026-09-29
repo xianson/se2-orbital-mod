@@ -584,6 +584,23 @@ public static class EncounterFrames
             foreach (var o in GridMembers.All())
                 if (o.IsServer && SystemHost.Frames.FindByMember(o.Id) == null && (GridMembers.Position(o) - pos).Length() <= ClusterRadius
                     && IsEncounterGrid(o) && !GridMembers.IsDynamic(o)) { anchored = true; break; }
+            // Never on a planet's border: a frame orbiting low about a planet (periapsis under its keep
+            // radius, where frames hand over to the planet's space) takes no encounter; the encounter goes
+            // to its own frame on a safe orbit (its rock, which cannot move, is deleted).
+            if (!IsSite(F) && OnPlanetBorder(F, out double safeR))
+            {
+                var cl = new List<OrbitalGridComponent>();
+                foreach (var o in GridMembers.All())
+                {
+                    if (!o.IsServer || SystemHost.Frames.FindByMember(o.Id) != null) continue;
+                    if ((GridMembers.Position(o) - pos).Length() > ClusterRadius || !IsEncounterGrid(o)) continue;
+                    cl.Add(o); handled.Add(o.Id);
+                }
+                AsteroidBridge.RequestDeleteNear(pos, ClusterRadius);
+                Event($"SPAWN on {F.ParentBodyName}'s border: {cl.Count} encounter grid(s) '{g.DisplayName}' near frame #{F.Id} -> moved to a safe orbit");
+                FarFrame(F, cl, t, safeR);
+                continue;
+            }
             if (d <= CloseRadius || anchored || (IsSite(F) && d <= SiteRadius))
             {
                 // CLOSE: a similar orbit, i.e. the same frame.
@@ -604,7 +621,23 @@ public static class EncounterFrames
         }
     }
 
-    private static void FarFrame(ProximityFrame F, List<OrbitalGridComponent> cluster, double t)
+    /// <summary>
+    /// A frame orbiting low about a planet: periapsis under the planet's keep radius (the band where frames
+    /// hand over to the planet's space and back). Out: a safe circular radius above that band.
+    /// </summary>
+    static bool OnPlanetBorder(ProximityFrame f, out double safeR)
+    {
+        safeR = 0;
+        var reg = SystemHost.Registry;
+        var body = reg?.Find(f.ParentBodyName);
+        var def = reg?.FindDefinition(f.ParentBodyName);
+        if (body == null || body.IsRoot || def == null) return false;
+        double keep = PlanetBerths.KeepRadius(def);
+        safeR = keep * 1.25;
+        return f.Elements.PeriapsisRadius < keep;
+    }
+
+    private static void FarFrame(ProximityFrame F, List<OrbitalGridComponent> cluster, double t, double minPe = 0)
     {
         if (cluster.Count == 0) return;
         Vector3D c = Vector3D.Zero, vAvg = Vector3D.Zero;
@@ -627,6 +660,14 @@ public static class EncounterFrames
         Vector3D T = Vector3D.Cross(N, R);
         Vector3D kick = (R * Math.Cos(ang) + T * Math.Sin(ang) + N * 0.15) * mag;
         var el = CaptureMath.CaptureElements(new StateVector(cur.Position + delta, cur.Velocity + vAvg + kick), F.Elements.Mu, t);
+        if (minPe > 0 && !(el.PeriapsisRadius >= minPe))
+        {
+            // Off the border: a circular orbit at the safe radius, in the frame's plane, where the spawn is.
+            Vector3D up = Vector3D.Normalize(cur.Position + delta);
+            Vector3D along = Vector3D.Cross(N, up);
+            along = along.LengthSquared() > 1e-12 ? Vector3D.Normalize(along) : T;
+            el = CaptureMath.CaptureElements(new StateVector(up * minPe, along * Math.Sqrt(F.Elements.Mu / minPe)), F.Elements.Mu, t);
+        }
         if (!IsFinite(el.SemiMajorAxis) || !IsFinite(el.MeanMotion)) return;
         var nf = SystemHost.Frames.CreateFrame(F.ParentBodyName, el, 0);
         if (nf == null) return;

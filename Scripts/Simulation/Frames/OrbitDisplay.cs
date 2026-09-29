@@ -21,7 +21,7 @@ public static class OrbitDisplay
 {
     private const int PathPoints = 160;
     private const double MinSpeed = 0.5;      // m/s; below this there is no meaningful orbit
-    private const double VelocitySmoothing = 0.15;
+    private const double VelocitySmoothing = 0.05;   // (the fallback estimate: seated / HighSpeed)
     private const double DominanceMargin = 1.1;
     private const double NearCameraSkip = 1000.0; // m
 
@@ -121,7 +121,11 @@ public static class OrbitDisplay
         double mu = law.MuAt(d);
         if (Freeze && !_hasFrozen) { _frozen = new StateVector(camera.Position - center, _velocity); _frozenMu = mu; _hasFrozen = true; }
         if (!Freeze) _hasFrozen = false;
-        var sv = _hasFrozen ? _frozen : new StateVector(camera.Position - center, _velocity);
+        // On foot: the character's own position and physics velocity (exact; the camera-differenced estimate
+        // was noisy: a third-person camera moves on its own). Seated / HighSpeed: the smoothed estimate.
+        var sv = _hasFrozen ? _frozen
+               : FrameHost.FootState(out Vector3D fp, out Vector3D fv) ? new StateVector(fp - center, fv)
+               : new StateVector(camera.Position - center, _velocity);
         if (_hasFrozen) mu = _frozenMu;
         string fit = law.IsInverseSquare ? "exact (1/r²)" : $"local fit (falloff {law.Falloff:F1})";
         double speed = sv.Velocity.Length();

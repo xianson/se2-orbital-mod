@@ -30,6 +30,10 @@ public static class AsteroidBridge
 
     private static System.Reflection.MethodInfo _voxelQuery;
 
+    /// <summary>Generator-spawned bodies (an encounter's rock) to delete near a point, on the next tick.</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentQueue<(Vector3D at, double r)> _deleteNear = new System.Collections.Concurrent.ConcurrentQueue<(Vector3D, double)>();
+    public static void RequestDeleteNear(Vector3D at, double r) => _deleteNear.Enqueue((at, r));
+
     /// <summary>The asteroids placed on purpose (encounters, players): world positions, refreshed every couple of seconds.</summary>
     public static readonly List<Vector3D> Asteroids = new List<Vector3D>();
 
@@ -110,6 +114,17 @@ public static class AsteroidBridge
             var col = session.SessionComponents.TryGet<Keen.Game2.Simulation.GameSystems.ProceduralGeneration.ColonizationSectorProceduralGenerationDataSessionComponent>();
             if (col?.Definition != null) foreach (var kv in col.Definition.SectorVolumes) Kill(kv.Value);
 
+            // Encounters moved off a planet's border leave their rock behind (voxels cannot move): gone too.
+            while (_deleteNear.TryDequeue(out var dn))
+            {
+                var gone = new List<Keen.VRage.Core.Game.GameSystems.ProceduralGeneration.SpaceEntityId>();
+                foreach (var kv in gen.Entities)
+                {
+                    try { if ((kv.Value.Data.GetWorldTransform().Position - dn.at).Length() <= dn.r) gone.Add(kv.Key); } catch { }
+                }
+                foreach (var id in gone) { try { gen.DeleteEntity(id); _deleted++; } catch { } }
+                if (gone.Count > 0) Log.Default?.Info($"[ORBIT-ROIDS] deleted {gone.Count} generator bod(ies) left by an encounter moved off a planet's border");
+            }
             // What the generator already spawned (not player-edited ones).
             var ids = new List<Keen.VRage.Core.Game.GameSystems.ProceduralGeneration.SpaceEntityId>();
             var kept = new List<Vector3D>();

@@ -49,6 +49,15 @@ public static class FrameHost
     public static string ObserverPlanetName => ObserverPlanet;
 
     private static Vector3D _lastPos, _lastVel;
+    /// <summary>On foot (not seated, not HighSpeed): the character's own position and physics velocity this
+    /// tick (world), for the orbit readout (the camera-differenced estimate was noisy).</summary>
+    public static bool FootState(out Vector3D pos, out Vector3D vel)
+    {
+        pos = _lastPos; vel = _lastVel;
+        double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+        return !Seated && !_hsActive && now - _footWall < 0.25 && IsFinite(pos) && IsFinite(vel);
+    }
+    private static double _footWall;
 
     /// <summary>The player's orbit about a planet while materialized in its cell (HighSpeed: its conic).</summary>
     public static bool TryGetLocalOrbit(string body, double t, out KeplerianElements el)
@@ -133,7 +142,7 @@ public static class FrameHost
             bool landed = false;
             if (_tpPending) { SettleTeleport(session, ch, pos, t); landed = !_tpPending; }
             if (landed) vel = _tpVelocity;
-            _lastPos = pos; _lastVel = _hsActive ? _hsVel : vel;
+            _lastPos = pos; _lastVel = _hsActive ? _hsVel : vel; _footWall = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
 
             _playerId = id;
             lock (ServerFrames.FramesLock)

@@ -302,6 +302,17 @@ public static class EncounterFrames
         return f;
     }
 
+    /// <summary>A site added with AddSite taken away again (its latent frame dissolved): false while anyone is in it. Caller holds FramesLock.</summary>
+    internal static bool RemoveSite(long frameId)
+    {
+        var f = SystemHost.Frames.Get(frameId);
+        if (f != null && HasNonNpc(f)) return false;
+        if (f != null) SystemHost.Frames.Dissolve(frameId);
+        _sites.Remove(frameId);
+        ServerFrames.AnchorAccel.Remove(frameId);
+        return true;
+    }
+
     /// <summary>The home point's root position (sun-centred model), before the site offset.</summary>
     private static Vector3D HomeRoot(Site s, double t, out Vector3D centre)
     {

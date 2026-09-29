@@ -37,6 +37,8 @@ public static class RingRocks
         /// <summary>Sorted by radius.</summary>
         public double[] R, Phase, Tilt, Node;
         public int[] Number;
+        /// <summary>A small cluster rather than a single rock (about a third, seeded).</summary>
+        public bool[] Cluster;
     }
 
     public struct Pass
@@ -73,7 +75,7 @@ public static class RingRocks
             if (!(outer > inner)) continue;
             double half = half0 > 0 ? half0 : 0.02 * (outer - inner);
             int n = Math.Max(0, PerRing);
-            var rocks = new (double r, double ph, double ti, double no, int num)[n];
+            var rocks = new (double r, double ph, double ti, double no, int num, bool cl)[n];
             ulong s = Hash(planet + " ring");
             for (int i = 0; i < n; i++)
             {
@@ -81,15 +83,16 @@ public static class RingRocks
                 double ph = 2 * Math.PI * Unit(ref s);
                 double ti = Math.Atan2(half * (2 * Unit(ref s) - 1), r);                           // within the ring's thickness
                 double no = 2 * Math.PI * Unit(ref s);
-                rocks[i] = (r, ph, ti, no, i + 1);
+                bool cl = Unit(ref s) < 0.35;
+                rocks[i] = (r, ph, ti, no, i + 1, cl);
             }
             Array.Sort(rocks, (a, b) => a.r.CompareTo(b.r));
             var belt = new Belt
             {
                 Name = BeltName(planet), Host = planet, Body = body, Inner = inner, Outer = outer, Half = half,
-                R = new double[n], Phase = new double[n], Tilt = new double[n], Node = new double[n], Number = new int[n],
+                R = new double[n], Phase = new double[n], Tilt = new double[n], Node = new double[n], Number = new int[n], Cluster = new bool[n],
             };
-            for (int i = 0; i < n; i++) { belt.R[i] = rocks[i].r; belt.Phase[i] = rocks[i].ph; belt.Tilt[i] = rocks[i].ti; belt.Node[i] = rocks[i].no; belt.Number[i] = rocks[i].num; }
+            for (int i = 0; i < n; i++) { belt.R[i] = rocks[i].r; belt.Phase[i] = rocks[i].ph; belt.Tilt[i] = rocks[i].ti; belt.Node[i] = rocks[i].no; belt.Number[i] = rocks[i].num; belt.Cluster[i] = rocks[i].cl; }
             list.Add(belt);
         }
         _belts = list; _beltsSig = sig;
@@ -107,6 +110,24 @@ public static class RingRocks
 
     /// <summary>A rock's place about its planet at t (planet-relative, model axes).</summary>
     public static Vector3D At(Belt b, int i, double t) => SectorHomes.Circular(b.Body.Mu, b.R[i], b.Phase[i], b.Tilt[i], b.Node[i], t);
+
+    /// <summary>The rocks within range (m) of a planet-relative point at t, nearest first.</summary>
+    public static List<(Belt b, int i, double d)> Near(GravityBody body, Vector3D p, double t, double range)
+    {
+        var l = new List<(Belt, int, double)>();
+        double r = Math.Sqrt(p.X * p.X + p.Y * p.Y);
+        foreach (var b in Belts())
+        {
+            if (b.Body != body || Math.Abs(p.Z) > b.Half + range) continue;
+            for (int i = Lower(b.R, r - range), hi = Lower(b.R, r + range); i < hi; i++)
+            {
+                double d = (At(b, i, t) - p).Length();
+                if (d < range) l.Add((b, i, d));
+            }
+        }
+        l.Sort((x, y) => x.Item3.CompareTo(y.Item3));
+        return l;
+    }
 
     /// <summary>The rock as a home (a one-orbit ring), for a site when it is met.</summary>
     public static SectorHomes.Home Home(Belt b, int i) => new SectorHomes.Home

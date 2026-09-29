@@ -95,6 +95,7 @@ public static class AsteroidFrames
         public int Missing;                   // scans in a row the volume was not found
         public bool Forced;
         public int Rocks;                     // generator bodies in it (server), last scan
+        public bool Dynamic;                  // a ring rock (RingRocks) made a site because you came near: taken away when you leave
     }
 
     private static readonly object _gate = new object();
@@ -152,6 +153,8 @@ public static class AsteroidFrames
         if (belts.Count == 0)
             foreach (var name in new[] { "Zarkon", "Pyrethra", "Oblivara" }) belts.Add(SectorHomes.For(name, null, 0, 0, reg));
         belts.RemoveAll(h => h.Kind != SectorHomes.Kind.Ring || reg.Find(h.Host) == null || !(h.Outer > h.Inner));
+        // A planet's ring is RingRocks' (seeded rocks, a site only for the one you meet): no fixed ones there.
+        if (RingRocks.Enabled) belts.RemoveAll(h => reg.Find(h.Host) is GravityBody rb && !rb.IsRoot);
         belts.Sort((a, b) => string.CompareOrdinal(a.Sector, b.Sector));
 
         int slot = SlotBase, made = 0;
@@ -202,6 +205,31 @@ public static class AsteroidFrames
         }
         Status = $"{made} asteroid frame(s) in {belts.Count} belt(s)";
         Event($"BUILT {Status}: " + string.Join(", ", belts.ConvertAll(b => $"{b.Sector} {list.Count(r => r.Belt == b.Sector)}")));
+    }
+
+    /// <summary>A ring rock (RingRocks) you have come near, as a site of its own (once: by its name).</summary>
+    static void EnsureRingRoid(RingRocks.Belt b, int i, double t)
+    {
+        string label = $"{b.Name} #{b.Number[i]}";
+        string name = VolumePrefix + label.Replace(' ', '_').Replace("#", "n");
+        lock (_gate) if (_byName.ContainsKey(name)) return;
+        var reg = SystemHost.Registry;
+        var alloc = SystemHost.Frames?.Allocator;
+        if (reg == null || alloc == null) return;
+        int slot = SlotBase;
+        if (!ReserveBerth(alloc, reg, ref slot, out int sid, out Vector3D berth)) { Warn("ringslot", "no free lattice slot for a ring rock"); return; }
+        var home = RingRocks.Home(b, i);
+        var site = new EncounterFrames.Site { Sector = label, Host = b.Host, Home = home, World = berth, Label = label, Anchor = true };
+        var f = EncounterFrames.AddSite(site, t);
+        if (f == null) { alloc.Free(sid); Warn("ring " + label, $"{label}: no orbit"); return; }
+        var r = new Roid
+        {
+            Belt = b.Name, Label = label, Name = name, Cluster = b.Cluster[i], Home = home, Site = site,
+            FrameId = f.Id, Slot = sid, Berth = berth, Radii = b.Cluster[i] ? ClusterRadii : RockRadii,
+            Dynamic = true, LastWanted = Wall(),
+        };
+        lock (_gate) { r.Index = _roids.Count; _roids.Add(r); _byName[name] = r; }
+        Event($"ring rock {label} near: a site of its own (frame #{f.Id}, slot {sid})");
     }
 
     /// <summary>A band's half-thickness (m): the game's torus for a planet's ring, else a share of its width.</summary>
@@ -291,6 +319,20 @@ public static class AsteroidFrames
         var pf = FrameHost.PlayerId != 0 ? SystemHost.Frames.FindByMember(FrameHost.PlayerId) : null;
         StateVector ps = default; bool havePs = false;
         if (pf != null) { ps = OrbitPropagation.StateAt(pf.Elements, t); havePs = IsFinite(ps.Position); }
+        // Ring rocks: the nearest few within range of you become sites (their rocks then come out as any).
+        if (RingRocks.Enabled && havePs)
+        {
+            var body = SystemHost.Registry?.Find(pf.ParentBodyName);
+            if (body != null)
+            {
+                int k = 0;
+                foreach (var (b, i, d) in RingRocks.Near(body, ps.Position, t, MaterializeRange))
+                {
+                    if (k++ >= MaxNearVolumes) break;
+                    EnsureRingRoid(b, i, t);
+                }
+            }
+        }
         List<Roid> roids;
         lock (_gate) roids = new List<Roid>(_roids);
         int live = 0;
@@ -325,6 +367,13 @@ public static class AsteroidFrames
             }
             catch (Exception e) { Warn("vol " + r.Label, $"{r.Label}: {(e.InnerException ?? e).Message}"); }
             if (r.Volume != null) live++;
+            // A ring rock you have left (its rocks gone, nobody in it): back to a number.
+            if (r.Dynamic && !wanted && r.Volume == null && now - r.LastWanted > LeaveSeconds && EncounterFrames.RemoveSite(r.FrameId))
+            {
+                SystemHost.Frames?.Allocator?.Free(r.Slot);
+                lock (_gate) { _roids.Remove(r); _byName.Remove(r.Name); }
+                Event($"ring rock {r.Label} left behind: its site is gone (slot {r.Slot} free)");
+            }
         }
         CountRocks(gen, roids);
         Status = $"{roids.Count} asteroid frame(s), {live} with rocks out{(gen.IsActive ? "" : " (the game's asteroid generation is OFF: no rocks)")}";

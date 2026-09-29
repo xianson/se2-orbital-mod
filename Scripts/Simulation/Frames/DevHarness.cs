@@ -903,6 +903,7 @@ public static class DevHarness
         sb.AppendLine($"mapview {MapView.Mode}: {MapView.Status} | cam {SpecCam.Status}");
         sb.AppendLine("roids " + AsteroidBridge.Status);
         sb.AppendLine("libration " + Maneuvers.LibStart + " | " + Maneuvers.LibDebug);
+        sb.AppendLine(FrameHost.RiderDiag);
         lock (AsteroidBridge.RingInfo) foreach (var ri in AsteroidBridge.RingInfo) sb.AppendLine("  ring " + ri);
         sb.AppendLine($"sun {SunDriver.Status}");
         try

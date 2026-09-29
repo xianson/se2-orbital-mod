@@ -338,6 +338,18 @@ public static class FrameHost
         // The relative force (true acceleration at the true velocity), applied as a force: x N^2 in warp.
         Vector3D acc = isLag ? lag(rRel, vel / N)   // a Lagrange site's own dynamics
                      : (Grav(cur.Position + rRel, mu) - Grav(cur.Position, mu)) - A;
+        // DEV check (dampeners off, not thrusting): the measured relative acceleration against the model's.
+        {
+            double wall = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+            if (_diagWall > 0 && wall - _diagWall >= 1.0 && !Dampeners)
+            {
+                Vector3D meas = (vel / N - _diagVel) / ((t - _diagT) > 0 ? (t - _diagT) : 1);
+                Vector3D model = 0.5 * (acc + _diagAcc);
+                double ratio = model.LengthSquared() > 1e-12 ? Vector3D.Dot(meas, model) / model.LengthSquared() : double.NaN;
+                RiderDiag = $"rider: |a| model {model.Length():F3} measured {meas.Length():F3} m/s2, along-model ratio {ratio:F2}, warp x{N:F0}, off {rRel.Length() / 1000:F2} km";
+            }
+            if (_diagWall <= 0 || wall - _diagWall >= 1.0) { _diagWall = wall; _diagVel = vel / N; _diagT = t; _diagAcc = acc; }
+        }
         if (IsFinite(acc) && acc.LengthSquared() > 1e-12)
         {
             Vector3D dv = acc * (dt * N * N);
@@ -355,6 +367,10 @@ public static class FrameHost
             Event($"SPLIT player from frame #{f.Id} at {away / 1000:F1} km -> frame #{nf.Id}");
         }
     }
+
+    /// <summary>DEV: the rider force check (measured vs model relative acceleration).</summary>
+    public static string RiderDiag = "-";
+    private static double _diagWall, _diagT; private static Vector3D _diagVel, _diagAcc;
 
     /// <summary>Your jetpack's dampeners (riding: on = station-keeping with the anchor).</summary>
     public static bool Dampeners;

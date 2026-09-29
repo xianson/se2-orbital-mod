@@ -54,7 +54,7 @@ public static class SystemHost
     public const double FirstOrbit = AU;                  // Verdure = Earth, 1 AU
     public const double OrbitSpacing = 1.524;             // Kemik = Mars, 1.524 AU
     /// <summary>Atmosphere height as a fraction of r0 (SE2 planets expose no clean atmosphere top).</summary>
-    public const double AtmosphereFraction = 0.10;
+    public const double AtmosphereFraction = 0.15;   // the game's planets: atmosphere AffectDistance 1.15 radii
     /// <summary>Wait this long after the last beacon appears before building (all planets loaded).</summary>
     public const double SettleSeconds = 2.0;
 

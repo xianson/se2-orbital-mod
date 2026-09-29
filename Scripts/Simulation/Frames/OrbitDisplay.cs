@@ -248,7 +248,15 @@ public static class OrbitDisplay
             Path = world, PathClosed = path.IsClosed,
             BodyWorld = SEAerospace.PlanetBerths.WorldFromCelestial(obs, parentOrg), BodyRadius = radius,
         };
-        if (riding) OrbitHud.Current.Relative = Curvilinear(anchorEl, el, t, out OrbitHud.Current.RelNow);
+        if (riding)
+        {
+            var rc = OrbitHud.Current;
+            rc.Relative = Curvilinear(anchorEl, el, t, out rc.RelNow);
+            Curvilinear(anchorEl, el, t + 1.0, out var ahead, samples: 0);
+            rc.RelVel = (ahead.along - rc.RelNow.along, ahead.radial - rc.RelNow.radial);   // per second
+            rc.RelPeriod = anchorEl.IsElliptic && IsFinite(anchorEl.Period) ? anchorEl.Period : 3600;
+            rc.AnchorName = AnchorName(frame);
+        }
         {
             // For the orbit disc and the direction markers: the orbit about the body in world axes.
             var rd = OrbitHud.Current;
@@ -269,7 +277,15 @@ public static class OrbitDisplay
     /// the anchor: along-track as arc length on the anchor's orbit (+ ahead), radial as the height
     /// difference (+ up). Exact: both orbits propagated, not a linearisation.
     /// </summary>
-    static List<(double along, double radial)> Curvilinear(KeplerianElements anchor, KeplerianElements you, double t, out (double along, double radial) now)
+    /// <summary>What anchors a frame, for the plot's title.</summary>
+    static string AnchorName(SEAerospace.Frames.ProximityFrame f)
+    {
+        if (f.AnchorEntityId == ServerFrames.AsteroidAnchorId) return "Asteroid";
+        var g = GridMembers.IsGridId(f.AnchorEntityId) ? GridMembers.Get(f.AnchorEntityId) : null;
+        return g?.DisplayName ?? "Anchor";
+    }
+
+    static List<(double along, double radial)> Curvilinear(KeplerianElements anchor, KeplerianElements you, double t, out (double along, double radial) now, int samples = 160)
     {
         (double, double) At(double tk)
         {
@@ -283,9 +299,9 @@ public static class OrbitDisplay
             return (th * r0, b.Position.Length() - r0);
         }
         now = At(t);
-        var list = new List<(double, double)>(161);
+        var list = new List<(double, double)>(samples + 1);
         double P = anchor.IsElliptic && IsFinite(anchor.Period) ? anchor.Period : 3600;
-        for (int k = 0; k <= 160; k++) list.Add(At(t + P * k / 160));
+        for (int k = 0; k <= samples && samples > 0; k++) list.Add(At(t + P * k / samples));
         return list;
     }
 

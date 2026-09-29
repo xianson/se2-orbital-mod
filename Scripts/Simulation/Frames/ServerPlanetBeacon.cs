@@ -188,8 +188,32 @@ public partial class ServerPlanetBeacon
     /// <summary>Server physics scene GravityMultiplier (world setting; the aero mod forces 1).</summary>
     public static float ServerGravityMultiplier = float.NaN;
 
+    /// <summary>
+    /// A rider's per-tick velocity changes for the server's copy of the character (the client's alone
+    /// are overwritten by it): a delta (relative gravity: added to what the server has, so thrust is
+    /// kept), or an absolute velocity (warp steering). Quiet: every tick.
+    /// </summary>
+    private static readonly object _riderLock = new object();
+    private static Vector3D _riderDv; private static Vector3D? _riderVel;
+    public static void AddRiderDv(Vector3D dv) { lock (_riderLock) _riderDv += dv; }
+    public static void SetRiderVelocity(Vector3D v) { lock (_riderLock) { _riderVel = v; _riderDv = Vector3D.Zero; } }
+
     private static void ApplyPlayerRequest(ServerPlanetBeacon beacon)
     {
+        Vector3D dv; Vector3D? vset;
+        lock (_riderLock) { dv = _riderDv; vset = _riderVel; _riderDv = Vector3D.Zero; _riderVel = null; }
+        if (vset.HasValue || dv.LengthSquared() > 0)
+        {
+            var chars = new List<Entity>();
+            var session = beacon.Entity.GetSession();
+            if (session != null && session.TryFillAliveCharacters(chars) && chars.Count > 0)
+            {
+                var ctx = chars[0].Data;
+                Vector3D v = vset ?? (Vector3D)ctx.Get<RigidBodyData>().LinearVelocity;
+                v += dv;
+                if (!double.IsNaN(v.X + v.Y + v.Z)) ctx.Set(new RigidBodyData { LinearVelocity = (Vector3)v });
+            }
+        }
         var req = System.Threading.Interlocked.Exchange(ref PendingPlayer, null);
         if (req == null) return;
         ApplyToCharacter(beacon.Entity.GetSession(), req, "server");

@@ -335,7 +335,7 @@ public static class FrameHost
             {
                 var sw = OrbitPropagation.StateAt(_riderWarp.Value, t);
                 Vector3D tgt = sw.Position - cur.Position;
-                if (IsFinite(tgt)) SetVelocity(ch, (tgt - rRel) / dt);
+                if (IsFinite(tgt)) { SetVelocity(ch, (tgt - rRel) / dt); ServerPlanetBeacon.SetRiderVelocity((tgt - rRel) / dt); }
                 rRel = tgt; vel = sw.Velocity - cur.Velocity;
                 away = isStatic ? (f.BerthCenter + tgt - anchorAt).Length() : tgt.Length();
                 if (away <= leave) return;
@@ -345,6 +345,7 @@ public static class FrameHost
         {
             var sw = OrbitPropagation.StateAt(_riderWarp.Value, t);
             SetVelocity(ch, sw.Velocity - cur.Velocity);
+            ServerPlanetBeacon.SetRiderVelocity(sw.Velocity - cur.Velocity);
             _riderWarp = null;
             return;
         }
@@ -352,7 +353,11 @@ public static class FrameHost
         {
             Vector3D acc = isLag ? lag(rRel, vel)   // a Lagrange site's own dynamics
                          : (Grav(cur.Position + rRel, mu) - Grav(cur.Position, mu)) - A;
-            if (IsFinite(acc) && acc.LengthSquared() > 1e-10) SetVelocity(ch, vel + acc * dt);
+            if (IsFinite(acc) && acc.LengthSquared() > 1e-10)
+            {
+                SetVelocity(ch, vel + acc * dt);
+                ServerPlanetBeacon.AddRiderDv(acc * dt);   // the server's copy too (it would overwrite the client's)
+            }
         }
         if (away > leave)
         {

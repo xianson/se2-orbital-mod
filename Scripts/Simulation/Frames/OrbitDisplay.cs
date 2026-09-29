@@ -256,20 +256,26 @@ public static class OrbitDisplay
         if (riding)
         {
             var rc = OrbitHud.Current;
-            rc.Relative = Curvilinear(anchorEl, el, t, out rc.RelNow);
+            rc.RelCross = new List<double>(161);
+            rc.Relative = Curvilinear(anchorEl, el, t, out rc.RelNow, cross: rc.RelCross);
+            rc.RelNowCross = rc.RelCross.Count > 0 ? rc.RelCross[0] : 0;
             // Past the frame's boundary you leave it on your own orbit: the prediction stops there.
             rc.RelSamples = rc.Relative.Count;
             for (int i = 0; i < rc.Relative.Count; i++)
             {
                 var q = rc.Relative[i];
                 if (Math.Sqrt(q.along * q.along + q.radial * q.radial) > ServerFrames.CaptureRadius)
-                { rc.Relative.RemoveRange(i + 1, rc.Relative.Count - i - 1); rc.RelLeaves = true; break; }
+                {
+                    rc.Relative.RemoveRange(i + 1, rc.Relative.Count - i - 1);
+                    if (rc.RelCross.Count > i + 1) rc.RelCross.RemoveRange(i + 1, rc.RelCross.Count - i - 1);
+                    rc.RelLeaves = true; break;
+                }
             }
             Curvilinear(anchorEl, el, t + 1.0, out var ahead, samples: 0);
             rc.RelVel = (ahead.along - rc.RelNow.along, ahead.radial - rc.RelNow.radial);   // per second
             // Dampeners on: the jetpack keeps station with the anchor: you hold where you are.
             rc.Holding = FrameHost.Dampeners && !EncounterFrames.IsSite(frame);
-            if (rc.Holding) { rc.Relative = new List<(double, double)> { rc.RelNow, rc.RelNow }; rc.RelVel = (0, 0); }
+            if (rc.Holding) { rc.Relative = new List<(double, double)> { rc.RelNow, rc.RelNow }; rc.RelCross = new List<double> { rc.RelNowCross, rc.RelNowCross }; rc.RelVel = (0, 0); }
             rc.RelPeriod = anchorEl.IsElliptic && IsFinite(anchorEl.Period) ? anchorEl.Period : 3600;
             rc.AnchorName = AnchorName(frame);
             // DEV check: where the plot said you would be 30 s later, against where you are.
@@ -355,23 +361,26 @@ public static class OrbitDisplay
         return g?.DisplayName ?? "Anchor";
     }
 
-    static List<(double along, double radial)> Curvilinear(KeplerianElements anchor, KeplerianElements you, double t, out (double along, double radial) now, int samples = 160)
+    static List<(double along, double radial)> Curvilinear(KeplerianElements anchor, KeplerianElements you, double t, out (double along, double radial) now, int samples = 160, List<double> cross = null)
     {
-        (double, double) At(double tk)
+        (double, double) At(double tk) => At3(tk, out _);
+        (double, double) At3(double tk, out double oop)
         {
+            oop = 0;
             var a = OrbitPropagation.StateAt(anchor, tk); var b = OrbitPropagation.StateAt(you, tk);
             Vector3D h = Vector3D.Cross(a.Position, a.Velocity);
             if (h.LengthSquared() < 1e-12) return (0, 0);
             h = Vector3D.Normalize(h);
             double r0 = a.Position.Length();
-            Vector3D bp = b.Position - h * Vector3D.Dot(b.Position, h);
+            oop = Vector3D.Dot(b.Position, h);   // out of the anchor's plane (+ along its orbit normal)
+            Vector3D bp = b.Position - h * oop;
             double th = Math.Atan2(Vector3D.Dot(h, Vector3D.Cross(a.Position, bp)), Vector3D.Dot(a.Position, bp));
             return (th * r0, b.Position.Length() - r0);
         }
         now = At(t);
         var list = new List<(double, double)>(samples + 1);
         double P = anchor.IsElliptic && IsFinite(anchor.Period) ? anchor.Period : 3600;
-        for (int k = 0; k <= samples && samples > 0; k++) list.Add(At(t + P * k / samples));
+        for (int k = 0; k <= samples && samples > 0; k++) { list.Add(At3(t + P * k / samples, out double o)); cross?.Add(o); }
         return list;
     }
 

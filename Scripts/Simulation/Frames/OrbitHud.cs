@@ -184,6 +184,8 @@ public static class OrbitHud
         public double EventIn, MoonSoi;
         public bool Holding;   // dampeners on: station-keeping with the anchor
         public int RelSamples;   // the prediction's samples over a full revolution (it may be cut short)
+        public List<double> RelCross;   // out of the anchor's plane along the prediction (m, + along its normal)
+        public double RelNowCross;
         public bool RelLeaves;   // the prediction leaves the frame (cut at its boundary)
     }
 
@@ -494,6 +496,31 @@ public static class OrbitHud
         var vr = new Vector2((float)-r.RelVel.along, (float)-r.RelVel.radial);
         if (vr.LengthSquared() > 1e-6f) MapPipeline.ScreenLine(me, me + Vector2.Normalize(vr) * 12f * u, white, 1.6f * u);
         MapPipeline.ScreenDisc(me, 3.4f * u, white);
+        // Out of plane: a strip under the plot (same along-track axis), only when there is real motion out of it.
+        if (r.RelCross != null && r.RelCross.Count >= 2)
+        {
+            double oop = Math.Abs(r.RelNowCross);
+            foreach (var x in r.RelCross) oop = Math.Max(oop, Math.Abs(x));
+            if (oop > Math.Max(200, 0.1 * ext))
+            {
+                float sh = R * 0.55f, top = c.Y + R + 26f * u;
+                var sb = new List<Vector2> { new Vector2(c.X - R, top), new Vector2(c.X + R, top), new Vector2(c.X + R, top + sh), new Vector2(c.X - R, top + sh) };
+                MapPipeline.ScreenFill(sb, new ColorSRGB(0.02f, 0.04f, 0.06f, 0.55f));
+                for (int i = 0; i < 4; i++) MapPipeline.ScreenLine(sb[i], sb[(i + 1) % 4], HudPanel.Alpha(white, 0.55f), 1.2f * u);
+                float midY = top + sh * 0.5f;
+                double kc = (sh * 0.5 - 6 * u) / (oop * 1.1);
+                MapPipeline.ScreenLine(new Vector2(a0.X, midY), new Vector2(a1.X, midY), dim, 1f * u);   // the anchor's plane
+                MapPipeline.TextScreen(new Vector2(c.X - R + 22f * u, top + 8f * u), $"out of plane ±{HudPanel.Km(oop)}", dim, 0.34f);
+                MapPipeline.TextScreen(new Vector2(c.X + R - 12f * u, top + 8f * u), "+N", dim, 0.34f);
+                var sp = new List<Vector2>(r.Relative.Count);
+                for (int i = 0; i < r.Relative.Count && i < r.RelCross.Count; i++)
+                    sp.Add(new Vector2(P(r.Relative[i]).X, midY - (float)(r.RelCross[i] * kc)));
+                MapStyle.Plan(sp, false, Orbit, 1.4f * u, u);
+                var ax = P((0, 0)).X;
+                MapPipeline.ScreenFill(new List<Vector2> { new Vector2(ax - 3f * u, midY - 3f * u), new Vector2(ax + 3f * u, midY - 3f * u), new Vector2(ax + 3f * u, midY + 3f * u), new Vector2(ax - 3f * u, midY + 3f * u) }, orange);
+                MapPipeline.ScreenDisc(new Vector2(P(r.RelNow).X, midY - (float)(r.RelNowCross * kc)), 3f * u, white);
+            }
+        }
         // Readout: range, range rate, relative speed.
         double rng = Math.Sqrt(r.RelNow.along * r.RelNow.along + r.RelNow.radial * r.RelNow.radial);
         double rdot = rng > 1 ? (r.RelNow.along * r.RelVel.along + r.RelNow.radial * r.RelVel.radial) / rng : 0;

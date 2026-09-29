@@ -44,8 +44,13 @@ public class OrbitalRingComponent : Component, IInSceneListener
 /// vertex shader ignores the mesh and draws a box from the custom data (OuterRadius, Height); the
 /// volume samples map radius and altitude to the ring texture through the custom data radii. So the
 /// custom data carries the exact k (resent on any 0.1% change), while the hull mesh and the material
-/// are rebuilt only when k leaves its 10% bucket: the hull is built for the bucket's extremes (outer
-/// vertices at its top, inner ones at its bottom) so it always contains the ring.
+/// are rebuilt only when k leaves a small band. The hull must never reach outside the custom-data box
+/// (half-sides OuterRadius, Height): where it did (a hull built for a 10% band's top, a circle 5%
+/// wider than the box), the volume passes disagreed and drew four dark opaque arcs round the ring,
+/// one past each side of the box (seen in game). The game's own hull is a polygon inscribed in
+/// OuterRadius, inside its box. So ours is built uniformly at kBuilt = k / (1 + Margin), and rebuilt
+/// as soon as k falls below kBuilt (the box would shrink inside the hull) or rises above
+/// kBuilt (1 + Margin)^2: the hull always lies inside the box, and trims at most ~4% off the ring's rim.
 /// Optics: the extinction coefficient is 3 / AbsorptionLength per metre, so a ring k times smaller
 /// is k times thinner optically; AbsorptionLength is scaled by k and ScatteringMagnitude (log10 of
 /// the scattering amplitude, also per metre) by -log10(k) to keep its look (<see cref="ScaleOptics"/>).
@@ -60,7 +65,8 @@ public static class PlanetRings
     /// <summary>Our scaled ring at the proxy. Off until tested in game.</summary>
     public static bool ProxyRings = false;
     public static bool ScaleOptics = true;
-    private const double BucketStep = 1.1;
+    /// <summary>Hull scale below the exact k (see the summary); the band is twice this wide.</summary>
+    private const double Margin = 0.02;
 
     private sealed class Ring
     {
@@ -84,7 +90,7 @@ public static class PlanetRings
         // Ours.
         public object Root, Model, RuntimeModel;
         public AsteroidRingMaterialDefinition Mat;
-        public int Bucket = int.MinValue;
+        public double KBuilt = -1;
         public double LastK = -1;
         public bool ProxyShown;
         public string Error;
@@ -246,13 +252,14 @@ public static class PlanetRings
         try
         {
             r.K = k;
-            int bucket = (int)Math.Round(Math.Log(k) / Math.Log(BucketStep));
-            if (bucket != r.Bucket || r.Model == null)
+            // Hull inside the custom-data box: rebuilt as soon as k drops below the hull's scale.
+            if (r.Model == null || k < r.KBuilt || k > r.KBuilt * (1 + Margin) * (1 + Margin))
             {
                 DisposeProxy(r);
-                string why = Build(r, bucket, planetCenter, proxyCenter, k);
+                double kBuilt = k / (1 + Margin);
+                string why = Build(r, kBuilt, k, planetCenter, proxyCenter);
                 if (why != null) { r.Error = why; r.MeshError = why; PlanetRenderBridge.WarnOnce("ring-build-" + r.Name, $"proxy ring '{r.Name}': {why}"); DisposeProxy(r); return; }
-                r.Bucket = bucket;
+                r.KBuilt = kBuilt;
                 r.Error = null;
             }
             PlanetRenderBridge.UpdateRootTransform(r.Root, new WorldTransform(proxyCenter + (r.Center - planetCenter) * k, r.Orientation));
@@ -272,26 +279,19 @@ public static class PlanetRings
         }
     }
 
-    private static string Build(Ring r, int bucket, Vector3D planetCenter, Vector3D proxyCenter, double k)
+    /// <summary>Hull at kHull (uniformly: the game's hull scaled, inside the box at any k &gt;= kHull), material at k.</summary>
+    private static string Build(Ring r, double kHull, double k, Vector3D planetCenter, Vector3D proxyCenter)
     {
         string why = Resolve();
         if (why != null) return why;
-        float kMid = (float)Math.Pow(BucketStep, bucket);
-        float kLo = (float)Math.Pow(BucketStep, bucket - 0.5), kHi = (float)Math.Pow(BucketStep, bucket + 0.5);
-
-        // Hull: outer vertices at the bucket's top, inner ones (the hole's rim) at its bottom.
-        float rMin = float.MaxValue, rMax = 0;
-        foreach (var p in r.Pos) { float rr = new Vector2(p.X, p.Z).Length(); rMin = Math.Min(rMin, rr); rMax = Math.Max(rMax, rr); }
-        float thr = 0.5f * (rMin + rMax);
+        float s = (float)kHull;
         object vs0 = Activator.CreateInstance(typeof(Buffer<>).MakeGenericType(_tVs0), new object[] { Allocator.Heap, "OrbitalProxyRing" });
         MethodInfo add0 = vs0.GetType().GetMethod("Add", new[] { _tVs0 });
         var bb = BoundingBox.CreateInvalid();
         var args = new object[1];
         for (int i = 0; i < r.Pos.Length; i++)
         {
-            Vector3 p = r.Pos[i];
-            float s = new Vector2(p.X, p.Z).Length() > thr ? kHi : kLo;
-            var q = new Vector3(p.X * s, p.Y * kHi, p.Z * s);
+            var q = r.Pos[i] * s;
             bb.Include(q);
             args[0] = Activator.CreateInstance(_tVs0, new[] { (object)q, r.Uv[i] });
             add0.Invoke(vs0, args);
@@ -299,7 +299,7 @@ public static class PlanetRings
         var idx = new Buffer<int>(Allocator.Heap, "OrbitalProxyRing");
         foreach (int i in r.Idx) idx.Add(i);
 
-        r.Mat = ScaledMaterial(r.BaseMat, kMid);
+        r.Mat = ScaledMaterial(r.BaseMat, (float)k);
         if (r.Mat == null) { idx.Dispose(); return "material creation failed"; }
 
         object subs = Activator.CreateInstance(typeof(Buffer<>).MakeGenericType(_tSub), new object[] { Allocator.Heap, "OrbitalProxyRing" });
@@ -397,7 +397,7 @@ public static class PlanetRings
         }
         r.Model = r.Root = r.RuntimeModel = null;
         r.Mat = null;
-        r.Bucket = int.MinValue;
+        r.KBuilt = -1;
         r.LastK = -1;
         r.ProxyShown = false;
     }
@@ -420,7 +420,7 @@ public static class PlanetRings
             foreach (var r in _rings)
                 sb.Append($"  '{r.Name}' outer {r.Outer / 1000:F1} km inner {r.Inner / 1000:F1} km half {r.Half / 1000:F2} km | game ring {(r.GameShown == null ? "untouched" : r.GameShown.Value ? "shown" : "HIDDEN")} | " +
                           $"mesh {(r.MeshError ?? $"{r.Pos?.Length} verts, {r.Idx?.Length} idx, mat {r.BaseMat?.Guid}")} | " +
-                          $"proxy {(r.Model != null ? $"k={r.K:G4} bucket {r.Bucket} {(r.ProxyShown ? "shown" : "hidden")}" : "none")} err={r.Error ?? "-"}\n");
+                          $"proxy {(r.Model != null ? $"k={r.K:G4} hull k={r.KBuilt:G4} {(r.ProxyShown ? "shown" : "hidden")}" : "none")} err={r.Error ?? "-"}\n");
         return sb.ToString();
     }
 }

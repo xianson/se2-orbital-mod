@@ -104,19 +104,47 @@ public static class PlanetRings
         var volume = owner.Entity?.TryGet<ProceduralVolumeComponent>()?.ProceduralVolume;
         if (!(volume is ProceduralRing pr)) return;   // ellipsoid fields: nothing to follow a planet
         var torus = pr.Torus;
+        Quaternion orient = Equatorial(owner.Entity, torus.WorldTransform.Orientation);
         var r = new Ring
         {
             Owner = owner,
             Render = owner.Entity.TryGet<ProceduralVolumeRenderComponent>(),
             Name = owner.Entity.TryGet<ProceduralVolumeComponent>()?.Name ?? "ring",
             Center = torus.WorldTransform.Position,
-            Orientation = torus.WorldTransform.Orientation,
+            Orientation = orient,
             Inner = torus.InnerRadius, Outer = torus.OuterRadius, Half = torus.MinorRadii.Y,
         };
         CaptureMesh(r);
         lock (PlanetRenderBridge.Lock) _rings.Add(r);
         Log.Default?.Info($"[ORBIT] ring '{r.Name}' registered: outer {r.Outer / 1000:F1} km, render={r.Render != null}, mesh={(r.MeshError ?? $"{r.Pos?.Length} verts")}");
     }
+
+    /// <summary>
+    /// The game lays its rings round world +Y; our planets spin about their model axis (+Z, the orbit
+    /// plane's normal, with world axes == model axes). A ring off the spin axis is turned by the rotating
+    /// surface chart (a different place on every transfer) and stands across the ecliptic, where its
+    /// sector is drawn flat. So the ring is laid on its planet's equator: the entity is turned, about the
+    /// planet's centre, from the game's normal onto the spin axis. Out: the ring's new orientation.
+    /// </summary>
+    static Quaternion Equatorial(Entity e, Quaternion orient)
+    {
+        try
+        {
+            if (!EquatorialRings || e == null) return orient;
+            Vector3 n = Vector3.Normalize(Vector3.Transform(Vector3.UnitY, orient));
+            Vector3 axis = Vector3.UnitZ;   // (every planet's spin axis in the model's canonical plane)
+            if (Vector3.Dot(n, axis) > 0.99999f) return orient;
+            Quaternion turned = Quaternion.Normalize(Quaternion.Concatenate(orient, Quaternion.CreateFromTwoVectors(n, axis)));
+            var wt = e.Data.GetWorldTransform();
+            e.Data.Set(new WorldTransform(wt.Position, turned));
+            Log.Default?.Info($"[ORBIT] ring laid on its planet's equator: normal {n} -> {axis}");
+            return turned;
+        }
+        catch (Exception ex) { Log.Default?.Warning("[ORBIT] ring turn failed: " + PlanetRenderBridge.Inner(ex)); return orient; }
+    }
+
+    /// <summary>Lay the game's rings on their planets' equators (see <see cref="Equatorial"/>).</summary>
+    public static bool EquatorialRings = true;
 
     internal static void Unregister(OrbitalRingComponent owner)
     {

@@ -36,6 +36,24 @@ public static class AsteroidBridge
 
     /// <summary>The asteroids placed on purpose (encounters, players): world positions, refreshed every couple of seconds.</summary>
     public static readonly List<Vector3D> Asteroids = new List<Vector3D>();
+    /// <summary>Their world bounding boxes (same order as found; for 'am I at it').</summary>
+    public static readonly List<BoundingBoxD> AsteroidBoxes = new List<BoundingBoxD>();
+
+    /// <summary>Distance from a world point to the nearest asteroid's bounding box (0 inside), or +inf.</summary>
+    public static double DistanceToAsteroid(Vector3D p)
+    {
+        double best = double.PositiveInfinity;
+        lock (Asteroids) foreach (var b in AsteroidBoxes) best = Math.Min(best, BoxDistance(b, p));
+        return best;
+    }
+
+    public static double BoxDistance(BoundingBoxD b, Vector3D p)
+    {
+        double dx = Math.Max(0, Math.Max(b.Min.X - p.X, p.X - b.Max.X));
+        double dy = Math.Max(0, Math.Max(b.Min.Y - p.Y, p.Y - b.Max.Y));
+        double dz = Math.Max(0, Math.Max(b.Min.Z - p.Z, p.Z - b.Max.Z));
+        return Math.Sqrt(dx * dx + dy * dy + dz * dz);
+    }
 
     /// <summary>The nearest placed asteroid within reach of a world point.</summary>
     public static bool NearestAsteroid(Vector3D at, double reach, out Vector3D pos)
@@ -128,12 +146,13 @@ public static class AsteroidBridge
             // What the generator already spawned (not player-edited ones).
             var ids = new List<Keen.VRage.Core.Game.GameSystems.ProceduralGeneration.SpaceEntityId>();
             var kept = new List<Vector3D>();
+            var boxes = new List<BoundingBoxD>();
             foreach (var kv in gen.Entities)
             {
                 bool manual = false;
                 try { manual = IsManual(kv.Value); } catch { }
                 if (!manual) ids.Add(kv.Key);
-                else try { kept.Add(kv.Value.Data.GetWorldTransform().Position); } catch { }   // an asteroid placed on purpose: a frame anchor
+                else try { kept.Add(kv.Value.Data.GetWorldTransform().Position); boxes.Add(Keen.VRage.Core.Game.Data.BoundingBoxData.GetWorldAABB(kv.Value)); } catch { }   // an asteroid placed on purpose: a frame anchor
             }
             // Every other voxel body that is not a planet (an encounter's rock, one spawned with a prefab,
             // not through the generator): planets are the voxel bodies at a planet's centre.
@@ -154,11 +173,15 @@ public static class AsteroidBridge
                     Vector3D vp = ve.Data.GetWorldTransform().Position;
                     bool planet = false;
                     foreach (var b in SystemHost.BeaconOf.Values) if ((b.Center - vp).Length() < 5000) { planet = true; break; }
-                    if (!planet && !kept.Exists(k => (k - vp).Length() < 1.0)) kept.Add(vp);
+                    if (!planet && !kept.Exists(k => (k - vp).Length() < 1.0))
+                    {
+                        kept.Add(vp);
+                        try { boxes.Add(Keen.VRage.Core.Game.Data.BoundingBoxData.GetWorldAABB(ve)); } catch { boxes.Add(new BoundingBoxD(vp, vp)); }
+                    }
                 }
             }
             catch { }
-            lock (Asteroids) { Asteroids.Clear(); Asteroids.AddRange(kept); }
+            lock (Asteroids) { Asteroids.Clear(); Asteroids.AddRange(kept); AsteroidBoxes.Clear(); AsteroidBoxes.AddRange(boxes); }
             foreach (var id in ids) { try { gen.DeleteEntity(id); _deleted++; } catch { } }
             Status = $"asteroids blocked: {_orig.Count} volume definition(s) at no density, {_deleted} deleted, {RingInfo.Count} ring(s), {Asteroids.Count} asteroid(s) as anchors";
         }

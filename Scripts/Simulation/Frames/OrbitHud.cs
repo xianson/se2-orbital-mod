@@ -265,7 +265,7 @@ public static class OrbitHud
             if (FrameHost.Seated || JetpackOn(session))
             {
                 DrawMarkers(r, u);
-                if (r.Relative != null) DrawRelative(r, u);   // riding another's frame: your motion about its anchor
+                if (r.Relative != null) { if (!FrameHost.AtAnchor) DrawRelative(r, u); }   // riding: your motion about its anchor (not at it)
                 else DrawDisc(r, u);
             }
         }

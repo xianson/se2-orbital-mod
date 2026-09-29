@@ -333,6 +333,16 @@ public static class FrameHost
         }
         _riderN = N; _riderFrame = f.Id;
         RiderFrame = f.Id; RiderOffset = pos - f.BerthCenter; RiderVelocity = vel / N;
+        // At the anchor (inside its bounding box, touching it, or within 100 m of it): no rendezvous plot.
+        try
+        {
+            double dAnchor = double.PositiveInfinity;
+            if (f.AnchorEntityId == ServerFrames.AsteroidAnchorId) dAnchor = AsteroidBridge.DistanceToAsteroid(pos);
+            else if (GridMembers.IsGridId(f.AnchorEntityId) && GridMembers.Get(f.AnchorEntityId) is OrbitalGridComponent ag)
+                dAnchor = AsteroidBridge.BoxDistance(Keen.VRage.Core.Game.Data.BoundingBoxData.GetWorldAABB(ag.Entity), pos);
+            AtAnchor = dAnchor <= 100.0;
+        }
+        catch { AtAnchor = false; }
         // Dampeners: the game's own (they fight these forces as they fight gravity: on, you hold station).
         try { Dampeners = ch.Data.Has<Keen.Game2.Simulation.WorldObjects.Movement.DampeningData>(); } catch { }
         Vector3D A = ServerFrames.AnchorAccel.TryGetValue(f.Id, out var a) ? a : Vector3D.Zero;
@@ -380,6 +390,9 @@ public static class FrameHost
     /// <summary>DEV: the rider force check (measured vs model relative acceleration).</summary>
     public static string RiderDiag = "-";
     private static double _diagWall, _diagT; private static Vector3D _diagVel, _diagAcc;
+
+    /// <summary>Riding, at the anchor itself (within 100 m of its bounding box): no rendezvous plot.</summary>
+    public static bool AtAnchor;
 
     /// <summary>Your jetpack's dampeners (riding: on = station-keeping with the anchor).</summary>
     public static bool Dampeners;

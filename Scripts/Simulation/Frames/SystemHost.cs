@@ -324,6 +324,14 @@ public static class SystemHost
         foreach (var kv in BeaconOf) VoxelBerthRegistry.PinCell(kv.Key, kv.Value.Center);
 
         var alloc = VoxelBerthRegistry.SharedAllocator(reg);
+        // New berths only where nothing is left behind (a grid out of any frame, a rock).
+        alloc.IsClear = c =>
+        {
+            double r = alloc.SlotRadius;
+            foreach (var g in GridMembers.All())
+                if (g.IsServer && (GridMembers.Position(g) - c).Length() < r) return false;
+            return !AsteroidBridge.NearestAsteroid(c, r, out _);
+        };
         FrameRegistry.Publish(new FrameRegistry(alloc));
 
         // Inverse-square gravity in each planet cell, reaching across the cell.

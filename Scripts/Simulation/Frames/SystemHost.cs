@@ -241,6 +241,7 @@ public static class SystemHost
         // Stable order: the known planets first (Verdure inside Kemik), then by name, so every build agrees.
         int Rank(PlanetBeacon p) { int i = Array.IndexOf(PlanetOrder, DevHarness.PlanetName(p)); return i < 0 ? PlanetOrder.Length : i; }
         beacons.Sort((a, b) => { int r = Rank(a).CompareTo(Rank(b)); return r != 0 ? r : string.CompareOrdinal(DevHarness.PlanetName(a), DevHarness.PlanetName(b)); });
+        AsteroidFrames.Reset();   // the belts' asteroid frames are built afresh for this system
 
         var def = new SystemDefinition { Name = "SE2World", EpochSeconds = 0.0 };
         def.Bodies.Add(new BodyDefinition

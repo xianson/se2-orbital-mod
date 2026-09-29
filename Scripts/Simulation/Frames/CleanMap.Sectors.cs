@@ -231,6 +231,8 @@ public static partial class CleanMap
                     // The ring about its host (the point's offset from its centre, all the way round).
                     SectorArea(W0, q => { var p = SectorHomes.Where(h, reg, t + P * q, out var cq); return p - cq; },
                                v => toLocal(centre + v), b0, 0.5, (h.Outer - h.Inner) / (h.Outer + h.Inner));
+                    RoidMarks(W0, toLocal, reg, t, b0);
+                    MapPipeline.PickName = b0.Name;
                     break;
                 case SectorHomes.Kind.Lagrange when h.Point >= 3:
                 {
@@ -276,6 +278,32 @@ public static partial class CleanMap
             }
             MapPipeline.PickName = null;
         });
+    }
+
+    static readonly ColorSRGB RoidColor = new ColorSRGB(0.80f, 0.72f, 0.58f, 0.75f), RoidLive = new ColorSRGB(1.00f, 0.80f, 0.45f, 1f);
+
+    /// <summary>
+    /// A belt's asteroid frames (AsteroidFrames): a small ring each where it is now on its own orbit (a cluster's
+    /// a little bigger; brighter while its rocks are out), named where there is room. Pointed at like a sector:
+    /// hover, click to centre, right-click "Set as target" (closest approach, route).
+    /// </summary>
+    static void RoidMarks(Func<Vector3D, Vector3D> W, Func<Vector3D, Vector3D> toLocal, SystemRegistry reg, double t, Band belt)
+    {
+        var roids = AsteroidFrames.Of(belt.Name);
+        if (roids.Count == 0) return;
+        float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        foreach (var (label, home, cluster, live) in roids)
+        {
+            Vector3D w = W(toLocal(SectorHomes.Where(home, reg, t)));
+            if (!MapPipeline.ToScreen(w, out var s) || !InOpenArea(s)) continue;
+            _markerAt[label] = w;
+            bool hot = label == Hovered || label == Maneuvers.Target;
+            var c = label == Maneuvers.Target ? TargetText : hot ? LineSel : live ? RoidLive : Quiet(belt) ? HudPanel.Alpha(RoidColor, 0.4f) : RoidColor;
+            MapPipeline.PickName = label;
+            MapPipeline.ScreenRing(w, (cluster ? 4f : 2.8f) * u, c, (hot ? 2f : 1.4f) * u);
+            if (hot || !Quiet(belt)) MapPipeline.TextScreen(s + new Vector2(0, 12f * u), label, c, hot ? 0.6f : 0.5f);
+        }
+        MapPipeline.PickName = null;
     }
 
     /// <summary>Lagrange zones on screen (name, outline), for double-click: this frame's and last frame's.</summary>

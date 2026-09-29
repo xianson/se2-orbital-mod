@@ -17,6 +17,8 @@ namespace OrbitalMod;
 /// nothing of this reaches the world file; the densities are put back on unload.
 /// Asteroids the generator has already spawned are deleted through the generator itself (not the
 /// player's delete, which would exclude them in the save); player-edited ones (marked manual) stay.
+/// The one exception is our own: an asteroid frame's volume (AsteroidFrames) and the rocks in it, whose
+/// composition is a reserved definition the game does not use (never zeroed here).
 /// </summary>
 public static class AsteroidBridge
 {
@@ -90,6 +92,7 @@ public static class AsteroidBridge
         {
             var gen = Generator(session);
             if (gen == null) { Status = "no generator"; return; }
+            AsteroidFrames.Scan(session);   // our asteroid frames' own volumes (and their rocks) are left alone
 
             var def = gen.GenerationData?.Definition;
             if (def != null)
@@ -108,6 +111,8 @@ public static class AsteroidBridge
                 while (en.MoveNext())
                 {
                     var vol = en.Current;
+                    if (AsteroidFrames.IsOurVolume(vol)) continue;   // an asteroid frame's rocks (AsteroidFrames)
+                    AsteroidFrames.GameUses(vol.Composition);        // (a reserved composition the game uses: the game's again)
                     Kill(vol.Composition);
                     var box = vol.GetOrientedBoundingBox().GetAABB();
                     var wt = vol.Transform;
@@ -138,7 +143,12 @@ public static class AsteroidBridge
                 var gone = new List<Keen.VRage.Core.Game.GameSystems.ProceduralGeneration.SpaceEntityId>();
                 foreach (var kv in gen.Entities)
                 {
-                    try { if ((kv.Value.Data.GetWorldTransform().Position - dn.at).Length() <= dn.r) gone.Add(kv.Key); } catch { }
+                    try
+                    {
+                        Vector3D ep = kv.Value.Data.GetWorldTransform().Position;
+                        if ((ep - dn.at).Length() <= dn.r && !AsteroidFrames.Protects(ep, count: false)) gone.Add(kv.Key);
+                    }
+                    catch { }
                 }
                 foreach (var id in gone) { try { gen.DeleteEntity(id); _deleted++; } catch { } }
                 if (gone.Count > 0) Log.Default?.Info($"[ORBIT-ROIDS] deleted {gone.Count} generator bod(ies) left by an encounter moved off a planet's border");
@@ -151,6 +161,8 @@ public static class AsteroidBridge
             {
                 bool manual = false;
                 try { manual = IsManual(kv.Value); } catch { }
+                // A rock of an asteroid frame's volume (AsteroidFrames): placed on purpose, an anchor like a manual one.
+                if (!manual) try { manual = AsteroidFrames.Protects(kv.Value.Data.GetWorldTransform().Position); } catch { }
                 if (!manual) ids.Add(kv.Key);
                 else try { kept.Add(kv.Value.Data.GetWorldTransform().Position); boxes.Add(Keen.VRage.Core.Game.Data.BoundingBoxData.GetWorldAABB(kv.Value)); } catch { }   // an asteroid placed on purpose: a frame anchor
             }
@@ -190,7 +202,7 @@ public static class AsteroidBridge
 
     // The server generator and the voxel component live in assemblies mods cannot reference: by name.
     private static MethodInfo _entityTryGet;
-    static ProceduralGeneratorSessionComponent Generator(Keen.VRage.Core.Game.Systems.Session session)
+    internal static ProceduralGeneratorSessionComponent Generator(Keen.VRage.Core.Game.Systems.Session session)
     {
         // The session's components: the server's generator (the one that spawns).
         ProceduralGeneratorSessionComponent server = null, any = null;
@@ -217,7 +229,7 @@ public static class AsteroidBridge
 
     static void Kill(VolumeDefinition v)
     {
-        if (v == null || !_seen.Add(v)) return;
+        if (v == null || AsteroidFrames.IsReserved(v) || !_seen.Add(v)) return;   // (a reserved one is our asteroid frames')
         _density ??= typeof(VolumeDefinition).GetField("<Density>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
         if (_density == null) return;
         _orig.Add((v, v.Density));
@@ -227,6 +239,7 @@ public static class AsteroidBridge
     /// <summary>The session ends: the definitions (shared by the whole process) get their densities back.</summary>
     public static void Restore()
     {
+        AsteroidFrames.Restore();   // first: a definition both zeroed here and reserved there gets its first-known density
         if (_density != null) foreach (var (v, d) in _orig) { try { _density.SetValue(v, d); } catch { } }
         _orig.Clear(); _seen.Clear(); _loggedRings = false;
     }

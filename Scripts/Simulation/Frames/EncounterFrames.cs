@@ -121,6 +121,7 @@ public static class EncounterFrames
         if (_builtAt < 0) _builtAt = Wall();
         if (!_built && Wall() - _builtAt > BuildDelaySeconds && SavedState.Idle) BuildSites(session, t);
         if (!_built) return;
+        AsteroidFrames.ServerTick(session, t, tick);   // the belts' asteroid frames (sites of their own) and their rocks
         while (_devSites.TryDequeue(out var ds)) DevMakeSite(session, ds.grid, ds.sector, t);
         while (_devFar.TryDequeue(out long fg)) DevFar(fg, t);
         RefreshSites(t);
@@ -282,6 +283,22 @@ public static class EncounterFrames
         _sites[f.Id] = site;
         Event($"SITE #{f.Id} '{label}' in {sc.Name} ({home.Kind} of {home.Host}) at {ServerPlanetBeacon.Fmt(world)}: " +
               $"orbits {parent.Name} r={rel.Position.Length() / 1000:F0} km");
+        return f;
+    }
+
+    /// <summary>
+    /// A site with a home of its own, not a sector's (an asteroid frame, AsteroidFrames): its latent frame at
+    /// site.World, on the home's orbit. Caller holds FramesLock.
+    /// </summary>
+    internal static ProximityFrame AddSite(Site site, double t)
+    {
+        if (site?.Home == null || !Ephemeris(site, t, out GravityBody parent, out StateVector rel)) return null;
+        var el = CaptureMath.CaptureElements(rel, parent.Mu, t);
+        if (!IsFinite(el.SemiMajorAxis) || !IsFinite(el.MeanMotion)) return null;
+        var f = SystemHost.Frames.CreateLatentFrame(parent.Name, el, 0, site.World);
+        f.IsEncounter = true;
+        site.FrameId = f.Id;
+        _sites[f.Id] = site;
         return f;
     }
 

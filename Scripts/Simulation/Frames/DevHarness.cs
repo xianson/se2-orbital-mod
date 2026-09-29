@@ -321,6 +321,14 @@ public static class DevHarness
                 Log.Default?.Info("[ORBIT-DEV] " + EncounterFrames.Describe());
                 return EncounterFrames.Describe().Replace((char)10, '|');
 
+            case "roids":
+            {
+                // roids status | list | on | off | goto <i> [behindKm] | spawn <i> | despawn <i>: the belts' asteroid frames.
+                string r = AsteroidFrames.Command(a);
+                Log.Default?.Info("[ORBIT-DEV] " + r);
+                return r.Replace((char)10, '|');
+            }
+
             case "gps":
                 return FrameMarkers.Describe(session) + " | " + FrameMarkers.Status;
 

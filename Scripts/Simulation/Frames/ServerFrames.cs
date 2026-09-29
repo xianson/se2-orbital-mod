@@ -473,7 +473,7 @@ public static class ServerFrames
                 Event($"frame #{f.Id}: anchor -> the player");
             }
         }
-        if (grids.Count == 0) return;
+        if (grids.Count == 0 && !isStatic) return;   // (a static anchor's frame still steps: its riders, its arrival)
 
         // Anchor election: keep a live grid anchor, else the heaviest PLAYER grid (SE1 ElectAnchor).
         // NPC grids never anchor, and an encounter frame has no anchor at all: its origin is the berth
@@ -577,9 +577,15 @@ public static class ServerFrames
             if (IsFinite(accel)) GridMembers.AddVelocity(g, accel * dt);
         }
 
-        if (f.IsEncounter || anchor == null) return;   // encounter frames never arrive; a player-anchored frame arrives client-side
+        if (f.IsEncounter || (anchor == null && !isStatic)) return;   // encounter frames never arrive; a player-anchored frame arrives client-side
         FrameHost.TryReparent(f, t);
-        TryMaterializeGrids(f, grids, anchor, t);
+        // A static anchor's frame arrives too (its orbit meets the planet): everything in it drops into
+        // the planet's space, static grids placed at their offsets (an asteroid itself stays).
+        var all = new List<OrbitalGridComponent>(grids);
+        if (isStatic)
+            foreach (long id in f.Members)
+                if (GridMembers.IsGridId(id) && GridMembers.Get(id) is OrbitalGridComponent sg && sg.IsServer && !GridMembers.IsDynamic(sg)) all.Add(sg);
+        TryMaterializeGrids(f, all, anchor != null ? GridMembers.Position(anchor) : staticPos, t);
     }
 
     /// <summary>SE1 ExecuteSplits: the member becomes its own frame from its celestial state.</summary>
@@ -597,7 +603,7 @@ public static class ServerFrames
 
     // ───────────────────────────── arrival (grid-anchored frame) ─────────────────────────────
 
-    private static void TryMaterializeGrids(ProximityFrame f, List<OrbitalGridComponent> grids, OrbitalGridComponent anchor, double t)
+    private static void TryMaterializeGrids(ProximityFrame f, List<OrbitalGridComponent> grids, Vector3D anchorPos, double t)
     {
         var reg = SystemHost.Registry;
         GravityBody node = reg.Find(f.ParentBodyName);
@@ -621,7 +627,6 @@ public static class ServerFrames
         if (!act) return;
         if (!VoxelBerthRegistry.TryGetCell(node.Name, reg, out Vector3D cell)) return;
 
-        Vector3D anchorPos = GridMembers.Position(anchor);
         Chart chart = Chart.Of(node.Name, t);
         Vector3D target = cell + chart.FromInertial(cel.Position);
         double speed = chart.VelFromInertial(cel.Position, cel.Velocity).Length();
@@ -631,6 +636,7 @@ public static class ServerFrames
             Vector3D off = GridMembers.Position(g) - anchorPos;
             Vector3D vRel = GridMembers.Velocity(g);
             GridMembers.SetPosition(g, cell + chart.FromInertial(cel.Position + off));   // berth offsets are inertial
+            if (!GridMembers.IsDynamic(g)) continue;   // a static grid: placed, nothing to carry
             if (hs)
             {
                 GridMembers.SetVelocity(g, Vector3D.Zero);

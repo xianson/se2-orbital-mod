@@ -52,6 +52,10 @@ public static class ServerFrames
     /// <summary>The warp each member's velocity was last scaled for.</summary>
     private static readonly Dictionary<long, double> _gridN = new Dictionary<long, double>();
 
+    /// <summary>When each frame was first seen (wall seconds): a fresh frame may still move off a dirty slot.</summary>
+    private static readonly Dictionary<long, double> _born = new Dictionary<long, double>(), _dirtySince = new Dictionary<long, double>();
+    static double Wall() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+
     /// <summary>The anchor id of a frame anchored by an asteroid (not an entity we track by id).</summary>
     public const long AsteroidAnchorId = -2;
 
@@ -456,6 +460,41 @@ public static class ServerFrames
         // A static anchor (a static grid, or an asteroid) comes first: nothing is pinned or drained, the
         // rest (the player too: a rider, not the anchor) move about it normally.
         bool isStatic = false; Vector3D staticPos = default;
+        // A fresh frame that finds a rock (or a static grid it does not own) in its space landed in a dirty
+        // slot (the world only streams content near someone, so nothing could see it when the slot was
+        // handed out): it moves to a fresh slot, you and its ships with it; the dirty slot stays used.
+        if (!_born.ContainsKey(f.Id)) _born[f.Id] = Wall();
+        // (Not an encounter's rock: an encounter spawns its rock with its grids, wherever you are; only a rock
+        // seen for 5 s with no encounter grid near it is taken as left in the slot.)
+        bool dirty = false;
+        long dsid = 0; Vector3D dpos = default;
+        if (!f.IsEncounter && f.BerthSlotId >= 0 && Wall() - _born[f.Id] < 30 && StaticAnchor(f, out dsid, out dpos) && !f.HasMember(dsid))
+        {
+            bool encounterNear = false;
+            foreach (var o in GridMembers.All())
+                if (o.IsServer && EncounterFrames.IsEncounterGrid(o) && (GridMembers.Position(o) - dpos).Length() < 3000) { encounterNear = true; break; }
+            if (!encounterNear)
+            {
+                if (!_dirtySince.ContainsKey(f.Id)) _dirtySince[f.Id] = Wall();
+                dirty = Wall() - _dirtySince[f.Id] >= 5;
+            }
+            else _dirtySince.Remove(f.Id);
+        }
+        else _dirtySince.Remove(f.Id);
+        if (dirty)
+        {
+            _dirtySince.Remove(f.Id);
+            var alloc = SystemHost.Frames.Allocator;
+            int slot = alloc.Allocate(out Vector3D fresh);
+            Vector3D shift = fresh - f.BerthCenter;
+            foreach (long m in f.Members)
+                if (GridMembers.IsGridId(m) && GridMembers.Get(m) is OrbitalGridComponent mg && mg.IsServer && GridMembers.IsDynamic(mg))
+                    GridMembers.SetPosition(mg, GridMembers.Position(mg) + shift);
+            FrameHost.RequestShift(f.Id, shift);
+            Event($"frame #{f.Id}: its slot {f.BerthSlotId} holds {(dsid == AsteroidAnchorId ? "a rock" : $"grid {dsid}")}: moved to clear slot {slot} (the old one stays used)");
+            f.BerthSlotId = slot; f.BerthCenter = fresh;
+            return;
+        }
         if (!f.IsEncounter && StaticAnchor(f, out long sid, out staticPos))
         {
             isStatic = true;

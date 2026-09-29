@@ -19,6 +19,9 @@ public static class DelfosHeat
     /// <summary>Above Delfos's surface: warning (the field's reach), damage starts, damage is full.</summary>
     public const double WarnAbove = 3.0e6, DamageAbove = 2.0e6, FullAbove = 0.5e6;   // (2,500 km above killed in seconds at 2.85/1.5)
 
+    /// <summary>Damage per tick at the damage edge and at full (the game's receiver multiplies by 90 per second).</summary>
+    public const double MinDamage = 0.011, MaxDamage = 1.0;
+
     public static string Status = "-";
     private static KillingFieldComponentDefinition _def;
     private static bool _tried;
@@ -41,6 +44,10 @@ public static class DelfosHeat
                 SetF(clone, "Radius", R + WarnAbove);
                 SetF(clone, "DamageRadius", R + DamageAbove);
                 SetF(clone, "MaxDamageRadius", R + FullAbove);
+                // Damage per tick x90 per second in the game's receiver: theirs (1..100) killed in seconds anywhere
+                // inside. Ours ramps: ~1/s at the damage edge (a couple of minutes), ~90/s at full (a second).
+                SetF(clone, "MinDamage", MinDamage);
+                SetF(clone, "MaxDamage", MaxDamage);
                 _def = clone;
                 Status = $"heat: field from the game's ({baseDef.Radius / 1000:F0} km) -> ours warn {clone.Radius / 1000:F0} km, damage {clone.DamageRadius / 1000:F0} km, full {clone.MaxDamageRadius / 1000:F0} km (from Delfos's centre)";
                 return _def;

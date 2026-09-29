@@ -48,6 +48,9 @@ public static class ServerFrames
         return true;
     }
 
+    /// <summary>Frames whose static anchor the game would not move (they keep their centre).</summary>
+    private static readonly HashSet<long> _uncentrable = new HashSet<long>();
+
     /// <summary>During warp, each member's own orbit (the frame's rails run fast; physics cannot).</summary>
     private static readonly Dictionary<long, KeplerianElements> _warpOwn = new Dictionary<long, KeplerianElements>();
 
@@ -462,6 +465,36 @@ public static class ServerFrames
                 Event($"frame #{f.Id}: anchor -> {(sid == AsteroidAnchorId ? "an asteroid" : $"static grid {sid}")} (the player rides)");
                 f.AnchorEntityId = sid;
                 AnchorAccel.Remove(f.Id);   // no one folds thrust into a static anchor's frame
+            }
+            // The frame is the base's now: its centre moves onto the base (everything shifts by the
+            // same amount, so nothing moves relative to anything) and its orbit becomes the base's.
+            // (An asteroid cannot be moved: its frame keeps its centre, the offset carried instead.)
+            Vector3D off = staticPos - f.BerthCenter;
+            if (sid != AsteroidAnchorId && off.Length() > PinTolerance && !_uncentrable.Contains(f.Id))
+            {
+                double tn = SystemHost.Now;
+                StateVector c0 = OrbitPropagation.StateAt(f.Elements, tn);
+                var el = CaptureMath.CaptureElements(new StateVector(c0.Position + off, c0.Velocity), f.Elements.Mu, tn);
+                var ag = GridMembers.Get(sid);
+                // The base first: only once it is really at the centre do the orbit and the rest follow
+                // (a static grid the game would not move must not re-shift the orbit every tick).
+                if (ag != null && IsFinite(el.SemiMajorAxis) && IsFinite(el.MeanMotion)
+                    && GridMembers.SetPosition(ag, staticPos - off) && (GridMembers.Position(ag) - f.BerthCenter).Length() < 1.0)
+                {
+                    f.Elements = el;
+                    foreach (long m in f.Members)
+                        if (m != sid && GridMembers.IsGridId(m) && GridMembers.Get(m) is OrbitalGridComponent mg && mg.IsServer)
+                            GridMembers.SetPosition(mg, GridMembers.Position(mg) - off);
+                    FrameHost.RequestShift(f.Id, -off);
+                    staticPos = f.BerthCenter;
+                    Event($"frame #{f.Id}: centred on its static anchor (shifted {off.Length() / 1000:F2} km; its orbit is the anchor's)");
+                }
+                else
+                {
+                    if (ag != null) GridMembers.SetPosition(ag, staticPos);   // put it back if it moved partly
+                    _uncentrable.Add(f.Id);
+                    Event($"frame #{f.Id}: its static anchor would not move; the frame keeps its centre (offset {off.Length() / 1000:F2} km)");
+                }
             }
         }
         else if (!f.IsEncounter && (f.AnchorEntityId == AsteroidAnchorId || (GridMembers.IsGridId(f.AnchorEntityId) && !grids.Exists(g => g.Id == f.AnchorEntityId))))

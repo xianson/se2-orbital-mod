@@ -313,6 +313,9 @@ public static class FrameHost
     {
         if (_tpPending) return;
         RiderFrame = f.Id; RiderOffset = pos - f.BerthCenter; RiderVelocity = vel;
+        // Dampeners on: the jetpack keeps station with the anchor (it would cancel any drift), so you hold:
+        // no relative-gravity kicks, no warp steering (at x1 and in warp alike).
+        try { Dampeners = ch.Data.Has<Keen.Game2.Simulation.WorldObjects.Movement.DampeningData>(); } catch { }
         Vector3D A = ServerFrames.AnchorAccel.TryGetValue(f.Id, out var a) ? a : Vector3D.Zero;
         StateVector cur = OrbitPropagation.StateAt(f.Elements, t);
         Vector3D rRel = pos - f.BerthCenter;   // the anchor is pinned at the berth
@@ -322,7 +325,16 @@ public static class FrameHost
         bool isStatic = ServerFrames.StaticAnchorOf(f, out Vector3D anchorAt);
         double leave = isStatic ? ServerFrames.CaptureRadius : ServerFrames.SlotRadius;
         double away = isStatic ? (pos - anchorAt).Length() : rRel.Length();
-        if (SystemHost.Timescale > 1.0 && !isLag)
+        if (Dampeners && !isLag)
+        {
+            if (_riderWarp.HasValue)
+            {
+                var sw0 = OrbitPropagation.StateAt(_riderWarp.Value, t);
+                SetVelocity(ch, Vector3D.Zero); ServerPlanetBeacon.SetRiderVelocity(Vector3D.Zero);
+                _riderWarp = null;
+            }
+        }
+        else if (SystemHost.Timescale > 1.0 && !isLag)
         {
             // Warp: the rails run N times faster than physics can; you follow your own orbit at the warped
             // time (steered there by velocity), and get your true relative velocity back after.
@@ -337,6 +349,7 @@ public static class FrameHost
                 Vector3D tgt = sw.Position - cur.Position;
                 if (IsFinite(tgt)) { SetVelocity(ch, (tgt - rRel) / dt); ServerPlanetBeacon.SetRiderVelocity((tgt - rRel) / dt); }
                 rRel = tgt; vel = sw.Velocity - cur.Velocity;
+                RiderOffset = tgt; RiderVelocity = vel;   // the readout: your true relative state, not the steering
                 away = isStatic ? (f.BerthCenter + tgt - anchorAt).Length() : tgt.Length();
                 if (away <= leave) return;
             }
@@ -370,6 +383,9 @@ public static class FrameHost
             Event($"SPLIT player from frame #{f.Id} at {rRel.Length() / 1000:F1} km -> frame #{nf.Id}");
         }
     }
+
+    /// <summary>Your jetpack's dampeners (riding: on = station-keeping with the anchor).</summary>
+    public static bool Dampeners;
 
     /// <summary>Riding in warp: your own orbit (the rails run fast; physics cannot).</summary>
     private static KeplerianElements? _riderWarp;

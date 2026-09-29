@@ -254,6 +254,9 @@ public static class OrbitDisplay
             rc.Relative = Curvilinear(anchorEl, el, t, out rc.RelNow);
             Curvilinear(anchorEl, el, t + 1.0, out var ahead, samples: 0);
             rc.RelVel = (ahead.along - rc.RelNow.along, ahead.radial - rc.RelNow.radial);   // per second
+            // Dampeners on: the jetpack keeps station with the anchor: you hold where you are.
+            rc.Holding = FrameHost.Dampeners && !EncounterFrames.IsSite(frame);
+            if (rc.Holding) { rc.Relative = new List<(double, double)> { rc.RelNow, rc.RelNow }; rc.RelVel = (0, 0); }
             rc.RelPeriod = anchorEl.IsElliptic && IsFinite(anchorEl.Period) ? anchorEl.Period : 3600;
             rc.AnchorName = AnchorName(frame);
         }

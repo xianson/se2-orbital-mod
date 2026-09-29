@@ -175,6 +175,7 @@ public static class OrbitHud
         public (double along, double radial) RelNow, RelVel;
         public double RelPeriod;
         public string AnchorName;
+        public bool Holding;   // dampeners on: station-keeping with the anchor
     }
 
     public static Readout Current;
@@ -454,7 +455,9 @@ public static class OrbitHud
         double rng = Math.Sqrt(r.RelNow.along * r.RelNow.along + r.RelNow.radial * r.RelNow.radial);
         double rdot = rng > 1 ? (r.RelNow.along * r.RelVel.along + r.RelNow.radial * r.RelVel.radial) / rng : 0;
         double vrel = Math.Sqrt(r.RelVel.along * r.RelVel.along + r.RelVel.radial * r.RelVel.radial);
-        MapPipeline.TextScreen(new Vector2(c.X, c.Y + R + 11f * u), $"{r.AnchorName}   range {HudPanel.Km(rng)}   {(rdot < 0 ? "closing" : "opening")} {Math.Abs(rdot):0.0} m/s   rel {vrel:0.0} m/s", Orbit, 0.4f);
+        MapPipeline.TextScreen(new Vector2(c.X, c.Y + R + 11f * u), r.Holding
+            ? $"{r.AnchorName}   range {HudPanel.Km(rng)}   holding (dampeners)"
+            : $"{r.AnchorName}   range {HudPanel.Km(rng)}   {(rdot < 0 ? "closing" : "opening")} {Math.Abs(rdot):0.0} m/s   rel {vrel:0.0} m/s", Orbit, 0.4f);
     }
 
     static bool IsFinite(Vector3D v) => !(double.IsNaN(v.X) || double.IsNaN(v.Y) || double.IsNaN(v.Z) || double.IsInfinity(v.X) || double.IsInfinity(v.Y) || double.IsInfinity(v.Z));

@@ -175,6 +175,13 @@ public static class OrbitHud
         public (double along, double radial) RelNow, RelVel;
         public double RelPeriod;
         public string AnchorName;
+        /// <summary>The body's sphere of influence (m), and the next patch event on your path: where (world
+        /// offset from the body), what ("Escape", "Palatine Entry"), in how long; for an entry the moon then
+        /// (world offset) and its sphere.</summary>
+        public double SoiRadius;
+        public Vector3D? EventRel, MoonRel;
+        public string EventLabel;
+        public double EventIn, MoonSoi;
         public bool Holding;   // dampeners on: station-keeping with the anchor
     }
 
@@ -312,6 +319,10 @@ public static class OrbitHud
         // Scale: the orbit's far point (or the body) fills the disc.
         double far = r.BodyRadius;
         foreach (var q in r.RelPath) if (IsFinite(q)) far = Math.Max(far, q.Length());
+        if (r.EventRel.HasValue) far = Math.Max(far, r.EventRel.Value.Length());
+        if (r.MoonRel.HasValue) far = Math.Max(far, r.MoonRel.Value.Length() + r.MoonSoi);
+        bool showSoi = r.SoiRadius > 0 && (r.Escape || (r.EventRel.HasValue && !r.MoonRel.HasValue) || far > 0.5 * r.SoiRadius);
+        if (showSoi) far = Math.Max(far, r.SoiRadius);
         double k = (R * 0.86) / Math.Max(1.0, far);
         Vector2 P(Vector3D q) => c + new Vector2((float)(Vector3D.Dot(q, e2) * k), (float)(-Vector3D.Dot(q, e1) * k));
         // Panel: a dark disc, a thin rim (as the game's HUD).
@@ -324,6 +335,16 @@ public static class OrbitHud
         MapPipeline.ScreenDisc(c, br, new ColorSRGB(0.55f, 0.6f, 0.68f, 0.9f));
         float ar = (float)(r.BodyRadius * (1 + SystemHost.AtmosphereFraction) * k);
         if (ar > br + 1.5f * u) MapStyle.BoundaryCircle(c, ar, new ColorSRGB(0.55f, 0.85f, 1f, 0.45f), MapStyle.Thin(u), u);
+        // The body's sphere of influence (a boundary: dotted), when your path reaches toward it.
+        if (showSoi) MapStyle.BoundaryCircle(c, (float)(r.SoiRadius * k), HudPanel.Alpha(new ColorSRGB(0.75f, 0.8f, 0.88f, 1f), 0.55f), MapStyle.Thin(u), u);
+        // A moon you will meet: where it will be then, and its sphere.
+        if (r.MoonRel.HasValue)
+        {
+            var ms = P(r.MoonRel.Value);
+            MapPipeline.ScreenDisc(ms, 2.5f * u, new ColorSRGB(0.8f, 0.82f, 0.86f, 0.9f));
+            float mr = (float)(r.MoonSoi * k);
+            if (mr > 3f * u) MapStyle.BoundaryCircle(ms, mr, HudPanel.Alpha(new ColorSRGB(0.75f, 0.8f, 0.88f, 1f), 0.55f), MapStyle.Thin(u), u);
+        }
         // Your orbit.
         var path = new List<Vector2>(r.RelPath.Length);
         foreach (var q in r.RelPath) if (IsFinite(q)) path.Add(P(q));
@@ -337,6 +358,14 @@ public static class OrbitHud
         }
         if (r.Pe > -r.BodyRadius) Apsis(r.PeRel, "Pe " + (r.Pe < 0 ? "impact" : HudPanel.Km(r.Pe)));
         if (r.ApRel.HasValue && !r.Escape) Apsis(r.ApRel.Value, "Ap " + HudPanel.Km(r.Ap));
+        // The next patch event: where you leave the sphere, or enter a moon's.
+        if (r.EventRel.HasValue)
+        {
+            var es = P(r.EventRel.Value);
+            var ec = new ColorSRGB(0.85f, 0.55f, 1f, 1f);
+            if (!MapPipeline.ScreenIcon("ring", es, 5f * u, ec)) MapPipeline.ScreenCircle(es, 4f * u, ec, 1.6f * u);
+            MapPipeline.TextScreen(es + new Vector2(0, 10f * u), $"{r.EventLabel} · {Maneuvers.Clock(r.EventIn)}", ec, 0.4f);
+        }
         // You: a dot, a prograde tick, and your view as a wedge (straight up: heading-up).
         var me = P(r.PlayerRel);
         var pro2 = new Vector2((float)Vector3D.Dot(r.Pro, e2), (float)-Vector3D.Dot(r.Pro, e1));

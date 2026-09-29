@@ -181,6 +181,7 @@ public static class OrbitDisplay
             PeRel = chart.FromInertial(OrbitSampler.PositionAtTrueAnomaly(el, 0)),
             ApRel = el.IsElliptic ? chart.FromInertial(OrbitSampler.PositionAtTrueAnomaly(el, Math.PI)) : (Vector3D?)null,
         };
+        PatchEvent(OrbitHud.Current, name, v => chart.FromInertial(v));
         _builder.Commit();
         _drewLastFrame = true;
     }
@@ -270,6 +271,7 @@ public static class OrbitDisplay
             rd.PlayerRel = here; rd.Pro = D(cur.Velocity); rd.Nor = D(Vector3D.Cross(cur.Position, cur.Velocity)); rd.Rad = D(cur.Position);
             rd.PeRel = M(OrbitSampler.PositionAtTrueAnomaly(el, 0));
             rd.ApRel = el.IsElliptic ? M(OrbitSampler.PositionAtTrueAnomaly(el, Math.PI)) : (Vector3D?)null;
+            PatchEvent(rd, frame.ParentBodyName, M);
         }
         _builder.Commit();
         _drewLastFrame = true;
@@ -280,6 +282,40 @@ public static class OrbitDisplay
     /// the anchor: along-track as arc length on the anchor's orbit (+ ahead), radial as the height
     /// difference (+ up). Exact: both orbits propagated, not a linearisation.
     /// </summary>
+    /// <summary>
+    /// The disc's escape / entry: the next change of body on your patched path (the planner's trajectory),
+    /// where it happens (offset from the body, world axes via toRel), and for an entry the moon then.
+    /// </summary>
+    static void PatchEvent(OrbitHud.Readout r, string body, Func<Vector3D, Vector3D> toRel)
+    {
+        var reg = SystemHost.Registry;
+        var b = reg?.Find(body);
+        r.SoiRadius = b != null && !b.IsRoot && IsFinite(b.SoiRadius) ? b.SoiRadius : 0;
+        try
+        {
+            double t = SystemHost.Now;
+            if (!Maneuvers.Trajectory(t, out var legs, out _) || legs.Count < 2 || legs[0].Body?.Name != body) return;
+            for (int i = 1; i < legs.Count; i++)
+            {
+                if (legs[i].Body == legs[0].Body) continue;
+                double T = legs[i].T0;
+                var at = OrbitPropagation.StateAt(legs[0].El, T).Position;
+                if (!IsFiniteV(at)) return;
+                r.EventRel = toRel(at);
+                r.EventIn = Math.Max(0, T - t);
+                var nb = legs[i].Body;
+                if (nb == legs[0].Body.Parent) r.EventLabel = "Escape";
+                else
+                {
+                    r.EventLabel = $"{SystemHost.DisplayName(nb.Name)} Entry";
+                    if (nb.Parent == legs[0].Body) { r.MoonRel = toRel(nb.StateInParentAt(T).Position); r.MoonSoi = nb.SoiRadius; }
+                }
+                return;
+            }
+        }
+        catch { }
+    }
+
     /// <summary>What anchors a frame, for the plot's title.</summary>
     static string AnchorName(SEAerospace.Frames.ProximityFrame f)
     {

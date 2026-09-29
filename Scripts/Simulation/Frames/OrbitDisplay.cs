@@ -200,6 +200,8 @@ public static class OrbitDisplay
         if (_builder == null) return;
 
         var el = frame.Elements;
+        var anchorEl = el;
+        bool riding = false;
         var parentOrg = parent.OriginInRoot(t).Position;
         // Riding a frame anchored by something else (a station, an asteroid): your own orbit is the
         // frame's plus your offset and velocity in it (your jetpack changes it, not the frame's).
@@ -209,7 +211,7 @@ public static class OrbitDisplay
             var mine = new StateVector(fc.Position + SEAerospace.PlanetBerths.SpinToCelestial(obs, FrameHost.RiderOffset),
                                        fc.Velocity + SEAerospace.PlanetBerths.SpinToCelestial(obs, FrameHost.RiderVelocity));
             var own = CaptureMath.CaptureElements(mine, el.Mu, t);
-            if (IsFinite(own.SemiMajorAxis)) el = own;
+            if (IsFinite(own.SemiMajorAxis)) { el = own; riding = true; }
         }
         OrbitPath path = OrbitSampler.SamplePath(el, PathPoints, parent.SoiRadius);
         // The orbit itself is drawn by the HUD (OrbitHud.DrawPath: a smooth screen curve, behind the
@@ -239,6 +241,7 @@ public static class OrbitDisplay
             Path = world, PathClosed = path.IsClosed,
             BodyWorld = SEAerospace.PlanetBerths.WorldFromCelestial(obs, parentOrg), BodyRadius = radius,
         };
+        if (riding) OrbitHud.Current.Relative = Curvilinear(anchorEl, el, t, out OrbitHud.Current.RelNow);
         {
             // For the orbit disc and the direction markers: the orbit about the body in world axes.
             var rd = OrbitHud.Current;
@@ -252,6 +255,31 @@ public static class OrbitDisplay
         }
         _builder.Commit();
         _drewLastFrame = true;
+    }
+
+    /// <summary>
+    /// Your motion about the frame's anchor in its curvilinear local frame, for the next revolution of
+    /// the anchor: along-track as arc length on the anchor's orbit (+ ahead), radial as the height
+    /// difference (+ up). Exact: both orbits propagated, not a linearisation.
+    /// </summary>
+    static List<(double along, double radial)> Curvilinear(KeplerianElements anchor, KeplerianElements you, double t, out (double along, double radial) now)
+    {
+        (double, double) At(double tk)
+        {
+            var a = OrbitPropagation.StateAt(anchor, tk); var b = OrbitPropagation.StateAt(you, tk);
+            Vector3D h = Vector3D.Cross(a.Position, a.Velocity);
+            if (h.LengthSquared() < 1e-12) return (0, 0);
+            h = Vector3D.Normalize(h);
+            double r0 = a.Position.Length();
+            Vector3D bp = b.Position - h * Vector3D.Dot(b.Position, h);
+            double th = Math.Atan2(Vector3D.Dot(h, Vector3D.Cross(a.Position, bp)), Vector3D.Dot(a.Position, bp));
+            return (th * r0, b.Position.Length() - r0);
+        }
+        now = At(t);
+        var list = new List<(double, double)>(161);
+        double P = anchor.IsElliptic && IsFinite(anchor.Period) ? anchor.Period : 3600;
+        for (int k = 0; k <= 160; k++) list.Add(At(t + P * k / 160));
+        return list;
     }
 
     private static void UpdateVelocity(Vector3D cam)

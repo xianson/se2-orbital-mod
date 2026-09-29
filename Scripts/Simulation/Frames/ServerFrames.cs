@@ -124,6 +124,7 @@ public static class ServerFrames
         if (_lastTickStamp != 0 && dt < 0.004) return; // once per frame
         _lastTickStamp = now;
         TickRate.Server.Count();
+        SpawnGuard.Tick(AsteroidBridge.Generator(session));   // no encounters on a planet's border (before they materialize)
         AsteroidBridge.Tick(session);   // no procedural asteroids, ever (encounters and our own system place them)
         // Physics runs on game time (it slows and pauses with the game), so the tidal velocity
         // changes must use game-time dt too; the wall-clock dt above only gates once-per-frame.
@@ -471,8 +472,11 @@ public static class ServerFrames
         if (!f.IsEncounter && f.BerthSlotId >= 0 && Wall() - _born[f.Id] < 30 && StaticAnchor(f, out dsid, out dpos) && !f.HasMember(dsid))
         {
             bool encounterNear = false;
+            // (A fresh encounter's grids join a frame within seconds (spawns settle 2 s); grids next to the rock
+            // in no frame at all are leftovers from a save, as the rock is.)
             foreach (var o in GridMembers.All())
-                if (o.IsServer && EncounterFrames.IsEncounterGrid(o) && (GridMembers.Position(o) - dpos).Length() < 3000) { encounterNear = true; break; }
+                if (o.IsServer && EncounterFrames.IsEncounterGrid(o) && (GridMembers.Position(o) - dpos).Length() < 3000
+                    && SystemHost.Frames.FindByMember(o.Id) != null && !f.HasMember(o.Id)) { encounterNear = true; break; }
             if (!encounterNear)
             {
                 if (!_dirtySince.ContainsKey(f.Id)) _dirtySince[f.Id] = Wall();
@@ -495,7 +499,10 @@ public static class ServerFrames
             f.BerthSlotId = slot; f.BerthCenter = fresh;
             return;
         }
-        if (!f.IsEncounter && StaticAnchor(f, out long sid, out staticPos))
+        // A young frame is not captured by a rock or grid it does not own before the dirty-slot check has had
+        // its 5 s (it was, then moved off the slot with its orbit rebased onto the rock).
+        bool youngForeign = !f.IsEncounter && Wall() - _born[f.Id] < 12 && StaticAnchor(f, out long ysid, out _) && !f.HasMember(ysid) && f.AnchorEntityId != ysid;   // (rocks show on the bridge's 2 s scans)
+        if (!youngForeign && !f.IsEncounter && StaticAnchor(f, out long sid, out staticPos))
         {
             isStatic = true;
             if (f.AnchorEntityId != sid)

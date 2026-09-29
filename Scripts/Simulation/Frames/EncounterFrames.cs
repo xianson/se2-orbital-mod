@@ -613,6 +613,12 @@ public static class EncounterFrames
                     if ((GridMembers.Position(o) - pos).Length() > ClusterRadius || !IsEncounterGrid(o)) continue;
                     cl.Add(o); handled.Add(o.Id);
                 }
+                int gone = SpawnGuard.DeleteEncountersNear(pos, ClusterRadius);
+                if (gone > 0)
+                {
+                    Event($"SPAWN on {F.ParentBodyName}'s border: '{g.DisplayName}' near frame #{F.Id} -> {gone} encounter(s) despawned (its berth is closed to them)");
+                    continue;
+                }
                 AsteroidBridge.RequestDeleteNear(pos, ClusterRadius);
                 Event($"SPAWN on {F.ParentBodyName}'s border: {cl.Count} encounter grid(s) '{g.DisplayName}' near frame #{F.Id} -> moved to a safe orbit");
                 FarFrame(F, cl, t, safeR);
@@ -620,7 +626,14 @@ public static class EncounterFrames
             }
             if (d <= CloseRadius || anchored || (IsSite(F) && d <= SiteRadius))
             {
-                // CLOSE: a similar orbit, i.e. the same frame.
+                // CLOSE: a similar orbit, i.e. the same frame. (A site on a planet's border takes none either.)
+                if (OnPlanetBorder(F, out double sr2))
+                {
+                    AsteroidBridge.RequestDeleteNear(pos, ClusterRadius);
+                    Event($"SPAWN on {F.ParentBodyName}'s border: encounter grid {id} '{g.DisplayName}' near frame #{F.Id} -> moved to a safe orbit");
+                    FarFrame(F, new List<OrbitalGridComponent> { g }, t, sr2);
+                    continue;
+                }
                 if (SystemHost.Frames.AddMember(F, id))
                     Event($"SPAWN close: encounter grid {id} '{g.DisplayName}' {d / 1000:F1} km from frame #{F.Id} -> joins it");
                 continue;
@@ -642,7 +655,7 @@ public static class EncounterFrames
     /// A frame orbiting low about a planet: periapsis under the planet's keep radius (the band where frames
     /// hand over to the planet's space and back). Out: a safe circular radius above that band.
     /// </summary>
-    static bool OnPlanetBorder(ProximityFrame f, out double safeR)
+    public static bool OnPlanetBorder(ProximityFrame f, out double safeR)
     {
         safeR = 0;
         var reg = SystemHost.Registry;

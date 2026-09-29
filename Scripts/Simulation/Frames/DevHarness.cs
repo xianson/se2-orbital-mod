@@ -928,6 +928,7 @@ public static class DevHarness
         sb.AppendLine(FrameHost.RiderDiag);
         sb.AppendLine(OrbitDisplay.PredDiag);
         sb.AppendLine(DelfosHeat.Status);
+        sb.AppendLine(SpawnGuard.Status);
         lock (AsteroidBridge.RingInfo) foreach (var ri in AsteroidBridge.RingInfo) sb.AppendLine("  ring " + ri);
         sb.AppendLine($"sun {SunDriver.Status}");
         try

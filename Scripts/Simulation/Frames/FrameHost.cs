@@ -855,7 +855,12 @@ public static class FrameHost
             return true;
         }
         if (_pendingShift.LengthSquared() > 1e-6 && _tpPending)
-            _pendingShift = Vector3D.Zero; // not at the berth yet: the teleport target is already the pinned berth
+        {
+            // Still arriving: the frame moved meanwhile (a re-pin, a move off a dirty slot), so the teleport's
+            // target moves with it (dropping the shift left you where the frame was: split off 800 km away).
+            _tpTarget += _pendingShift;
+            _pendingShift = Vector3D.Zero;
+        }
         if (_pendingShift.LengthSquared() > 1e-6)
         {
             Vector3D p = pos + _pendingShift;
@@ -864,6 +869,7 @@ public static class FrameHost
             var wt = ch.Data.GetWorldTransform();
             ch.Data.Set(new WorldTransform(p, wt.Orientation));
             ServerPlanetBeacon.PendingPlayer = new PlayerRequest { Position = p };
+            return true;   // this tick's position is stale now (the rider step split you off 800 km 'away')
         }
         return false;
     }

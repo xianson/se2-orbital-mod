@@ -234,6 +234,8 @@ public static class DevHarness
                     // orbit <planet> <apoAltKm> <periAltKm> [incDeg]
                     var op = FindPlanet(a[1]);
                     string ob = op != null ? SystemHost.BodyNameOf(op) : null;
+                    if (ob == null && (a[1].Equals("Delfos", StringComparison.OrdinalIgnoreCase) || a[1].Equals("Star", StringComparison.OrdinalIgnoreCase)))
+                        ob = SystemHost.Registry?.Root?.Name;   // about the star itself
                     if (ob == null) return "no such planet";
                     return FrameHost.SetOrbit(ob, D(a[2]), D(a[3]), a.Length > 4 ? D(a[4]) : 0, a.Length > 5 ? D(a[5]) : 0);
                 }
@@ -917,6 +919,7 @@ public static class DevHarness
         sb.AppendLine("libration " + Maneuvers.LibStart + " | " + Maneuvers.LibDebug);
         sb.AppendLine(FrameHost.RiderDiag);
         sb.AppendLine(OrbitDisplay.PredDiag);
+        sb.AppendLine(DelfosHeat.Status);
         lock (AsteroidBridge.RingInfo) foreach (var ri in AsteroidBridge.RingInfo) sb.AppendLine("  ring " + ri);
         sb.AppendLine($"sun {SunDriver.Status}");
         try

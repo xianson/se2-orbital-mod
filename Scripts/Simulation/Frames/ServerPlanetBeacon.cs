@@ -227,6 +227,7 @@ public partial class ServerPlanetBeacon
                 _playerPos = pc[0].Data.GetWorldTransform().Position;
                 _playerVel = (Vector3D)pc[0].Data.Get<RigidBodyData>().LinearVelocity;
                 _playerSeen = true;
+                DelfosHeat.Apply(ss, pc[0], _playerPos);   // Delfos's heat on the server copy (the damage)
             }
         }
         catch { }

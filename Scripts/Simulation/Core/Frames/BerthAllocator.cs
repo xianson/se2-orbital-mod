@@ -87,7 +87,7 @@ namespace SEAerospace.Frames
                     center = _origin + new Vector3D(c.X * _spacing, c.Y * _spacing, c.Z * _spacing);
                     // A slot is only handed out physically empty: grids left behind in a freed slot (or a rock)
                     // would sit right next to whoever lands there. (Give up checking after many: never stall.)
-                    if (IsClear == null || skipped > 256 || IsClear(center))
+                    if (IsClear == null || skipped > 256 || IsClear(center, _slotRadius))
                     {
                         _occupied.Add(id);
                         return id;
@@ -98,8 +98,9 @@ namespace SEAerospace.Frames
             }
         }
 
-        /// <summary>Whether a slot's space is physically empty (no leftover grid, no rock); null = not checked.</summary>
-        public System.Func<Vector3D, bool> IsClear;
+        /// <summary>Whether a slot's space (centre, radius) is physically empty (no leftover grid, no rock); null =
+        /// not checked. Static: every allocator uses it (the one a save restores is built fresh).</summary>
+        public static System.Func<Vector3D, double, bool> IsClear;
 
         // Hard ceiling on lattice growth. EnsureCells materializes ~slotId cells, so a corrupt or crafted
         // persisted slot id (e.g. 2,000,000,000 from a hand-edited save) would OOM/hang the world load.

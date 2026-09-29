@@ -325,9 +325,8 @@ public static class SystemHost
 
         var alloc = VoxelBerthRegistry.SharedAllocator(reg);
         // New berths only where nothing is left behind (a grid out of any frame, a rock).
-        alloc.IsClear = c =>
+        BerthAllocator.IsClear = (c, r) =>
         {
-            double r = alloc.SlotRadius;
             foreach (var g in GridMembers.All())
                 if (g.IsServer && (GridMembers.Position(g) - c).Length() < r) return false;
             return !AsteroidBridge.NearestAsteroid(c, r, out _);

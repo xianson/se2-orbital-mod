@@ -172,6 +172,7 @@ public static class FrameHost
         }
 
         PublishObserver(camera.Position, reg, t);
+        if (ch != null) DelfosHeat.Apply(session, ch, ch.Data.GetWorldTransform().Position);   // the client copy (effect, warning)
 
         // Warp lock (SE1 WarpPolicy, simplified): warp only advances the rails, so it is allowed only
         // while the player coasts in a conjunction. Materialized (in a planet cell or legacy space) = x1.

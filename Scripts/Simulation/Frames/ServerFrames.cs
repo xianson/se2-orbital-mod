@@ -33,6 +33,24 @@ public static class ServerFrames
     public const double AttachRadius = 5000.0;   // m: grids this close to a stowing player join its frame
     public const double PinTolerance = 200.0;    // m: re-pin the anchor grid (and shift the frame) past this
     public const double SlotRadius = 20000.0;    // m: SE1 FrameManager.SlotRadius (split threshold)
+    /// <summary>A static grid or asteroid captures a frame within this of it (and a rider leaves past it).</summary>
+    public const double CaptureRadius = 10000.0;
+
+    /// <summary>A frame's anchor is static (a static grid or an asteroid): its position, else false.</summary>
+    public static bool StaticAnchorOf(ProximityFrame f, out Vector3D pos)
+    {
+        pos = f.BerthCenter;
+        if (f.AnchorEntityId == AsteroidAnchorId) return true;
+        if (!GridMembers.IsGridId(f.AnchorEntityId)) return false;
+        var g = GridMembers.Get(f.AnchorEntityId);
+        if (g == null || GridMembers.IsDynamic(g)) return false;
+        pos = GridMembers.Position(g);
+        return true;
+    }
+
+    /// <summary>During warp, each member's own orbit (the frame's rails run fast; physics cannot).</summary>
+    private static readonly Dictionary<long, KeplerianElements> _warpOwn = new Dictionary<long, KeplerianElements>();
+
     /// <summary>The anchor id of a frame anchored by an asteroid (not an entity we track by id).</summary>
     public const long AsteroidAnchorId = -2;
 
@@ -49,10 +67,10 @@ public static class ServerFrames
             if (!GridMembers.IsGridId(m)) continue;
             var g = GridMembers.Get(m);
             // Only where the frame is: a static member elsewhere (listed by an older rule) anchors nothing.
-            if (g != null && g.IsServer && !GridMembers.IsDynamic(g) && (GridMembers.Position(g) - f.BerthCenter).Length() <= SlotRadius)
+            if (g != null && g.IsServer && !GridMembers.IsDynamic(g) && (GridMembers.Position(g) - f.BerthCenter).Length() <= CaptureRadius)
             { id = m; pos = GridMembers.Position(g); return true; }
         }
-        if (AsteroidBridge.NearestAsteroid(f.BerthCenter, AttachRadius, out pos)) { id = AsteroidAnchorId; return true; }
+        if (AsteroidBridge.NearestAsteroid(f.BerthCenter, CaptureRadius, out pos)) { id = AsteroidAnchorId; return true; }
         return false;
     }
 
@@ -515,12 +533,42 @@ public static class ServerFrames
         // A Lagrange site: its own simple dynamics (EncounterFrames.LagrangeDynamics).
         Func<Vector3D, Vector3D, Vector3D> lag = null;
         if (f.IsEncounter) EncounterFrames.LagrangeDynamics(f.Id, t, out lag);
+        bool warping = SystemHost.Timescale > 1.0 && lag == null;
         foreach (var g in grids)
         {
             if (g == anchor) continue;
             if (EncounterFrames.IsNpc(g)) continue;
             Vector3D rRel = GridMembers.Position(g) - anchorPos;
-            if (rRel.Length() > SlotRadius)
+            // Warp: the rails run N times faster than physics can; each member follows its own orbit at
+            // the warped time (steered there by velocity), and gets its true relative velocity back after.
+            if (warping)
+            {
+                if (!_warpOwn.TryGetValue(g.Id, out var own))
+                {
+                    own = CaptureMath.CaptureElements(new StateVector(cur.Position + rRel, cur.Velocity + GridMembers.Velocity(g)), mu, t);
+                    if (IsFinite(own.SemiMajorAxis)) _warpOwn[g.Id] = own;
+                }
+                if (_warpOwn.TryGetValue(g.Id, out own))
+                {
+                    Vector3D tgt = OrbitPropagation.StateAt(own, t).Position - cur.Position;
+                    if (tgt.Length() > (isStatic ? CaptureRadius : SlotRadius))
+                    {
+                        var sw = OrbitPropagation.StateAt(own, t);
+                        _warpOwn.Remove(g.Id);
+                        SplitGrid(f, g, cur, sw.Position - cur.Position, sw.Velocity - cur.Velocity, t);
+                        continue;
+                    }
+                    if (IsFinite(tgt)) GridMembers.SetVelocity(g, (tgt - rRel) / dt);
+                    continue;
+                }
+            }
+            else if (_warpOwn.TryGetValue(g.Id, out var was))
+            {
+                var sw = OrbitPropagation.StateAt(was, t);
+                GridMembers.SetVelocity(g, sw.Velocity - cur.Velocity);
+                _warpOwn.Remove(g.Id);
+            }
+            if (rRel.Length() > (isStatic ? CaptureRadius : SlotRadius))
             {
                 SplitGrid(f, g, cur, rRel, GridMembers.Velocity(g), t);
                 continue;

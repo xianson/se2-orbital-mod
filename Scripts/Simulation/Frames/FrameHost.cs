@@ -317,11 +317,46 @@ public static class FrameHost
         StateVector cur = OrbitPropagation.StateAt(f.Elements, t);
         Vector3D rRel = pos - f.BerthCenter;   // the anchor is pinned at the berth
         double mu = f.Elements.Mu;
-        Vector3D acc = EncounterFrames.LagrangeDynamics(f.Id, t, out var lag) ? lag(rRel, vel)   // a Lagrange site's own dynamics
-                     : (Grav(cur.Position + rRel, mu) - Grav(cur.Position, mu)) - A;
-        if (IsFinite(acc) && acc.LengthSquared() > 1e-10) SetVelocity(ch, vel + acc * dt);
-        if (rRel.Length() > ServerFrames.SlotRadius)
+        bool isLag = EncounterFrames.LagrangeDynamics(f.Id, t, out var lag);
+        // A static anchor (a station, an asteroid): you leave it past the capture radius, measured from it.
+        bool isStatic = ServerFrames.StaticAnchorOf(f, out Vector3D anchorAt);
+        double leave = isStatic ? ServerFrames.CaptureRadius : ServerFrames.SlotRadius;
+        double away = isStatic ? (pos - anchorAt).Length() : rRel.Length();
+        if (SystemHost.Timescale > 1.0 && !isLag)
         {
+            // Warp: the rails run N times faster than physics can; you follow your own orbit at the warped
+            // time (steered there by velocity), and get your true relative velocity back after.
+            if (!_riderWarp.HasValue)
+            {
+                var e0 = CaptureMath.CaptureElements(new StateVector(cur.Position + rRel, cur.Velocity + vel), mu, t);
+                if (IsFinite(e0.SemiMajorAxis)) _riderWarp = e0;
+            }
+            if (_riderWarp.HasValue && dt > 0)
+            {
+                var sw = OrbitPropagation.StateAt(_riderWarp.Value, t);
+                Vector3D tgt = sw.Position - cur.Position;
+                if (IsFinite(tgt)) SetVelocity(ch, (tgt - rRel) / dt);
+                rRel = tgt; vel = sw.Velocity - cur.Velocity;
+                away = isStatic ? (f.BerthCenter + tgt - anchorAt).Length() : tgt.Length();
+                if (away <= leave) return;
+            }
+        }
+        else if (_riderWarp.HasValue)
+        {
+            var sw = OrbitPropagation.StateAt(_riderWarp.Value, t);
+            SetVelocity(ch, sw.Velocity - cur.Velocity);
+            _riderWarp = null;
+            return;
+        }
+        else
+        {
+            Vector3D acc = isLag ? lag(rRel, vel)   // a Lagrange site's own dynamics
+                         : (Grav(cur.Position + rRel, mu) - Grav(cur.Position, mu)) - A;
+            if (IsFinite(acc) && acc.LengthSquared() > 1e-10) SetVelocity(ch, vel + acc * dt);
+        }
+        if (away > leave)
+        {
+            _riderWarp = null;
             var el = CaptureMath.CaptureElements(new StateVector(cur.Position + rRel, cur.Velocity + vel), mu, t);
             if (!IsFinite(el.SemiMajorAxis)) return;
             var nf = SystemHost.Frames.SplitOff(f, _playerId, f.ParentBodyName, el);
@@ -330,6 +365,9 @@ public static class FrameHost
             Event($"SPLIT player from frame #{f.Id} at {rRel.Length() / 1000:F1} km -> frame #{nf.Id}");
         }
     }
+
+    /// <summary>Riding in warp: your own orbit (the rails run fast; physics cannot).</summary>
+    private static KeplerianElements? _riderWarp;
 
     private static Vector3D Grav(Vector3D r, double mu)
     {

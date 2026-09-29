@@ -383,7 +383,7 @@ public static class OrbitHud
         MapPipeline.TextScreen(new Vector2(o.X + 12f * u, c.Y + R - pad - 6f * u), "+R", ax, 0.42f);
         MapPipeline.TextScreen(new Vector2(c.X + R - 30f * u, c.Y + R - 12f * u), HudPanel.Km(ext), ax, 0.4f);
         // The frame's boundary (split radius), where it crosses the panel.
-        double rb = ServerFrames.SlotRadius * k;
+        double rb = ServerFrames.CaptureRadius * k;
         if (rb < S * 1.5)
         {
             var arc = new List<Vector2>();

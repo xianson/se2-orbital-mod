@@ -191,6 +191,8 @@ public static class OrbitHud
         public Vector3D? RvRel, RvTargetRel;
         public string RvLabel;
         public double RvIn, RvDist;
+        /// <summary>Ring rocks met on your path (offsets from the body): where you are then, name, how close, how soon.</summary>
+        public List<(Vector3D rel, string label, double dist, double inT)> Rocks;
     }
 
     public static Readout Current;
@@ -246,6 +248,8 @@ public static class OrbitHud
             if (burn != null) sb.Append((sb.Length > 0 ? "\n" : "") + burn);
             string tgt = Maneuvers.TargetLine(SystemHost.Now);
             if (tgt != null) sb.Append((sb.Length > 0 ? "\n" : "") + tgt);
+            string ring = Maneuvers.RingLine(SystemHost.Now);
+            if (ring != null) sb.Append((sb.Length > 0 ? "\n" : "") + ring);
             string content = sb.ToString().TrimEnd('\n').Replace("\n\n", "\n");   // no blank lines
             if (_card == null || (now >= _nextCheck && !GameUi.IsOpen(_card)))
             {
@@ -334,6 +338,7 @@ public static class OrbitHud
         if (r.EventRel.HasValue) far = Math.Max(far, r.EventRel.Value.Length());
         if (r.MoonRel.HasValue) far = Math.Max(far, r.MoonRel.Value.Length() + r.MoonSoi);
         if (r.RvRel.HasValue) far = Math.Max(far, Math.Max(r.RvRel.Value.Length(), r.RvTargetRel.Value.Length()));
+        if (r.Rocks != null) foreach (var rk in r.Rocks) far = Math.Max(far, rk.rel.Length());
         bool showSoi = r.SoiRadius > 0 && (r.Escape || (r.EventRel.HasValue && !r.MoonRel.HasValue) || far > 0.5 * r.SoiRadius);
         if (showSoi) far = Math.Max(far, r.SoiRadius);
         double k = (R * 0.86) / Math.Max(1.0, far);
@@ -392,6 +397,18 @@ public static class OrbitHud
             }
             if (!MapPipeline.ScreenIcon("ring", rs, 5f * u, rc)) MapPipeline.ScreenCircle(rs, 4f * u, rc, 1.6f * u);
             MapPipeline.TextScreen(rs + new Vector2(0, 10f * u), $"{r.RvLabel} · {HudPanel.Km(r.RvDist)} · {Maneuvers.Clock(r.RvIn)}", rc, 0.4f);
+        }
+        // Ring rocks you will meet: each marked as the rendezvous is, the next one named.
+        if (r.Rocks != null)
+        {
+            var kc = Maneuvers.RockColor;
+            for (int i = 0; i < r.Rocks.Count; i++)
+            {
+                var ks = P(r.Rocks[i].rel);
+                MapPipeline.ScreenCircle(ks, 3.5f * u, kc, 1.4f * u);
+                MapPipeline.ScreenDisc(ks, 1.2f * u, kc);
+                if (i == 0) MapPipeline.TextScreen(ks + new Vector2(0, 10f * u), $"{r.Rocks[i].label} · {HudPanel.Km(r.Rocks[i].dist)} · {Maneuvers.Clock(r.Rocks[i].inT)}", kc, 0.4f);
+            }
         }
         // You: a dot, a prograde tick, and your view as a wedge (straight up: heading-up).
         var me = P(r.PlayerRel);

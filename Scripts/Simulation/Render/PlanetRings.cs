@@ -207,6 +207,15 @@ public static class PlanetRings
             }
     }
 
+    /// <summary>The rings known (world centre, inner / outer radius, half-thickness): the server's tori, else the client's ring entities.</summary>
+    public static List<(Vector3D C, double In, double Out, double Half)> Known()
+    {
+        var l = new List<(Vector3D, double, double, double)>();
+        lock (AsteroidBridge.Rings) l.AddRange(AsteroidBridge.Rings);
+        if (l.Count == 0) lock (PlanetRenderBridge.Lock) foreach (var r in _rings) l.Add((r.Center, r.Inner, r.Outer, r.Half));
+        return l;
+    }
+
     /// <summary>After a map frame: the map rings not placed in it are hidden.</summary>
     public static void MapEnd() => MapRingMesh.End();
 

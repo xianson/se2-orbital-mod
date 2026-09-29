@@ -332,6 +332,15 @@ public static class OrbitDisplay
                 r.RvIn = Math.Max(0, rt - SystemHost.Now); r.RvDist = rd;
                 r.RvLabel = $"{Maneuvers.Target} Rendezvous";
             }
+            // The ring rocks met on the path about this body.
+            if (Maneuvers.Trajectory(SystemHost.Now, out var rl, out _))
+                foreach (var p in RingRocks.Passes(rl, SystemHost.Now))
+                {
+                    if (p.Leg.Body != b) continue;
+                    var at = OrbitPropagation.StateAt(p.Leg.El, p.T).Position;
+                    if (!IsFiniteV(at)) continue;
+                    (r.Rocks ??= new List<(Vector3D, string, double, double)>()).Add((toRel(at), p.Label, p.D, Math.Max(0, p.T - SystemHost.Now)));
+                }
         }
         catch { }
         try

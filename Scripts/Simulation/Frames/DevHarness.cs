@@ -687,6 +687,21 @@ public static class DevHarness
                 return MapRingMesh.Status + $" | map rings {PlanetRings.MapRings} look dim {MapRingMesh.Dim} hue {MapRingMesh.Hue} sat {MapRingMesh.Sat}";
             }
 
+            case "ringrocks":   // ringrocks [n <perRing>] : the rings' seeded rocks and the passes on your plan
+            {
+                if (a.Length > 2 && a[1] == "n") RingRocks.PerRing = int.Parse(a[2]);
+                RingRocks.Belts();
+                var sb = new System.Text.StringBuilder(RingRocks.Status);
+                double tn = SystemHost.Now;
+                if (Maneuvers.Trajectory(tn, out var legs, out _))
+                {
+                    var ps = RingRocks.Passes(legs, tn);
+                    sb.Append($" | {ps.Count} pass(es) on the plan");
+                    foreach (var q in ps.Take(10)) sb.Append($" | {q.Label} {q.D / 1000:F1} km in {Maneuvers.Clock(q.T - tn)} {q.V:F0} m/s");
+                }
+                return sb.ToString();
+            }
+
             case "selrock":   // selrock <rock label> | selrock off (as a click on its map marker)
                 CleanMap.SelectedRock = a[1] == "off" ? null : string.Join(" ", a, 1, a.Length - 1);
                 return "selected rock " + (CleanMap.SelectedRock ?? "none");

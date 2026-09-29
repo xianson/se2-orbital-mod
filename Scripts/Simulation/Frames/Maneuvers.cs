@@ -544,6 +544,18 @@ public static class Maneuvers
             }
         }
 
+        // Ring rocks: every pass within the rendezvous range, marked as the target's rendezvous is.
+        {
+            int shown = 0;
+            foreach (var p in RingRocks.Passes(legs, t))
+            {
+                if (!Live(p.Leg.Body) || !MapPipeline.ToScreen(W(LegLoc(p.Leg, p.T)), out var ps) || !InMapArea(ps)) continue;
+                MapPipeline.ScreenCircle(ps, 5f * u, RockColor, 2f * u);
+                MapPipeline.ScreenCircle(ps, 1.5f * u, RockColor, 2.5f * u);
+                if (shown++ < 4) HudPanel.TagAt(ps + new Vector2(10f * u, 0), $"{p.Label} Rendezvous  ·  {HudPanel.Km(p.D)}  in {Clock(p.T - t)}  ·  {p.V:N0} m/s", RockColor, u, diamond: false);
+            }
+        }
+
         // Sector crossings: where the path comes within the merge range of a sector's site (you arrive
         // there, by conjunction) and where it leaves the site's bubble again.
         foreach (var c in SectorCrossings(t, legs))
@@ -868,6 +880,21 @@ public static class Maneuvers
     /// <summary>The sector targeted from the map (its site): the path's closest approach to it is marked.</summary>
     public static string Target;
     static readonly ColorSRGB TargetColor = new ColorSRGB(0.95f, 0.45f, 0.85f, 1f);
+    /// <summary>A ring rock's rendezvous (the rocks' colour on the map).</summary>
+    public static readonly ColorSRGB RockColor = new ColorSRGB(1.00f, 0.80f, 0.45f, 1f);
+
+    /// <summary>The ring rocks on the planned path, for the orbit card (null: none).</summary>
+    public static string RingLine(double t)
+    {
+        if (!Trajectory(t, out var legs, out _)) return null;
+        var ps = RingRocks.Passes(legs, t);
+        if (ps.Count == 0) return null;
+        var p = ps[0];
+        // This crossing's: the passes with no long gap after the first (the next crossing is its own).
+        int n = 1;
+        while (n < ps.Count && ps[n].T - ps[n - 1].T < 120) n++;
+        return $"Ring crossing: {n} rendezvous  ·  next {p.Label} {HudPanel.Km(p.D)} in {Clock(p.T - t)}  ·  {p.V:N0} m/s";
+    }
     private static double _caAt = -1, _caGameT; private static string _caSig; private static (bool ok, double t, double d, Leg leg, EncounterFrames.Site site) _ca;
 
     /// <summary>

@@ -356,7 +356,7 @@ public static class SectorHomes
     }
 
     /// <summary>A circular orbit (radius r about a body of mu), phase at t = 0, in a plane tilted about a node.</summary>
-    static Vector3D Circular(double mu, double r, double phase, double tilt, double node, double t)
+    public static Vector3D Circular(double mu, double r, double phase, double tilt, double node, double t)
     {
         double a = phase + Math.Sqrt(mu / (r * r * r)) * t;
         Vector3D p = new Vector3D(Math.Cos(a) * r, Math.Sin(a) * r, 0);

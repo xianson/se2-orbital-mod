@@ -257,9 +257,13 @@ public static class OrbitHud
             float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
             // No orbit line in the world (first or third person): the orbit disc shows it,
             // and the markers show its directions.
-            DrawMarkers(r, u);
-            if (r.Relative != null) DrawRelative(r, u);   // riding another's frame: your motion about its anchor
-            else DrawDisc(r, u);
+            // In your suit with the jetpack off (walking, floating about): no disc, plot or markers.
+            if (FrameHost.Seated || JetpackOn(session))
+            {
+                DrawMarkers(r, u);
+                if (r.Relative != null) DrawRelative(r, u);   // riding another's frame: your motion about its anchor
+                else DrawDisc(r, u);
+            }
         }
         finally { MapPipeline.UiEnd(); }
     }
@@ -487,6 +491,18 @@ public static class OrbitHud
         MapPipeline.TextScreen(new Vector2(c.X, c.Y + R + 11f * u), r.Holding
             ? $"{r.AnchorName}   range {HudPanel.Km(rng)}   holding (dampeners)"
             : $"{r.AnchorName}   range {HudPanel.Km(rng)}   {(rdot < 0 ? "closing" : "opening")} {Math.Abs(rdot):0.0} m/s   rel {vrel:0.0} m/s", Orbit, 0.4f);
+    }
+
+    /// <summary>Your suit's jetpack is on (unknown: treated as on).</summary>
+    static bool JetpackOn(Keen.VRage.Core.Game.Systems.Session session)
+    {
+        try
+        {
+            var ch = FrameHost.PlayerCharacter(session);
+            var st = ch?.TryGet<Keen.Game2.Simulation.WorldObjects.Characters.CharacterStatusProviderComponent>();
+            return st == null || st.IsJetpackEnabled;
+        }
+        catch { return true; }
     }
 
     static bool IsFinite(Vector3D v) => !(double.IsNaN(v.X) || double.IsNaN(v.Y) || double.IsNaN(v.Z) || double.IsInfinity(v.X) || double.IsInfinity(v.Y) || double.IsInfinity(v.Z));

@@ -51,8 +51,8 @@ public static class ServerFrames
     /// <summary>Frames whose static anchor the game would not move (they keep their centre).</summary>
     private static readonly HashSet<long> _uncentrable = new HashSet<long>();
 
-    /// <summary>During warp, each member's own orbit (the frame's rails run fast; physics cannot).</summary>
-    private static readonly Dictionary<long, KeplerianElements> _warpOwn = new Dictionary<long, KeplerianElements>();
+    /// <summary>The warp each member's velocity was last scaled for.</summary>
+    private static readonly Dictionary<long, double> _gridN = new Dictionary<long, double>();
 
     /// <summary>The anchor id of a frame anchored by an asteroid (not an entity we track by id).</summary>
     public const long AsteroidAnchorId = -2;
@@ -566,48 +566,24 @@ public static class ServerFrames
         // A Lagrange site: its own simple dynamics (EncounterFrames.LagrangeDynamics).
         Func<Vector3D, Vector3D, Vector3D> lag = null;
         if (f.IsEncounter) EncounterFrames.LagrangeDynamics(f.Id, t, out lag);
-        bool warping = SystemHost.Timescale > 1.0 && lag == null;
+        // Warp N: forces x N^2 (relative motion N times faster, as the rails); velocities rescaled on a change.
+        double N = Math.Max(1.0, SystemHost.Timescale);
         foreach (var g in grids)
         {
             if (g == anchor) continue;
             if (EncounterFrames.IsNpc(g)) continue;
             Vector3D rRel = GridMembers.Position(g) - anchorPos;
-            // Warp: the rails run N times faster than physics can; each member follows its own orbit at
-            // the warped time (steered there by velocity), and gets its true relative velocity back after.
-            if (warping)
-            {
-                if (!_warpOwn.TryGetValue(g.Id, out var own))
-                {
-                    own = CaptureMath.CaptureElements(new StateVector(cur.Position + rRel, cur.Velocity + GridMembers.Velocity(g)), mu, t);
-                    if (IsFinite(own.SemiMajorAxis)) _warpOwn[g.Id] = own;
-                }
-                if (_warpOwn.TryGetValue(g.Id, out own))
-                {
-                    Vector3D tgt = OrbitPropagation.StateAt(own, t).Position - cur.Position;
-                    if (tgt.Length() > (isStatic ? CaptureRadius : SlotRadius))
-                    {
-                        var sw = OrbitPropagation.StateAt(own, t);
-                        _warpOwn.Remove(g.Id);
-                        SplitGrid(f, g, cur, sw.Position - cur.Position, sw.Velocity - cur.Velocity, t);
-                        continue;
-                    }
-                    if (IsFinite(tgt)) GridMembers.SetVelocity(g, (tgt - rRel) / dt);
-                    continue;
-                }
-            }
-            else if (_warpOwn.TryGetValue(g.Id, out var was))
-            {
-                var sw = OrbitPropagation.StateAt(was, t);
-                GridMembers.SetVelocity(g, sw.Velocity - cur.Velocity);
-                _warpOwn.Remove(g.Id);
-            }
+            if (_gridN.TryGetValue(g.Id, out double n0) && Math.Abs(n0 - N) > 1e-9)
+                GridMembers.SetVelocity(g, GridMembers.Velocity(g) * (N / n0));
+            _gridN[g.Id] = N;
             if (rRel.Length() > (isStatic ? CaptureRadius : SlotRadius))
             {
-                SplitGrid(f, g, cur, rRel, GridMembers.Velocity(g), t);
+                _gridN.Remove(g.Id);
+                SplitGrid(f, g, cur, rRel, GridMembers.Velocity(g) / N, t);
                 continue;
             }
-            Vector3D accel = lag != null ? lag(rRel, GridMembers.Velocity(g)) : (Grav(rA + rRel, mu) - gA) - A;
-            if (IsFinite(accel)) GridMembers.AddVelocity(g, accel * dt);
+            Vector3D accel = lag != null ? lag(rRel, GridMembers.Velocity(g) / N) : (Grav(rA + rRel, mu) - gA) - A;
+            if (IsFinite(accel)) GridMembers.AddVelocity(g, accel * (dt * N * N));
         }
 
         if (f.IsEncounter || (anchor == null && !isStatic)) return;   // encounter frames never arrive; a player-anchored frame arrives client-side

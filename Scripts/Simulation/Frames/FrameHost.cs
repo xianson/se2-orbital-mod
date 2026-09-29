@@ -312,9 +312,19 @@ public static class FrameHost
                                     Vector3D pos, Vector3D vel, double t, double dt)
     {
         if (_tpPending) return;
-        RiderFrame = f.Id; RiderOffset = pos - f.BerthCenter; RiderVelocity = vel;
-        // Dampeners on: the jetpack keeps station with the anchor (it would cancel any drift), so you hold:
-        // no relative-gravity kicks, no warp steering (at x1 and in warp alike).
+        // Warp N: the rails run N times faster than real time, so relative motion must too. Forces scale by
+        // N^2 (velocities come out N times the true ones, covering N times the ground per real second); on a
+        // change of warp the velocity is rescaled so the motion carries on; readouts divide by N.
+        double N = Math.Max(1.0, SystemHost.Timescale);
+        if (_riderN > 0 && Math.Abs(N - _riderN) > 1e-9 && _riderFrame == f.Id)
+        {
+            vel *= N / _riderN;
+            SetVelocity(ch, vel);
+            ServerPlanetBeacon.SetRiderVelocity(vel);
+        }
+        _riderN = N; _riderFrame = f.Id;
+        RiderFrame = f.Id; RiderOffset = pos - f.BerthCenter; RiderVelocity = vel / N;
+        // Dampeners: the game's own (they fight these forces as they fight gravity: on, you hold station).
         try { Dampeners = ch.Data.Has<Keen.Game2.Simulation.WorldObjects.Movement.DampeningData>(); } catch { }
         Vector3D A = ServerFrames.AnchorAccel.TryGetValue(f.Id, out var a) ? a : Vector3D.Zero;
         StateVector cur = OrbitPropagation.StateAt(f.Elements, t);
@@ -325,70 +335,33 @@ public static class FrameHost
         bool isStatic = ServerFrames.StaticAnchorOf(f, out Vector3D anchorAt);
         double leave = isStatic ? ServerFrames.CaptureRadius : ServerFrames.SlotRadius;
         double away = isStatic ? (pos - anchorAt).Length() : rRel.Length();
-        if (Dampeners && !isLag)
+        // The relative force (true acceleration at the true velocity), applied as a force: x N^2 in warp.
+        Vector3D acc = isLag ? lag(rRel, vel / N)   // a Lagrange site's own dynamics
+                     : (Grav(cur.Position + rRel, mu) - Grav(cur.Position, mu)) - A;
+        if (IsFinite(acc) && acc.LengthSquared() > 1e-12)
         {
-            if (_riderWarp.HasValue)
-            {
-                var sw0 = OrbitPropagation.StateAt(_riderWarp.Value, t);
-                SetVelocity(ch, Vector3D.Zero); ServerPlanetBeacon.SetRiderVelocity(Vector3D.Zero);
-                _riderWarp = null;
-            }
-        }
-        else if (SystemHost.Timescale > 1.0 && !isLag)
-        {
-            // Warp: the rails run N times faster than physics can; you follow your own orbit at the warped
-            // time (steered there by velocity), and get your true relative velocity back after.
-            if (!_riderWarp.HasValue)
-            {
-                var e0 = CaptureMath.CaptureElements(new StateVector(cur.Position + rRel, cur.Velocity + vel), mu, t);
-                if (IsFinite(e0.SemiMajorAxis)) _riderWarp = e0;
-            }
-            if (_riderWarp.HasValue && dt > 0)
-            {
-                var sw = OrbitPropagation.StateAt(_riderWarp.Value, t);
-                Vector3D tgt = sw.Position - cur.Position;
-                if (IsFinite(tgt)) { SetVelocity(ch, (tgt - rRel) / dt); ServerPlanetBeacon.SetRiderVelocity((tgt - rRel) / dt); }
-                rRel = tgt; vel = sw.Velocity - cur.Velocity;
-                RiderOffset = tgt; RiderVelocity = vel;   // the readout: your true relative state, not the steering
-                away = isStatic ? (f.BerthCenter + tgt - anchorAt).Length() : tgt.Length();
-                if (away <= leave) return;
-            }
-        }
-        else if (_riderWarp.HasValue)
-        {
-            var sw = OrbitPropagation.StateAt(_riderWarp.Value, t);
-            SetVelocity(ch, sw.Velocity - cur.Velocity);
-            ServerPlanetBeacon.SetRiderVelocity(sw.Velocity - cur.Velocity);
-            _riderWarp = null;
-            return;
-        }
-        else
-        {
-            Vector3D acc = isLag ? lag(rRel, vel)   // a Lagrange site's own dynamics
-                         : (Grav(cur.Position + rRel, mu) - Grav(cur.Position, mu)) - A;
-            if (IsFinite(acc) && acc.LengthSquared() > 1e-10)
-            {
-                SetVelocity(ch, vel + acc * dt);
-                ServerPlanetBeacon.AddRiderDv(acc * dt);   // the server's copy too (it would overwrite the client's)
-            }
+            Vector3D dv = acc * (dt * N * N);
+            SetVelocity(ch, vel + dv);
+            ServerPlanetBeacon.AddRiderDv(dv);   // the server's copy too (it would overwrite the client's)
         }
         if (away > leave)
         {
-            _riderWarp = null;
-            var el = CaptureMath.CaptureElements(new StateVector(cur.Position + rRel, cur.Velocity + vel), mu, t);
+            var el = CaptureMath.CaptureElements(new StateVector(cur.Position + rRel, cur.Velocity + vel / N), mu, t);
             if (!IsFinite(el.SemiMajorAxis)) return;
             var nf = SystemHost.Frames.SplitOff(f, _playerId, f.ParentBodyName, el);
             if (nf == null) return;
+            _riderN = 0;
             StartTeleport(session, nf.BerthCenter, Vector3D.Zero, t);
-            Event($"SPLIT player from frame #{f.Id} at {rRel.Length() / 1000:F1} km -> frame #{nf.Id}");
+            Event($"SPLIT player from frame #{f.Id} at {away / 1000:F1} km -> frame #{nf.Id}");
         }
     }
 
     /// <summary>Your jetpack's dampeners (riding: on = station-keeping with the anchor).</summary>
     public static bool Dampeners;
 
-    /// <summary>Riding in warp: your own orbit (the rails run fast; physics cannot).</summary>
-    private static KeplerianElements? _riderWarp;
+    /// <summary>The warp the rider's velocity was last scaled for (and in which frame).</summary>
+    private static double _riderN;
+    private static long _riderFrame = -1;
 
     private static Vector3D Grav(Vector3D r, double mu)
     {

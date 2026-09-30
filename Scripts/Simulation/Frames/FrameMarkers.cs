@@ -79,6 +79,7 @@ public static class FrameMarkers
         _hidden.RemoveWhere(h => !markers.Contains(h));
         Status = $"gps {markers.Count} marker(s), {moved} frame-transferred{(MapPipeline.GpsError.Length > 0 ? " (game draw: " + MapPipeline.GpsError + ")" : "")}";
 
+        BodyMarkers._session = session;
         if (camOk) BodyMarkers.Collect(camera, camModel, camChart, t); else BodyMarkers.Clear();
         if ((_proxies.Count > 0 || BodyMarkers.Any) && !MapView.Visible) Draw(session);
     }
@@ -114,6 +115,27 @@ public static class FrameMarkers
 
     private static string Dist(double m) =>
         m >= 1e9 ? $"{m / 1e9:F2} M km" : m >= 1e6 ? $"{m / 1e3:N0} km" : m >= 1e4 ? $"{m / 1e3:F0} km" : m >= 1e3 ? $"{m / 1e3:F1} km" : $"{m:F0} m";
+
+    /// <summary>
+    /// Where the game draws a marker of its own (your GPS points, contracts' markers, and the antenna
+    /// broadcasts it shows): world positions. A contact already marked by the game gets no second marker.
+    /// </summary>
+    public static List<Vector3D> GameMarked(Keen.VRage.Core.Game.Systems.Session session)
+    {
+        var l = new List<Vector3D>();
+        var markers = LocalMarkers(session);
+        if (markers != null) foreach (var m in markers) if (m != null && !m.Hidden) l.Add(m.Position);
+        foreach (var m in _hidden) if (m != null) l.Add(m.Position);   // (frame-transferred: still the game's marker)
+        try
+        {
+            var comp = session.SessionComponents.TryGet<Keen.Game2.Client.GameSystems.GPS.GPSMarkerRenderSessionComponent>();
+            var ant = comp != null ? PlanetRenderBridge.GetMember(comp, "_antennas") : null;
+            if (ant != null && PlanetRenderBridge.GetMember(ant, "ActiveMarkers") is System.Collections.IEnumerable active)
+                foreach (var o in active) if (o is GPSMarker gm) l.Add(gm.Position);
+        }
+        catch { }
+        return l;
+    }
 
     /// <summary>The local player's GPS markers: their own list, their groups, and contract HUD markers.</summary>
     private static List<GPSMarker> LocalMarkers(Keen.VRage.Core.Game.Systems.Session session)

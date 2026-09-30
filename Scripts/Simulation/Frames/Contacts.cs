@@ -174,6 +174,9 @@ public static class Contacts
         Status = $"known: {ng} grid(s), {nr} rock(s); looking: eyes, {nt} telescope(s), {nrad} radar(s){(Loud ? " (loud)" : "")}";
     }
 
+    /// <summary>The grids you know of (ids), for the flight HUD's contact markers.</summary>
+    public static List<long> KnownGrids() { lock (_grids) return new List<long>(_grids); }
+
     // ── save / load ──
     public static List<string> RockKeys() { lock (_rocks) return new List<string>(_rocks); }
     public static List<long> GridKeys() { lock (_grids) return new List<long>(_grids); }

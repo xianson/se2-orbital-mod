@@ -15,6 +15,10 @@ namespace OrbitalMod;
 ///  - off the screen, none (no edge arrows: the edges stay for your GPS points and contracts);
 ///  - not over the map (it names them), nor walking about (as the orbit card).
 /// The markers are the mod's own objects, never added to your GPS list.
+///
+/// CONTACTS too (what Contacts knows: a station, a ship, a wreck): one marker per group (a frame), named by
+/// its site or its grid, in amber with a diamond; these keep the game's edge arrow (a few at most, and
+/// where a station lies off the screen is the point); none within 1 km (you see it) nor for your own grids.
 /// </summary>
 public static class BodyMarkers
 {
@@ -24,8 +28,13 @@ public static class BodyMarkers
     public const double MaxAngularRadius = 5.0 * System.Math.PI / 180.0;
 
     static readonly ColorSRGB Color = new ColorSRGB(0.78f, 0.84f, 0.93f, 1f);
+    static readonly ColorSRGB ContactColor = new ColorSRGB(1.00f, 0.72f, 0.30f, 1f);
+    public const double ContactMinDistance = 1000;
+    /// <summary>A contact within this of one of the game's own markers is left to the game's (m).</summary>
+    public const double GameMarkRadius = 5000;
+    internal static Keen.VRage.Core.Game.Systems.Session _session;
     static readonly Dictionary<string, GPSMarker> _markers = new Dictionary<string, GPSMarker>();
-    struct Item { public GPSMarker M; public Vector3D World; public double Surface; public bool Moon; }
+    struct Item { public GPSMarker M; public Vector3D World; public double Surface; public bool Moon, Contact; }
     static readonly List<Item> _items = new List<Item>();
 
     /// <summary>Client tick, from FrameMarkers (the camera's true place known): which bodies to mark, and where.</summary>
@@ -49,7 +58,45 @@ public static class BodyMarkers
             // At a comfortable depth in the true direction (only the direction projects).
             _items.Add(new Item { M = m, World = camera.Position + dw * (System.Math.Min(dist, 5e4) / dist), Surface = dist - radius, Moon = b.Parent != null && !b.Parent.IsRoot });
         }
-        Status = $"bodies: {_items.Count} marked, {hidden} too close to need one";
+        int bodies = _items.Count;
+        CollectContacts(camera, camModel, camChart, t, FrameMarkers.GameMarked(_session));
+        Status = $"bodies: {bodies} marked, {hidden} too close to need one; contacts: {_items.Count - bodies} marked";
+    }
+
+    /// <summary>The contacts you know of, one per group (frame), where they truly are.</summary>
+    static void CollectContacts(WorldTransform camera, Vector3D camModel, Chart camChart, double t, List<Vector3D> gameMarked)
+    {
+        var seen = new HashSet<long>();
+        var pf = FrameHost.PlayerFrame;
+        foreach (long id in Contacts.KnownGrids())
+        {
+            var g = GridMembers.Get(id);
+            if (g == null || !g.IsServer || g.Entity == null) continue;
+            string name = g.DisplayName; long group = id;
+            lock (ServerFrames.FramesLock)
+            {
+                var f = SystemHost.Frames?.FindByMember(id);
+                if (f != null)
+                {
+                    group = -f.Id;
+                    var site = EncounterFrames.SiteOf(f.Id);
+                    if (site?.Label != null) name = site.Label;
+                }
+            }
+            if (!seen.Add(group)) continue;
+            // the game marks it already (a contract's station, an antenna's broadcast): not twice
+            Vector3D wpos = GridMembers.Position(g); bool marked = false;
+            foreach (var gm in gameMarked) if ((gm - wpos).LengthSquared() < GameMarkRadius * GameMarkRadius) { marked = true; break; }
+            if (marked) continue;
+            Vector3D m; bool ok;
+            lock (ServerFrames.FramesLock) ok = FrameMarkers.ModelOf(GridMembers.Position(g), t, out m, out _, out _);
+            if (!ok) continue;
+            Vector3D d = m - camModel; double dist = d.Length();
+            if (!(dist > ContactMinDistance)) continue;
+            var mk = ContactOf(group, name);
+            if (mk == null) continue;
+            _items.Add(new Item { M = mk, World = camera.Position + camChart.FromInertial(d) * (System.Math.Min(dist, 5e4) / dist), Surface = dist, Contact = true });
+        }
     }
 
     public static bool Any => _items.Count > 0;
@@ -63,18 +110,37 @@ public static class BodyMarkers
         // Planets before moons, then nearest first; one whose marker would land on an earlier one's is left
         // out (two bodies in one direction printed their names over each other). Far off, a planet and its
         // moon are one place: the planet names it.
-        _items.Sort((a, b) => a.Moon != b.Moon ? (a.Moon ? 1 : -1) : a.Surface.CompareTo(b.Surface));
+        // (contacts first: a station in front of a planet is what you are looking for)
+        _items.Sort((a, b) => a.Contact != b.Contact ? (a.Contact ? -1 : 1) : a.Moon != b.Moon ? (a.Moon ? 1 : -1) : a.Surface.CompareTo(b.Surface));
         var placed = new List<Vector2>();
         foreach (var it in _items)
         {
-            // On the screen only (the game's own clamp would pin every body to an edge).
-            if (!MapPipeline.ToScreen(it.World, out var s) || s.X < mx || s.Y < my || s.X > size.X - mx || s.Y > size.Y - my) continue;
+            // Bodies on the screen only (the game's own clamp would pin every body to an edge); contacts may
+            // sit at the edge, pointing the way (the game clamps them).
+            bool on = MapPipeline.ToScreen(it.World, out var s) && s.X >= mx && s.Y >= my && s.X <= size.X - mx && s.Y <= size.Y - my;
+            if (!on)
+            {
+                if (it.Contact) MapPipeline.GameMarker(session, it.M, it.World, it.Surface);
+                continue;
+            }
             bool clash = false;
             foreach (var q in placed) if (System.Math.Abs(q.X - s.X) < 150f * u && System.Math.Abs(q.Y - s.Y) < 44f * u) { clash = true; break; }
             if (clash) continue;
             placed.Add(s);
             MapPipeline.GameMarker(session, it.M, it.World, it.Surface);
         }
+    }
+
+    static readonly Dictionary<long, GPSMarker> _contacts = new Dictionary<long, GPSMarker>();
+    static GPSMarker ContactOf(long group, string name)
+    {
+        if (_contacts.TryGetValue(group, out var m)) { if (m.Name != name) m.Name = name; return m; }
+        object h = MapIcons.Handle("contact");
+        if (h == null) return null;
+        var icon = (ResourceHandle<Keen.VRage.Core.Render.TextureAsset>)(ResourceHandle)h;
+        m = new GPSMarker(null, name, "", Vector3D.Zero, icon, ContactColor, true, false);
+        _contacts[group] = m;
+        return m;
     }
 
     static GPSMarker MarkerOf(string body)

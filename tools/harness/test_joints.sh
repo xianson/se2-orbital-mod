@@ -5,29 +5,8 @@
 # Prints PASS / FAIL per step and a summary. Uses 'Orbital Test Campaign 2' (grid 1000000033 is a small
 # grid with one jointed part; 1000000030 the Cargo Truck, joined to the static barn).
 # Scenarios run just inside Verdure's border (30 km), where the spawn guard keeps encounters out.
-SP="$(dirname "$0")"
-LOGDIR=/c/Users/slob/AppData/Roaming/SpaceEngineers2/Temp/Logs
+source "$(dirname "$0")/testlib.sh"
 J=1000000033; TRUCK=1000000030
-pass=0; fail=0; results=()
-
-log() { ls -t "$LOGDIR"/SpaceEngineers2_*.log | grep -v -e Render -e Mission | head -1; }
-mark() { MARK=$(wc -l < "$(log)"); }
-since() { tail -n +"$((MARK + 1))" "$(log)"; }
-alive() { tasklist //FI "IMAGENAME eq SpaceEngineers2.exe" 2>/dev/null | grep -q SpaceEngineers2; }
-# wait until a pattern shows in the log since the mark (or timeout s)
-waitfor() { local pat="$1" to="$2"; for i in $(seq 1 "$to"); do since | grep -aq -- "$pat" && return 0; alive || return 1; sleep 1; done; return 1; }
-hold() { for i in $(seq 1 "$1"); do alive || return 1; sleep 1; done; return 0; }
-bad() { since | grep -a -e "not migrated" -e "Crash Handler\]: Fatal" | head -1; }
-check() {   # name, expected pattern, timeout, settle
-    local name="$1" pat="$2" to="$3" settle="${4:-15}" why=""
-    if ! waitfor "$pat" "$to"; then why="expected '$pat' not seen"; fi
-    [ -z "$why" ] && ! hold "$settle" && why="game died after"
-    local b; b=$(bad); [ -n "$b" ] && why="${why:+$why; }$(echo "$b" | cut -c1-160)"
-    alive || why="${why:-game not running}"
-    if [ -z "$why" ]; then pass=$((pass + 1)); results+=("PASS  $name"); else fail=$((fail + 1)); results+=("FAIL  $name: $why"); fi
-    echo "${results[-1]}"
-}
-send() { "$SP/orb.sh" "$@" >/dev/null; }
 
 echo "== relaunch"; "$SP/relaunch.sh" 2>&1 | tail -1; hold 15
 
@@ -77,6 +56,4 @@ check "arrival: jointed grid's frame arrives at Verdure" "ARRIVE grid frame" 200
 check "arrival: its joined part went with it" "grid $J 'Grid' and 1 joined entit" 5 5
 send "warp 1"
 
-echo; echo "== summary: $pass passed, $fail failed"
-for r in "${results[@]}"; do echo "  $r"; done
-[ "$fail" -eq 0 ]
+summary

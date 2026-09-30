@@ -175,6 +175,7 @@ public static class OrbitDisplay
                       $"Pe {pe / 1000:F1} km{(pe < 0 ? " (IMPACT)" : "")}  {ap}\n{fit}";
         OrbitHud.Current = new OrbitHud.Readout
         {
+            PeIn = ApsisIn(el, el.Epoch, 0.0), ApIn = el.IsElliptic ? ApsisIn(el, el.Epoch, Math.PI) : double.NaN,
             Body = name, Mode = SystemHost.Timescale > 1 ? $"Free flight   warp ×{SystemHost.Timescale:F0}" : "Free flight",
             Alt = d - radius, Speed = speed, Pe = pe, Ap = el.IsElliptic ? el.ApoapsisRadius - radius : 0,
             Period = el.IsElliptic ? el.Period : 0, IncDeg = el.Inclination * 180 / Math.PI, Escape = !el.IsElliptic,
@@ -245,6 +246,7 @@ public static class OrbitDisplay
                       $"Pe {(el.PeriapsisRadius - radius) / 1000:F1} km  {ap}\nrails (warp x{SystemHost.Timescale:F0})";
         OrbitHud.Current = new OrbitHud.Readout
         {
+            PeIn = ApsisIn(el, t, 0.0), ApIn = el.IsElliptic ? ApsisIn(el, t, Math.PI) : double.NaN,
             Body = frame.ParentBodyName, Mode = null,   // (no 'On rails': the warp bar shows warp)
             Alt = cur.Position.Length() - radius, Speed = cur.Velocity.Length(),
             Pe = el.PeriapsisRadius - radius, Ap = el.IsElliptic ? el.ApoapsisRadius - radius : 0,
@@ -474,4 +476,15 @@ public static class OrbitDisplay
     }
 
     private static bool IsFinite(double x) => !double.IsNaN(x) && !double.IsInfinity(x);
+    /// <summary>Seconds from t to the orbit's true anomaly nu (the next time round; NaN when behind you on an escape).</summary>
+    static double ApsisIn(KeplerianElements el, double t, double nu)
+    {
+        try
+        {
+            double s = OrbitPropagation.TimeToTrueAnomaly(OrbitPropagation.AtTime(el, t), nu);
+            return double.IsNaN(s) || double.IsInfinity(s) || s < 0 ? double.NaN : s;
+        }
+        catch { return double.NaN; }
+    }
+
 }

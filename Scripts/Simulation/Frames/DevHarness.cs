@@ -763,6 +763,17 @@ public static class DevHarness
                 MapView.Mode = (MapView.ViewMode)Enum.Parse(typeof(MapView.ViewMode), a[1], ignoreCase: true);
                 return $"mapview={MapView.Mode}";
 
+            case "stores":   // stores: every battery / tank on a railed grid
+                return WarpBill.Describe(ServerPlanetBeacon.ServerSession ?? session);
+
+            case "warpbill":   // warpbill on|off: warp ages the railed grids' batteries and tanks
+                WarpBill.Enabled = On(a[1]);
+                return "warp bill " + WarpBill.Enabled + " | " + WarpBill.Status;
+
+            case "bodymarkers":   // bodymarkers on|off: planet and moon markers in flight
+                BodyMarkers.Enabled = On(a[1]);
+                return "body markers " + BodyMarkers.Enabled + " | " + BodyMarkers.Status;
+
             case "curvecull":   // curvecull on|off: skip map curve pieces wholly off the view
                 CleanMap.CullCurves = On(a[1]);
                 return "curve cull " + CleanMap.CullCurves;
@@ -997,6 +1008,8 @@ public static class DevHarness
         catch { }
         sb.AppendLine($"modcost ms avg/max: client {ModCost.Client} server {ModCost.Server} map {ModCost.Map}");
         sb.AppendLine($"mapcost ms avg/max: {ModCost.SectionList()}");
+        sb.AppendLine($"bodymarkers {BodyMarkers.Status}");
+        sb.AppendLine($"warpbill {WarpBill.Status}");
         sb.AppendLine($"time {DateTime.Now:HH:mm:ss.fff} ticks/s client={TickRate.Client.PerSecond:F1} draw={TickRate.Draw.PerSecond:F1} server={TickRate.Server.PerSecond:F1} rails t={SystemHost.Now:F1} x{SystemHost.Timescale} clock={SystemHost.ClockSource}");
         sb.AppendLine($"camera {camera.Position.X:F0} {camera.Position.Y:F0} {camera.Position.Z:F0}");
         sb.AppendLine($"physics gravityMultiplier client={_clientGravityMultiplier} server={ServerPlanetBeacon.ServerGravityMultiplier}");

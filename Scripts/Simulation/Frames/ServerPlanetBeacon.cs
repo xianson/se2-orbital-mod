@@ -150,6 +150,8 @@ public partial class ServerPlanetBeacon
     {
         try { ServerFrames.RunDeferredMoves(); }
         catch (Exception ex) { FrameHost.Fault("Teleport job", ex); }
+        try { WarpBill.Run(beacon.Entity.GetSession()); }   // (warp's surplus time billed to the railed grids' stores)
+        catch (Exception ex) { FrameHost.Fault("WarpBill", ex); }
     }
 
     [After(typeof(RenderSubmissionBegin))]

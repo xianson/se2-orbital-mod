@@ -157,6 +157,8 @@ public static class OrbitHud
     {
         public string Body, Mode;
         public double Alt, Speed, Pe, Ap, Period, IncDeg;
+        /// <summary>Seconds to the next periapsis / apoapsis (NaN: none ahead, e.g. past Pe on an escape).</summary>
+        public double PeIn = double.NaN, ApIn = double.NaN;
         public bool Escape;
         public Vector3D? PeWorld, ApWorld;
         /// <summary>The orbit in the world (a closed loop when elliptic), and the body it is about (world centre, radius).</summary>
@@ -241,7 +243,10 @@ public static class OrbitHud
             if (r != null)
             {
                 sb.Append($"Altitude {HudPanel.Km(r.Alt)}   ·   {r.Speed:N0} m/s\n");
-                sb.Append($"Periapsis {(r.Pe < 0 ? "impact" : HudPanel.Km(r.Pe))}   ·   Apoapsis {(r.Escape ? "escape" : HudPanel.Km(r.Ap))}\n");
+                // Each apsis with how long until you are there (the one you reach first is the one to act on).
+                // (just there, or just past it: "now", not a whole revolution away)
+                string In(double s) => double.IsNaN(s) || s < 0 ? "" : s < 10 || (r.Period > 0 && r.Period - s < 10) ? " now" : $" in {Maneuvers.Clock(s)}";
+                sb.Append($"Periapsis {(r.Pe < 0 ? "impact" : HudPanel.Km(r.Pe) + In(r.PeIn))}   ·   Apoapsis {(r.Escape ? "escape" : HudPanel.Km(r.Ap) + In(r.ApIn))}\n");
                 if (!r.Escape) sb.Append($"Period {Maneuvers.Clock(r.Period)}   ·   Inclination {r.IncDeg:F1}°\n");
                 if (!string.IsNullOrEmpty(r.Mode)) sb.Append(r.Mode);
             }

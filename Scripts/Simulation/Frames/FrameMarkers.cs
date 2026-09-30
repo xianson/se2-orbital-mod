@@ -78,7 +78,8 @@ public static class FrameMarkers
         _hidden.RemoveWhere(h => !markers.Contains(h));
         Status = $"gps {markers.Count} marker(s), {moved} frame-transferred{(MapPipeline.GpsError.Length > 0 ? " (game draw: " + MapPipeline.GpsError + ")" : "")}";
 
-        if (_proxies.Count > 0 && !MapView.Visible) Draw(session);
+        if (camOk) BodyMarkers.Collect(camera, camModel, camChart, t); else BodyMarkers.Clear();
+        if ((_proxies.Count > 0 || BodyMarkers.Any) && !MapView.Visible) Draw(session);
     }
 
     /// <summary>Open a HUD draw batch in the map's font (the caller ends it with MapPipeline.UiEnd).</summary>
@@ -102,6 +103,7 @@ public static class FrameMarkers
         if (!BeginHud(session)) return;
         try
         {
+            BodyMarkers.Draw(session);   // (first: your own points draw over them)
             foreach (var p in _proxies)
                 if (!MapPipeline.GameMarker(session, p.Marker, p.World, p.Distance))
                     MapPipeline.HudMarker(p.World, p.Name, Dist(p.Distance), p.Color);

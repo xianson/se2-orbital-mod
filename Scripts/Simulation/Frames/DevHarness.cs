@@ -271,6 +271,13 @@ public static class DevHarness
                 }
                 return "cam off|planet|player|map";
 
+            case "sensorblocks":   // sensorblocks: the sensor blocks' definitions, unlock and count
+                return SensorBlocks.Describe(session);
+
+            case "buildmenu":   // buildmenu on|off: the terminal's Build tab (block catalogue)
+                if (On(a[1])) MapView.OpenBuild(session); else MapView.Close();
+                return On(a[1]) ? "opening the build menu" : "closing";
+
             case "map":
             {
                 if (On(a[1])) MapView.Open(session); else MapView.Close();

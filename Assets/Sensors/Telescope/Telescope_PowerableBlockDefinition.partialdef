@@ -1,0 +1,25 @@
+{
+  "$Bundles": {
+    "Game2": "2.4.0.16",
+    "System.Runtime": "1.0.0.0",
+    "VRage": "2.4.0.16"
+  },
+  "$Type": "VRage:Keen.VRage.ContentPipeline.Definitions.PartialDefinitionDiff",
+  "$Value": {
+    "BaseDefinition": "1f458c5d-553a-4fe7-a120-c7622f868d95",
+    "PartialDefinitionKind": "Copy",
+    "Manipulator": {
+      "Guid": "0b170001-5e50-4000-8000-000000000006",
+      "UIData": {
+        "Name": "Telescope"
+      },
+      "BlockKind": "0b170001-5e50-4000-8000-000000000007",
+      "ConsumedResource": {
+        "Type": "bcded093-f5c0-4997-af3a-a6fbd853ad66",
+        "Amount": 50
+      }
+    },
+    "DefinitionType": "Game2:Keen.Game2.Simulation.WorldObjects.CubeBlocks.PowerableBlockDefinition",
+    "PriorityOverride": false
+  }
+}

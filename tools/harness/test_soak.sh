@@ -7,9 +7,12 @@ source "$(dirname "$0")/testlib.sh"
 STEPS=${1:-80}; SEED=${2:-$RANDOM}; RANDOM=$SEED
 echo "== soak: $STEPS steps, seed $SEED"
 echo "== relaunch"; "$SP/relaunch.sh" 2>&1 | tail -1; hold 15
+# (a stand-in telescope where you are: the harness world has no sensor block built; eyes alone see 20 km)
+send "contacts sensor telescope"
 mark; START=$MARK
 # private bytes (K): what the game has committed; the working set is trimmed by Windows and says nothing
-mem() { powershell -NoProfile -Command "(Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Sort-Object PrivateMemorySize64 -Descending | Select-Object -First 1).PrivateMemorySize64 / 1KB" 2>/dev/null | tr -d '' | cut -d. -f1; }
+mem() { powershell -NoProfile -Command "(Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Sort-Object PrivateMemorySize64 -Descending | Select-Object -First 1).PrivateMemorySize64 / 1KB" 2>/dev/null | tr -d '
+' | cut -d. -f1; }
 m0=$(mem)
 pick() { local a=("$@"); echo "${a[$((RANDOM % ${#a[@]}))]}"; }
 BODIES=(Verdure Verdure Kemik Palatine Caligo)

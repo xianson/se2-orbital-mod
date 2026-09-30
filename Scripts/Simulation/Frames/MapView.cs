@@ -68,6 +68,21 @@ public static class MapView
         catch (Exception e) { Status = "open map failed: " + e.Message; }
     }
 
+    /// <summary>Harness: the terminal's Build tab (the block catalogue), to see the blocks there.</summary>
+    public static async void OpenBuild(Keen.VRage.Core.Game.Systems.Session session)
+    {
+        try
+        {
+            var ch = FrameHost.PlayerCharacter(session);
+            var term = session.SessionComponents.TryGet<Keen.Game2.Client.GameSystems.Interaction.TerminalControllerSessionComponent>();
+            if (ch == null || term == null) { Status = "cannot open build (no character/terminal)"; return; }
+            var sel = new Keen.Game2.Client.WorldObjects.Shared.PlayerKeybindsInputHandlerDefinition.BuildScreenSelection
+                { Panel = Keen.Game2.Client.UI.TerminalScreen.BuildScreenMode.Blocks };
+            _terminal = await term.OpenTerminal(sel, ch, ch);
+        }
+        catch (Exception e) { Status = "open build failed: " + e.Message; }
+    }
+
     public static void Close()
     {
         try { _terminal?.Dispose(); } catch { }

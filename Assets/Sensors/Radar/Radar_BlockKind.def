@@ -1,0 +1,20 @@
+{
+  "$Bundles": {
+    "Game2": "2.4.0.16",
+    "System.Runtime": "1.0.0.0",
+    "VRage": "2.4.0.16"
+  },
+  "$Type": "Game2:Keen.Game2.Simulation.StreamedUI.Categories.BlockKindDefinitionObjectBuilder",
+  "$Value": {
+    "Guid": "0b170002-5e50-4000-8000-000000000007",
+    "Name": "Radar",
+    "Description": "Active radar. Ranges every contact in reach at once, fast and exact, but anyone about twice as far away sees you.",
+    "OrderingPriority": 0,
+    "BlockGroups": [
+      {
+        "Key": "865838ca-0d13-4b3c-ad76-e73812edd11c",
+        "Value": "0b170002-5e50-4000-8000-000000000008"
+      }
+    ]
+  }
+}

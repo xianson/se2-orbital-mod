@@ -83,5 +83,19 @@ public class InjectPlanetComponents : Injections
             Add(prefab, typeof(OrbitalRingComponent));
             Log.Default?.Info($"[ORBIT] client procedural volume prefab: '{prefab.DebugName}' +OrbitalRingComponent");
         }
+
+        // The sensor blocks (Orbital Mod Blocks): their server prefabs, by GUID, get their sensor.
+        System.Guid id = default;
+        try { id = prefab.Guid; } catch { }
+        if (id == SensorBlocks.TelescopePrefab)
+        {
+            Add(prefab, typeof(TelescopeComponent));
+            Log.Default?.Info($"[ORBIT] sensor block prefab '{prefab.DebugName}' +TelescopeComponent");
+        }
+        else if (id == SensorBlocks.RadarPrefab)
+        {
+            Add(prefab, typeof(RadarComponent));
+            Log.Default?.Info($"[ORBIT] sensor block prefab '{prefab.DebugName}' +RadarComponent");
+        }
     }
 }

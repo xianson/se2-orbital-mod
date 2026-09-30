@@ -5,6 +5,8 @@
 source "$(dirname "$0")/testlib.sh"
 
 echo "== relaunch"; "$SP/relaunch.sh" 2>&1 | tail -1; hold 15
+# (a stand-in telescope where you are: the harness world has no sensor block built; eyes alone see 20 km)
+send "contacts sensor telescope"
 mark; START=$MARK
 
 # 1. A low orbit (20 x 20 km, on Verdure's border) stows clean: no rock captured, no slot moves, no split,

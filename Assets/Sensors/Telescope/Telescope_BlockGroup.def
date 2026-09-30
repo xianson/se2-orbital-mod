@@ -1,0 +1,20 @@
+{
+  "$Bundles": {
+    "Game2": "2.4.0.16",
+    "System.Runtime": "1.0.0.0",
+    "VRage": "2.4.0.16"
+  },
+  "$Type": "Game2:Keen.Game2.Simulation.StreamedUI.Categories.BlockGroupDefinitionObjectBuilder",
+  "$Value": {
+    "Guid": "0b170001-5e50-4000-8000-000000000008",
+    "Name": "Telescope",
+    "Order": 0,
+    "Subcategories": [
+      {
+        "Key": "cf701526-aa4a-4fe4-9eff-40b6f0c9e85b",
+        "Value": "e6fc0e69-f6d5-4f08-a625-c649ec706ea8"
+      }
+    ],
+    "BlockKinds": []
+  }
+}

@@ -2,7 +2,9 @@
 # test_perf.sh — what the mod's own code costs per frame (ms, average / worst over a second) in its heaviest
 # scenes; FAIL when the average passes a budget. Reads the 'modcost' status line (ModCost in ServerFrames.cs).
 source "$(dirname "$0")/testlib.sh"
-[ "$1" = "--no-relaunch" ] || { echo "== relaunch"; "$SP/relaunch.sh" 2>&1 | tail -1; hold 15; }
+[ "$1" = "--no-relaunch" ] || { echo "== relaunch"; "$SP/relaunch.sh" 2>&1 | tail -1; hold 15
+# (a stand-in telescope where you are: the harness world has no sensor block built; eyes alone see 20 km)
+send "contacts sensor telescope"; }
 mark; START=$MARK
 cost() { stat "^modcost" | sed -n "s/.* $1 \([0-9.]*\)\/\([0-9.]*\).*/\1 \2/p"; }   # part -> "avg max"
 # measure NAME PART BUDGET_MS: the worst of three one-second averages, against the budget

@@ -1,0 +1,20 @@
+{
+  "$Bundles": {
+    "Game2": "2.4.0.16",
+    "System.Runtime": "1.0.0.0",
+    "VRage": "2.4.0.16"
+  },
+  "$Type": "Game2:Keen.Game2.Simulation.StreamedUI.Categories.BlockKindDefinitionObjectBuilder",
+  "$Value": {
+    "Guid": "0b170001-5e50-4000-8000-000000000007",
+    "Name": "Telescope",
+    "Description": "Passive optical and infrared telescope. Spots sunlit ships and rocks far off, and warm hulls in shadow. Silent: it gives nothing away.",
+    "OrderingPriority": 0,
+    "BlockGroups": [
+      {
+        "Key": "1e1c0d3b-603e-4854-b634-b7de72d9db76",
+        "Value": "0b170001-5e50-4000-8000-000000000008"
+      }
+    ]
+  }
+}

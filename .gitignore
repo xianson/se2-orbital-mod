@@ -12,3 +12,6 @@ Content/definitionsets.vrb
 Tests/**/bin/
 Tests/**/obj/
 docs/shots-work/
+
+# compiled sensor block definitions (tools/blocks/gen_blocks.py --build)
+Content/Sensors/

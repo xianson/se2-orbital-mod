@@ -8,6 +8,8 @@
 source "$(dirname "$0")/testlib.sh"
 J=1000000033
 echo "== relaunch"; "$SP/relaunch.sh" 2>&1 | tail -1; hold 15
+# (a stand-in telescope where you are: the harness world has no sensor block built; eyes alone see 20 km)
+send "contacts sensor telescope"
 
 mark; send "gridlaunch $J 60"   # (inside its cell: the dev launch teleports, and past the cell nothing stows)
 check "setup: jointed grid on rails" "STOW grid $J" 40 10

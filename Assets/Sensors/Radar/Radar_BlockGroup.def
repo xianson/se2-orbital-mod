@@ -1,0 +1,20 @@
+{
+  "$Bundles": {
+    "Game2": "2.4.0.16",
+    "System.Runtime": "1.0.0.0",
+    "VRage": "2.4.0.16"
+  },
+  "$Type": "Game2:Keen.Game2.Simulation.StreamedUI.Categories.BlockGroupDefinitionObjectBuilder",
+  "$Value": {
+    "Guid": "0b170002-5e50-4000-8000-000000000008",
+    "Name": "Radar",
+    "Order": 0,
+    "Subcategories": [
+      {
+        "Key": "a9f36de6-7f81-42f1-871b-4d4641a93837",
+        "Value": "62b6dbfc-4ace-4d0c-b65c-36b0eec619e9"
+      }
+    ],
+    "BlockKinds": []
+  }
+}

@@ -130,6 +130,18 @@ interaction shell, HighSpeed), ported. Verified in game with the harness:
 Remaining limits: local player only (client-driven; SP / listen host), HighSpeed thrust
 verified only as no false folds plus a harness kick (no real key press; grid thrust untested), legacy-space capture is opt-in, relative motion of members is integrated at x1 while the rails warp.
 
+## Testing: three tiers
+
+| tier | command | time | what | when |
+|---|---|---|---|---|
+| fast gate | `tools/test_fast.sh` | ~15 s, no game | the scripts compiled as the game compiles them (ModCheck) + every offline suite in `Tests/` (orbits, frames, persistence, rendezvous, time, sensing): ~1200 checks | every change |
+| smoke | `tools/harness/test_smoke.sh` | ~1.5 min, one launch | the game side only: the mod loads (components, sensor blocks), a jointed grid goes on rails, an orbit stows, warp runs, contacts are spotted, the map / ring / Rendezvous tab / porkchop / HUD plot draw; no fault, no Havok assertion | engine-facing changes, before a commit |
+| long | `tools/harness/test_all.sh` | ~1 h | jointed-grid moves, regression scenarios, perf budgets, save / load, a random soak | releases, bug hunts |
+
+Logic belongs in the game-free core (`Scripts/Simulation/Core`) where the fast gate can test it; the in-game
+tiers only check what needs the engine. Sensor blocks: `tools/blocks/gen_blocks.py --build` compiles their
+definitions (see the script for why SE2 2.4 needs a stand-in Vanilla to build mod content).
+
 ## Open items, highest value first
 
 1. **Multiplayer.** The client host drives only the local player and shares static state with the

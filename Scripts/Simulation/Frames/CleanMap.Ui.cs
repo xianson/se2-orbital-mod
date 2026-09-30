@@ -130,6 +130,15 @@ public static partial class CleanMap
             if (T - t > 30) items.Add(new MapMenu.Item("Warp here", () => { SystemHost.WarpStopAt = T; WarpControl.SetLevel(WarpControl.Levels.Length - 1); }, FrameHost.PlayerFrame != null));
             if (hasNodes) items.Add(new MapMenu.Item("Remove all maneuvers", Maneuvers.ClearAll));
         }
+        else if (BodyAt(Mouse) is GravityBody bh && !bh.IsRoot)
+        {
+            // A planet or a moon: a target too (its transfer windows on the Rendezvous tab).
+            string bn = bh.Name;
+            title = SystemHost.DisplayName(bn);
+            items.Add(Maneuvers.Target == bn ? new MapMenu.Item("Clear target", () => Maneuvers.Target = null)
+                                             : new MapMenu.Item("Set as target", () => Maneuvers.Target = bn));
+            if (hasNodes) items.Add(new MapMenu.Item("Remove all maneuvers", Maneuvers.ClearAll));
+        }
         else if (Hovered != null)
         {
             string sec = Hovered;
@@ -166,6 +175,14 @@ public static partial class CleanMap
     /// <summary>A body being flown to: the zoom-in switch opens it, whatever is under the cursor.</summary>
     private static GravityBody _glide;
     private static bool _glideToStar;
+
+    /// <summary>The body drawn under a screen point this frame (within its drawn size or ring), or null.</summary>
+    static GravityBody BodyAt(Vector2 m)
+    {
+        GravityBody best = null; float bd = float.MaxValue;
+        foreach (var h in _hits) { float d = (h.s - m).Length(); if (d <= h.r && d < bd) { bd = d; best = h.b; } }
+        return best;
+    }
 
     /// <summary>A body drawn this frame, clickable within its drawn size (or its ring when smaller).</summary>
     static void Hit(GravityBody b, Vector3D centre, Vector3D edge, float ringPx)

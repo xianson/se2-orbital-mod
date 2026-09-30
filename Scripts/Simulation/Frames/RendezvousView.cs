@@ -250,6 +250,65 @@ public static class RendezvousView
     /// </summary>
     static bool IsFinite(double x) => !double.IsNaN(x) && !double.IsInfinity(x);
 
+    /// <summary>
+    /// A planet or moon target: the porkchop about the body you both go round, and your plan on it (its first
+    /// burn, its arrival at the target's space). Already round the target (or one of its moons): nothing to plan here.
+    /// </summary>
+    static void DrawWindows(SystemRegistry reg, double t, List<Maneuvers.Leg> legs, List<Maneuvers.Applied> applied,
+                            GravityBody tbody, string target, Vector2 head, Vector2 mouse, float u, Vector2 scr)
+    {
+        var white = new ColorSRGB(1f, 1f, 1f, 1f);
+        string tn = SystemHost.DisplayName(tbody.Name);
+        for (var x = legs[0].Body; x != null; x = x.Parent)
+            if (x == tbody)
+            {
+                MapPipeline.ClipRect = null;
+                MapPipeline.ScreenText(head, $"Rendezvous · {tn}", white, 1.05f);
+                MapPipeline.ScreenText(head + new Vector2(0, 34f * u), $"At {tn}: plan your capture on the map", Dim, 0.8f);
+                Status = "at the target";
+                return;
+            }
+        var c = Common(legs[0].Body, tbody);
+        var to = Porkchop.Under(tbody, c);
+        if (c == null || to == null) return;
+        // What you leave: your planet (its parking orbit), or, going round c yourself, your own orbit.
+        var from = new Porkchop.From();
+        bool haveBase = Maneuvers.Base(t, out var bb, out var bel) && IsFinite(bel.SemiMajorAxis);
+        if (legs[0].Body == c)
+        {
+            if (!haveBase || bb != c) return;
+            from.Name = "you"; from.Mu = 0; from.State = tk => OrbitPropagation.StateAt(bel, tk);
+        }
+        else
+        {
+            var fb = Porkchop.Under(legs[0].Body, c);
+            if (fb == null) return;
+            from.Name = fb.Name; from.Mu = fb.Mu;
+            from.ParkR = haveBase && bb == fb && bel.SemiMajorAxis > 0 ? bel.SemiMajorAxis : 1.5 * (reg.FindDefinition(fb.Name)?.RadiusMeters ?? 0);
+            from.State = tk => { var a = fb.OriginInRoot(tk); var o = c.OriginInRoot(tk); return new StateVector(a.Position - o.Position, a.Velocity - o.Velocity); };
+        }
+        // Your plan: its first burn, its arrival in the target's space, its burns' total, and the periapsis there.
+        double dep = double.NaN, arr = double.NaN, dv = 0; string note = null;
+        if (applied != null && applied.Count > 0) { dep = applied[0].Node.T; foreach (var ap in applied) dv += ap.Dv.Length(); }
+        foreach (var l in legs)
+        {
+            bool inTo = false;
+            for (var x = l.Body; x != null; x = x.Parent) if (x == to) { inTo = true; break; }
+            if (!inTo) continue;
+            arr = l.T0;
+            if (l.Body == to && IsFinite(l.El.PeriapsisRadius))
+                note = $"Pe {HudPanel.Km(l.El.PeriapsisRadius - (reg.FindDefinition(to.Name)?.RadiusMeters ?? 0))}";
+            break;
+        }
+        if (double.IsNaN(dep)) note = "Your plan: no burn yet (add a maneuver on the map)";
+        Porkchop.Draw(new Vector2(scr.X * 0.27f, scr.Y * 0.22f), new Vector2(scr.X * 0.765f, scr.Y * 0.72f), c, from, to, tn,
+                      dep, arr, dv, note, t, mouse, u);
+        MapPipeline.ClipRect = null;
+        MapPipeline.ScreenText(head, $"Rendezvous · {tn}", white, 1.05f);
+        MapPipeline.ScreenText(head + new Vector2(0, 34f * u), "Pick a window, then shape your burn on the map: your plan is the cross", Dim, 0.8f);
+        Status = $"windows to {to.Name} about {c.Name}: {Porkchop.Status}; plan dep {(double.IsNaN(dep) ? "-" : Maneuvers.Clock(dep - t))} entry {(double.IsNaN(arr) ? "-" : Maneuvers.Clock(arr - t))} dv {dv:F0} {note}";
+    }
+
     public static void Draw(Keen.VRage.Core.Game.Systems.Session session, SystemRegistry reg, double t, Func<Vector3D, Vector3D> W, Vector2 mouse)
     {
         var scr = MapPipeline.ScreenSize;
@@ -264,11 +323,18 @@ public static class RendezvousView
             Status = "no target";
             return;
         }
-        if (!Maneuvers.Trajectory(t, out var legs, out _) || legs.Count == 0 || !TargetAt(target, t, out var tpar, out _))
+        if (!Maneuvers.Trajectory(t, out var legs, out var applied) || legs.Count == 0 || !TargetAt(target, t, out var tpar, out _))
         {
             MapPipeline.ScreenText(head, $"Rendezvous · {target}", new ColorSRGB(1f, 1f, 1f, 1f), 1.05f);
             MapPipeline.ScreenText(head + new Vector2(0, 34f * u), "No path to compare yet", Dim, 0.8f);
             Status = "no path";
+            return;
+        }
+        // A planet or a moon: its transfer windows (the porkchop) with your plan on them, instead of the plot.
+        var tbody = reg.Find(target);
+        if (tbody != null && !tbody.IsRoot)
+        {
+            DrawWindows(reg, t, legs, applied, tbody, target, head, mouse, u, scr);
             return;
         }
         var c = Common(legs[0].Body, tpar);
@@ -338,23 +404,6 @@ public static class RendezvousView
 
         // Your path and nodes: the map's own editor, drawn through the relative frame (no ghost pinning: every arc at its true time).
         Maneuvers.MapDraw(toMap, W, double.PositiveInfinity, t, mouse, null, c.Name, allLive: true);
-
-        // About the star (the target is round another planet, or the star itself): the transfer windows.
-        if (c.IsRoot && legs[0].Body != c)
-        {
-            var from = Porkchop.Under(legs[0].Body, c);
-            var tbody = reg.Find(target);
-            GravityBody to = tbody != null ? Porkchop.Under(tbody, c) : (tpar == c ? null : Porkchop.Under(tpar, c));
-            if (from != null && from != to)
-            {
-                double parkR = Maneuvers.Base(t, out var bb, out var bel) && bb == from && IsFinite(bel.SemiMajorAxis) && bel.SemiMajorAxis > 0
-                    ? bel.SemiMajorAxis : 1.5 * (reg.FindDefinition(from.Name)?.RadiusMeters ?? 0);
-                StateVector TState(double tk) => TargetAt(target, tk, out var p0, out var r0)
-                    ? new StateVector(p0.OriginInRoot(tk).Position + r0.Position - c.OriginInRoot(tk).Position, p0.OriginInRoot(tk).Velocity + r0.Velocity - c.OriginInRoot(tk).Velocity)
-                    : default;
-                Porkchop.Draw(new Vector2(scr.X * 0.5f, scr.Y * 0.46f), new Vector2(scr.X * 0.765f, scr.Y * 0.78f), c, from, to, TState, target, parkR, t, mouse, u);
-            }
-        }
 
         MapPipeline.ClipRect = null;
         MapPipeline.ScreenText(head, $"Rendezvous · {target} · about {SystemHost.DisplayName(c.Name)}", new ColorSRGB(1f, 1f, 1f, 1f), 1.05f);

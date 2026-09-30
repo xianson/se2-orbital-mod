@@ -8,12 +8,14 @@ using SEAerospace.SystemDef;
 namespace OrbitalMod;
 
 /// <summary>
-/// A PORKCHOP PLOT on the Rendezvous tab, for a target round another planet (or the star itself): departure
-/// time (across, from now over one synodic period) against time of flight (up, about a Hohmann transfer's),
-/// each cell coloured by the total delta-v of that transfer (a Lambert arc about the star between your planet
-/// and the target's): the burn out of your parking orbit plus the capture into a circular orbit just outside
-/// the target planet's space (or, for something round the star, the speed to match it). Cheap is green,
-/// dear is red; the cheapest is marked. Display only: it shows windows, it never makes a burn.
+/// A PORKCHOP PLOT: the Rendezvous tab's whole view when the target is a planet or a moon. Departure time
+/// (across, from now over one synodic period) against time of flight (up, about a Hohmann transfer's), each
+/// cell coloured by the total delta-v of that transfer (a Lambert arc about the body both go round): the burn
+/// out of your parking orbit about your planet (or, a moon of the planet you orbit, the burn from your orbit
+/// itself) plus the capture into a circular orbit just outside the target's space. Cheap is green, dear red;
+/// the cheapest is circled. Your own plan is the cross: when its first burn is and when it reaches the target
+/// (its Entry), so pulling the map's nodes moves it across the chart.
+/// Display only: it shows windows and where your plan falls; it never makes or tunes a burn.
 /// The grid is solved a few rows a frame and kept until the target, the bodies or the window move on.
 /// </summary>
 public static class Porkchop
@@ -35,72 +37,98 @@ public static class Porkchop
         return null;
     }
 
-    /// <summary>
-    /// Draw it in a panel (screen rect). from: your planet (under the star); to: the target's planet, or null when
-    /// the target itself goes round the star (then targetState gives it about the star at any time).
-    /// </summary>
-    public static void Draw(Vector2 min, Vector2 max, GravityBody star, GravityBody from, GravityBody to,
-                            Func<double, StateVector> targetState, string targetName, double parkR, double t, Vector2 mouse, float u)
+    /// <summary>What you are leaving (about the central body): your planet's state, or your own orbit's.</summary>
+    public struct From
     {
-        if (star == null || from == null) return;
+        public string Name;
+        public Func<double, StateVector> State;   // about the central body
+        public double Mu, ParkR;                  // your planet's gravity and your parking orbit's radius; Mu 0: you leave from your orbit itself
+    }
+
+    /// <summary>
+    /// Draw it in a panel (screen rect) about central body c, from <paramref name="from"/> to the body
+    /// <paramref name="to"/> (directly under c). planDep / planArr: your plan's first burn and its arrival at the
+    /// target (NaN: none); planDv its burns' total.
+    /// </summary>
+    public static void Draw(Vector2 min, Vector2 max, GravityBody c, From from, GravityBody to, string targetName,
+                            double planDep, double planArr, double planDv, string planNote, double t, Vector2 mouse, float u)
+    {
+        if (c == null || to == null || from.State == null) return;
+        StateVector ToAt(double tk) => Sub(to.OriginInRoot(tk), c.OriginInRoot(tk));
         // The window: one synodic period (capped), flights about a Hohmann transfer's.
-        var sf = from.OriginInRoot(t);
-        var stt = to != null ? Sub(to.OriginInRoot(t), star.OriginInRoot(t)) : targetState(t);
-        var sfs = Sub(sf, star.OriginInRoot(t));
-        double r1 = sfs.Position.Length(), r2 = stt.Position.Length(), mu = star.Mu;
+        var sf = from.State(t); var st = ToAt(t);
+        double r1 = sf.Position.Length(), r2 = st.Position.Length(), mu = c.Mu;
         if (!(r1 > 0) || !(r2 > 0)) return;
         double n1 = Math.Sqrt(mu / (r1 * r1 * r1)), n2 = Math.Sqrt(mu / (r2 * r2 * r2));
         double syn = Math.Abs(n1 - n2) > 1e-12 ? 2 * Math.PI / Math.Abs(n1 - n2) : double.PositiveInfinity;
         double span = Math.Min(syn, 2 * 2 * Math.PI / Math.Min(n1, n2));
         double hoh = Math.PI * Math.Sqrt(Math.Pow(0.5 * (r1 + r2), 3) / mu);
-        string key = $"{from.Name}>{to?.Name ?? targetName}|{parkR:F0}";
+        string key = $"{from.Name}>{to.Name}|{from.ParkR:F0}|{from.Mu:G3}";
         // a new grid: another target, or the window's start has moved on by a tenth of it
         if (key != _key || t - _t0 > 0.1 * _span || t < _t0)
         {
             _key = key; _t0 = t; _span = span; _tof0 = 0.4 * hoh; _tof1 = 1.6 * hoh;
             _next = 0; _best = double.PositiveInfinity; _bi = _bj = -1;
         }
-        Solve(star, from, to, targetState, parkR);
+        Solve(c, from, to, ToAt);
 
         // The panel.
         MapPipeline.ScreenRect(min, max, new ColorSRGB(0.02f, 0.04f, 0.06f, 0.82f));
         var edge = new ColorSRGB(0.75f, 0.82f, 0.9f, 0.45f);
         MapPipeline.ScreenPath(new List<Vector2> { min, new Vector2(max.X, min.Y), max, new Vector2(min.X, max.Y) }, true, edge, 1f * u);
         var dim = new ColorSRGB(0.75f, 0.82f, 0.9f, 0.8f);
-        float padL = 44f * u, padB = 30f * u, padT = 26f * u, padR = 10f * u;
+        float padL = 58f * u, padB = 34f * u, padT = 30f * u, padR = 14f * u;
         var a0 = new Vector2(min.X + padL, min.Y + padT);
         var a1 = new Vector2(max.X - padR, max.Y - padB);
-        MapPipeline.ScreenText(new Vector2(min.X + 8f * u, min.Y + 5f * u), $"Transfer windows to {SystemHost.DisplayName(to?.Name ?? targetName)}  ·  total delta-v", new ColorSRGB(1f, 1f, 1f, 1f), 0.62f);
+        string toName = SystemHost.DisplayName(to.Name);
+        MapPipeline.ScreenText(new Vector2(min.X + 10f * u, min.Y + 6f * u), $"Transfer windows to {toName}" + (to.Name != targetName ? $" (for {targetName})" : "") + "  ·  total delta-v", new ColorSRGB(1f, 1f, 1f, 1f), 0.7f);
         float cw = (a1.X - a0.X) / Nx, ch = (a1.Y - a0.Y) / Ny;
-        double lo = _best, hi = 3 * _best;
+        double lo = _best, hi = 4 * _best;
         int hi_i = -1, hi_j = -1;
         for (int i = 0; i < Nx; i++)
             for (int j = 0; j < Ny; j++)
             {
                 if (i * Ny + j >= _next) continue;
-                double v = _dv[i, j];
                 var cmin = new Vector2(a0.X + i * cw, a1.Y - (j + 1) * ch);
                 var cmax = new Vector2(cmin.X + cw + 0.5f, cmin.Y + ch + 0.5f);
-                MapPipeline.ScreenRect(cmin, cmax, Colour(v, lo, hi));
+                MapPipeline.ScreenRect(cmin, cmax, Colour(_dv[i, j], lo, hi));
                 if (mouse.X >= cmin.X && mouse.X < cmax.X && mouse.Y >= cmin.Y && mouse.Y < cmax.Y) { hi_i = i; hi_j = j; }
             }
         // Axes.
-        MapPipeline.ScreenText(new Vector2(a0.X, a1.Y + 6f * u), "now", dim, 0.5f);
-        MapPipeline.ScreenText(new Vector2(a1.X - 60f * u, a1.Y + 6f * u), "+" + Maneuvers.Clock(_span), dim, 0.5f);
-        MapPipeline.ScreenText(new Vector2(0.5f * (a0.X + a1.X) - 30f * u, a1.Y + 6f * u), "leave  →", dim, 0.5f);
-        MapPipeline.ScreenText(new Vector2(min.X + 4f * u, a1.Y - 12f * u), Maneuvers.Clock(_tof0), dim, 0.45f);
-        MapPipeline.ScreenText(new Vector2(min.X + 4f * u, a0.Y), Maneuvers.Clock(_tof1), dim, 0.45f);
-        MapPipeline.ScreenText(new Vector2(min.X + 4f * u, 0.5f * (a0.Y + a1.Y) - 8f * u), "flight ↑", dim, 0.45f);
-        // The cheapest, and the one under the mouse.
+        MapPipeline.ScreenText(new Vector2(a0.X, a1.Y + 8f * u), "now", dim, 0.55f);
+        MapPipeline.ScreenText(new Vector2(a1.X - 70f * u, a1.Y + 8f * u), "+" + Maneuvers.Clock(_span), dim, 0.55f);
+        MapPipeline.ScreenText(new Vector2(0.5f * (a0.X + a1.X) - 30f * u, a1.Y + 8f * u), "leave  →", dim, 0.55f);
+        MapPipeline.ScreenText(new Vector2(min.X + 6f * u, a1.Y - 14f * u), Maneuvers.Clock(_tof0), dim, 0.5f);
+        MapPipeline.ScreenText(new Vector2(min.X + 6f * u, a0.Y), Maneuvers.Clock(_tof1), dim, 0.5f);
+        MapPipeline.ScreenText(new Vector2(min.X + 6f * u, 0.5f * (a0.Y + a1.Y) - 8f * u), "flight ↑", dim, 0.5f);
+        Vector2 At(double dep, double tof) => new Vector2(a0.X + (float)((dep - _t0) / _span) * (a1.X - a0.X), a1.Y - (float)((tof - _tof0) / (_tof1 - _tof0)) * (a1.Y - a0.Y));
+        // The cheapest (circled), your plan (a cross), the cell under the mouse.
         string Cell(int i, int j) => $"{_dv[i, j] / 1000:F2} km/s  ·  leave in {Maneuvers.Clock(Dep(i))}  ·  {Maneuvers.Clock(Tof(j))} flight";
-        if (_bi >= 0)
+        var white = new ColorSRGB(1f, 1f, 1f, 1f);
+        if (_bi >= 0) MapPipeline.ScreenCircle(new Vector2(a0.X + (_bi + 0.5f) * cw, a1.Y - (_bj + 0.5f) * ch), 6f * u, white, 1.8f * u);
+        float ly = max.Y + 6f * u;
+        if (_bi >= 0) { MapPipeline.ScreenText(new Vector2(min.X + 8f * u, ly), "Cheapest   " + Cell(_bi, _bj), new ColorSRGB(0.6f, 1f, 0.6f, 1f), 0.62f); ly += 22f * u; }
+        var planCol = new ColorSRGB(0.45f, 0.85f, 1f, 1f);
+        if (!double.IsNaN(planDep) && !double.IsNaN(planArr))
         {
-            var bc = new Vector2(a0.X + (_bi + 0.5f) * cw, a1.Y - (_bj + 0.5f) * ch);
-            MapPipeline.ScreenCircle(bc, 5f * u, new ColorSRGB(1f, 1f, 1f, 1f), 1.6f * u);
-            MapPipeline.ScreenText(new Vector2(min.X + 8f * u, max.Y + 4f * u), "Cheapest  " + Cell(_bi, _bj), new ColorSRGB(0.6f, 1f, 0.6f, 1f), 0.55f);
+            double tof = planArr - planDep;
+            var ps = At(planDep, tof);
+            bool inside = ps.X >= a0.X && ps.X <= a1.X && ps.Y >= a0.Y && ps.Y <= a1.Y;
+            if (inside)
+            {
+                float r = 11f * u;
+                var shade = new ColorSRGB(0f, 0f, 0f, 0.85f);
+                MapPipeline.ScreenLine(ps - new Vector2(r + 1.5f * u, 0), ps + new Vector2(r + 1.5f * u, 0), shade, 5.5f * u);
+                MapPipeline.ScreenLine(ps - new Vector2(0, r + 1.5f * u), ps + new Vector2(0, r + 1.5f * u), shade, 5.5f * u);
+                MapPipeline.ScreenLine(ps - new Vector2(r, 0), ps + new Vector2(r, 0), planCol, 2.6f * u);
+                MapPipeline.ScreenLine(ps - new Vector2(0, r), ps + new Vector2(0, r), planCol, 2.6f * u);
+            }
+            MapPipeline.ScreenText(new Vector2(min.X + 8f * u, ly), $"Your plan  {planDv / 1000:F2} km/s so far  ·  leaves in {Maneuvers.Clock(Math.Max(0, planDep - t))}  ·  {toName} Entry after {Maneuvers.Clock(tof)}" + (planNote != null ? "  ·  " + planNote : "") + (inside ? "" : "  (off the chart)"), planCol, 0.62f);
         }
+        else MapPipeline.ScreenText(new Vector2(min.X + 8f * u, ly), planNote ?? $"Your plan: no {toName} Entry yet", planCol, 0.62f);
+        ly += 22f * u;
         if (hi_i >= 0 && _dv[hi_i, hi_j] < double.PositiveInfinity)
-            MapPipeline.ScreenText(new Vector2(min.X + 8f * u, max.Y + 20f * u), "Here  " + Cell(hi_i, hi_j), dim, 0.55f);
+            MapPipeline.ScreenText(new Vector2(min.X + 8f * u, ly), "Here   " + Cell(hi_i, hi_j), dim, 0.62f);
         Status = _next < Nx * Ny ? $"porkchop {_next * 100 / (Nx * Ny)}%" : $"porkchop best {_best:F0} m/s";
     }
 
@@ -108,7 +136,7 @@ public static class Porkchop
     static double Tof(int j) => _tof0 + (_tof1 - _tof0) * (j + 0.5) / Ny;
     static StateVector Sub(StateVector a, StateVector b) => new StateVector(a.Position - b.Position, a.Velocity - b.Velocity);
 
-    static void Solve(GravityBody star, GravityBody from, GravityBody to, Func<double, StateVector> targetState, double parkR)
+    static void Solve(GravityBody c, From from, GravityBody to, Func<double, StateVector> toAt)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         while (_next < Nx * Ny && sw.Elapsed.TotalMilliseconds < BudgetMs)
@@ -116,16 +144,16 @@ public static class Porkchop
             int i = _next / Ny, j = _next % Ny;
             _next++;
             double td = _t0 + Dep(i), ta = td + Tof(j);
-            var d = Sub(from.OriginInRoot(td), star.OriginInRoot(td));
-            var a = to != null ? Sub(to.OriginInRoot(ta), star.OriginInRoot(ta)) : targetState(ta);
+            var d = from.State(td);
+            var a = toAt(ta);
             double best = double.PositiveInfinity;
             Vector3D nrm = Vector3D.Cross(d.Position, d.Velocity);
             foreach (bool pro in new[] { true, false })
             {
-                if (!Lambert.Solve(d.Position, a.Position, Tof(j), star.Mu, pro, nrm, out var v1, out var v2)) continue;
+                if (!Lambert.Solve(d.Position, a.Position, Tof(j), c.Mu, pro, nrm, out var v1, out var v2)) continue;
                 double vinf1 = (v1 - d.Velocity).Length(), vinf2 = (v2 - a.Velocity).Length();
-                double dep = Burn(vinf1, from.Mu, parkR);
-                double arr = to != null ? Burn(vinf2, to.Mu, Capture(to)) : vinf2;
+                double dep = from.Mu > 0 ? Burn(vinf1, from.Mu, from.ParkR) : vinf1;   // (from your own orbit: the burn itself)
+                double arr = Burn(vinf2, to.Mu, Capture(to));
                 best = Math.Min(best, dep + arr);
             }
             _dv[i, j] = best;

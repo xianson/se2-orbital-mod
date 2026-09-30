@@ -248,6 +248,8 @@ public static class RendezvousView
     /// The view, inside the map's UI batch (instead of the map's own contents). W: map space to world
     /// (the map camera's: its wheel zooms, its drag pans).
     /// </summary>
+    static bool IsFinite(double x) => !double.IsNaN(x) && !double.IsInfinity(x);
+
     public static void Draw(Keen.VRage.Core.Game.Systems.Session session, SystemRegistry reg, double t, Func<Vector3D, Vector3D> W, Vector2 mouse)
     {
         var scr = MapPipeline.ScreenSize;
@@ -336,6 +338,23 @@ public static class RendezvousView
 
         // Your path and nodes: the map's own editor, drawn through the relative frame (no ghost pinning: every arc at its true time).
         Maneuvers.MapDraw(toMap, W, double.PositiveInfinity, t, mouse, null, c.Name, allLive: true);
+
+        // About the star (the target is round another planet, or the star itself): the transfer windows.
+        if (c.IsRoot && legs[0].Body != c)
+        {
+            var from = Porkchop.Under(legs[0].Body, c);
+            var tbody = reg.Find(target);
+            GravityBody to = tbody != null ? Porkchop.Under(tbody, c) : (tpar == c ? null : Porkchop.Under(tpar, c));
+            if (from != null && from != to)
+            {
+                double parkR = Maneuvers.Base(t, out var bb, out var bel) && bb == from && IsFinite(bel.SemiMajorAxis) && bel.SemiMajorAxis > 0
+                    ? bel.SemiMajorAxis : 1.5 * (reg.FindDefinition(from.Name)?.RadiusMeters ?? 0);
+                StateVector TState(double tk) => TargetAt(target, tk, out var p0, out var r0)
+                    ? new StateVector(p0.OriginInRoot(tk).Position + r0.Position - c.OriginInRoot(tk).Position, p0.OriginInRoot(tk).Velocity + r0.Velocity - c.OriginInRoot(tk).Velocity)
+                    : default;
+                Porkchop.Draw(new Vector2(scr.X * 0.5f, scr.Y * 0.46f), new Vector2(scr.X * 0.765f, scr.Y * 0.78f), c, from, to, TState, target, parkR, t, mouse, u);
+            }
+        }
 
         MapPipeline.ClipRect = null;
         MapPipeline.ScreenText(head, $"Rendezvous · {target} · about {SystemHost.DisplayName(c.Name)}", new ColorSRGB(1f, 1f, 1f, 1f), 1.05f);

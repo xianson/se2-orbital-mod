@@ -40,6 +40,8 @@ namespace SensingTest
             SunExclusionRule();
             LineOfSight();
             RadarPower();
+            PlanetShineRule();
+            GlareRule();
             WarpStoreBill();
             Console.WriteLine($"\n=== {_passed} passed, {_failed} failed ===");
             return _failed == 0 ? 0 : 1;
@@ -136,6 +138,63 @@ namespace SensingTest
             Ok("250 km station: full power sees it", SeenBy(new[] { Look(o, Kind.Radar, 1) }, st, bodies, Sun) == 0);
             Ok("250 km station: 25% power does not (~212 km)", SeenBy(new[] { Look(o, Kind.Radar, 0.25) }, st, bodies, Sun) == -1);
             Ok("off (0 power): nothing", Reach(Look(o, Kind.Radar, 0), st, Sun, true) == 0);
+        }
+
+        // Planet-shine: a planet's day side lights what is near it; its night side and a far planet do not matter.
+        static void PlanetShineRule()
+        {
+            Console.WriteLine("-- planet-shine");
+            var P = new Vector3D(AU, 0, 0);
+            var planet = new Body { Centre = P, Radius = 60000, Albedo = 0.3 };
+            var bodies = Bodies(planet);
+            // a rock just sunward of the planet, over its noon (the planet's lit face toward it), seen from beyond it:
+            // back-lit by the sun (a glint), front-lit by the planet
+            var rock = Rock(P + new Vector3D(-80000, 0, 0));
+            // seen from beyond the planet's side, 50 deg off the axis (the sight line clears the planet): the sun
+            // lights the face away from you, the planet the face toward you
+            var eye = rock.At + new Vector3D(1.0e6 * Math.Cos(50 * Math.PI / 180), 1.0e6 * Math.Sin(50 * Math.PI / 180), 0);
+            double shine = PlanetShine(eye, rock.At, Sun, bodies);
+            Ok("near a planet's day side: planet-shine lights the rock", shine > 0.05, $"{shine:F3} of full sun");
+            Ok("... so a crescent rock is seen further than by sunlight alone",
+               Reach(new Looker { At = eye, Kind = Kind.Telescope }, rock, Sun, true, bodies) > Reach(new Looker { At = eye, Kind = Kind.Telescope }, rock, Sun, true, null));
+            // high above: (R/d)^2 makes it negligible
+            var high = Rock(P + new Vector3D(-363000, 0, 0));
+            double shineHigh = PlanetShine(high.At + new Vector3D(0, 5e5, 0), high.At, Sun, bodies);
+            Ok("300 km up: planet-shine is a few percent at most", shineHigh < 0.03, $"{shineHigh:F4}");
+            // over the planet's midnight (in its shadow): the face toward it is night
+            var night = Rock(P + new Vector3D(80000, 0, 0));
+            Ok("over the night side: no planet-shine", PlanetShine(night.At + new Vector3D(0, 5e5, 0), night.At, Sun, bodies) < 1e-6);
+            Ok("with no planets: none", PlanetShine(eye, rock.At, Sun, Bodies()) == 0);
+        }
+
+        // Glare: against a planet's sunlit face the optical range drops; the night side and space do not hide.
+        static void GlareRule()
+        {
+            Console.WriteLine("-- glare");
+            var P = new Vector3D(AU, 0, 0);
+            var planet = new Body { Centre = P, Radius = 60000 };
+            var bodies = Bodies(planet);
+            // looking straight down at the planet's noon from above it (sunward): the target between, the lit face behind
+            var tDay = P + new Vector3D(-100000, 0, 0);
+            var eyeDay = P + new Vector3D(-400000, 0, 0);
+            Near("against the full day side: optical down to GlareFactor", Glare(eyeDay, tDay, Sun, bodies), GlareFactor, 1e-6);
+            // looking at the night side from beyond the planet
+            var tNight = P + new Vector3D(100000, 0, 0);
+            var eyeNight = P + new Vector3D(400000, 0, 0);
+            Near("against the night side: no glare", Glare(eyeNight, tNight, Sun, bodies), 1, 1e-6);
+            // against empty space (the sight line misses the planet)
+            Near("against space: no glare", Glare(eyeDay, tDay + new Vector3D(0, 200000, 0), Sun, bodies), 1, 1e-6);
+            // near the terminator: part way
+            var tSide = P + new Vector3D(0, 100000, 0);
+            var eyeSide = P + new Vector3D(0, 400000, 0);
+            double g = Glare(eyeSide, tSide, Sun, bodies);
+            Ok("over the terminator: little glare (grazing light)", g > 0.9, $"{g:F3}");
+            // it only touches the optical channel
+            var st = Station(tDay);
+            var l = new Looker { At = eyeDay, Kind = Kind.Telescope };
+            double withGlare = Reach(l, st, Sun, true, bodies), noGlare = Reach(l, st, Sun, true, null);
+            Ok("a station against the day side: the telescope's reach falls (to infrared)", withGlare < noGlare, $"{withGlare / 1000:F0} km vs {noGlare / 1000:F0} km");
+            Ok("... radar does not care", Math.Abs(Reach(new Looker { At = eyeDay, Kind = Kind.Radar, Power = 1 }, st, Sun, true, bodies) - RadarReach(150, 1)) < 1e-6);
         }
 
         static void WarpStoreBill()

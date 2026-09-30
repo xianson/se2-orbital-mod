@@ -706,8 +706,8 @@ public static class DevHarness
                 ServerFrames.GridDamp.Enqueue((long.Parse(a[1]), On(a[2])));
                 return "grid dampeners queued (server, next tick)";
 
-            case "gridmove":   // gridmove <gridId> <x> <y> <z> (m, world; DEV, refuses jointed grids)
-                ServerFrames.GridMove.Enqueue((long.Parse(a[1]), new Vector3D(D(a[2]), D(a[3]), D(a[4]))));
+            case "gridmove":   // gridmove <gridId> <x> <y> <z> [group] (m, world; DEV: refuses jointed grids unless 'group' moves all joined together)
+                ServerFrames.GridMove.Enqueue((long.Parse(a[1]), new Vector3D(D(a[2]), D(a[3]), D(a[4])), a.Length > 5 && a[5] == "group"));
                 return "grid move queued (server, next tick)";
 
             case "npcrel":   // npcrel on|off (DEV: NPC grids feel relative motion, for tests)

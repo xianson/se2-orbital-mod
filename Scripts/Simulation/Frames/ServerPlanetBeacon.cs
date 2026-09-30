@@ -136,6 +136,22 @@ public partial class ServerPlanetBeacon : Component, IInSceneListener
 
 public partial class ServerPlanetBeacon
 {
+    /// <summary>
+    /// Where the game's fast travel moves ships (FastTravelUpdate.Teleport): before the physics step. Grids
+    /// joined by constraints (wheels, rotors, docked) can only be carried across the physics world's regions
+    /// here; moved later in the frame, Havok's constraint migration asserts and the server dies.
+    /// </summary>
+    [Before(typeof(Keen.VRage.Core.Systems.Simulation))]
+    private class OnTeleportPhase : JobGroup;
+
+    [OnTeleportPhase]
+    [MustHave(typeof(ServerPlanetBeacon))]
+    private static void TeleportJob(ServerPlanetBeacon beacon)
+    {
+        try { ServerFrames.RunDeferredMoves(); }
+        catch (Exception ex) { FrameHost.Fault("Teleport job", ex); }
+    }
+
     [After(typeof(RenderSubmissionBegin))]
     private class OnBeaconTick : JobGroup;
 

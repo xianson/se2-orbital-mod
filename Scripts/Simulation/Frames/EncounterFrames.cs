@@ -715,8 +715,7 @@ public static class EncounterFrames
         nf.IsEncounter = true;
         foreach (var g in cluster)
         {
-            GridMembers.SetPosition(g, nf.BerthCenter + (GridMembers.Position(g) - c));
-            GridMembers.SetVelocity(g, GridMembers.Velocity(g) - vAvg);
+            ServerFrames.MoveGrid(g, nf.BerthCenter + (GridMembers.Position(g) - c), null, -vAvg);
             SystemHost.Frames.AddMember(nf, g.Id);
         }
         Event($"SPAWN far: {cluster.Count} encounter grid(s) '{cluster[0].DisplayName}' {delta.Length() / 1000:F1} km from frame #{F.Id} " +
@@ -763,8 +762,7 @@ public static class EncounterFrames
         var old = SystemHost.Frames.FindByMember(gridId);
         if (old != null) SystemHost.Frames.RemoveMember(gridId);
         Vector3D world = sc.Area.Center;
-        GridMembers.SetPosition(g, world);
-        GridMembers.SetVelocity(g, Vector3D.Zero);
+        if (!ServerFrames.MoveGrid(g, world, Vector3D.Zero)) return;
         var f = MakeSite(sectors, GameMap.HomesBySector(sectors, SystemHost.Registry), world, g.DisplayName, t);
         if (f == null) { Event("devsite: no home for that sector"); return; }
         SystemHost.Frames.AddMember(f, gridId);

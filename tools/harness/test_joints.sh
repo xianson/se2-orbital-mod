@@ -56,4 +56,10 @@ check "arrival: jointed grid's frame arrives at Verdure" "ARRIVE grid frame" 200
 check "arrival: its joined part went with it" "grid $J 'Grid' and 1 joined entit" 5 5
 send "warp 1"
 
+# 7. Safety: an impossible orbit (radius below zero: a NaN velocity) is refused for a jointed grid; no NaN
+#    reaches the physics engine.
+mark; send "gridlaunch $J -99999"
+check "safety: a NaN launch of a jointed grid is refused" "gridlaunch: grid $J .*refused" 15 10
+never "safety: nothing non-finite moved" "moving [0-9.]* km before the next physics step.*NaN"
+
 summary

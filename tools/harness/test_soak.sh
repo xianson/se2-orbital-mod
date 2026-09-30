@@ -8,7 +8,8 @@ STEPS=${1:-80}; SEED=${2:-$RANDOM}; RANDOM=$SEED
 echo "== soak: $STEPS steps, seed $SEED"
 echo "== relaunch"; "$SP/relaunch.sh" 2>&1 | tail -1; hold 15
 mark; START=$MARK
-mem() { tasklist //FI "IMAGENAME eq SpaceEngineers2.exe" //FO CSV //NH 2>/dev/null | tail -1 | awk -F'","' '{gsub(/[^0-9]/,"",$5); print $5}'; }
+# private bytes (K): what the game has committed; the working set is trimmed by Windows and says nothing
+mem() { powershell -NoProfile -Command "(Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Sort-Object PrivateMemorySize64 -Descending | Select-Object -First 1).PrivateMemorySize64 / 1KB" 2>/dev/null | tr -d '' | cut -d. -f1; }
 m0=$(mem)
 pick() { local a=("$@"); echo "${a[$((RANDOM % ${#a[@]}))]}"; }
 BODIES=(Verdure Verdure Kemik Palatine Caligo)

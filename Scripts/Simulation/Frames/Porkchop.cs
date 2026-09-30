@@ -63,7 +63,9 @@ public static class Porkchop
         double syn = Math.Abs(n1 - n2) > 1e-12 ? 2 * Math.PI / Math.Abs(n1 - n2) : double.PositiveInfinity;
         double span = Math.Min(syn, 2 * 2 * Math.PI / Math.Min(n1, n2));
         double hoh = Math.PI * Math.Sqrt(Math.Pow(0.5 * (r1 + r2), 3) / mu);
-        string key = $"{from.Name}>{to.Name}|{from.ParkR:F0}|{from.Mu:G3}";
+        // (and the departure orbit's shape: energy and angular momentum, which a burn of yours changes)
+        double en = 0.5 * sf.Velocity.LengthSquared() - mu / r1, hm = Vector3D.Cross(sf.Position, sf.Velocity).Length();
+        string key = $"{from.Name}>{to.Name}|{from.ParkR:F0}|{from.Mu:G3}|{en:G3}|{hm:G3}";
         // a new grid: another target, or the window's start has moved on by a tenth of it
         if (key != _key || t - _t0 > 0.1 * _span || t < _t0)
         {

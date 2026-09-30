@@ -60,7 +60,11 @@ public static class EncounterFrames
     }
 
     private static readonly Dictionary<long, Site> _sites = new Dictionary<long, Site>();   // frame id -> site
-    public static IEnumerable<Site> Sites => _sites.Values;
+    // The client reads sites (map, HUD, rendezvous tab) while the server adds and removes them (ring rocks):
+    // it reads a snapshot, replaced on every change (under FramesLock), never the live dictionary.
+    private static Site[] _siteSnap = new Site[0];
+    public static IEnumerable<Site> Sites => System.Threading.Volatile.Read(ref _siteSnap);
+    private static void SitesChanged() => System.Threading.Volatile.Write(ref _siteSnap, new List<Site>(_sites.Values).ToArray());
     public static int SiteCount => _sites.Count;
     public static bool IsSite(ProximityFrame f) => f != null && _sites.ContainsKey(f.Id);
     public static Site SiteOf(long frameId) => _sites.TryGetValue(frameId, out var s) ? s : null;
@@ -71,6 +75,7 @@ public static class EncounterFrames
 
     // ── NPC / encounter classification (server grids), re-checked every few seconds ──
     private static readonly Dictionary<long, (bool npc, bool enc, double at)> _kind = new Dictionary<long, (bool, bool, double)>();
+    internal static void ForgetKind(long gridId) { lock (_kind) _kind.Remove(gridId); }
 
     private static (bool npc, bool enc) Kind(OrbitalGridComponent g)
     {
@@ -280,7 +285,7 @@ public static class EncounterFrames
         var f = SystemHost.Frames.CreateLatentFrame(parent.Name, el, 0, world);
         f.IsEncounter = true;
         site.FrameId = f.Id;
-        _sites[f.Id] = site;
+        _sites[f.Id] = site; SitesChanged();
         Event($"SITE #{f.Id} '{label}' in {sc.Name} ({home.Kind} of {home.Host}) at {ServerPlanetBeacon.Fmt(world)}: " +
               $"orbits {parent.Name} r={rel.Position.Length() / 1000:F0} km");
         return f;
@@ -298,17 +303,18 @@ public static class EncounterFrames
         var f = SystemHost.Frames.CreateLatentFrame(parent.Name, el, 0, site.World);
         f.IsEncounter = true;
         site.FrameId = f.Id;
-        _sites[f.Id] = site;
+        _sites[f.Id] = site; SitesChanged();
         return f;
     }
 
-    /// <summary>A site added with AddSite taken away again (its latent frame dissolved): false while anyone is in it. Caller holds FramesLock.</summary>
+    /// <summary>A site added with AddSite taken away again (its latent frame dissolved): false while anything is in
+    /// it (an NPC ship too: dissolved under it, it would sit frameless where the rock was, for good). Caller holds FramesLock.</summary>
     internal static bool RemoveSite(long frameId)
     {
         var f = SystemHost.Frames.Get(frameId);
-        if (f != null && HasNonNpc(f)) return false;
+        if (f != null && f.Members.Count > 0) return false;
         if (f != null) SystemHost.Frames.Dissolve(frameId);
-        _sites.Remove(frameId);
+        _sites.Remove(frameId); SitesChanged();
         ServerFrames.AnchorAccel.Remove(frameId);
         return true;
     }
@@ -640,9 +646,17 @@ public static class EncounterFrames
                 // CLOSE: a similar orbit, i.e. the same frame. (A site on a planet's border takes none either.)
                 if (OnPlanetBorder(F, out double sr2))
                 {
+                    // (the whole spawn together, as above: one grid at a time scattered it over separate orbits)
+                    var cl2 = new List<OrbitalGridComponent>();
+                    foreach (var o in GridMembers.All())
+                    {
+                        if (!o.IsServer || SystemHost.Frames.FindByMember(o.Id) != null) continue;
+                        if (o != g && ((GridMembers.Position(o) - pos).Length() > ClusterRadius || !IsEncounterGrid(o))) continue;
+                        cl2.Add(o); handled.Add(o.Id);
+                    }
                     AsteroidBridge.RequestDeleteNear(pos, ClusterRadius);
-                    Event($"SPAWN on {F.ParentBodyName}'s border: encounter grid {id} '{g.DisplayName}' near frame #{F.Id} -> moved to a safe orbit");
-                    FarFrame(F, new List<OrbitalGridComponent> { g }, t, sr2);
+                    Event($"SPAWN on {F.ParentBodyName}'s border: {cl2.Count} encounter grid(s) '{g.DisplayName}' near frame #{F.Id} -> moved to a safe orbit");
+                    FarFrame(F, cl2, t, sr2);
                     continue;
                 }
                 if (SystemHost.Frames.AddMember(F, id))
@@ -792,7 +806,7 @@ public static class EncounterFrames
             {
                 long fid = f.Id;
                 SystemHost.Frames.Dissolve(fid);
-                _sites.Remove(fid);
+                _sites.Remove(fid); SitesChanged();
                 ServerFrames.AnchorAccel.Remove(fid);
                 Event($"encounter frame #{fid} empty -> dissolved");
             }

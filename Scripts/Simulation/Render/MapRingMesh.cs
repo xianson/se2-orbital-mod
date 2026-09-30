@@ -229,7 +229,7 @@ public static class MapRingMesh
         PlanetRenderBridge.DisposeRender(r.RuntimeModel);
         r.Model = r.Root = r.RuntimeModel = null;
         r.K = -1;
-        r.Shown = false;
+        r.Shown = r.Colored = false;   // (a rebuilt model needs its colouring again)
     }
 
     private static void SetField(object boxed, string name, object value)

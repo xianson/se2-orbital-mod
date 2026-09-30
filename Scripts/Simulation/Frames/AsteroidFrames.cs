@@ -371,7 +371,7 @@ public static class AsteroidFrames
             if (r.Dynamic && !wanted && r.Volume == null && now - r.LastWanted > LeaveSeconds && EncounterFrames.RemoveSite(r.FrameId))
             {
                 SystemHost.Frames?.Allocator?.Free(r.Slot);
-                lock (_gate) { _roids.Remove(r); _byName.Remove(r.Name); }
+                lock (_gate) { _roids.Remove(r); _byName.Remove(r.Name); for (int k = 0; k < _roids.Count; k++) _roids[k].Index = k; }   // (indices stay list positions)
                 Event($"ring rock {r.Label} left behind: its site is gone (slot {r.Slot} free)");
             }
         }

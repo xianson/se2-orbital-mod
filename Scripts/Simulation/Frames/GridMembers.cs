@@ -54,6 +54,7 @@ public static class GridMembers
     internal static void Unregister(OrbitalGridComponent g)
     {
         lock (_lock) { _byId.Remove(g.Id); }
+        ServerFrames.Forget(g.Id);   // (per-grid state dies with the grid)
     }
 
     public static List<OrbitalGridComponent> All()

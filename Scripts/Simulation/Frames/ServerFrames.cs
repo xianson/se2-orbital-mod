@@ -124,7 +124,7 @@ public static class ServerFrames
         if (_lastTickStamp != 0 && dt < 0.004) return; // once per frame
         _lastTickStamp = now;
         TickRate.Server.Count();
-        SpawnGuard.Tick(AsteroidBridge.Generator(session));   // no encounters on a planet's border (before they materialize)
+        lock (FramesLock) SpawnGuard.Tick(AsteroidBridge.Generator(session));   // no encounters on a planet's border (before they materialize); reads frames
         AsteroidBridge.Tick(session);   // no procedural asteroids, ever (encounters and our own system place them)
         // Physics runs on game time (it slows and pauses with the game), so the tidal velocity
         // changes must use game-time dt too; the wall-clock dt above only gates once-per-frame.
@@ -677,10 +677,13 @@ public static class ServerFrames
     {
         with = new List<OrbitalGridComponent>();
         lock (GridMembers.Pending) if (GridMembers.Pending.ContainsKey(g.Id)) return true;   // (with its group, this tick)
+        if (!GridMembers.Finite(target) || !GridMembers.Finite(addVel) || (setVel.HasValue && !GridMembers.Finite(setVel.Value)))
+        { GridMembers.NaNRefused++; Event($"grid {g.Id} '{g.DisplayName}' not moved: non-finite target"); return false; }
         if (!GridMembers.IsConstrained(g))
         {
-            GridMembers.SetPosition(g, target);
-            GridMembers.SetVelocity(g, setVel ?? GridMembers.Velocity(g) + addVel);
+            Vector3D v = setVel ?? GridMembers.Velocity(g) + addVel;
+            if (!GridMembers.SetPosition(g, target)) return false;   // (callers must not frame a grid that never got there)
+            GridMembers.SetVelocity(g, v);
             return true;
         }
         var set = new List<Entity>();
@@ -694,6 +697,7 @@ public static class ServerFrames
                 Vector3D v0 = e.Data.TryGet<Keen.VRage.Physics.Data.RigidBodyData>(out var rb) ? (Vector3D)rb.LinearVelocity : Vector3D.Zero;
                 Vector3D v = setVel ?? v0 + addVel;
                 Vector3D p = e.Data.GetWorldTransform().Position + delta;
+                if (!GridMembers.Finite(p) || !GridMembers.Finite(v)) continue;   // (never hand Havok a NaN)
                 _deferred.Add((e, p, v));
                 if (byEntity.TryGetValue(e, out var og))
                 {
@@ -714,11 +718,13 @@ public static class ServerFrames
     {
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
         List<(Entity e, Vector3D p, Vector3D v)> todo;
+        List<long> done;
         lock (_deferred)
         {
             if (_deferred.Count == 0) return;
             todo = new List<(Entity, Vector3D, Vector3D)>(_deferred);
             _deferred.Clear();
+            lock (GridMembers.Pending) done = new List<long>(GridMembers.Pending.Keys);   // (queued with these moves, under this lock)
         }
         _deferredStamp = now;
         foreach (var (e, p, v) in todo)
@@ -732,7 +738,7 @@ public static class ServerFrames
             }
             catch (Exception ex) { Event("deferred move failed: " + ex.Message); }
         }
-        lock (GridMembers.Pending) GridMembers.Pending.Clear();
+        lock (GridMembers.Pending) foreach (long id in done) GridMembers.Pending.Remove(id);
         Event($"moved {todo.Count} grid(s) in the teleport phase");
     }
 
@@ -781,6 +787,13 @@ public static class ServerFrames
     /// <summary>Grids holding station, for the harness: id -> name.</summary>
     public static readonly Dictionary<long, string> Holding = new Dictionary<long, string>();
 
+    /// <summary>A grid left the scene: its per-grid state goes with it.</summary>
+    internal static void Forget(long gridId)
+    {
+        lock (FramesLock) { Holding.Remove(gridId); _gridHighSpeed.Remove(gridId); }
+        EncounterFrames.ForgetKind(gridId);
+    }
+
     /// <summary>
     /// A grid holding station (SE1: dampeners + thrust authority): its dampeners on, and thrust on every side
     /// the force that cancels the pull (−m·a, in the grid's own axes) points to. The game's MaxThrustData:
@@ -793,7 +806,7 @@ public static class ServerFrames
         try
         {
             var e = g.Entity;
-            if (e != null && IsFinite(accel) && e.Data.Has<Keen.Game2.Simulation.WorldObjects.Movement.DampeningData>()
+            if (e != null && IsFinite(accel) && GridMembers.Mass(g) > 0 && e.Data.Has<Keen.Game2.Simulation.WorldObjects.Movement.DampeningData>()
                 && e.Data.TryGet<Keen.Game2.Simulation.WorldObjects.Shared.Movement.MaxThrustData>(out var mt))
             {
                 Vector3D need = -accel * GridMembers.Mass(g);   // world

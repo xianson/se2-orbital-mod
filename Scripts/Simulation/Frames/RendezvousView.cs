@@ -292,7 +292,7 @@ public static class RendezvousView
                 if (!Rel(target, c, Maneuvers.RootAt(legs[li], tk), tk, out var q)) break;
                 path.Add((q.X, q.Y)); cross.Add(q.Z);
             }
-            if (path.Count < 2) return false;
+            if (path.Count < 2) { _hudPath = null; return false; }   // (never the last target's path under this name)
             (double, double) vel = (0, 0);
             if (Rel(target, c, Maneuvers.RootAt(legs[0], t + 1), t + 1, out var q1)) vel = (q1.X - path[0].Item1, q1.Y - path[0].Item2);
             _hudPath = path; _hudCross = cross; _hudVel = vel; _hudPeriod = period;

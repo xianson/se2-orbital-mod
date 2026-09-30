@@ -355,7 +355,9 @@ public static class FrameHost
             AtAnchor = dAnchor <= 100.0;
         }
         catch { AtAnchor = false; }
-        // Dampeners: the game's own (they fight these forces as they fight gravity: on, you hold station).
+        // Dampeners: station-keeping. As SE1 (a station-keeping member holds its offset with the relative force
+        // nulled): with them on no relative force is applied at all, so they only null your own motion and you
+        // hold EXACTLY (the anchor is pinned at the berth). Fighting the force each tick left a lag, a drift.
         try { Dampeners = ch.Data.Has<Keen.Game2.Simulation.WorldObjects.Movement.DampeningData>(); } catch { }
         Vector3D A = !DevRider && ServerFrames.AnchorAccel.TryGetValue(f.Id, out var a) ? a : Vector3D.Zero;
         StateVector cur = OrbitPropagation.StateAt(f.Elements, t);
@@ -383,7 +385,7 @@ public static class FrameHost
             _diagTicks++;
             if (_diagWall <= 0 || wall - _diagWall >= 1.0) { _diagWall = wall; _diagVel = vel / N; _diagT = t; _diagAcc = acc; }
         }
-        if (IsFinite(acc) && acc.LengthSquared() > 1e-12)
+        if (!Dampeners && IsFinite(acc) && acc.LengthSquared() > 1e-12)
         {
             Vector3D dv = acc * (dt * N * N);
             SetVelocity(ch, vel + dv);

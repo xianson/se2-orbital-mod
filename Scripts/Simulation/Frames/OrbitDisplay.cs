@@ -276,7 +276,24 @@ public static class OrbitDisplay
             rc.RelVel = (ahead.along - rc.RelNow.along, ahead.radial - rc.RelNow.radial);   // per second
             // Dampeners on: the jetpack keeps station with the anchor: you hold where you are.
             rc.Holding = FrameHost.Dampeners && !EncounterFrames.IsSite(frame);
-            if (rc.Holding) { rc.Relative = new List<(double, double)> { rc.RelNow, rc.RelNow }; rc.RelCross = new List<double> { rc.RelNowCross, rc.RelNowCross }; rc.RelVel = (0, 0); }
+            if (rc.Holding)
+            {
+                // Dampeners hold you still against the stars (no relative force: exact), while the plot's axes
+                // turn with the orbit: held station goes round the anchor once a revolution in them (measured:
+                // 24.8 deg in 488 s at n = 8.9e-4 rad/s). That circle is the prediction, not a frozen dot.
+                double nAn = anchorEl.IsElliptic && IsFinite(anchorEl.MeanMotion) ? anchorEl.MeanMotion : 0;
+                double P = nAn > 0 ? 2 * Math.PI / nAn : 3600;
+                var hold = new List<(double, double)>(161);
+                var holdX = new List<double>(161);
+                for (int i = 0; i <= 160; i++)
+                {
+                    double a = nAn * P * i / 160, ca = Math.Cos(a), sa = Math.Sin(a);
+                    hold.Add((rc.RelNow.along * ca - rc.RelNow.radial * sa, rc.RelNow.along * sa + rc.RelNow.radial * ca));
+                    holdX.Add(rc.RelNowCross);
+                }
+                rc.Relative = hold; rc.RelCross = holdX; rc.RelSamples = hold.Count;
+                rc.RelVel = (-nAn * rc.RelNow.radial, nAn * rc.RelNow.along);
+            }
             rc.RelPeriod = anchorEl.IsElliptic && IsFinite(anchorEl.Period) ? anchorEl.Period : 3600;
             rc.AnchorName = AnchorName(frame);
             // DEV check: where the plot said you would be 30 s later, against where you are.

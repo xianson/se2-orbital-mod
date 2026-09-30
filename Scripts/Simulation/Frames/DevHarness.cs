@@ -958,6 +958,7 @@ public static class DevHarness
         sb.AppendLine("libration " + Maneuvers.LibStart + " | " + Maneuvers.LibDebug);
         sb.AppendLine(FrameHost.RiderDiag);
         sb.AppendLine(OrbitDisplay.PredDiag);
+        { var hr = OrbitHud.Current; if (hr?.Relative != null) sb.AppendLine($"relnow along {hr.RelNow.along:F2} m radial {hr.RelNow.radial:F2} m vel ({hr.RelVel.along:F3}, {hr.RelVel.radial:F3}) m/s holding {hr.Holding} dampeners {FrameHost.Dampeners} t {SystemHost.Now:F1}"); }
         sb.AppendLine(DelfosHeat.Status);
         sb.AppendLine(SpawnGuard.Status);
         lock (AsteroidBridge.RingInfo) foreach (var ri in AsteroidBridge.RingInfo) sb.AppendLine("  ring " + ri);

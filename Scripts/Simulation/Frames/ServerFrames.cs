@@ -594,7 +594,8 @@ public static class ServerFrames
             {
                 // Re-pin by shifting the WHOLE frame back (members keep their offsets; no rails change).
                 Vector3D shift = f.BerthCenter - anchorPos;
-                foreach (var g in grids) GridMembers.SetPosition(g, GridMembers.Position(g) + shift);
+                // (MoveGrid: a jointed grid's wheels, rotor parts and docked ships must come too, before the physics step)
+                foreach (var g in grids) MoveGrid(g, GridMembers.Position(g) + shift, null);
                 FrameHost.RequestShift(f.Id, shift);
                 anchorPos = f.BerthCenter;
             }

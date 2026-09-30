@@ -621,6 +621,9 @@ public static class ServerFrames
                 SplitGrid(f, g, cur, rRel, GridMembers.Velocity(g) / N, t);
                 continue;
             }
+            // Station-keeping (dampeners on, thrust to hold with): no relative force, as SE1 and as a rider with
+            // dampeners on. Its dampeners only null its own motion, so it holds its offset exactly.
+            if (StationKeeping(g)) continue;
             Vector3D accel = lag != null ? lag(rRel, GridMembers.Velocity(g) / N) : (Grav(rA + rRel, mu) - gA) - A;
             if (IsFinite(accel)) GridMembers.AddVelocity(g, accel * (dt * N * N));
         }
@@ -634,6 +637,29 @@ public static class ServerFrames
             foreach (long id in f.Members)
                 if (GridMembers.IsGridId(id) && GridMembers.Get(id) is OrbitalGridComponent sg && sg.IsServer && !GridMembers.IsDynamic(sg)) all.Add(sg);
         TryMaterializeGrids(f, all, anchor != null ? GridMembers.Position(anchor) : staticPos, t);
+    }
+
+    /// <summary>Grids holding station, for the harness: id -> name.</summary>
+    public static readonly Dictionary<long, string> Holding = new Dictionary<long, string>();
+
+    /// <summary>A grid holding station: its dampeners on and thrust to hold with (SE1: dampeners + thrust authority).</summary>
+    static bool StationKeeping(OrbitalGridComponent g)
+    {
+        bool on = false;
+        try
+        {
+            var e = g.Entity;
+            if (e != null && e.Data.Has<Keen.Game2.Simulation.WorldObjects.Movement.DampeningData>()
+                && e.Data.TryGet<Keen.Game2.Simulation.WorldObjects.Shared.Movement.MaxThrustData>(out var mt))
+                on = mt.Regular.Positive.LengthSquared() + mt.Regular.Negative.LengthSquared() > 0;
+        }
+        catch { }
+        if (on != Holding.ContainsKey(g.Id))
+        {
+            if (on) Holding[g.Id] = g.DisplayName; else Holding.Remove(g.Id);
+            Event($"grid {g.Id} '{g.DisplayName}' {(on ? "holds station (dampeners, thrust): no relative pull" : "free: the relative pull is on it again")}");
+        }
+        return on;
     }
 
     /// <summary>SE1 ExecuteSplits: the member becomes its own frame from its celestial state.</summary>

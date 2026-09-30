@@ -271,7 +271,7 @@ public static partial class CleanMap
     static void Title(GravityBody view, string playerPlanet, KeplerianElements? orbit)
     {
         var scr = MapPipeline.ScreenSize;
-        var at = new Vector2(scr.X * 0.265f, scr.Y * 0.125f);
+        var at = new Vector2(scr.X * 0.265f, scr.Y * 0.158f);
         // The breadcrumb: each part a click target (up to the star, down to what is in view).
         var chain = new List<GravityBody>();
         for (var b = view; b != null; b = b.Parent) chain.Insert(0, b);

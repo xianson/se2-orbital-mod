@@ -264,7 +264,7 @@ public static class Maneuvers
     /// toMap maps a sun-centred model position at time t to the map's local frame; W local to world.
     /// </summary>
     public static void MapDraw(Func<Vector3D, double, Vector3D> toMap, Func<Vector3D, Vector3D> W, double limit,
-                               double t, Vector2 mouse, string selectedSector, string focusBody)
+                               double t, Vector2 mouse, string selectedSector, string focusBody, bool allLive = false)
     {
         ClaimsMouse = false;
         float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);   // sizes are for 1080p
@@ -295,7 +295,7 @@ public static class Maneuvers
         foreach (var l in legs) if (!anchor.ContainsKey(l.Body)) anchor[l.Body] = Math.Max(t, l.T0);
         // A ghost-pinned arc is mapped at its pin time as a whole: the view's own centre moves too (Kemik
         // runs about 2.4 km/s round the sun), and mixing times would smear the arc across the map.
-        bool Live(GravityBody b) => b.IsRoot || b.Name == focusBody;
+        bool Live(GravityBody b) => allLive || b.IsRoot || b.Name == focusBody;   // (allLive: a relative view maps every arc at its true time)
         // Each pass about a body has its own ghost: pinned where that body is when that pass begins.
         double PinT(GravityBody b, double tk)
         {

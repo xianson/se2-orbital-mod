@@ -203,6 +203,10 @@ public static class GameUi
     /// </summary>
     private static double _topAt = -1, _topRetry; private static string _topCached;
 
+    private static object _topObj;
+    /// <summary>The top screen's view model itself (the terminal's, while the map is open), or null.</summary>
+    public static object TopScreenObject(Keen.VRage.Core.Game.Systems.Session session) { TopScreenNeedingInput(session); return _topObj; }
+
     public static string TopScreenNeedingInput(Keen.VRage.Core.Game.Systems.Session session)
     {
         double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
@@ -220,6 +224,7 @@ public static class GameUi
         {
             if (_shared == null) { _shared = Service(session, "Keen.Game2.Client.UI.Library.SharedUIComponent"); _topInput = _shared?.GetType().GetMethod("TryGetTopScreenNeedingInput"); }
             object vm = _topInput?.Invoke(_shared, null);
+            _topObj = vm;
             TopInputScreen = vm?.GetType().Name ?? "";
             return vm?.GetType().Name;
         }

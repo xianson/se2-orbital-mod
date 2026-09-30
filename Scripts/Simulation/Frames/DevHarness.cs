@@ -698,6 +698,10 @@ public static class DevHarness
                 return sb.ToString();
             }
 
+            case "rvtab":   // rvtab on|off: the map's Rendezvous tab (as a click on it)
+                if (On(a[1])) RendezvousView.Open(session); else RendezvousView.Close();
+                return "rendezvous tab " + (RendezvousView.Active ? "open" : "closed") + " | " + RendezvousView.TabStatus + " | top " + (GameUi.TopScreenObject(session)?.GetType().FullName ?? "none") + " | " + RendezvousView.Status;
+
             case "selrock":   // selrock <rock label> | selrock off (as a click on its map marker)
                 CleanMap.SelectedRock = a[1] == "off" ? null : string.Join(" ", a, 1, a.Length - 1);
                 return "selected rock " + (CleanMap.SelectedRock ?? "none");

@@ -142,6 +142,16 @@ public static partial class CleanMap
         bool ui = MapPipeline.UiBegin(session, mapConfig);
         try
         {
+            RendezvousView.Tab(session, Mouse);
+            if (RendezvousView.Active)
+            {
+                // The Rendezvous tab has the view: the relative plot instead of the map's contents.
+                RendezvousView.Draw(session, reg, t, W, Mouse);
+                if (ManeuverEditor) ContextMenu(bands, t);
+                WarpBar.DrawMap(Mouse);
+            }
+            else
+            {
             // The game's own panels (left column, tab bar, bottom hints): map labels keep off them.
             var scrR = MapPipeline.ScreenSize;
             MapPipeline.Reserve(Vector2.Zero, new Vector2(scrR.X * 0.255f, scrR.Y));
@@ -151,7 +161,7 @@ public static partial class CleanMap
             DrawList(ordered, b => sys ? b.Home.Host == root.Name || b.Selected : b.Host == focus,
                 b => sys || b.Host == focus);
             // The title's area is kept free of map labels now; the title itself is drawn after the map, over its lines.
-            MapPipeline.Reserve(new Vector2(scrR.X * 0.26f, scrR.Y * 0.118f), new Vector2(scrR.X * 0.56f, scrR.Y * 0.118f + TitleHeight(scrR)));
+            MapPipeline.Reserve(new Vector2(scrR.X * 0.26f, scrR.Y * 0.151f), new Vector2(scrR.X * 0.56f, scrR.Y * 0.151f + TitleHeight(scrR)));
             // The map itself (orbits, sectors, the plan) is clipped to the open area between the panels.
             MapPipeline.ClipRect = new BoundingBox2(new Vector2(scrR.X * 0.255f, scrR.Y * 0.1f), new Vector2(scrR.X * 0.775f, scrR.Y * 0.84f));
 
@@ -204,6 +214,7 @@ public static partial class CleanMap
             ListInput(W);
             Hints();
             WarpBar.DrawMap(Mouse);
+            }
         }
         finally { MapPipeline.ClipRect = null; if (ui) MapPipeline.UiEnd(); }
 

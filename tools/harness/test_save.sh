@@ -15,6 +15,7 @@ mark; send "gridlaunch $J 60"   # (inside its cell: the dev launch teleports, an
 check "setup: jointed grid on rails" "STOW grid $J" 40 10
 send "orbit Verdure 300 280"; hold 12
 send "node clear" "node add 20 25 0 0"; hold 4
+send "testship" "sensornopower on"; hold 3; send "radarpower 0.25"   # (a real radar block, turned down)
 # the player's frame: its id from the orbit line, its a (km) and e from the frame list
 felem() {
     local id; id=$(stat "^orbit frame" | sed -n 's/^orbit frame #\([0-9]*\).*/\1/p')
@@ -42,6 +43,7 @@ echo "   after:  frame a/e '$orbit1'  node '$node1'"
 same() { awk -v a="$1" -v b="$2" 'BEGIN{split(a,x," "); split(b,y," "); exit !(x[1] != "" && (x[1]-y[1])^2 < 0.01 && (x[2]-y[2])^2 < 1e-6)}'; }
 expect "load: the frame's own orbit unchanged (a, e)" "'$orbit0' -> '$orbit1'" same "$orbit0" "$orbit1"
 expect "load: the maneuver node came back" "'$node0' -> '$node1'" test -n "$node1"
+check "load: the radar's setting came back" "radar setting restored: transmit power 25" 20 1
 # (right after load, before anything new is in sight: what you had seen is still known)
 known1=$(reply "contacts" | grep -o "known: [0-9]* grid(s), [0-9]* rock(s)")
 rocks() { echo "$1" | sed -n 's/.* \([0-9]*\) rock(s).*/\1/p'; }

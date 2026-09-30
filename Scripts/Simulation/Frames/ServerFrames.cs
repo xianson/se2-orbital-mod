@@ -124,6 +124,7 @@ public static class ServerFrames
         if (_lastTickStamp != 0 && dt < 0.004) return; // once per frame
         _lastTickStamp = now;
         TickRate.Server.Count();
+        SavedState.ApplyRadarSettings();
         lock (FramesLock) SpawnGuard.Tick(AsteroidBridge.Generator(session));   // no encounters on a planet's border (before they materialize); reads frames
         AsteroidBridge.Tick(session);   // no procedural asteroids, ever (encounters and our own system place them)
         // Physics runs on game time (it slows and pauses with the game), so the tidal velocity

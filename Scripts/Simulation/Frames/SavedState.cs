@@ -92,6 +92,17 @@ public static class SavedState
             // What you have seen (Contacts): rocks by label, grids by id (mapped on load as members are).
             foreach (var k in Contacts.RockKeys()) sb.Append("knownrock ").Append(Esc(k)).Append((char)10);
             foreach (long id in Contacts.GridKeys()) { sb.Append("knowngrid ").Append(id).Append((char)10); Remember(ob, id); }
+            // Radar settings (not at full power), by where the block is (a save keeps grids where they were; a
+            // named link to a block, not a grid, comes back detached).
+            lock (SensorBlocks.Radars)
+                foreach (var r in SensorBlocks.Radars)
+                {
+                    if (r.Entity == null || !(r.Power < 0.999f)) continue;
+                    Vector3D at;
+                    try { at = r.Entity.Data.GetWorldTransform().Position; } catch { continue; }
+                    sb.Append("radarpower ").Append(D(at.X)).Append(' ').Append(D(at.Y)).Append(' ').Append(D(at.Z))
+                      .Append(' ').Append(r.Power.ToString("R", Inv)).Append((char)10);
+                }
             ob.NamedEntities["state:" + sb] = self;
             Log.Default?.Info($"[ORBIT-FRAME] saved state captured: {snap.Frames.Count} frame(s), {sb.Length} chars, {ob.NamedEntities.Count} keys");
             if (OrbitalConfig.DevHarness)
@@ -111,9 +122,42 @@ public static class SavedState
     // ───────────────────────────── load ─────────────────────────────
 
     private sealed class Pending { public string State; public Dictionary<long, Entity> Entities = new Dictionary<long, Entity>(); public long PlayerMemberId; }
+    /// <summary>Radar settings from the save (where the block was, its power), set once a radar is there.</summary>
+    private static readonly List<(Vector3D at, float power, double since)> _radarPower = new List<(Vector3D, float, double)>();
     private static Pending _pending;
     private static double _pendingSince = -1;
     public static string LastRestore = "none";
+
+    static double Wall() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+
+    /// <summary>Server tick: the saved radar settings, onto their blocks once those have their components.</summary>
+    public static void ApplyRadarSettings()
+    {
+        lock (_radarPower)
+        {
+            if (_radarPower.Count == 0) return;
+            for (int i = _radarPower.Count - 1; i >= 0; i--)
+            {
+                var (at, pw, since) = _radarPower[i];
+                RadarComponent best = null; double bd = 1.0;   // (the block within a metre of where it was)
+                lock (SensorBlocks.Radars)
+                    foreach (var r in SensorBlocks.Radars)
+                    {
+                        double d;
+                        try { d = (r.Entity.Data.GetWorldTransform().Position - at).Length(); } catch { continue; }
+                        if (d < bd) { bd = d; best = r; }
+                    }
+                if (best == null)
+                {
+                    if (Wall() - since > 60) { _radarPower.RemoveAt(i); Log.Default?.Info("[ORBIT-FRAME] radar setting dropped: no radar where it was"); }
+                    continue;
+                }
+                best.Power = pw;
+                _radarPower.RemoveAt(i);
+                Log.Default?.Info($"[ORBIT-FRAME] radar setting restored: transmit power {pw:P0}");
+            }
+        }
+    }
 
     /// <summary>No saved state waiting to be applied (frame ids are safe to hand out).</summary>
     public static bool Idle => _pending == null;
@@ -128,6 +172,7 @@ public static class SavedState
             if (kv.Key.StartsWith("state:")) ob.State = kv.Key.Substring(6);
             else if (kv.Key.StartsWith("player:")) long.TryParse(kv.Key.Substring(7), NumberStyles.Integer, Inv, out ob.PlayerMemberId);
             else if (kv.Key.StartsWith("member:") && long.TryParse(kv.Key.Substring(7), NumberStyles.Integer, Inv, out long id)) ob.Entities[id] = kv.Value;
+
         }
         if (string.IsNullOrEmpty(ob.State)) return;
         if (!ob.State.StartsWith(Magic)) { Log.Default?.Info("[ORBIT-FRAME] saved state: unknown format, ignored"); return; }
@@ -212,6 +257,9 @@ public static class SavedState
                         break;
                     case "gpshid":
                         FrameMarkers.RestoreHidden(Unesc(p[1]));
+                        break;
+                    case "radarpower":
+                        lock (_radarPower) _radarPower.Add((new Vector3D(P(p[1]), P(p[2]), P(p[3])), (float)P(p[4]), Wall()));
                         break;
                     case "knownrock":
                         Contacts.RestoreRock(Unesc(p[1]));

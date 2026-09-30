@@ -271,6 +271,20 @@ public static class DevHarness
                 }
                 return "cam off|planet|player|map";
 
+            case "testship":   // testship [charge 0..1]: a test ship (battery, telescope, radar) 60 m ahead, yours
+                return DevTestShip.Spawn(session, camera, a.Length > 1 ? D(a[1]) : 1.0);
+
+            case "sensornopower":   // sensornopower on|off: sensors count without power (harness test blocks)
+                SensorBlocks.DevIgnorePower = On(a[1]);
+                return "sensors without power: " + SensorBlocks.DevIgnorePower;
+
+            case "radarpower":   // radarpower <0..1>: every radar's transmit power (as the terminal slider)
+            {
+                int n = 0;
+                lock (SensorBlocks.Radars) foreach (var r in SensorBlocks.Radars) { r.Power = (float)D(a[1]); n++; }
+                return $"{n} radar(s) at {D(a[1]):P0}";
+            }
+
             case "sensorblocks":   // sensorblocks: the sensor blocks' definitions, unlock and count
                 return SensorBlocks.Describe(session);
 

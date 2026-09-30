@@ -770,7 +770,7 @@ public static class AsteroidFrames
 
     // ───────────────────────────── helpers ─────────────────────────────
 
-    static IEntitySpawner Spawner(ProceduralGeneratorSessionComponent gen)
+    internal static IEntitySpawner Spawner(ProceduralGeneratorSessionComponent gen)
     {
         _spawnerField ??= typeof(ProceduralGeneratorSessionComponent).GetField("_spawner", BindingFlags.Instance | BindingFlags.NonPublic);
         return _spawnerField?.GetValue(gen) as IEntitySpawner;

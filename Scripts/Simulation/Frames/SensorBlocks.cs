@@ -46,15 +46,22 @@ public static class SensorBlocks
                 else unlocked = "no composition";
             }
             catch (Exception e) { unlocked = "? " + e.Message; }
-            int live; lock (n == 1 ? (object)Telescopes : Radars) live = n == 1 ? Telescopes.Count : Radars.Count;
-            sb.Append($"{name}: kind {(kind ? "yes" : "NO")}, name '{label}', unlocked {unlocked}, {live} in the world; ");
+            int live, working;
+            if (n == 1) lock (Telescopes) { live = Telescopes.Count; working = Telescopes.FindAll(c => c.Working).Count; }
+            else lock (Radars) { live = Radars.Count; working = Radars.FindAll(c => c.Working).Count; }
+            sb.Append($"{name}: kind {(kind ? "yes" : "NO")}, name '{label}', unlocked {unlocked}, {live} in the world ({working} working); ");
         }
+        lock (Radars)
+            foreach (var r in Radars) sb.Append($"radar power {r.Power:P0} draw {r.Draw}; ");
         return sb.ToString();
     }
 
+    /// <summary>Harness: count a sensor as working without power (the test blocks stand alone, with no battery).</summary>
+    public static bool DevIgnorePower;
+
     internal static bool Works(PowerableBlockComponent p)
     {
-        try { return p != null && p.Functional && p.Enabled && p.Supplied; } catch { return false; }
+        try { return p != null && p.Functional && p.Enabled && (p.Supplied || DevIgnorePower); } catch { return false; }
     }
 }
 
@@ -68,15 +75,39 @@ public class TelescopeComponent : Component, IInSceneListener
     void IInSceneListener.OnBeforeRemovedFromScene() { lock (SensorBlocks.Telescopes) SensorBlocks.Telescopes.Remove(this); }
 }
 
-public class RadarComponent : Component, IInSceneListener
+public class RadarComponent : Component, IInSceneListener,
+    Keen.Game2.Simulation.WorldObjects.CubeBlocks.BlockStateModifiers.IConsumedResourceModifier
 {
     [Keen.VRage.DCS.Annotations.Component]
     private readonly PowerableBlockComponent _power;
 
-    /// <summary>Transmit power, 0..1 of full (the terminal slider): range goes as its fourth root.</summary>
-    public float Power = 1f;
+    /// <summary>What transmitting at full power adds to the block's own small draw (the block's units; its
+    /// definition asks 20 for the electronics, so a full-power radar draws 400).</summary>
+    public const float TransmitDraw = 380f;
+
+    float _p = 1f;
+    /// <summary>Transmit power, 0..1 of full (the terminal slider): range goes as its fourth root, and the
+    /// block's power draw with it. Saved with the world (SavedState).</summary>
+    public float Power
+    {
+        get => _p;
+        set
+        {
+            float v = System.Math.Clamp(value, 0f, 1f);
+            if (v == _p) return;
+            _p = v;
+            try { _power?.UpdateConsumedResource(); } catch { }   // (the block asks for its new draw)
+        }
+    }
+
+    Keen.VRage.Library.Mathematics.FixedPoint Keen.Game2.Simulation.WorldObjects.CubeBlocks.BlockStateModifiers.IConsumedResourceModifier.RecomputeConsumedResource()
+        => (Keen.VRage.Library.Mathematics.FixedPoint)(TransmitDraw * _p);
+    void Keen.Game2.Simulation.WorldObjects.CubeBlocks.ResourceDistribution.Resources.IResourceNode.GetResources(
+        Keen.VRage.Library.Memory.BufferReference<Keen.Game2.Simulation.WorldObjects.CubeBlocks.ResourceDistribution.Resources.ResourceNodeData> resources) { }
 
     public bool Working => Power > 0.01f && SensorBlocks.Works(_power);
+    /// <summary>Harness: what the block asks of the grid now (its applied consumption).</summary>
+    public string Draw { get { try { return PlanetRenderBridge.GetMember(_power, "_appliedConsumption")?.ToString() ?? "?"; } catch { return "?"; } } }
     void IInSceneListener.OnAddedToScene() { lock (SensorBlocks.Radars) SensorBlocks.Radars.Add(this); }
     void IInSceneListener.OnBeforeRemovedFromScene() { lock (SensorBlocks.Radars) SensorBlocks.Radars.Remove(this); }
 }
@@ -95,6 +126,6 @@ public class RadarBlockDetailModel : BlockDetailModel
     public float Power
     {
         get => _radar?.Power ?? 1f;
-        set { if (_radar != null) _radar.Power = System.Math.Clamp(value, 0f, 1f); }
+        set { if (_radar != null) _radar.Power = value; }
     }
 }

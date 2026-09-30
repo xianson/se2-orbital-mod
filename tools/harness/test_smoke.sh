@@ -21,6 +21,15 @@ echo "== launch"; "$SP/relaunch.sh" 2>&1 | tail -1
 MARK=0
 poll "load: planets, grids, sensor blocks injected" 20 bash -c "grep -aq 'sensor block prefab.*Telescope' \"$(log)\" && grep -aq 'sensor block prefab.*Radar' \"$(log)\" && grep -aq 'server planet prefab' \"$(log)\""
 poll "load: the sensor blocks are defined and unlocked" 20 bash -c "\"$SP/orb.sh\" sensorblocks | grep -aq 'Telescope: kind yes.*unlocked True.*Radar: kind yes.*unlocked True'"
+
+# The real sensor blocks (a test telescope and radar, each a grid of its own with no battery: counted without power).
+send "testship" "sensornopower on"
+poll "blocks: a real telescope and radar, live and working" 10 bash -c "\"$SP/orb.sh\" sensorblocks | grep -aq 'Telescope.*1 in the world (1 working).*Radar.*1 in the world (1 working)'"
+send "radarpower 0.25"
+poll "blocks: the radar draws with its power (20 + 380 x 25% = 115)" 10 bash -c "\"$SP/orb.sh\" sensorblocks | grep -aq 'radar power 25 % draw 115'"
+send "radarpower 1"
+mark; send "contacts forget"
+poll "blocks: they see (rocks spotted by the real telescope / radar)" 10 logs "ORBIT-CONTACT\] .*rocks\? spotted"
 send "contacts sensor telescope"
 
 mark; send "gridlaunch $J 60"

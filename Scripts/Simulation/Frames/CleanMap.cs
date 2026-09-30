@@ -158,8 +158,10 @@ public static partial class CleanMap
             MapPipeline.Reserve(Vector2.Zero, new Vector2(scrR.X, scrR.Y * 0.1f));
             MapPipeline.Reserve(new Vector2(0, scrR.Y * 0.93f), scrR);
             // The system level lists every sector (the star's opened); a planet's level only that planet's.
+            long s0 = ModCost.Start();
             DrawList(ordered, b => sys ? b.Home.Host == root.Name || b.Selected : b.Host == focus,
                 b => sys || b.Host == focus);
+            ModCost.Sec("list").Stop(s0); s0 = ModCost.Start();
             // The title's area is kept free of map labels now; the title itself is drawn after the map, over its lines.
             MapPipeline.Reserve(new Vector2(scrR.X * 0.26f, scrR.Y * 0.151f), new Vector2(scrR.X * 0.56f, scrR.Y * 0.151f + TitleHeight(scrR)));
             // The map itself (orbits, sectors, the plan) is clipped to the open area between the panels.
@@ -176,6 +178,7 @@ public static partial class CleanMap
             _off = Map(Vector3D.Zero);
             Vector3D starV = _off;
             DrawSolar(parts, bands, reg, t, playerPlanet, globes, v => W(v + starV), playerOrbit);
+            ModCost.Sec("solar").Stop(s0); s0 = ModCost.Start();
             // Each planet's and moon's own system: its sectors and moons pop in once it is big enough
             // on screen to read; yours is always drawn (your orbit and where you are).
             foreach (var p in root.Children)
@@ -196,15 +199,19 @@ public static partial class CleanMap
                 }
             }
             _off = Vector3D.Zero;
+            ModCost.Sec("systems").Stop(s0); s0 = ModCost.Start();
             foreach (var d in _deferred) d();
             _deferred.Clear();
+            ModCost.Sec("deferred").Stop(s0); s0 = ModCost.Start();
             Overlay(r => Map(r), double.PositiveInfinity, W, t, reg);
+            ModCost.Sec("overlay").Stop(s0); s0 = ModCost.Start();
             _toMap = (r, tt) => Flat(r - anchor.OriginInRoot(tt).Position);
             _limit = double.PositiveInfinity;
 
             string selName = null;
             foreach (var bd in bands) if (bd.Selected) selName = bd.Name;
             if (_toMap != null && ManeuverEditor) Maneuvers.MapDraw(_toMap, W, _limit, t, Mouse, selName, anchor.Name);   // editable at every zoom
+            ModCost.Sec("trajectory").Stop(s0); s0 = ModCost.Start();
             MapPipeline.ClipRect = null;   // menus, the warp bar, hints: unclipped
             Title(anchor.IsRoot ? null : anchor, playerPlanet, playerOrbit);
             if (ManeuverEditor) ContextMenu(bands, t);
@@ -214,9 +221,11 @@ public static partial class CleanMap
             ListInput(W);
             Hints();
             WarpBar.DrawMap(Mouse);
+            ModCost.Sec("ui").Stop(s0);
             }
         }
-        finally { MapPipeline.ClipRect = null; if (ui) MapPipeline.UiEnd(); }
+        finally { long s1 = ModCost.Start(); MapPipeline.ClipRect = null; if (ui) MapPipeline.UiEnd(); ModCost.Sec("uiend").Stop(s1); }
+        long s2 = ModCost.Start();
 
         // Every sector keeps a (possibly zero-size) part: the game colours parts by sector name and
         // must always find them.
@@ -247,6 +256,7 @@ public static partial class CleanMap
             _lastKey = key; _lastMesh = now; _lastMeshSimT = t;
             Status = ok ? $"{key} parts={parts.Count}" : $"{key} mesh failed: {MapPipeline.LastError}";
         }
+        ModCost.Sec("parts+mesh").Stop(s2);
     }
 
     public static void Reset() { _lastKey = null; }
@@ -294,6 +304,9 @@ public static partial class CleanMap
     /// near the view (zoomed onto a planet, the sun's circles are a straight line through it; a
     /// fixed number of chords missed the planet by a good part of the screen).
     /// </summary>
+    /// <summary>Skip curve pieces wholly off the view (harness switch, to compare).</summary>
+    public static bool CullCurves = true;
+
     static void Curve(Func<double, Vector3D> at, Func<Vector3D, Vector3D> W, double a0, double a1, int n, ColorSRGB col, float px, bool depthCue = false, Func<Vector2, bool> skip = null)
     {
         var dim = HudPanel.Alpha(col, col.A / 255f * 0.4f);
@@ -310,6 +323,14 @@ public static partial class CleanMap
             double k = len > 0 ? Math.Clamp(Vector3D.Dot(f - pa, ab) / (len * len), 0, 1) : 0;
             if ((pa + ab * k - f).Length() > reach + 0.3 * len) return;   // the arc keeps near its chord
             bool oa = MapPipeline.ToScreen(W(pa), out var sa), ob = MapPipeline.ToScreen(W(pb), out var sb);
+            if (oa && ob && CullCurves)
+            {
+                // Wholly off the view, with room for the arc's bulge off its chord: nothing to split (zoomed
+                // in on a planet, the sun's orbits are huge on screen; split to 12 px they cost ~1 ms a frame).
+                var scr = MapPipeline.ScreenSize; float m = 0.3f * (sb - sa).Length() + 4f * u;
+                if (Math.Max(sa.X, sb.X) < -m || Math.Min(sa.X, sb.X) > scr.X + m || Math.Max(sa.Y, sb.Y) < -m || Math.Min(sa.Y, sb.Y) > scr.Y + m)
+                { Flush(); return; }
+            }
             if (oa && ob && ((sb - sa).Length() < 12f * u || depth >= 22))
             {
                 if (MapPipeline.Occluded(W((pa + pb) * 0.5))) { Flush(); return; }   // behind a body's globe

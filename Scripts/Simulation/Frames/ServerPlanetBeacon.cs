@@ -167,8 +167,10 @@ public partial class ServerPlanetBeacon
 
     private static void BeaconJobBody(ServerPlanetBeacon beacon)
     {
+        long c0 = ModCost.Start();
         try { ServerFrames.Tick(beacon.Entity.GetSession()); }
         catch (Exception ex) { FrameHost.Fault("ServerFrames", ex); }
+        ModCost.Server.Stop(c0);
         try { ServerGravityMultiplier = beacon.Entity.GetSession().Get<Keen.VRage.Physics.IPhysics>().GravityMultiplier; } catch { }
         ApplyPlayerRequest(beacon);
         var b = beacon._beacon;

@@ -58,6 +58,7 @@ public static partial class CleanMap
                         Pin(lp, double.PositiveInfinity, W, $"{Label(bd)}  ·  L{bd.Home.Point}", bd.Selected ? LineSel : StateColor(bd));
                     }
             // Its L1 / L2 (with its primary), and each moon's L1-L5 (with it), sector or not.
+            long q1 = ModCost.Start();
             LagrangeMarks(bands, reg, t, W, r => Lv(r - pRoot), planet, 1, 2);
             foreach (var moon in planet.Children)
                 if (SystemHost.BeaconOf.ContainsKey(moon.Name)) LagrangeMarks(bands, reg, t, W, r => Lv(r - pRoot), moon, 1, 5);
@@ -65,7 +66,12 @@ public static partial class CleanMap
             {
                 var h = bd.Home;
                 bool mineHere = h.Host == planet.Name && (h.Kind != SectorHomes.Kind.Lagrange || h.Point <= 2);
-                if (mineHere) DrawSector(bd, reg, t, W, r => Lv(r - pRoot), Sigma);
+                if (mineHere)
+                {
+                    ModCost.Sec("systems.lagrange").Stop(q1); q1 = ModCost.Start();
+                    DrawSector(bd, reg, t, W, r => Lv(r - pRoot), Sigma);
+                    ModCost.Sec("systems.sector:" + h.Kind).Stop(q1); q1 = ModCost.Start();
+                }
             }
         }
 
@@ -133,6 +139,7 @@ public static partial class CleanMap
         Hit(root, W(Vector3D.Zero), W(new Vector3D(SystemHost.StarRadius * SolarRadius / outer, 0, 0)), 36f);
         BodyLabel(W, Vector3D.Zero, SystemHost.StarRadius * SolarRadius / outer, 36f, StarName, Text, 0.85f);
 
+        long q0 = ModCost.Start();
         // Every planet's L3 / L4 / L5 (with Delfos), sector or not.
         foreach (var p in root.Children)
             if (SystemHost.BeaconOf.ContainsKey(p.Name)) LagrangeMarks(bands, reg, t, W, S, p, 3, 5);
@@ -143,6 +150,7 @@ public static partial class CleanMap
             bool star = h.Host == root.Name || (h.Kind == SectorHomes.Kind.Lagrange && h.Point >= 3);
             if (star) DrawSector(bd, reg, t, W, S, SolarRadius / outer);
         }
+        ModCost.Sec("solar.sectors").Stop(q0); q0 = ModCost.Start();
 
         // The planets: orbit line, the globe, and the planet's own sector as a circular section around it.
         foreach (var p in root.Children)
@@ -162,10 +170,13 @@ public static partial class CleanMap
                 }
             }
             // Faint while a planet's own system has the view (its sweep across the screen is not the point there).
+            long pq = ModCost.Start();
             if (el.IsElliptic) Curve(nu => S(OrbitSampler.PositionAtTrueAnomaly(el, nu)), W, 0, 2 * Math.PI, 96, _planetLevel ? HudPanel.Alpha(Line, 0.1f) : Line, 1.0f, skip: skip);
+            ModCost.Sec("planet.orbit").Stop(pq); pq = ModCost.Start();
             Vector3D hp = p.StateInParentAt(t).Position;
             Vector3D c = S(hp);
             MapGlobes.Use(p.Name, W(c), (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer * _wscale, globes);   // true size
+            ModCost.Sec("planet.globe").Stop(pq); pq = ModCost.Start();
             // Its ring round the globe, flat in the map's plane (the rings lie on the equators, in the ecliptic).
             if (globes.Contains(p.Name))
             {
@@ -173,10 +184,13 @@ public static partial class CleanMap
                     PlanetRings.Map(pcell, reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4, W(c),
                         (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer * _wscale, W(c + new Vector3D(0, 1, 0)) - W(c));
             }
+            ModCost.Sec("planet.ring").Stop(pq); pq = ModCost.Start();
             BodyDot(W, c, (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, p.Name == playerPlanet ? You : Text);
             Hit(p, W(c), W(c + new Vector3D((reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, 0, 0)), 8f);
             BodyLabel(W, c, (reg.FindDefinition(p.Name)?.RadiusMeters ?? 6e4) * SolarRadius / outer, 8f, p.Name, p.Name == playerPlanet ? You : Text, 0.9f);
+            ModCost.Sec("planet.labels").Stop(pq);
         }
+        ModCost.Sec("solar.planets").Stop(q0);
         // You, orbiting the star: your orbit and where you are (planning: the planner draws it).
         if (playerPlanet == root.Name && playerOrbit.HasValue && !Planning)
         {

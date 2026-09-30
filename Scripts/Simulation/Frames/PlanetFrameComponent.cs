@@ -195,8 +195,10 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
             double mult = 1;
             try { mult = session.Get<Keen.VRage.Physics.IPhysics>().GravityMultiplier; } catch { }
             try { GameMap.Safety(session); } catch { }
+            long c0 = ModCost.Start();
             try { FrameHost.Tick(session, camera, mult); } // once per frame (clock-deduped)
             catch (Exception ex) { FrameHost.Fault("FrameHost", ex); }
+            ModCost.Client.Stop(c0);
 
             if (_handles == null && !TrySetup()) return;
 

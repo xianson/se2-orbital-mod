@@ -763,6 +763,10 @@ public static class DevHarness
                 MapView.Mode = (MapView.ViewMode)Enum.Parse(typeof(MapView.ViewMode), a[1], ignoreCase: true);
                 return $"mapview={MapView.Mode}";
 
+            case "curvecull":   // curvecull on|off: skip map curve pieces wholly off the view
+                CleanMap.CullCurves = On(a[1]);
+                return "curve cull " + CleanMap.CullCurves;
+
             case "shotui":
                 PlanetRenderBridge.ShotWithoutUi = !On(a[1]);
                 return $"screenshots with UI={On(a[1])}";
@@ -991,6 +995,8 @@ public static class DevHarness
             if (vb != null) sb.AppendLine($"spin Verdure T={vb.RotationPeriodSeconds:F0}s theta={vb.RotationAngleAt(SystemHost.Now) * 180 / Math.PI:F1}deg worldSunPeriod={SystemHost.WorldSunPeriod:F0}s");
         }
         catch { }
+        sb.AppendLine($"modcost ms avg/max: client {ModCost.Client} server {ModCost.Server} map {ModCost.Map}");
+        sb.AppendLine($"mapcost ms avg/max: {ModCost.SectionList()}");
         sb.AppendLine($"time {DateTime.Now:HH:mm:ss.fff} ticks/s client={TickRate.Client.PerSecond:F1} draw={TickRate.Draw.PerSecond:F1} server={TickRate.Server.PerSecond:F1} rails t={SystemHost.Now:F1} x{SystemHost.Timescale} clock={SystemHost.ClockSource}");
         sb.AppendLine($"camera {camera.Position.X:F0} {camera.Position.Y:F0} {camera.Position.Z:F0}");
         sb.AppendLine($"physics gravityMultiplier client={_clientGravityMultiplier} server={ServerPlanetBeacon.ServerGravityMultiplier}");

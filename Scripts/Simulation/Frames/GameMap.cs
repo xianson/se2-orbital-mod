@@ -132,8 +132,10 @@ public static class GameMap
             PlanetRenderBridge.SetRenderComponentVisible(PlanetRenderBridge.GetMember(map, "SectorsRenderer"), true);
             var usedGlobes = new HashSet<string>();
             if (TryMouse(map, out var mouseNow)) CleanMap.Mouse = mouseNow;
+            long c0 = ModCost.Start();
             CleanMap.Draw(session, PlanetRenderBridge.GetMember(map, "SectorsRenderer"), PlanetRenderBridge.GetMember(map, "_configuration"),
                           bands, reg, mapPos, orient, u, t, youPlanet, youRel, youOrbit, usedGlobes);
+            ModCost.Map.Stop(c0);
             MapGlobes.End(usedGlobes);
             PlaceStar(map, mapPos, orient);
             // Delfos is our own proxy globe (as the planets): its model from the map's star prefab.

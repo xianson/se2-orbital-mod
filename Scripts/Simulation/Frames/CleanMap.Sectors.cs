@@ -224,18 +224,26 @@ public static partial class CleanMap
         string label = $"{bd.Number}  {Label(bd)}";
         _deferred.Add(() =>
         {
+            long d0 = ModCost.Start();
+            try { DeferredSector(); } finally { ModCost.Sec("deferred:" + h.Kind + (h.Kind == SectorHomes.Kind.Ring ? ":" + h.Host : "")).Stop(d0); }
+        });
+        void DeferredSector()
+        {
             MapPipeline.PickName = b0.Name;
             switch (h.Kind)
             {
                 case SectorHomes.Kind.Ring:
+                    long r0 = ModCost.Start();
                     // The ring about its host (the point's offset from its centre, all the way round).
                     SectorArea(W0, q => { var p = SectorHomes.Where(h, reg, t + P * q, out var cq); return p - cq; },
                                v => toLocal(centre + v), b0, 0.5, (h.Outer - h.Inner) / (h.Outer + h.Inner));
+                    ModCost.Sec("ring.area").Stop(r0); r0 = ModCost.Start();
                     // Its rocks only once the belt is wide on screen (zoomed in on it: a star's belt spans the
                     // whole system at any zoom, its width does not).
                     if (MapPipeline.ToScreen(W0(toLocal(centre + new Vector3D(h.Inner, 0, 0))), out var rc0) && MapPipeline.ToScreen(W0(toLocal(centre + new Vector3D(h.Outer, 0, 0))), out var rc1)
                         && (rc1 - rc0).Length() >= RoidsMinScreen * MapPipeline.ScreenSize.Y)
                         RoidMarks(W0, toLocal, reg, t, b0);
+                    ModCost.Sec("ring.rocks").Stop(r0);
                     MapPipeline.PickName = b0.Name;
                     break;
                 case SectorHomes.Kind.Lagrange when h.Point >= 3:
@@ -281,7 +289,7 @@ public static partial class CleanMap
                 }
             }
             MapPipeline.PickName = null;
-        });
+        }
     }
 
     /// <summary>A belt's rocks show once its width is this much of the screen's height (zoomed in on it).</summary>

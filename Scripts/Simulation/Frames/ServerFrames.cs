@@ -1023,6 +1023,41 @@ public static class ServerFrames
 }
 
 /// <summary>Ticks per second over the last second (harness diagnostics).</summary>
+/// <summary>What the mod's own code costs per frame (ms): the average and the worst over the last full second.</summary>
+public sealed class ModCost
+{
+    public static readonly ModCost Client = new ModCost(), Server = new ModCost(), Map = new ModCost();
+    private long _windowStart; private double _sum, _max; private int _n;
+    public volatile float AvgMs, MaxMs, PeakMs;   // (Peak: the worst frame ever, for one-off stalls)
+    public static long Start() => System.Diagnostics.Stopwatch.GetTimestamp();
+    public void Stop(long start)
+    {
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        double ms = (now - start) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+        lock (this)
+        {
+            if (_windowStart == 0) _windowStart = now;
+            _sum += ms; _n++; if (ms > _max) _max = ms; if (ms > PeakMs) PeakMs = (float)ms;
+            if ((now - _windowStart) / (double)System.Diagnostics.Stopwatch.Frequency >= 1.0)
+            { AvgMs = (float)(_sum / _n); MaxMs = (float)_max; _sum = _max = 0; _n = 0; _windowStart = now; }
+        }
+    }
+    public override string ToString() => $"{AvgMs:F2}/{MaxMs:F1}/{PeakMs:F0}";
+
+    /// <summary>Named parts of a costly path (the map's draw), for finding where its time goes.</summary>
+    public static readonly Dictionary<string, ModCost> Sections = new Dictionary<string, ModCost>();
+    public static ModCost Sec(string name)
+    {
+        lock (Sections) { if (!Sections.TryGetValue(name, out var c)) Sections[name] = c = new ModCost(); return c; }
+    }
+    public static string SectionList()
+    {
+        var sb = new System.Text.StringBuilder();
+        lock (Sections) foreach (var kv in Sections) sb.Append($"{kv.Key} {kv.Value}  ");
+        return sb.ToString();
+    }
+}
+
 public sealed class TickRate
 {
     public static readonly TickRate Client = new TickRate();

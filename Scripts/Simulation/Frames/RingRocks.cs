@@ -24,7 +24,7 @@ public static class RingRocks
 {
     public static bool Enabled = true;
     /// <summary>Rocks per ring (seeded): tuned so a straight crossing of Verdure's ring meets two or three.</summary>
-    public static int PerRing = 160;
+    public static int PerRing = 120;   // (160 gave 3-4 rendezvous a crossing; the asked-for feel is 2-3)
     /// <summary>How far ahead passes are looked for (s): the plan's legs, never past this.</summary>
     public static double Horizon = 3 * 3600;
     public static string Status = "-";

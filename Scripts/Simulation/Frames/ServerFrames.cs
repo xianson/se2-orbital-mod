@@ -164,6 +164,7 @@ public static class ServerFrames
                 while (Attach.TryDequeue(out var req)) DoAttach(req);
                 while (GridOrbit.TryDequeue(out var go)) DoGridOrbit(go);
                 while (GridDamp.TryDequeue(out var gd)) DoGridDamp(gd.id, gd.on);
+                while (GridLaunch.TryDequeue(out var gl)) DoGridLaunch(gl.id, gl.altKm);
                 while (GridMove.TryDequeue(out var gm))
                 {
                     var g = GridMembers.Get(gm.id);
@@ -220,7 +221,6 @@ public static class ServerFrames
             if (SystemHost.Frames.FindByMember(g.Id) != null) continue;
             Vector3D p = GridMembers.Position(g);
             if ((p - req.RefPos).Length() > AttachRadius) continue;
-            if (GridMembers.IsConstrained(g)) continue;
             if (EncounterFrames.IsNpc(g)) continue;   // NPCs keep their own world
             if (!SystemHost.Frames.AddMember(frame, g.Id)) continue;
             // A grid riding its conic (HighSpeed) has zero physical velocity: its true velocity is the
@@ -237,8 +237,10 @@ public static class ServerFrames
             }
             // Same relative placement in the berth; velocity relative to the frame (the player's own
             // velocity went into the rails).
-            GridMembers.SetPosition(g, req.Berth + (inCell ? chart.ToInertial(p - req.RefPos) : p - req.RefPos));
-            GridMembers.SetVelocity(g, v - req.RefVel);
+            // (MoveGrid: a jointed grid comes with its whole joined group, or not at all if it is locked to a base)
+            if (!MoveGrid(g, req.Berth + (inCell ? chart.ToInertial(p - req.RefPos) : p - req.RefPos), v - req.RefVel, out var withA))
+            { SystemHost.Frames.RemoveMember(g.Id); continue; }
+            foreach (var o in withA) if (SystemHost.Frames.FindByMember(o.Id) == null) SystemHost.Frames.AddMember(frame, o.Id);
             n++;
         }
         if (n > 0) Event($"ATTACH {n} grid(s) within {AttachRadius / 1000:F0} km -> frame #{frame.Id}");
@@ -286,8 +288,9 @@ public static class ServerFrames
             // Grids near a player on foot go with the player's own stow. A seated player's stow does
             // not run: the ship they fly stows here (and they with it, as its child).
             if (!FrameHost.Seated && (pos - PlayerPosition).Length() <= AttachRadius) continue;
-            if (GridMembers.IsConstrained(g)) continue;
             if (EncounterFrames.IsNpc(g)) continue;
+            lock (GridMembers.Pending) if (GridMembers.Pending.ContainsKey(g.Id)) continue;   // (going with its group this tick)
+            if (GridMembers.IsConstrained(g) && !GridMembers.MoveSet(g, new List<Entity>(), out _)) continue;   // locked to a base: stays
             if (!VoxelBerthRegistry.TryCellContaining(pos, reg, out string body, out Vector3D cell))
             {
                 if (!OrbitalConfig.CaptureLegacySpace || !SystemHost.TryNearestCell(pos, out body, out cell)) continue;
@@ -324,8 +327,8 @@ public static class ServerFrames
             var frame = SystemHost.Frames.CreateFrame(parent.Name, el, g.Id);
             if (frame == null) continue;
             _gridHighSpeed.Remove(g.Id);
-            GridMembers.SetPosition(g, frame.BerthCenter);
-            GridMembers.SetVelocity(g, Vector3D.Zero);
+            if (!MoveGrid(g, frame.BerthCenter, Vector3D.Zero, out var withS)) { SystemHost.Frames.Dissolve(frame.Id); continue; }
+            foreach (var o in withS) { _gridHighSpeed.Remove(o.Id); if (SystemHost.Frames.FindByMember(o.Id) == null) SystemHost.Frames.AddMember(frame, o.Id); }
             Event($"STOW grid {g.Id} '{g.DisplayName}' -> frame #{frame.Id} orbiting {parent.Name}: r={(cel - porg.Position).Length() / 1000:F1} km " +
                   $"|v|={vel.Length():F0} m/s a={el.SemiMajorAxis / 1000:F1} km e={el.Eccentricity:F3} slot={frame.BerthSlotId}");
             DoAttach(new AttachRequest { FrameId = frame.Id, RefPos = pos, RefVel = vel, Berth = frame.BerthCenter, Body = legacy ? null : body, Time = t });
@@ -667,7 +670,12 @@ public static class ServerFrames
     /// addVel: added to each instead. A group already moving this tick is not moved again (true).
     /// </summary>
     public static bool MoveGrid(OrbitalGridComponent g, Vector3D target, Vector3D? setVel, Vector3D addVel = default)
+        => MoveGrid(g, target, setVel, out _, addVel);
+
+    /// <summary>As above; with: the other grids that move with it (its joined group), for the caller's frame bookkeeping.</summary>
+    public static bool MoveGrid(OrbitalGridComponent g, Vector3D target, Vector3D? setVel, out List<OrbitalGridComponent> with, Vector3D addVel = default)
     {
+        with = new List<OrbitalGridComponent>();
         lock (GridMembers.Pending) if (GridMembers.Pending.ContainsKey(g.Id)) return true;   // (with its group, this tick)
         if (!GridMembers.IsConstrained(g))
         {
@@ -687,24 +695,14 @@ public static class ServerFrames
                 Vector3D v = setVel ?? v0 + addVel;
                 Vector3D p = e.Data.GetWorldTransform().Position + delta;
                 _deferred.Add((e, p, v));
-                if (byEntity.TryGetValue(e, out var og)) lock (GridMembers.Pending) GridMembers.Pending[og.Id] = (p, v);
+                if (byEntity.TryGetValue(e, out var og))
+                {
+                    lock (GridMembers.Pending) GridMembers.Pending[og.Id] = (p, v);
+                    if (og != g) with.Add(og);
+                }
             }
         Event($"grid {g.Id} '{g.DisplayName}' and {set.Count - 1} joined entit(ies): moving {delta.Length() / 1000:F1} km before the next physics step");
         return true;
-    }
-
-    /// <summary>The server grids moving with this one this tick (its joined group), itself excluded.</summary>
-    static List<OrbitalGridComponent> PendingWith(OrbitalGridComponent g)
-    {
-        var l = new List<OrbitalGridComponent>();
-        lock (GridMembers.Pending)
-        {
-            if (!GridMembers.Pending.ContainsKey(g.Id)) return l;
-            foreach (var kv in GridMembers.Pending)
-                if (kv.Key != g.Id && GridMembers.Get(kv.Key) is OrbitalGridComponent o && o.IsServer
-                    && (GridMembers.Pending[g.Id].p - kv.Value.p).Length() < ServerFrames.SlotRadius) l.Add(o);
-        }
-        return l;
     }
 
     /// <summary>Grid moves done where fast travel does them (ServerPlanetBeacon's teleport phase, before the physics step).</summary>
@@ -736,6 +734,27 @@ public static class ServerFrames
         }
         lock (GridMembers.Pending) GridMembers.Pending.Clear();
         Event($"moved {todo.Count} grid(s) in the teleport phase");
+    }
+
+    /// <summary>DEV: put a grid (with its joined group) on a circular orbit this high over the planet it is at.</summary>
+    public static readonly System.Collections.Concurrent.ConcurrentQueue<(long id, double altKm)> GridLaunch = new System.Collections.Concurrent.ConcurrentQueue<(long, double)>();
+    static void DoGridLaunch(long id, double altKm)
+    {
+        var g = GridMembers.Get(id);
+        var reg = SystemHost.Registry;
+        if (g == null || !g.IsServer || reg == null) { Event($"gridlaunch: no server grid {id}"); return; }
+        Vector3D pos = GridMembers.Position(g);
+        if (!VoxelBerthRegistry.TryCellContaining(pos, reg, out string body, out Vector3D cell)) { Event("gridlaunch: not at a planet"); return; }
+        var node = reg.Find(body); var def = reg.FindDefinition(body);
+        if (node == null || def == null) return;
+        double t = SystemHost.Now, r = def.RadiusMeters + altKm * 1000;
+        var chart = Chart.Of(body, t);
+        Vector3D up = Vector3D.Normalize(chart.ToInertial(pos - cell));
+        Vector3D side = Vector3D.Cross(Vector3D.UnitZ, up);
+        if (side.LengthSquared() < 1e-9) side = Vector3D.Cross(Vector3D.UnitX, up);
+        Vector3D pI = up * r, vI = Vector3D.Normalize(side) * Math.Sqrt(node.Mu / r);
+        bool ok = MoveGrid(g, cell + chart.FromInertial(pI), chart.VelFromInertial(pI, vI), out var with);
+        Event($"gridlaunch: grid {id} '{g.DisplayName}' to a {altKm:F0} km circular orbit of {body}: {(ok ? $"moving ({with.Count} grid(s) with it)" : "refused")}");
     }
 
     /// <summary>DEV: move a grid (server), unless it has joints.</summary>
@@ -802,9 +821,9 @@ public static class ServerFrames
         var nf = SystemHost.Frames.SplitOff(f, g.Id, f.ParentBodyName, el);
         if (nf == null) return;
         Vector3D p = GridMembers.Position(g);
-        if (!MoveGrid(g, nf.BerthCenter, Vector3D.Zero)) { SystemHost.Frames.Dissolve(nf.Id); SystemHost.Frames.AddMember(f, g.Id); return; }
+        if (!MoveGrid(g, nf.BerthCenter, Vector3D.Zero, out var withG)) { SystemHost.Frames.Dissolve(nf.Id); SystemHost.Frames.AddMember(f, g.Id); return; }
         // Joined to others (docked, wheels on a sub-grid): they go with it, into its new frame.
-        foreach (var o in PendingWith(g))
+        foreach (var o in withG)
             if (SystemHost.Frames.FindByMember(o.Id) == f) { SystemHost.Frames.RemoveMember(o.Id); SystemHost.Frames.AddMember(nf, o.Id); }
         Event($"SPLIT grid {g.Id} '{g.DisplayName}' from frame #{f.Id} at {rRel.Length() / 1000:F1} km -> frame #{nf.Id} (slot {nf.BerthSlotId})");
     }

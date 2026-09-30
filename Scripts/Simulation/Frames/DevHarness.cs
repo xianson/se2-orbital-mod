@@ -702,6 +702,10 @@ public static class DevHarness
                 if (On(a[1])) RendezvousView.Open(session); else RendezvousView.Close();
                 return "rendezvous tab " + (RendezvousView.Active ? "open" : "closed") + " | " + RendezvousView.TabStatus + " | top " + (GameUi.TopScreenObject(session)?.GetType().FullName ?? "none") + " | " + RendezvousView.Status;
 
+            case "gridlaunch":   // gridlaunch <gridId> <altKm> (DEV: a circular orbit over the planet it is at, joined group and all)
+                ServerFrames.GridLaunch.Enqueue((long.Parse(a[1]), D(a[2])));
+                return "grid launch queued (server, next tick)";
+
             case "griddamp":   // griddamp <gridId> on|off (DEV: the grid's dampeners, as the game toggles them)
                 ServerFrames.GridDamp.Enqueue((long.Parse(a[1]), On(a[2])));
                 return "grid dampeners queued (server, next tick)";

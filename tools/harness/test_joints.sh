@@ -31,6 +31,18 @@ send() { "$SP/orb.sh" "$@" >/dev/null; }
 
 echo "== relaunch"; "$SP/relaunch.sh" 2>&1 | tail -1; hold 15
 
+# 0a. A jointed grid launched into orbit on its own goes on rails with its joined part (a lone stow).
+mark; send "gridlaunch 1000000031 60"
+check "lone stow: jointed grid goes on rails" "STOW grid 1000000031" 40 15
+check "lone stow: its joined part went with it" "grid 1000000031 'Grid' and 1 joined entit" 5 5
+
+# 0b. You stow with a jointed grid beside you: it comes along with its joined part; the truck, locked to
+#     the static barn, stays behind.
+mark; send "orbit Verdure 30 30 0 20"
+check "attach: jointed grid by you comes along" "ATTACH [0-9]* grid(s)" 30 15
+check "attach: its joined part went with it" "grid $J 'Grid' and 1 joined entit" 5 5
+check "attach: the truck locked to the barn stays" "grid $TRUCK 'Cargo Truck' not moved: joined to something static" 5 5
+
 # 1. A grid joined to something static never moves.
 mark; send "gridmove $TRUCK 0 300000 0 group"
 check "refuse: truck joined to a static base" "not moved: joined to something static" 20 5

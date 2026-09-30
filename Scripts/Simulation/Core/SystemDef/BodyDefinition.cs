@@ -97,6 +97,10 @@ namespace SEAerospace.SystemDef
         public bool HasAtmosphere = false;
         public double AtmosphereHeightMeters = 0.0;
 
+        /// <summary>How much sunlight its face reflects (Bond albedo, 0..1): planet-shine and the glare of its
+        /// day side in the sensor model. Earth ~0.3, the Moon ~0.12.</summary>
+        public double Albedo = 0.3;
+
         // ---- placement / stowage (explicit; fixes RSS#5) ----------------------
 
         /// <summary>Optional SE planet subtype to instantiate as the parked voxel body for

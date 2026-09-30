@@ -55,6 +55,9 @@ public static class SystemHost
     public const double OrbitSpacing = 1.524;             // Kemik = Mars, 1.524 AU
     /// <summary>Atmosphere height as a fraction of r0 (SE2 planets expose no clean atmosphere top).</summary>
     public const double AtmosphereFraction = 0.15;   // the game's planets: atmosphere AffectDistance 1.15 radii
+    /// <summary>Reflectivity (sensor model: planet-shine, glare): the planets with clouds and ice caps (Earth ~0.3),
+    /// the moons bare rock (the Moon ~0.12).</summary>
+    public const double PlanetAlbedo = 0.35, MoonAlbedo = 0.12;
     /// <summary>Wait this long after the last beacon appears before building (all planets loaded).</summary>
     public const double SettleSeconds = 2.0;
 
@@ -290,6 +293,7 @@ public static class SystemHost
                     SurfaceGravityMps2 = law.G0 * mult, RadiusMeters = law.R0,
                     HasAtmosphere = true, AtmosphereHeightMeters = law.R0 * AtmosphereFraction,
                     RotationPeriodSeconds = PlanetDay(),
+                    Albedo = MoonAlbedo,
                     ParkSubtype = "SE2:" + name,
                 });
                 continue;
@@ -303,6 +307,7 @@ public static class SystemHost
                 SurfaceGravityMps2 = law.G0 * mult, RadiusMeters = law.R0,
                 HasAtmosphere = true, AtmosphereHeightMeters = law.R0 * AtmosphereFraction,
                 RotationPeriodSeconds = PlanetDay(), // the cell is the rotating chart (see Chart)
+                Albedo = PlanetAlbedo,
                 ParkSubtype = "SE2:" + name,
             });
             a *= OrbitSpacing;

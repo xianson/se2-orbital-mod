@@ -165,6 +165,8 @@ namespace SensingTest
             var night = Rock(P + new Vector3D(80000, 0, 0));
             Ok("over the night side: no planet-shine", PlanetShine(night.At + new Vector3D(0, 5e5, 0), night.At, Sun, bodies) < 1e-6);
             Ok("with no planets: none", PlanetShine(eye, rock.At, Sun, Bodies()) == 0);
+            var moonish = new Body { Centre = P, Radius = 60000, Albedo = 0.12 };
+            Near("a darker body (albedo 0.12 vs 0.3) shines proportionally less", PlanetShine(eye, rock.At, Sun, Bodies(moonish)) / shine, 0.4, 1e-9);
         }
 
         // Glare: against a planet's sunlit face the optical range drops; the night side and space do not hide.

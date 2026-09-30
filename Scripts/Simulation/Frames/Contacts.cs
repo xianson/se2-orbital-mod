@@ -85,7 +85,7 @@ public static class Contacts
         foreach (var b in reg.Bodies)
         {
             double r = b.IsRoot ? SystemHost.StarRadius : reg.FindDefinition(b.Name)?.RadiusMeters ?? 0;
-            if (r > 0) bodies.Add(new SensorModel.Body { Centre = b.OriginInRoot(t).Position, Radius = r, IsSun = b.IsRoot });
+            if (r > 0) bodies.Add(new SensorModel.Body { Centre = b.OriginInRoot(t).Position, Radius = r, IsSun = b.IsRoot, Albedo = reg.FindDefinition(b.Name)?.Albedo ?? 0 });
         }
         Vector3D sun = reg.Root?.OriginInRoot(t).Position ?? Vector3D.Zero;
 

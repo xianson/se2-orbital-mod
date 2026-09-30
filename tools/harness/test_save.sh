@@ -45,5 +45,27 @@ hold 20
 never "load: no mod fault" "\[ORBIT-FAULT\]"
 never "load: no Havok migration assertion" "not migrated"
 expect "load: game still running" "the game is not running" alive
+
+# Phase 2: saved while in a site (a ring rock you came up to): it is saved as a plain frame; you load on
+# its orbit (not stranded where it was), and the rock's site comes back and joins you.
+echo "== phase 2: save beside a ring rock"; "$SP/relaunch.sh" 2>&1 | tail -1; hold 15
+mark; send "orbit Verdure 65 65 0"
+check "site: a ring rock's rocks are out beside you" "ROCKS out: Oblivara #" 60 15
+mark; send "save"
+check "site: saved as a plain frame" "site frame #[0-9]* kept as a plain frame" 60 5
+KEEP="$(cat "$SP/world.txt")"
+printf 'Orbital Test World' > "$SP/world.txt"
+echo "== reload"; "$SP/relaunch.sh" 2>&1 | tail -1
+printf '%s' "$KEEP" > "$SP/world.txt"
+MARK=0; hold 20
+check "site load: your frame restored" "RESTORE from save: [1-9][0-9]* frame" 30 5
+expect "site load: you are on an orbit (not stranded)" "no orbit line: $(stat '^orbit' | cut -c1-100)" grep -aq "^orbit frame #" "$ST"
+check "site load: the rock's rocks come back" "ROCKS out: Oblivara #" 90 10
+check "site load: the rock's site joins your frame" "MERGE frame #[0-9]* -> #[0-9]*\|player joins site" 60 5
+hold 20
+never "site load: rocks stay out (no out / in loop)" "ROCKS away: .*composition is the game's again"
+never "site load: no mod fault" "\[ORBIT-FAULT\]"
+never "site load: no Havok migration assertion" "not migrated"
+expect "site load: game still running" "the game is not running" alive
 echo "   world.txt: $(cat "$SP/world.txt")"
 summary

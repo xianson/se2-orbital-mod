@@ -63,7 +63,8 @@ public static class RingRocks
             foreach (var (c, inn, outr, half) in PlanetRings.Known())
                 if ((c - kv.Value.Center).Length() < Math.Max(5000.0, 0.05 * outr) && outr > inn) { found.Add((kv.Key, inn, outr, half)); break; }
         found.Sort((a, b) => string.CompareOrdinal(a.planet, b.planet));
-        string sig = string.Join("|", found.ConvertAll(f => $"{f.planet}:{f.inner:F0}:{f.outer:F0}:{f.half:F0}")) + "|" + PerRing;
+        // (its name too: at load the rings come before the sector sites, which name them; renamed then)
+        string sig = string.Join("|", found.ConvertAll(f => $"{f.planet}:{BeltName(f.planet)}:{f.inner:F0}:{f.outer:F0}:{f.half:F0}")) + "|" + PerRing;
         if (sig == _beltsSig) return _belts;
         var list = new List<Belt>();
         foreach (var (planet, inner0, outer, half0) in found)

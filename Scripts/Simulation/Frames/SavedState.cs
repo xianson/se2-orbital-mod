@@ -29,6 +29,8 @@ namespace OrbitalMod;
 public static class SavedState
 {
     public const string Magic = "ORBITAL-STATE 1";
+    /// <summary>Slot id saved for a site's berth you were in: no lattice slot, keep the saved centre.</summary>
+    const int LatentBerth = -2;
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
     // ───────────────────────────── save ─────────────────────────────
@@ -49,7 +51,17 @@ public static class SavedState
             sb.Append("next ").Append(snap.NextFrameId).Append('\n');
             foreach (var fs in snap.Frames)
             {
-                if (EncounterFrames.IsTransient(fs.Id)) continue;   // sites are rebuilt from the world
+                // Sites are rebuilt from the world; not a site you (or your grids) are in: rebuilt, it need not
+                // come back in the same berth, and a ring rock's comes back only near your orbit. Saved as a
+                // plain frame on the site's orbit, you load where you were, and the site joins you (a merge).
+                bool keptSite = false;
+                if (EncounterFrames.IsTransient(fs.Id))
+                {
+                    keptSite = true;
+                    var live = SystemHost.Frames.Get(fs.Id);
+                    if (live == null || !EncounterFrames.HasNonNpc(live)) continue;
+                    Log.Default?.Info($"[ORBIT-FRAME] save: site frame #{fs.Id} kept as a plain frame (you or your grids are in it)");
+                }
                 sb.Append("frame ").Append(fs.Id).Append(' ').Append(Esc(fs.ParentBodyName))
                   .Append(' ').Append(D(fs.SemiMajorAxis)).Append(' ').Append(D(fs.Eccentricity))
                   .Append(' ').Append(D(fs.Inclination)).Append(' ').Append(D(fs.Raan))
@@ -57,9 +69,9 @@ public static class SavedState
                   .Append(' ').Append(D(fs.Mu)).Append(' ').Append(D(fs.Epoch))
                   .Append(' ').Append(D(fs.VirtualVelocityX)).Append(' ').Append(D(fs.VirtualVelocityY)).Append(' ').Append(D(fs.VirtualVelocityZ))
                   .Append(' ').Append(D(fs.PendingDrainDvX)).Append(' ').Append(D(fs.PendingDrainDvY)).Append(' ').Append(D(fs.PendingDrainDvZ))
-                  .Append(' ').Append(fs.AnchorEntityId).Append(' ').Append(fs.BerthSlotId)
+                  .Append(' ').Append(fs.AnchorEntityId).Append(' ').Append(keptSite ? LatentBerth : fs.BerthSlotId)
                   .Append(' ').Append(D(fs.BerthCenterX)).Append(' ').Append(D(fs.BerthCenterY)).Append(' ').Append(D(fs.BerthCenterZ))
-                  .Append(' ').Append(fs.IsEncounter ? 1 : 0)
+                  .Append(' ').Append(fs.IsEncounter && !keptSite ? 1 : 0)   // (a kept site: a plain frame, so the rebuilt site merges with it)
                   .Append(" members");
                 foreach (long m in fs.MemberIds) sb.Append(' ').Append(m);
                 sb.Append('\n');
@@ -79,6 +91,9 @@ public static class SavedState
             foreach (var k in FrameMarkers.HiddenKeys()) sb.Append("gpshid ").Append(Esc(k)).Append((char)10);
             ob.NamedEntities["state:" + sb] = self;
             Log.Default?.Info($"[ORBIT-FRAME] saved state captured: {snap.Frames.Count} frame(s), {sb.Length} chars, {ob.NamedEntities.Count} keys");
+            if (OrbitalConfig.DevHarness)
+                foreach (var line in sb.ToString().Split((char)10))
+                    if (line.StartsWith("frame ")) Log.Default?.Info("[ORBIT-FRAME] saved: " + line);
             if (FrameHost.PlayerId != 0) ob.NamedEntities["player:" + FrameHost.PlayerId.ToString(Inv)] = self;
         }
     }
@@ -177,6 +192,14 @@ public static class SavedState
                         if (ids.Count == 0) break;
                         if (anchor == 0 || !ids.Contains(anchor)) anchor = ids[0];
                         var f = SystemHost.Frames.RestoreFrame(long.Parse(p[1], Inv), Unesc(p[2]), el, vv, pd, anchor, ids, slot, center, enc);
+                        // A site's berth (saved because you were in it) has no lattice slot: it lives where the
+                        // rock was, and so do its members' saved positions. Not a fresh slot elsewhere.
+                        if (f != null && slot == LatentBerth && GridMembers.Finite(center) && center.LengthSquared() > 1)
+                        {
+                            if (f.BerthSlotId >= 0) SystemHost.Frames.Allocator.Free(f.BerthSlotId);
+                            f.BerthSlotId = -1; f.BerthCenter = center;
+                        }
+                        if (f != null) Log.Default?.Info($"[ORBIT-FRAME] restored frame #{f.Id}: slot {f.BerthSlotId} berth {ServerPlanetBeacon.Fmt(f.BerthCenter)} (saved {ServerPlanetBeacon.Fmt(center)}), {ids.Count} member(s)");
                         if (f != null) { frames++; members += ids.Count; }
                         break;
                     }

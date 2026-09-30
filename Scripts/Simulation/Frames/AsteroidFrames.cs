@@ -509,7 +509,9 @@ public static class AsteroidFrames
         {
             if (!DefinitionManager.Instance.TryGetDefinition(id, out VolumeDefinition v) || v == null || v.Entities.Length == 0) continue;
             if (!Reserve(v)) return null;
-            lock (_gate) _shared.Add(v);
+            // (shared by choice: no longer 'given back', which a saved volume of ours with it can have marked it at
+            // load, before this choice; left marked, every rock put out with it was taken in again next tick)
+            lock (_gate) { _shared.Add(v); _givenBack.Remove(v); }
             _beltComp[belt] = v;
             Event($"{belt}: composition {name} SHARED with the game's volumes (a density only while at an asteroid;{why})");
             return v;

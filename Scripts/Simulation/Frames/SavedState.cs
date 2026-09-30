@@ -89,6 +89,9 @@ public static class SavedState
             }
             foreach (var nl in Maneuvers.SaveLines()) sb.Append(nl).Append((char)10);
             foreach (var k in FrameMarkers.HiddenKeys()) sb.Append("gpshid ").Append(Esc(k)).Append((char)10);
+            // What you have seen (Contacts): rocks by label, grids by id (mapped on load as members are).
+            foreach (var k in Contacts.RockKeys()) sb.Append("knownrock ").Append(Esc(k)).Append((char)10);
+            foreach (long id in Contacts.GridKeys()) { sb.Append("knowngrid ").Append(id).Append((char)10); Remember(ob, id); }
             ob.NamedEntities["state:" + sb] = self;
             Log.Default?.Info($"[ORBIT-FRAME] saved state captured: {snap.Frames.Count} frame(s), {sb.Length} chars, {ob.NamedEntities.Count} keys");
             if (OrbitalConfig.DevHarness)
@@ -210,6 +213,15 @@ public static class SavedState
                     case "gpshid":
                         FrameMarkers.RestoreHidden(Unesc(p[1]));
                         break;
+                    case "knownrock":
+                        Contacts.RestoreRock(Unesc(p[1]));
+                        break;
+                    case "knowngrid":
+                    {
+                        long kid = Map(long.Parse(p[1], Inv));
+                        if (kid != 0) Contacts.RestoreGrid(kid);
+                        break;
+                    }
                     case "hs":
                     {
                         long id = Map(long.Parse(p[1], Inv));

@@ -763,6 +763,9 @@ public static class DevHarness
                 MapView.Mode = (MapView.ViewMode)Enum.Parse(typeof(MapView.ViewMode), a[1], ignoreCase: true);
                 return $"mapview={MapView.Mode}";
 
+            case "contacts":   // contacts [reveal|forget|on|off]
+                return Contacts.Command(a);
+
             case "stores":   // stores: every battery / tank on a railed grid
                 return WarpBill.Describe(ServerPlanetBeacon.ServerSession ?? session);
 
@@ -1010,6 +1013,7 @@ public static class DevHarness
         sb.AppendLine($"mapcost ms avg/max: {ModCost.SectionList()}");
         sb.AppendLine($"bodymarkers {BodyMarkers.Status}");
         sb.AppendLine($"warpbill {WarpBill.Status}");
+        sb.AppendLine($"contacts {Contacts.Status}");
         sb.AppendLine($"time {DateTime.Now:HH:mm:ss.fff} ticks/s client={TickRate.Client.PerSecond:F1} draw={TickRate.Draw.PerSecond:F1} server={TickRate.Server.PerSecond:F1} rails t={SystemHost.Now:F1} x{SystemHost.Timescale} clock={SystemHost.ClockSource}");
         sb.AppendLine($"camera {camera.Position.X:F0} {camera.Position.Y:F0} {camera.Position.Z:F0}");
         sb.AppendLine($"physics gravityMultiplier client={_clientGravityMultiplier} server={ServerPlanetBeacon.ServerGravityMultiplier}");

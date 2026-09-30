@@ -153,6 +153,7 @@ public static class RingRocks
         double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
         var ks = new System.Text.StringBuilder();
         lock (Maneuvers.Nodes) foreach (var nd in Maneuvers.Nodes) ks.Append('|').Append(nd.T).Append(nd.Pro).Append(nd.Nor).Append(nd.Rad);
+        ks.Append("|k").Append(Contacts.Version);   // (what you know changed: re-filter)
         string sig = ks.ToString();
         if (sig == _sig && now - _at < 1.0 && Math.Abs(t - _atGame) < 30) return _passes;
         _sig = sig; _at = now; _atGame = t;
@@ -165,6 +166,7 @@ public static class RingRocks
                     if (b.Body == l.Body) Scan(b, l, t, list);
         }
         catch (Exception e) { Status = "passes failed: " + e.Message; }
+        list.RemoveAll(p => !Contacts.KnownRock(p.Label));   // a rock you have not seen is not predicted
         list.Sort((a, b) => a.T.CompareTo(b.T));
         _passes = list;
         return _passes;

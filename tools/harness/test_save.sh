@@ -20,6 +20,7 @@ felem() {
 }
 orbit0=$(felem)
 node0=$(reply "node" | grep -o "\[0\] in [0-9:]* P [0-9.]*")
+known0=$(reply "contacts" | grep -o "known: [0-9]* grid(s), [0-9]* rock(s)")
 echo "   before: frame a/e '$orbit0'  node '$node0'"
 
 mark; send "save"
@@ -39,6 +40,10 @@ echo "   after:  frame a/e '$orbit1'  node '$node1'"
 same() { awk -v a="$1" -v b="$2" 'BEGIN{split(a,x," "); split(b,y," "); exit !(x[1] != "" && (x[1]-y[1])^2 < 0.01 && (x[2]-y[2])^2 < 1e-6)}'; }
 expect "load: the frame's own orbit unchanged (a, e)" "'$orbit0' -> '$orbit1'" same "$orbit0" "$orbit1"
 expect "load: the maneuver node came back" "'$node0' -> '$node1'" test -n "$node1"
+# (right after load, before anything new is in sight: what you had seen is still known)
+known1=$(reply "contacts" | grep -o "known: [0-9]* grid(s), [0-9]* rock(s)")
+rocks() { echo "$1" | sed -n 's/.* \([0-9]*\) rock(s).*/\1/p'; }
+expect "load: what you had seen is still known" "'$known0' -> '$known1'" test "$(rocks "$known1")" -ge "$(rocks "$known0")" -a "$(rocks "$known0")" -gt 0
 rst=$(since | grep -a "RESTORE from save" | tail -1 | sed -n 's/.*HighSpeed, \([0-9]*\) grid(s) missing.*/\1/p')
 expect "load: every saved grid found" "missing: '$rst'" test "${rst:-1}" = 0
 hold 20

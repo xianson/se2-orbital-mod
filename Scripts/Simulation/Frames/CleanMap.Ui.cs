@@ -333,6 +333,7 @@ public static partial class CleanMap
             foreach (var f in SystemHost.Frames.Frames)
             {
                 if (!f.IsEncounter || f.HasMember(player)) continue;
+                if (!Contacts.KnownFrame(f)) continue;   // not seen yet
                 var site = EncounterFrames.SiteOf(f.Id);
                 if (site != null && site.Anchor) continue;
                 var parent = reg.Find(f.ParentBodyName);

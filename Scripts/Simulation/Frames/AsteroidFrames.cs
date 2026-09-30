@@ -687,6 +687,15 @@ public static class AsteroidFrames
     // ───────────────────────────── map ─────────────────────────────
 
     /// <summary>A belt's asteroid frames for the map: label, home, cluster, rocks out.</summary>
+    /// <summary>Every asteroid frame (not the ring rocks' own: RingRocks has those): belt, label, home, cluster.</summary>
+    public static List<(string belt, string label, SectorHomes.Home home, bool cluster)> All()
+    {
+        var l = new List<(string, string, SectorHomes.Home, bool)>();
+        if (!Enabled) return l;
+        lock (_gate) foreach (var r in _roids) if (!r.Dynamic) l.Add((r.Belt, r.Label, r.Home, r.Cluster));
+        return l;
+    }
+
     public static List<(string label, SectorHomes.Home home, bool cluster, bool live)> Of(string belt)
     {
         var l = new List<(string, SectorHomes.Home, bool, bool)>();

@@ -313,6 +313,7 @@ public static partial class CleanMap
             if (label == SelectedRock || label == Maneuvers.Target) RoidPath(W, toLocal, reg, t, home, label == Maneuvers.Target ? TargetText : LineSel);
         foreach (var (label, home, cluster, live) in roids)
         {
+            if (!Contacts.KnownRock(label)) continue;   // not seen yet
             Vector3D w = W(toLocal(SectorHomes.Where(home, reg, t)));
             if (!MapPipeline.ToScreen(w, out var s) || !InOpenArea(s)) continue;
             _markerAt[label] = w;

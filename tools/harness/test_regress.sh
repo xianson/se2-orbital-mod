@@ -16,6 +16,10 @@ never "border stow: no dirty-slot move" "moved to clear slot"
 expect "border stow: spawn guard up" "no spawn guard zone" grep -aq "spawn guard: frame" <(since)
 expect "border stow: orbit still 20 x 20" "orbit changed: $(stat '^orbit frame' | cut -c1-120)" grep -aq "Pe 20.0 km  Ap 20.0 km" <(stat "^orbit frame")
 
+# 1b. Contacts by sight: forgotten, the ring's rocks in view from orbit are spotted again and announced.
+mark; send "contacts forget"
+check "contacts: the ring's rocks in sight are spotted and announced" "ORBIT-CONTACT\] .*rocks spotted" 15 2
+
 # 4. Dampeners hold station exactly: the offset from the anchor stays put through x1 and x10.
 send "target off" "orbit Verdure 400 400" "devrider on 2" "player dampeners on"; hold 20
 r() { stat "^relnow" | awk '{print sqrt($3*$3 + $6*$6)}'; }

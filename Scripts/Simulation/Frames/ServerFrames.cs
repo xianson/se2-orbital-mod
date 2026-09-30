@@ -163,6 +163,14 @@ public static class ServerFrames
             {
                 while (Attach.TryDequeue(out var req)) DoAttach(req);
                 while (GridOrbit.TryDequeue(out var go)) DoGridOrbit(go);
+                while (GridDamp.TryDequeue(out var gd)) DoGridDamp(gd.id, gd.on);
+                while (GridMove.TryDequeue(out var gm))
+                {
+                    var g = GridMembers.Get(gm.id);
+                    if (g == null || !g.IsServer) Event($"gridmove: no server grid {gm.id}");
+                    else if (GridMembers.IsConstrained(g)) Event($"gridmove: grid {gm.id} has joints: not moved (Havok cannot migrate them)");
+                    else { GridMembers.SetPosition(g, GridMembers.Position(g) + gm.d); GridMembers.SetVelocity(g, Vector3D.Zero); Event($"gridmove: grid {gm.id} moved by {gm.d.Length():F0} m"); }
+                }
                 EncounterFrames.ServerTick(session, _tick);
                 DevFlight.ServerTick();
                 DevFlight.ServerCommandTick();
@@ -610,7 +618,7 @@ public static class ServerFrames
         foreach (var g in grids)
         {
             if (g == anchor) continue;
-            if (EncounterFrames.IsNpc(g)) continue;
+            if (EncounterFrames.IsNpc(g) && !DevNpcRelative) continue;
             Vector3D rRel = GridMembers.Position(g) - anchorPos;
             if (_gridN.TryGetValue(g.Id, out double n0) && Math.Abs(n0 - N) > 1e-9)
                 GridMembers.SetVelocity(g, GridMembers.Velocity(g) * (N / n0));
@@ -621,10 +629,10 @@ public static class ServerFrames
                 SplitGrid(f, g, cur, rRel, GridMembers.Velocity(g) / N, t);
                 continue;
             }
-            // Station-keeping (dampeners on, thrust to hold with): no relative force, as SE1 and as a rider with
-            // dampeners on. Its dampeners only null its own motion, so it holds its offset exactly.
-            if (StationKeeping(g)) continue;
             Vector3D accel = lag != null ? lag(rRel, GridMembers.Velocity(g) / N) : (Grav(rA + rRel, mu) - gA) - A;
+            // Station-keeping (dampeners on, and thrust on the side that cancels the pull): no relative force, as
+            // SE1 and as a rider with dampeners on. Its dampeners only null its own motion: it holds exactly.
+            if (StationKeeping(g, accel * (N * N))) continue;
             if (IsFinite(accel)) GridMembers.AddVelocity(g, accel * (dt * N * N));
         }
 
@@ -639,19 +647,56 @@ public static class ServerFrames
         TryMaterializeGrids(f, all, anchor != null ? GridMembers.Position(anchor) : staticPos, t);
     }
 
+    // ───────────────────────────── DEV: station-keeping test grids ─────────────────────────────
+
+    /// <summary>DEV: NPC grids feel relative motion too (to test station-keeping on the wrecks a test world has).</summary>
+    public static bool DevNpcRelative;
+    /// <summary>DEV: move a grid (server), unless it has joints.</summary>
+    public static readonly System.Collections.Concurrent.ConcurrentQueue<(long id, Vector3D d)> GridMove = new System.Collections.Concurrent.ConcurrentQueue<(long, Vector3D)>();
+
+    /// <summary>DEV: a grid's dampeners on / off (server), as the game's own toggle does.</summary>
+    public static readonly System.Collections.Concurrent.ConcurrentQueue<(long id, bool on)> GridDamp = new System.Collections.Concurrent.ConcurrentQueue<(long, bool)>();
+    static void DoGridDamp(long id, bool on)
+    {
+        try
+        {
+            var g = GridMembers.Get(id);
+            var e = g?.IsServer == true ? g.Entity : null;
+            if (e == null) { Event($"griddamp: no server grid {id}"); return; }
+            if (on) e.Data.Set(default(Keen.Game2.Simulation.WorldObjects.Movement.DampeningData));
+            else e.Data.TryRemove<Keen.Game2.Simulation.WorldObjects.Movement.DampeningData>();
+            string thrust = e.Data.TryGet<Keen.Game2.Simulation.WorldObjects.Shared.Movement.MaxThrustData>(out var mt)
+                ? $"thrust +{mt.Regular.Positive} -{mt.Regular.Negative}" : "no thrust data";
+            Event($"griddamp: grid {id} '{g.DisplayName}' dampeners {(on ? "on" : "off")}; {thrust}");
+        }
+        catch (Exception ex) { Event("griddamp failed: " + ex.Message); }
+    }
+
     /// <summary>Grids holding station, for the harness: id -> name.</summary>
     public static readonly Dictionary<long, string> Holding = new Dictionary<long, string>();
 
-    /// <summary>A grid holding station: its dampeners on and thrust to hold with (SE1: dampeners + thrust authority).</summary>
-    static bool StationKeeping(OrbitalGridComponent g)
+    /// <summary>
+    /// A grid holding station (SE1: dampeners + thrust authority): its dampeners on, and thrust on every side
+    /// the force that cancels the pull (−m·a, in the grid's own axes) points to. The game's MaxThrustData:
+    /// Positive = the push along each +axis, Negative = along each −axis (Thrust6Directions.Clamp).
+    /// A ship turned so it cannot push against the pull drifts until it can.
+    /// </summary>
+    static bool StationKeeping(OrbitalGridComponent g, Vector3D accel)
     {
         bool on = false;
         try
         {
             var e = g.Entity;
-            if (e != null && e.Data.Has<Keen.Game2.Simulation.WorldObjects.Movement.DampeningData>()
+            if (e != null && IsFinite(accel) && e.Data.Has<Keen.Game2.Simulation.WorldObjects.Movement.DampeningData>()
                 && e.Data.TryGet<Keen.Game2.Simulation.WorldObjects.Shared.Movement.MaxThrustData>(out var mt))
-                on = mt.Regular.Positive.LengthSquared() + mt.Regular.Negative.LengthSquared() > 0;
+            {
+                Vector3D need = -accel * GridMembers.Mass(g);   // world
+                var q = (QuaternionD)e.Data.GetWorldTransform().Orientation;
+                Vector3D l = QuaternionD.Inverse(q) * need;       // the grid's axes
+                var P = mt.Regular.Positive; var Ng = mt.Regular.Negative;
+                bool Ok(double c, float pos, float neg) => Math.Abs(c) < 1e-6 || (c > 0 ? pos >= c : neg >= -c);   // (no pull along an axis needs no thrust there)
+                on = Ok(l.X, P.X, Ng.X) && Ok(l.Y, P.Y, Ng.Y) && Ok(l.Z, P.Z, Ng.Z);
+            }
         }
         catch { }
         if (on != Holding.ContainsKey(g.Id))

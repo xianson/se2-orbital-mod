@@ -156,7 +156,7 @@ public static class FrameHost
                 {
                     if (_hsActive && !landed) vel = StepHighSpeed(ch, pos, vel, dt);
                     else if (!landed) vel = ApplyFictitious(ch, pos, vel, dt);
-                    if (!_hsActive && EncounterFrames.TryAdoptPlayer(id, pos)) { PublishObserver(camera.Position, reg, t); return; }
+                    if (!_hsActive && !ForceStow && EncounterFrames.TryAdoptPlayer(id, pos)) { PublishObserver(camera.Position, reg, t); return; }
                     TryStow(session, ch, id, pos, _hsActive ? _hsVel : vel, t);
                 }
             }
@@ -702,6 +702,17 @@ public static class FrameHost
     public static string SetOrbit(string body, double apoAltKm, double periAltKm, double incDeg, double phaseDeg = 0)
     {
         if (!OrbitElements(body, apoAltKm, periAltKm, incDeg, phaseDeg, out var el)) return "no such body / degenerate orbit";
+        // In a site (its orbit is its ephemeris) or a frame shared with others (a station, a ship, a rock you
+        // rendezvoused with): you leave it and stow onto the orbit alone; setting its elements moved them all.
+        var shared = PlayerFrame;
+        if (shared != null && (EncounterFrames.IsSite(shared) || shared.IsEncounter || shared.Members.Count > 1))
+        {
+            lock (ServerFrames.FramesLock) SystemHost.Frames.RemoveMember(_playerId);
+            Event($"ORBIT: left frame #{shared.Id} (shared or a site) to take the orbit alone");
+            _pendingOrbit = (body, el);
+            ForceStow = true;
+            return "orbit queued (left the shared frame; stows next tick)";
+        }
         if (PlayerFrame != null)
         {
             PlayerFrame.ParentBodyName = body;

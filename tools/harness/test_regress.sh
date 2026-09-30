@@ -34,6 +34,10 @@ mark; send "orbit Verdure 65 65 0"
 check "ring rocks: a near rock becomes a site" "ring rock Oblivara #[0-9]* near" 40 5
 check "ring rocks: its rocks come out" "ROCKS out: Oblivara #" 40 5
 
+# 3b. The orbit command takes you out of a rock's frame (a site) onto the orbit you asked for.
+send "orbit Verdure 300 300"; hold 10
+expect "orbit command: leaves a rock's frame for the asked orbit" "orbit now: $(stat '^orbit frame' | cut -c1-120)" awk '/Pe 30[0-9.]* km  Ap 30[0-9.]* km/ && $0 !~ /alt [0-9]{1,2}\./ {ok=1} END{exit !ok}' <(stat "^orbit frame" | sed -n 's/.*\(alt [0-9.]* km\).*\(Pe [0-9.]* km  Ap [0-9.]* km\).*/\1 \2/p')
+
 # 5. The map: the ring on Verdure's globe (the game's own texture), the Rendezvous tab, the porkchop.
 send "orbit Verdure 160 140" "map on"; hold 6
 send "mapcam at Verdure" "mapcam 20 35" "mapcam zoom 0.03"; hold 6
@@ -42,6 +46,20 @@ tab=$(reply "rvtab on")
 expect "map: a real Rendezvous tab" "$(echo "$tab" | cut -c1-160)" grep -aq -e "tab added" -e "tab already there" <(echo "$tab")
 send "target Kemik"; hold 10
 expect "map: porkchop to Kemik solved" "$(reply 'rvtab on' | cut -c1-200)" grep -aq "porkchop best" <(reply "rvtab on")
+
+# 5b. Nodes on the Rendezvous tab's relative plot (the map's own editor, driven like a mouse): click the
+#     path to add one, drag its prograde handle, slide it along the path.
+send "target Oblivara" "node clear" "rvtab on"; hold 6
+send "node clickat 10"; hold 4
+nl=$(reply "node")
+expect "rendezvous tab: a click on the path adds a node" "$(echo "$nl" | cut -c1-160)" grep -aq "\[0\] in" <(echo "$nl")
+send "node select 0" "node pull P 80 2"; hold 5
+pro=$(reply "node" | sed -n 's/.*\[0\] in [^P]*P \(-\{0,1\}[0-9.]*\).*/\1/p')
+expect "rendezvous tab: dragging the prograde handle changes the burn" "prograde '${pro:-?}'" awk -v p="${pro:-0}" 'BEGIN{exit !(p>0.5 || p<-0.5)}'
+send "node slide 0 5"; hold 5
+tm=$(reply "node" | sed -n 's/.*\[0\] in \([0-9]*\):.*/\1/p')
+expect "rendezvous tab: sliding a node moves it along the path" "node now in '${tm:-?}' min" awk -v m="${tm:-0}" 'BEGIN{exit !(m>=3 && m<=6)}'
+send "node clear"
 
 # 6. In flight with a target: the HUD's relative plot about it.
 send "rvtab off" "map off" "target Oblivara"; hold 6

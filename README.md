@@ -150,5 +150,5 @@ verified only as no false folds plus a harness kick (no real key press; grid thr
 7. **Ship shipping checklist.** `PlanetFrameComponent.DevHarness` must be false in a release build.
 8. **Old map code.** `Frames/OrbitalMap.cs`, `Frames/MapView.cs` and the band path in
    `Frames/UnifiedMap.cs` are superseded by the clean map (gated off); removing them waits on a go-ahead.
-9. **Route planner** (`RoutePlanner.cs`: same-SOI intercepts, interplanetary porkchop + Newton
-   shooting + capture) is kept but not in the UI (harness `route <sector>`).
+9. **No auto-planning, ever.** The route planner was removed (2026-09-29): no auto target, no auto
+   rendezvous. Targets are for display only (closest approach, relative-motion plot); you fly the burns.

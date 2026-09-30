@@ -396,10 +396,6 @@ public static class DevHarness
                 }
             }
 
-            case "route":
-                // route <sector name...>: auto-plan to that sector's site (as the map's button)
-                return RoutePlanner.Start(string.Join(" ", a, 1, a.Length - 1));
-
             case "seat":
                 // seat <grid name>: the local character into that grid's nearest cockpit
                 return DevFlight.Seat(session, a.Length > 1 ? string.Join(" ", a, 1, a.Length - 1) : null) + " | " + DevFlight.Status;

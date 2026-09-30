@@ -188,8 +188,6 @@ public static class FrameHost
         Guard("DevFlight.ClientTick", () => DevFlight.ClientTick(session));
         WarpControl.Session = session;
         Guard("WarpControl.Tick", () => WarpControl.Tick());
-        RoutePlanner.Session = session;
-        Guard("RoutePlanner.Tick", () => RoutePlanner.Tick(SystemHost.Now));
         Guard("MapView.Tick", () => MapView.Tick(session, camera, t));
         Guard("FrameMarkers.Tick", () => FrameMarkers.Tick(session, camera, t));
         Guard("Maneuvers.HudTick", () => Maneuvers.HudTick(session, camera, t));

@@ -78,14 +78,10 @@ public static class WarpBill
                 if (flow == 0) continue;
                 ref var data = ref c.ResourceEntity.GetWritePtr<ResourceContainerComponent.ResourceContainerData>();
                 if (data.MaxCapacity == 0) continue;
-                FixedPoint v = data.CurrentChargeValue + flow * (FixedPoint)surplus;
-                if (v <= 0)
-                {
-                    v = 0;
-                    if (owner.yours && dry == null) dry = owner.name;
-                }
-                else if (v > data.MaxCapacity) v = data.MaxCapacity;
-                data.CurrentChargeValue = v;
+                // (the bill itself: SensorModel.AgeStore, tested offline in Tests/SensingTests)
+                double v = SEAerospace.Sensing.SensorModel.AgeStore((double)data.CurrentChargeValue, (double)flow, (double)data.MaxCapacity, surplus, out bool ranDry);
+                if (ranDry && owner.yours && dry == null) dry = owner.name;
+                data.CurrentChargeValue = (FixedPoint)v;
                 billed++;
             }
             catch (Exception ex) { FrameHost.Fault("WarpBill", ex); }

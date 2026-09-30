@@ -4,6 +4,7 @@ using Keen.VRage.Core;
 using SEAerospace;
 using SEAerospace.Orbital;
 using SEAerospace.Frames;
+using SEAerospace.Sensing;
 
 #pragma warning disable
 namespace OrbitalMod;
@@ -22,12 +23,8 @@ public static class Contacts
     public static bool Enabled = true;
     public static string Status = "";
     /// <summary>Your own eyes (and the cockpit's): everything within this, in line of sight (m).</summary>
-    public const double MinRange = 20000;
-    // Telescope, optical (reflected sunlight: range ~ r sqrt(albedo x phase)): a sunlit 1.5 km rock ~1500 km,
-    // a 150 m station ~275 km. Infrared (its own warmth, day or night: ~ r sqrt(emissivity) (T/300)^2).
-    // Radar (its own echo: ~ (power x cross-section pi r^2)^1/4): a station ~300 km, a rock ~950 km at full power.
-    public const double OpticalK = 2600, InfraredK = 700, Emissivity = 0.9, RadarK = 18400;
-    public const double SunExclusion = 15 * Math.PI / 180;
+    public const double MinRange = SensorModel.EyeRange;
+    // (the sensor physics: Core/Sensing/SensorModel, tested offline in Tests/SensingTests)
     const double GridSize = 150, GridAlbedo = 0.5, GridTempK = 290, RockAlbedo = 0.15, RockTempK = 250, TickSeconds = 0.5;
     public enum Sensor { Eyes, Telescope, Radar }
     /// <summary>A radar of yours is transmitting: it gives you away (to whoever listens: not modelled yet).</summary>
@@ -35,17 +32,6 @@ public static class Contacts
     /// <summary>Harness: a stand-in sensor at the camera (contacts sensor telescope|radar|off).</summary>
     public static Sensor? DevSensor;
 
-    /// <summary>Lit fraction seen from the observer (1: full, the sun behind you; near 0: the sun behind it).</summary>
-    static double Phase(Vector3D observer, Vector3D target, Vector3D sun)
-    {
-        double a = Angle(sun - target, observer - target);
-        return Math.Max(0.05, 0.5 * (1 + Math.Cos(a)));   // (a floor: a thin crescent still glints)
-    }
-    static double Angle(Vector3D a, Vector3D b)
-    {
-        double la = a.Length(), lb = b.Length();
-        return la > 0 && lb > 0 ? Math.Acos(Math.Clamp(Vector3D.Dot(a, b) / (la * lb), -1, 1)) : 0;
-    }
 
     static readonly HashSet<string> _rocks = new HashSet<string>();
     static readonly HashSet<long> _grids = new HashSet<long>();
@@ -95,32 +81,19 @@ public static class Contacts
         lock (ServerFrames.FramesLock) if (!FrameMarkers.ModelOf(camera.Position, t, out eye, out _, out _)) return;
 
         // What can stand in the way: every body (the star too); where the light comes from.
-        var block = new List<(Vector3D c, double r)>();
+        var bodies = new List<SensorModel.Body>();
         foreach (var b in reg.Bodies)
         {
             double r = b.IsRoot ? SystemHost.StarRadius : reg.FindDefinition(b.Name)?.RadiusMeters ?? 0;
-            if (r > 0) block.Add((b.OriginInRoot(t).Position, r));
+            if (r > 0) bodies.Add(new SensorModel.Body { Centre = b.OriginInRoot(t).Position, Radius = r, IsSun = b.IsRoot });
         }
         Vector3D sun = reg.Root?.OriginInRoot(t).Position ?? Vector3D.Zero;
-        bool Clear(Vector3D a, Vector3D bpt, bool skipSun = false)
-        {
-            Vector3D d = bpt - a; double dist2 = d.LengthSquared();
-            if (!(dist2 > 0)) return true;
-            foreach (var (c, r) in block)
-            {
-                if (skipSun && (c - sun).LengthSquared() < 1) continue;
-                double k = Math.Clamp(Vector3D.Dot(c - a, d) / dist2, 0, 1);
-                if ((a + d * k - c).Length() < r * 0.98) return false;   // (0.98: not blocked by the ground it sits on)
-            }
-            return true;
-        }
 
         // Who is looking: your eyes (where the camera is), and every working sensor on your grids.
         var yours = new Dictionary<Entity, bool>();
         foreach (var g in GridMembers.All()) if (g.IsServer && g.Entity != null) yours[g.Entity] = !IsContact(g);
-        var obs = new List<(Vector3D at, Sensor kind, double power)>();
-        obs.Add((eye, Sensor.Eyes, 0));
-        void AddSensor(Component c, Sensor kind, bool working, double power)
+        var obs = new List<SensorModel.Looker> { new SensorModel.Looker { At = eye, Kind = SensorModel.Kind.Eyes } };
+        void AddSensor(Component c, SensorModel.Kind kind, bool working, double power)
         {
             try
             {
@@ -128,38 +101,25 @@ public static class Contacts
                 if (top == null || !yours.TryGetValue(top, out bool mine) || !mine || !working) return;
                 Vector3D m; bool ok;
                 lock (ServerFrames.FramesLock) ok = FrameMarkers.ModelOf(c.Entity.Data.GetWorldTransform().Position, t, out m, out _, out _);
-                if (ok) obs.Add((m, kind, power));
+                if (ok) obs.Add(new SensorModel.Looker { At = m, Kind = kind, Power = power });
             }
             catch { }
         }
-        lock (SensorBlocks.Telescopes) foreach (var c in SensorBlocks.Telescopes) AddSensor(c, Sensor.Telescope, c.Working, 0);
-        lock (SensorBlocks.Radars) foreach (var c in SensorBlocks.Radars) AddSensor(c, Sensor.Radar, c.Working, c.Power);
+        lock (SensorBlocks.Telescopes) foreach (var c in SensorBlocks.Telescopes) AddSensor(c, SensorModel.Kind.Telescope, c.Working, 0);
+        lock (SensorBlocks.Radars) foreach (var c in SensorBlocks.Radars) AddSensor(c, SensorModel.Kind.Radar, c.Working, c.Power);
         // Harness: a stand-in sensor where you are (tests the physics without building the block).
-        if (DevSensor.HasValue) obs.Add((eye, DevSensor.Value, 1.0));
-        Loud = obs.Exists(o => o.kind == Sensor.Radar);
+        if (DevSensor.HasValue) obs.Add(new SensorModel.Looker { At = eye, Kind = DevSensor.Value == Sensor.Radar ? SensorModel.Kind.Radar : SensorModel.Kind.Telescope, Power = 1 });
+        Loud = obs.Exists(o => o.Kind == SensorModel.Kind.Radar);
 
         // Seen by whom (null: by none): r its radius (m), its albedo, its temperature (a powered hull, a rock).
         string Seen(Vector3D at, double r, double albedo, double tempK)
         {
-            bool lit = Clear(at, sun, skipSun: true);   // not in a planet's shadow
-            double ir = InfraredK * r * Math.Sqrt(Emissivity) * (tempK / 300.0) * (tempK / 300.0);
-            foreach (var (o, kind, power) in obs)
-            {
-                double d = (at - o).Length();
-                double reach;
-                if (kind == Sensor.Eyes) reach = MinRange;
-                else if (kind == Sensor.Radar) reach = RadarK * Math.Pow(power * Math.PI * r * r, 0.25);
-                else
-                {
-                    // optical: sunlight off it (none in shadow, none near the sun); infrared: its own warmth
-                    double optical = lit && Angle(at - o, sun - o) >= SunExclusion ? OpticalK * r * Math.Sqrt(albedo * Phase(o, at, sun)) : 0;
-                    reach = Math.Max(optical, ir);
-                }
-                if (!(d <= reach) || !Clear(o, at)) continue;
-                return kind == Sensor.Eyes ? "sight" : kind == Sensor.Radar ? "radar" : "telescope";
-            }
-            return null;
+            int i = SensorModel.SeenBy(obs, new SensorModel.Target { At = at, Radius = r, Albedo = albedo, TempK = tempK }, bodies, sun);
+            if (i < 0) return null;
+            var k = obs[i].Kind;
+            return k == SensorModel.Kind.Eyes ? "sight" : k == SensorModel.Kind.Radar ? "radar" : "telescope";
         }
+
 
         var newGrids = new List<(string name, double dist, string by)>();
         var newRocks = new Dictionary<string, int>();
@@ -210,7 +170,7 @@ public static class Contacts
         }
         int ng; lock (_grids) ng = _grids.Count;
         int nr; lock (_rocks) nr = _rocks.Count;
-        int nt = obs.FindAll(o => o.kind == Sensor.Telescope).Count, nrad = obs.FindAll(o => o.kind == Sensor.Radar).Count;
+        int nt = obs.FindAll(o => o.Kind == SensorModel.Kind.Telescope).Count, nrad = obs.FindAll(o => o.Kind == SensorModel.Kind.Radar).Count;
         Status = $"known: {ng} grid(s), {nr} rock(s); looking: eyes, {nt} telescope(s), {nrad} radar(s){(Loud ? " (loud)" : "")}";
     }
 

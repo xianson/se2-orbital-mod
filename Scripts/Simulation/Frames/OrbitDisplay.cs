@@ -186,6 +186,7 @@ public static class OrbitDisplay
             ApRel = el.IsElliptic ? chart.FromInertial(OrbitSampler.PositionAtTrueAnomaly(el, Math.PI)) : (Vector3D?)null,
         };
         PatchEvent(OrbitHud.Current, name, v => chart.FromInertial(v));
+        RendezvousView.HudRelative(SystemHost.Now, OrbitHud.Current);   // a target: your motion about it
         _builder.Commit();
         _drewLastFrame = true;
     }
@@ -304,6 +305,7 @@ public static class OrbitDisplay
             rd.ApRel = el.IsElliptic ? M(OrbitSampler.PositionAtTrueAnomaly(el, Math.PI)) : (Vector3D?)null;
             PatchEvent(rd, frame.ParentBodyName, M);
         }
+        RendezvousView.HudRelative(SystemHost.Now, OrbitHud.Current);   // a target you chose comes before the frame you ride
         _builder.Commit();
         _drewLastFrame = true;
     }

@@ -250,6 +250,66 @@ public static class RendezvousView
     /// </summary>
     static bool IsFinite(double x) => !double.IsNaN(x) && !double.IsInfinity(x);
 
+    private static double _hudAt = -1;
+    private static List<(double along, double radial)> _hudPath;
+    private static List<double> _hudCross;
+    private static (double along, double radial) _hudVel;
+    private static double _hudPeriod;
+    private static string _hudFor;
+
+    /// <summary>
+    /// In flight with a target (a site, a rock, a station round the same planet or moon as you): the HUD's
+    /// relative-motion plot about it, from your planned path over one of its revolutions (nodes included).
+    /// Refreshed a few times a second. False: no target, a planet or moon target (its porkchop is on the map),
+    /// or one only the star is common to.
+    /// </summary>
+    public static bool HudRelative(double t, OrbitHud.Readout r)
+    {
+        string target = Maneuvers.Target;
+        var reg = SystemHost.Registry;
+        if (r == null || target == null || reg == null) return false;
+        var tb = reg.Find(target);
+        if (tb != null) return false;
+        if (!Maneuvers.Trajectory(t, out var legs, out _) || legs.Count == 0 || !TargetAt(target, t, out var tp, out var trel)) return false;
+        var c = Common(legs[0].Body, tp);
+        if (c == null || c.IsRoot) return false;
+        double wall = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+        if (_hudFor != target || wall - _hudAt > 0.25 || _hudPath == null)
+        {
+            _hudFor = target; _hudAt = wall;
+            // one revolution of the target about the common body
+            var ts = TargetAt(target, t, out var p0, out var r0) ? p0.OriginInRoot(t).Position + r0.Position - c.OriginInRoot(t).Position : Vector3D.Zero;
+            double rr = ts.Length();
+            double period = rr > 0 ? 2 * Math.PI * Math.Sqrt(rr * rr * rr / c.Mu) : 3600;
+            const int n = 160;
+            var path = new List<(double, double)>(n + 1);
+            var cross = new List<double>(n + 1);
+            for (int i = 0; i <= n; i++)
+            {
+                double tk = t + period * i / n;
+                int li = legs.FindIndex(l => tk >= l.T0 - 1e-6 && tk <= l.T1 + 1e-6);
+                if (li < 0) break;
+                if (!Rel(target, c, Maneuvers.RootAt(legs[li], tk), tk, out var q)) break;
+                path.Add((q.X, q.Y)); cross.Add(q.Z);
+            }
+            if (path.Count < 2) return false;
+            (double, double) vel = (0, 0);
+            if (Rel(target, c, Maneuvers.RootAt(legs[0], t + 1), t + 1, out var q1)) vel = (q1.X - path[0].Item1, q1.Y - path[0].Item2);
+            _hudPath = path; _hudCross = cross; _hudVel = vel; _hudPeriod = period;
+        }
+        r.Relative = _hudPath;
+        r.RelNow = _hudPath[0];
+        r.RelCross = _hudCross;
+        r.RelNowCross = _hudCross[0];
+        r.RelVel = _hudVel;
+        r.RelPeriod = _hudPeriod;
+        r.RelSamples = 161;
+        r.AnchorName = target;
+        r.Holding = false;
+        r.RelLeaves = false;
+        return true;
+    }
+
     /// <summary>
     /// A planet or moon target: the porkchop about the body you both go round, and your plan on it (its first
     /// burn, its arrival at the target's space). Already round the target (or one of its moons): nothing to plan here.

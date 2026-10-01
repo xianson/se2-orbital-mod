@@ -122,8 +122,11 @@ namespace SEAerospace
         /// shell sits at RadiusMeters + this × AtmosphereHeightMeters, i.e. SLIGHTLY ABOVE the
         /// atmosphere — you fly toward the planet seeing its full-quality proxy almost all the
         /// way in, and the real voxel materializes only when you're about to enter the
-        /// atmosphere (in-game retune, 2026-06-11; the old shell was the whole planet envelope).</summary>
-        public const double ShellAtmosphereMult = 1.35;   // just above the air (atmosphere 15% of the radius: ~12 km at Verdure)
+        /// atmosphere (in-game retune, 2026-06-11; the old shell was the whole planet envelope).
+        /// 1.6 (2026-10-01): the planet frame's border at ~15 km at Verdure, inside the visible glow, where a
+        /// circular orbit is about the world's speed cap (1000 m/s): inside it everything is physical
+        /// flight, and every orbit is on rails. Reentry's braking band (Reentry) sits just above it.</summary>
+        public const double ShellAtmosphereMult = 1.6;   // the planet frame's border (atmosphere 15% of the radius: ~15 km up at Verdure)
 
         /// <summary>Airless-body shell clearance as a fraction of the radius — a STAND-IN for
         /// ~2× a typical voxel hill height. <see cref="BodyDefinition"/> carries no hill data

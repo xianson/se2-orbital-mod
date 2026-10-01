@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="$(Core)\Orbital\*.cs" />
+    <Compile Include="$(Core)\Entry\*.cs" />
+  </ItemGroup>
+</Project>

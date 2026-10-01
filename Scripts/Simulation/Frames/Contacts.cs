@@ -29,6 +29,21 @@ public static class Contacts
     public enum Sensor { Eyes, Telescope, Radar }
     /// <summary>A radar of yours is transmitting: it gives you away (to whoever listens: not modelled yet).</summary>
     public static bool Loud;
+    /// <summary>Your strongest radar's power now (0 when none transmits).</summary>
+    public static double RadarPowerNow;
+    /// <summary>For the orbit card: you are transmitting (radar or lidar), and roughly how far off you can be
+    /// seen (an echo-free listener hears you twice as far as your radar sees a ship), or null when silent.</summary>
+    public static string LoudLine()
+    {
+        if (!Enabled || !Loud) return null;
+        if (RadarPowerNow > 0)
+        {
+            double reveal = 2 * SensorModel.RadarReach(GridSize, RadarPowerNow);
+            return $"Radar transmitting  ·  seen ~{HudPanel.Km(SEAerospace.Sensing.Tracking.Rough(reveal))} away" + (Lidar ? "  ·  lidar on target" : "");
+        }
+        return Lidar ? "Lidar ranging your target  ·  it can see you" : null;
+    }
+
     /// <summary>Harness: a stand-in sensor at the camera (contacts sensor telescope|radar|off).</summary>
     public static Sensor? DevSensor;
 
@@ -110,6 +125,7 @@ public static class Contacts
         // Harness: a stand-in sensor where you are (tests the physics without building the block).
         if (DevSensor.HasValue) obs.Add(new SensorModel.Looker { At = eye, Kind = DevSensor.Value == Sensor.Radar ? SensorModel.Kind.Radar : SensorModel.Kind.Telescope, Power = 1 });
         Loud = obs.Exists(o => o.Kind == SensorModel.Kind.Radar);
+        RadarPowerNow = 0; foreach (var o in obs) if (o.Kind == SensorModel.Kind.Radar && o.Power > RadarPowerNow) RadarPowerNow = o.Power;
 
         // Seen by whom (null: by none): r its radius (m), its albedo, its temperature (a powered hull, a rock).
         string Seen(Vector3D at, double r, double albedo, double tempK) { var k = SeenKind(at, r, albedo, tempK); return k == null ? null : Name(k.Value); }

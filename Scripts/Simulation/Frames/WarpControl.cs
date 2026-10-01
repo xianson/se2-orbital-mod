@@ -13,8 +13,13 @@ public static class WarpControl
     public static readonly double[] Levels = { 1, 5, 10, 50, 100, 1000, 10000 };
     public static string Notice; private static double _noticeUntil;
 
+    /// <summary>A notice from the server thread (said on the next client tick).</summary>
+    public static volatile string PendingSay;
+
     public static void Tick()
     {
+        var pend = PendingSay;
+        if (pend != null) { PendingSay = null; Say(pend); }
         // Not while typing: the keys act in flight and on the map, never in a dialog, another terminal
         // tab or a menu (a '.' typed into a name changed the warp).
         string top = Session != null ? GameUi.TopScreenNeedingInput(Session) : null;

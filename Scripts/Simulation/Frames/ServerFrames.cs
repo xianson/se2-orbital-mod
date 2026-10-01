@@ -84,6 +84,22 @@ public static class ServerFrames
     public static readonly object FramesLock = new object();
 
     /// <summary>Frame id -> the frame's acceleration A (m/s²) from the last fold (published by the anchor owner).</summary>
+    // Members steered along their own orbits in warp: their true relative velocity, and ticks left after warp ends.
+    private static readonly Dictionary<long, Vector3D> _trueRel = new Dictionary<long, Vector3D>();
+    private static readonly Dictionary<long, int> _settle = new Dictionary<long, int>();
+    private const int SettleTicks = 30;
+    /// <summary>The most a member may be carried at in warp (m/s; the world's cap is 1000).</summary>
+    private const double WarpMemberSpeed = 800;
+
+    /// <summary>Warp down to the highest level that carries a member moving at trueSpeed relative to you.</summary>
+    private static void LimitWarp(double trueSpeed)
+    {
+        double was = SystemHost.Timescale, to = 1;
+        foreach (double l in WarpControl.Levels) if (l * trueSpeed <= WarpMemberSpeed * 0.75 && l < was) to = l;
+        SystemHost.Timescale = to;
+        Event($"warp x{was:F0} -> x{to:F0}: a member moves {trueSpeed:F2} m/s relative to its frame (x{was:F0} would need {was * trueSpeed:F0} m/s)");
+        WarpControl.PendingSay = $"Warp limited to ×{to:N0}: a ship moving nearby";
+    }
     public static readonly Dictionary<long, Vector3D> AnchorAccel = new Dictionary<long, Vector3D>();
 
     private static long _lastTickStamp;
@@ -625,28 +641,61 @@ public static class ServerFrames
         // A Lagrange site: its own simple dynamics (EncounterFrames.LagrangeDynamics).
         Func<Vector3D, Vector3D, Vector3D> lag = null;
         if (f.IsEncounter) EncounterFrames.LagrangeDynamics(f.Id, t, out lag);
-        // Warp N: forces x N^2 (relative motion N times faster, as the rails); velocities rescaled on a change.
+        // Warp N: relative motion N times faster, as the rails. In warp (and for a moment after) each member is
+        // steered along its own Kepler orbit (see below); at x1 the differential gravity is integrated as ever.
         double N = Math.Max(1.0, SystemHost.Timescale);
+        double fastest = 0;   // the largest physical speed a member needs this tick (N x its true relative speed)
         foreach (var g in grids)
         {
             if (g == anchor) continue;
             if (EncounterFrames.IsNpc(g) && !DevNpcRelative) continue;
             Vector3D rRel = GridMembers.Position(g) - anchorPos;
             if (_gridN.TryGetValue(g.Id, out double n0) && Math.Abs(n0 - N) > 1e-9)
+            {
                 GridMembers.SetVelocity(g, GridMembers.Velocity(g) * (N / n0));
+                if (N <= 1.0 && n0 > 1.0) _settle[g.Id] = SettleTicks;   // (warp over: steer a moment longer)
+            }
             _gridN[g.Id] = N;
             if (rRel.Length() > (isStatic ? CaptureRadius : SlotRadius))
             {
-                _gridN.Remove(g.Id);
+                _gridN.Remove(g.Id); _trueRel.Remove(g.Id); _settle.Remove(g.Id);
                 SplitGrid(f, g, cur, rRel, GridMembers.Velocity(g) / N, t);
                 continue;
             }
             Vector3D accel = lag != null ? lag(rRel, GridMembers.Velocity(g) / N) : (Grav(rA + rRel, mu) - gA) - A;
             // Station-keeping (dampeners on, and thrust on the side that cancels the pull): no relative force, as
             // SE1 and as a rider with dampeners on. Its dampeners only null its own motion: it holds exactly.
-            if (StationKeeping(g, accel * (N * N))) continue;
+            if (StationKeeping(g, accel * (N * N))) { _trueRel.Remove(g.Id); continue; }
+            // In warp: along its own orbit, exactly. Integrating the N^2 forces in N*dt steps blew up near a low
+            // periapsis (x1000: 16.7 s steps against ~30 s relative dynamics flung members at hundreds of m/s);
+            // instead its true state (the frame's + its offset) goes N*dt along its own Kepler orbit, and it gets
+            // the velocity that carries it there in this physics step. Its true relative velocity is kept here, not
+            // read back from the physics (a velocity set as warp changes did not always hold), and the steering
+            // goes on for SettleTicks after warp ends, so it leaves warp at its true speed.
+            _settle.TryGetValue(g.Id, out int settle);
+            if ((N > 1.0 || settle > 0) && lag == null && IsFinite(rRel))
+            {
+                Vector3D vRel = _trueRel.TryGetValue(g.Id, out var kept) ? kept : GridMembers.Velocity(g) / N;
+                var mine = CaptureMath.CaptureElements(new StateVector(rA + rRel, cur.Velocity + vRel), mu, t);
+                double tn = t + dt * N;
+                StateVector mineNext = OrbitPropagation.StateAt(mine, tn), frameNext = OrbitPropagation.StateAt(f.Elements, tn);
+                Vector3D relNext = mineNext.Position - frameNext.Position;
+                if (IsFinite(relNext))
+                {
+                    Vector3D vPhys = (relNext - rRel) / dt;
+                    GridMembers.SetVelocity(g, vPhys);
+                    _trueRel[g.Id] = mineNext.Velocity - frameNext.Velocity;
+                    fastest = Math.Max(fastest, vPhys.Length());
+                    if (settle > 0) { if (--settle == 0) { _settle.Remove(g.Id); _trueRel.Remove(g.Id); } else _settle[g.Id] = settle; }
+                    continue;
+                }
+            }
+            _trueRel.Remove(g.Id);
             if (IsFinite(accel)) GridMembers.AddVelocity(g, accel * (dt * N * N));
         }
+        // Warp is limited by what the physics can carry: a member moving relative to you needs N times its speed,
+        // and the world caps speed (as KSP limits warp by circumstance).
+        if (N > 1.0 && fastest > WarpMemberSpeed) LimitWarp(fastest / N);
 
         if (f.IsEncounter || (anchor == null && !isStatic)) return;   // encounter frames never arrive; a player-anchored frame arrives client-side
         FrameHost.TryReparent(f, t);

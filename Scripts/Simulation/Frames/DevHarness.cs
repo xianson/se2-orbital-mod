@@ -333,6 +333,12 @@ public static class DevHarness
             case "aero":   // aero on|off: the whole aero mod's simulation (A/B tests)
                 return PlanetRenderBridge.SetForeignFlag("AeroMod.AeroSwitch", "Enabled", On(a[1]));
 
+            case "gridspin":   // gridspin <id> <wx> <wy> <wz>: set a grid's angular velocity (rad/s, world)
+                return DevStress.Spin((long)D(a[1]), new Vector3((float)D(a[2]), (float)D(a[3]), (float)D(a[4])));
+
+            case "gridatt":   // gridatt <id>: a grid's orientation and spin
+                return DevStress.Attitude((long)D(a[1]));
+
             case "gridhold":   // gridhold <id> <m/s>: keep a grid moving forward at that speed (0 releases)
                 return DevStress.Hold((long)D(a[1]), D(a[2]));
 

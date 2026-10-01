@@ -24,6 +24,27 @@ public static class DevStress
         return speed <= 0 ? $"grid {id} released" : $"grid {id} held at {speed:F0} m/s forward";
     }
 
+    /// <summary>Set a grid's angular velocity (world, rad/s): a knock, to see it recover.</summary>
+    public static string Spin(long id, Vector3 w)
+    {
+        var g = GridMembers.Get(id);
+        if (g == null || !g.IsServer) return "no such grid";
+        ref var rb = ref g.Entity.Data.TryGetWritePtr<Keen.VRage.Physics.Data.RigidBodyData>();
+        if (System.Runtime.CompilerServices.Unsafe.IsNullRef(ref rb)) return "no rigid body";
+        rb.AngularVelocity = w;
+        return $"grid {id} spun to {w}";
+    }
+
+    /// <summary>A grid's orientation and spin, for the harness.</summary>
+    public static string Attitude(long id)
+    {
+        var g = GridMembers.Get(id);
+        if (g == null || !g.IsServer) return "no such grid";
+        var q = g.Entity.Data.GetWorldTransform().Orientation;
+        var w = g.Entity.Data.TryGet<Keen.VRage.Physics.Data.RigidBodyData>(out var rb) ? rb.AngularVelocity : Vector3.Zero;
+        return $"grid {id} q=({q.X:F4},{q.Y:F4},{q.Z:F4},{q.W:F4}) w=({w.X:F3},{w.Y:F3},{w.Z:F3}) |w|={w.Length():F4}";
+    }
+
     public static string Break(long id, int n, double every)
     {
         _break = (id, n, Math.Max(0.0, every), 0);

@@ -307,6 +307,19 @@ public static class EncounterFrames
         return f;
     }
 
+    /// <summary>
+    /// A site taken over by a frame already on its berth (one saved as a plain frame because you were in it: a
+    /// ring rock's site you loaded inside): that frame becomes the site's, members and all. Caller holds FramesLock.
+    /// </summary>
+    internal static ProximityFrame AdoptAsSite(Site site, ProximityFrame f)
+    {
+        if (site == null || f == null || _sites.ContainsKey(f.Id)) return null;
+        f.IsEncounter = true;
+        site.FrameId = f.Id;
+        _sites[f.Id] = site; SitesChanged();
+        return f;
+    }
+
     /// <summary>A site added with AddSite taken away again (its latent frame dissolved): false while anything is in
     /// it (an NPC ship too: dissolved under it, it would sit frameless where the rock was, for good). Caller holds FramesLock.</summary>
     internal static bool RemoveSite(long frameId)

@@ -49,6 +49,14 @@ public static class AsteroidFrames
     public const double ClusterShare = 0.35;
     /// <summary>First lattice slot id tried for an asteroid's berth (frames take the lowest free ones).</summary>
     public const int SlotBase = 150;
+    /// <summary>Ring rocks' own slots: from here, ring by ring (RingRocks.Belts order), one per seeded rock.</summary>
+    public const int RingSlotBase = 1000;
+    static int RingSlot(RingRocks.Belt b, int i)
+    {
+        var belts = RingRocks.Belts();
+        int k = belts.FindIndex(x => x.Host == b.Host);   // (by its planet: the list is rebuilt when a ring is renamed)
+        return RingSlotBase + System.Math.Max(0, k) * 1000 + (b.Number[i] - 1);   // (by its number: stable when a ring's count changes)
+    }
     /// <summary>Rocks are put out when your frame is this close to the asteroid's orbit position (m), or merged with it.</summary>
     public const double MaterializeRange = 50000.0;
     /// <summary>...and taken away this long after neither holds (s).</summary>
@@ -216,11 +224,32 @@ public static class AsteroidFrames
         var reg = SystemHost.Registry;
         var alloc = SystemHost.Frames?.Allocator;
         if (reg == null || alloc == null) return;
-        int slot = SlotBase;
-        if (!ReserveBerth(alloc, reg, ref slot, out int sid, out Vector3D berth)) { Warn("ringslot", "no free lattice slot for a ring rock"); return; }
+        // Each ring rock's OWN slot, always the same (its ring and seeded number), so it comes back to the same
+        // berth: a rock you mined (the generator keeps what you edited) is there again when you return, and
+        // the game's save keeps it there.
+        int slot = RingSlot(b, i);
         var home = RingRocks.Home(b, i);
-        var site = new EncounterFrames.Site { Sector = label, Host = b.Host, Home = home, World = berth, Label = label, Anchor = true };
-        var f = EncounterFrames.AddSite(site, t);
+        // A frame already on its berth (saved as a plain frame because you were in the site): its site again.
+        Vector3D own = alloc.SlotCenter(slot);
+        ProximityFrame there = null;
+        foreach (var fr in SystemHost.Frames.Frames)
+            if ((fr.BerthCenter - own).Length() < 1.0 && !EncounterFrames.IsSite(fr)) { there = fr; break; }
+        int sid; Vector3D berth; ProximityFrame f;
+        EncounterFrames.Site site;
+        if (there != null)
+        {
+            sid = slot; berth = own;
+            if (!alloc.IsOccupied(slot)) alloc.Reserve(slot);
+            site = new EncounterFrames.Site { Sector = label, Host = b.Host, Home = home, World = berth, Label = label, Anchor = true };
+            f = EncounterFrames.AdoptAsSite(site, there);
+            Event($"ring rock {label}: frame #{there.Id} is on its berth (you loaded there): it is the rock's site again");
+        }
+        else
+        {
+            if (!ReserveBerth(alloc, reg, ref slot, out sid, out berth)) { Warn("ringslot", "no free lattice slot for a ring rock"); return; }
+            site = new EncounterFrames.Site { Sector = label, Host = b.Host, Home = home, World = berth, Label = label, Anchor = true };
+            f = EncounterFrames.AddSite(site, t);
+        }
         if (f == null) { alloc.Free(sid); Warn("ring " + label, $"{label}: no orbit"); return; }
         var r = new Roid
         {

@@ -70,7 +70,7 @@ MARK=0; hold 20
 check "site load: your frame restored" "RESTORE from save: [1-9][0-9]* frame" 30 5
 expect "site load: you are on an orbit (not stranded)" "no orbit line: $(stat '^orbit' | cut -c1-100)" grep -aq "^orbit frame #" "$ST"
 check "site load: the rock's rocks come back" "ROCKS out: Oblivara #" 90 10
-check "site load: the rock's site joins your frame" "MERGE frame #[0-9]* -> #[0-9]*\|player joins site" 60 5
+check "site load: your frame is the rock's site again (on its own berth)" "rock's site again\|MERGE frame #[0-9]* -> #[0-9]*\|player joins site" 60 5
 hold 20
 never "site load: rocks stay out (no out / in loop)" "ROCKS away: .*composition is the game's again"
 never "site load: no mod fault" "\[ORBIT-FAULT\]"

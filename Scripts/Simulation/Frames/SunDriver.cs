@@ -19,7 +19,8 @@ namespace OrbitalMod;
 /// </summary>
 public static class SunDriver
 {
-    public static bool Enabled = true;
+    /// <summary>Off by default: the game's sun is its own (vanilla), not Delfos (StarProxy draws Delfos).</summary>
+    public static bool Enabled = false;
     public static Vector3D DirectionToSun { get; private set; }
     public static string Status = "-";
     private static bool _overriding;

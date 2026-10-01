@@ -74,7 +74,7 @@ public static class SpecCam
                 break;
             case Target.Sun:
             {
-                Vector3D sd = SunDriver.DirectionToSun;
+                Vector3D sd = SunDriver.Enabled ? SunDriver.DirectionToSun : StarProxy.Direction(new WorldTransform(playerPos), SystemHost.Now) ?? Vector3D.Zero;
                 if (sd.LengthSquared() < 0.5) { Status = "no sun direction"; return; }
                 var w0 = new WorldTransform(playerPos + sd * 3000, Quaternion.CreateFromForwardUp((Vector3)sd, Math.Abs(sd.Y) > 0.98 ? Vector3.UnitZ : Vector3.UnitY));
                 Current = w0; cam.SetTransformOverride(w0); Status = "Sun"; return;

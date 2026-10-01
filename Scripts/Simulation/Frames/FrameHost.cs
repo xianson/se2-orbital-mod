@@ -197,6 +197,7 @@ public static class FrameHost
         // On rails the game's SPD (your velocity in the frame) is 0: show your speed about the body.
         Guard("HudSpeed", () => { if (PlayerFrame != null && OrbitHud.Current != null) GameUi.SetHudSpeed(session, (float)OrbitHud.Current.Speed); });
         Guard("SunDriver.Tick", () => SunDriver.Tick(session, camera.Position, t));
+        Guard("StarProxy.Tick", () => StarProxy.Tick(session, camera, t));
     }
 
     // ───────────────────────────── stow (planet cell -> conjunction) ─────────────────────────────

@@ -302,6 +302,10 @@ public static class DevHarness
                 OrbitalConfig.CaptureLegacySpace = On(a[1]);
                 return $"captureLegacySpace={OrbitalConfig.CaptureLegacySpace}";
 
+            case "starproxy":   // starproxy on|off: Delfos drawn in the sky in flight
+                StarProxy.Enabled = On(a[1]);
+                return "star proxy " + StarProxy.Enabled;
+
             case "sun":
                 SunDriver.Enabled = On(a[1]);
                 return $"sun driver={SunDriver.Enabled}";
@@ -1018,6 +1022,7 @@ public static class DevHarness
         sb.AppendLine(SpawnGuard.Status);
         lock (AsteroidBridge.RingInfo) foreach (var ri in AsteroidBridge.RingInfo) sb.AppendLine("  ring " + ri);
         sb.AppendLine($"sun {SunDriver.Status}");
+        sb.AppendLine($"star {StarProxy.Status}");
         try
         {
             var session = _statusSession; var sec = session?.SessionComponents.TryGet<Keen.Game2.Simulation.GameSystems.Colonization.SectorsSessionComponent>();

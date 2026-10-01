@@ -36,6 +36,7 @@ public static class FrameMarkers
     public static void Tick(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera, double t)
     {
         _proxies.Clear();
+        Prewarm.Tick();
         try { Contacts.Tick(session, camera, t); } catch (Exception ex) { FrameHost.Fault("Contacts", ex); }
         var markers = LocalMarkers(session);
         if (markers == null) return;

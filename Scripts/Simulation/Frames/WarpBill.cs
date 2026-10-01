@@ -91,7 +91,7 @@ public static class WarpBill
         {
             SystemHost.Timescale = 1.0;
             SystemHost.WarpStopAt = double.NaN;
-            WarpControl.Say($"Warp stopped: '{dry}' ran out of power or fuel");
+            WarpControl.PendingSay = $"Warp stopped: '{dry}' ran out of power or fuel";   // (said by the client: this is the server thread)
             Log.Default?.Info($"[ORBIT-FRAME] warp -> x1: a store on '{dry}' ran dry");
         }
     }

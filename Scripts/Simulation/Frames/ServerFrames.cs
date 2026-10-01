@@ -673,6 +673,8 @@ public static class ServerFrames
             // read back from the physics (a velocity set as warp changes did not always hold), and the steering
             // goes on for SettleTicks after warp ends, so it leaves warp at its true speed.
             _settle.TryGetValue(g.Id, out int settle);
+            // (a grid held by joints, to the anchor or to anything, cannot be steered: it holds with them)
+            if ((N > 1.0 || settle > 0) && GridMembers.IsConstrained(g)) { _trueRel.Remove(g.Id); _settle.Remove(g.Id); continue; }
             if ((N > 1.0 || settle > 0) && lag == null && IsFinite(rRel))
             {
                 Vector3D vRel = _trueRel.TryGetValue(g.Id, out var kept) ? kept : GridMembers.Velocity(g) / N;
@@ -685,7 +687,7 @@ public static class ServerFrames
                     Vector3D vPhys = (relNext - rRel) / dt;
                     GridMembers.SetVelocity(g, vPhys);
                     _trueRel[g.Id] = mineNext.Velocity - frameNext.Velocity;
-                    fastest = Math.Max(fastest, vPhys.Length());
+                    fastest = Math.Max(fastest, N * _trueRel[g.Id].Length());   // (its own orbit's speed, not a catch-up)
                     if (settle > 0) { if (--settle == 0) { _settle.Remove(g.Id); _trueRel.Remove(g.Id); } else _settle[g.Id] = settle; }
                     continue;
                 }

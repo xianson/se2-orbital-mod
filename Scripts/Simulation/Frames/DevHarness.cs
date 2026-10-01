@@ -323,6 +323,50 @@ public static class DevHarness
                 return sb2.Length > 0 ? sb2.ToString() : "every grid at full health";
             }
 
+            case "joins":   // joins <gridId>: what a grid is joined to (its connected group; static ones marked)
+            {
+                var g = GridMembers.Get((long)D(a[1]));
+                if (g == null) return "no such grid";
+                var svc = g.Session?.Get<Keen.Game2.Simulation.GameSystems.Physicss.IFindConnectedEntities>();
+                if (svc == null) return "no connection search";
+                var sb2 = new System.Text.StringBuilder($"'{g.DisplayName}' static-joined={svc.IsConnectedToStaticEntity(g.Entity)}: ");
+                using (var buf = new Keen.VRage.Library.Memory.Buffer<Entity>(Keen.VRage.Library.Memory.Allocator.Pool, "OrbitalJoins"))
+                {
+                    var args = new Keen.Game2.Simulation.GameSystems.Physicss.IFindConnectedEntities.SearchArguments { IncludeRoot = false, IncludeConstrained = true };
+                    svc.FindConnectedEntities(g.Entity, (Keen.VRage.Library.Memory.BufferReference<Entity>)buf, args);
+                    var en = ((Keen.VRage.Library.Memory.BufferReference<Entity>)buf).GetEnumerator();
+                    while (en.MoveNext())
+                        if (en.Current != null)
+                        {
+                            Entity cur = en.Current;
+                            OrbitalGridComponent og = null;
+                            foreach (var x in GridMembers.All()) if (x.IsServer && ReferenceEquals(x.Entity, cur)) og = x;
+                            sb2.Append($"[{cur.DebugName}{(og != null ? $" grid {og.Id} dyn={GridMembers.IsDynamic(og)}" : "")}] ");
+                        }
+                    en.Dispose();
+                }
+                return sb2.ToString();
+            }
+
+            case "adopt":   // adopt <grid name>: every server grid of that name (and its blocks) becomes yours (tests on the world's ships)
+            {
+                string want = string.Join(" ", a, 1, a.Length - 1);
+                var server = ServerPlanetBeacon.ServerSession;
+                var own = server?.SessionComponents.TryGet<Keen.Game2.Simulation.GameSystems.Ownership.OwnershipSessionComponent>();
+                var me = session.Get<Keen.Game2.Client.GameSystems.PlayerControl.ClientPlayersSessionComponent>().LocalPlayerIdentity;
+                if (own == null) return "no ownership component";
+                int grids = 0, parts = 0;
+                foreach (var g in GridMembers.All())
+                {
+                    if (!g.IsServer || !g.DisplayName.Equals(want, StringComparison.OrdinalIgnoreCase)) continue;
+                    grids++;
+                    if (own.TryTransferOwnership(g.Entity, me)) parts++;
+                    var hc = g.Entity.TryGet<Keen.VRage.Core.Game.Components.HierarchyComponent>();
+                    if (hc != null) foreach (var c in hc.Children) if (own.TryTransferOwnership(c, me)) parts++;
+                }
+                return $"adopted {grids} grid(s) named '{want}' ({parts} ownership transfer(s))";
+            }
+
             case "entrycap":   // entrycap <m/s>|off: reentry's cap for a test (the world's own cap stays)
                 EntryHost.TestCap = a[1].Equals("off", StringComparison.OrdinalIgnoreCase) ? double.NaN : D(a[1]);
                 return "entry cap " + EntryHost.Cap;

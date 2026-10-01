@@ -198,6 +198,7 @@ public static class FrameHost
         Guard("HudSpeed", () => { if (PlayerFrame != null && OrbitHud.Current != null) GameUi.SetHudSpeed(session, (float)OrbitHud.Current.Speed); });
         Guard("SunDriver.Tick", () => SunDriver.Tick(session, camera.Position, t));
         Guard("StarProxy.Tick", () => StarProxy.Tick(session, camera, t));
+        Guard("EntryHost.ClientTick", () => EntryHost.ClientTick(t));
     }
 
     // ───────────────────────────── stow (planet cell -> conjunction) ─────────────────────────────
@@ -483,11 +484,13 @@ public static class FrameHost
         Vector3D worldPos = cellCenter + chart.FromInertial(cel.Position);   // the cell is the planet's rotating chart
         Vector3D worldVel = chart.VelFromInertial(cel.Position, cel.Velocity);
         double speed = worldVel.Length();
-        // Faster than the world allows: stay on rails (no HighSpeed; the rails carry any speed). The
-        // world takes over once slower, or down at the surface guard, where the speed is capped.
+        // Inside the planet's frame the world's cap applies: reentry (EntryHost, server) brings you to it, through
+        // the braking band or with an airless border's clamp. Over it here, wait a few ticks for that clamp (its
+        // jolt counts); then arrive capped regardless: no rails inside the planet's frame.
         double alt = cel.Position.Length() - def.RadiusMeters;
-        if (speed > SpeedCap && alt > SurfaceGuard) return;
-        bool capped = speed > SpeedCap;
+        if (speed > SpeedCap * 1.001 && EntryHost.Enabled && ++_overCapWait <= 10) return;
+        _overCapWait = 0;
+        bool capped = speed > SpeedCap * 1.001;
         Vector3D applied = capped ? worldVel * (SpeedCap / speed) : worldVel;
         bool hs = false;
         _hsActive = false;
@@ -498,12 +501,13 @@ public static class FrameHost
         _wasInKeep = true;
         StartTeleport(session, worldPos, applied, t);
         Event($"ARRIVE frame #{fid} -> {node.Name} cell: r={cel.Position.Length() / 1000:F1} km (shell {shell / 1000:F1}) " +
-              $"|v|={speed:F0} m/s{(capped ? $" -> capped to {SpeedCap:F0} at the surface guard ({alt / 1000:F1} km)" : "")}");
+              $"|v|={speed:F0} m/s{(capped ? $" -> capped to {SpeedCap:F0} ({alt / 1000:F1} km up)" : "")}");
     }
 
     // ───────────────────────────── HighSpeed (planet cell, above the cap) ─────────────────────────────
 
     public const double HighSpeedExitFraction = 0.9;  // drop back to physics below cap × this
+    private static int _overCapWait;
     public const double SurfaceGuard = 2000.0;        // m above the body radius: never step closer
 
     private static bool _hsActive;
@@ -703,6 +707,12 @@ public static class FrameHost
     public static string SetOrbit(string body, double apoAltKm, double periAltKm, double incDeg, double phaseDeg = 0)
     {
         if (!OrbitElements(body, apoAltKm, periAltKm, incDeg, phaseDeg, out var el)) return "no such body / degenerate orbit";
+        return SetOrbitTo(body, el, $"Ap {apoAltKm} km Pe {periAltKm} km i {incDeg}°");
+    }
+
+    /// <summary>Harness: your frame onto exactly these elements (a shared frame or a site is left first).</summary>
+    public static string SetOrbitTo(string body, KeplerianElements el, string what)
+    {
         // In a site (its orbit is its ephemeris) or a frame shared with others (a station, a ship, a rock you
         // rendezvoused with): you leave it and stow onto the orbit alone; setting its elements moved them all.
         var shared = PlayerFrame;
@@ -719,7 +729,7 @@ public static class FrameHost
             PlayerFrame.ParentBodyName = body;
             PlayerFrame.Elements = el;
             PlayerFrame.PendingDrainDv = Vector3D.Zero;
-            Event($"ORBIT set on frame #{PlayerFrame.Id}: {body} Ap {apoAltKm} km Pe {periAltKm} km i {incDeg}°");
+            Event($"ORBIT set on frame #{PlayerFrame.Id}: {body} {what}");
             return "orbit set";
         }
         _pendingOrbit = (body, el);
@@ -1011,7 +1021,7 @@ public static class FrameHost
         if (n <= 3 || n % 1000 == 0) Log.Default?.Error($"[ORBIT-FAULT] {name} (x{n}): {ex}");
     }
 
-    private static void Event(string s)
+    internal static void Event(string s)
     {
         LastEvent = $"{DateTime.Now:HH:mm:ss} {s}";
         Log.Default?.Info("[ORBIT-FRAME] " + s);

@@ -20,6 +20,9 @@ public sealed class PlanetBeacon
     /// <summary>The planet's law as loaded, for restoring.</summary>
     public GravityLaw OriginalGravity;
     public string Name;
+    /// <summary>The game gives it an atmosphere (an atmosphere generator; null: not known).</summary>
+    public bool? HasAtmosphere;
+    public double AtmosphereReach, AtmosphereDensity;
 
     /// <summary>A gravity change requested from any thread; applied on the server thread by the beacon job.</summary>
     public volatile GravityRequest PendingGravity;
@@ -115,13 +118,23 @@ public partial class ServerPlanetBeacon : Component, IInSceneListener
             GravityReach = _gravity.AffectDistance,
             Name = Entity?.DebugName ?? "planet",
         };
+        try
+        {
+            var air = Entity.TryGet<Keen.Game2.Simulation.GameSystems.RangedAffectGenerators.Atmosphere.AtmosphereGeneratorComponent>();
+            _beacon.AtmosphereReach = air != null ? air.AffectDistance : 0;
+            // (every body has a generator; an airless one's density is nil)
+            object dens = air != null ? PlanetRenderBridge.GetMember(PlanetRenderBridge.GetMember(air, "_definition"), "Density") : null;
+            _beacon.AtmosphereDensity = dens != null ? System.Convert.ToDouble(dens) : double.NaN;
+            _beacon.HasAtmosphere = air == null ? false : double.IsNaN(_beacon.AtmosphereDensity) ? (bool?)null : _beacon.AtmosphereDensity > 0.05;
+        }
+        catch { _beacon.HasAtmosphere = null; }
         PlanetRenderBridge.TryGetGravityLaw(_gravity, out double g0, out double r0, out double falloff);
         _beacon.Gravity = new GravityLaw { G0 = g0, R0 = r0, Falloff = falloff, Reach = _gravity.AffectDistance };
         _beacon.OriginalGravity = _beacon.Gravity;
         PlanetBeacons.Add(_beacon);
         Log.Default?.Info($"[ORBIT] beacon {_beacon.Name}: center={Fmt(_beacon.Center)} " +
                           $"gravity g0={g0:F2} m/s² r0={r0 / 1000:F1} km falloff={falloff:F2} reach={_beacon.GravityReach / 1000:F1} km " +
-                          $"mapVisual={_beacon.MapVisual?.DebugName ?? "none"}");
+                          $"mapVisual={_beacon.MapVisual?.DebugName ?? "none"} atmosphere={(_beacon.HasAtmosphere?.ToString() ?? "unknown")} reach={_beacon.AtmosphereReach / 1000:F1} km (r0 {r0 / 1000:F1} km) density={_beacon.AtmosphereDensity:F2}");
     }
 
     void IInSceneListener.OnBeforeRemovedFromScene()

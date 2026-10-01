@@ -185,6 +185,7 @@ public static class ServerFrames
                 DevFlight.ServerTick();
                 DevFlight.ServerCommandTick();
                 var frames = new List<ProximityFrame>(SystemHost.Frames.Frames);
+                EntryHost.ServerTick(frames, SystemHost.Now);   // reentry (the braking band, an airless border's clamp): before arrivals
                 foreach (var f in frames) UpdateGridFrame(f, dt);
                 StepGridHighSpeed();
                 if (_tick % 10 == 0) StowLoneGrids();
@@ -871,7 +872,9 @@ public static class ServerFrames
         Chart chart = Chart.Of(node.Name, t);
         Vector3D target = cell + chart.FromInertial(cel.Position);
         double speed = chart.VelFromInertial(cel.Position, cel.Velocity).Length();
-        bool hs = speed > FrameHost.SpeedCap;
+        // At or under the cap (reentry's band or an airless border's clamp makes sure); if not, capped here.
+        bool capped = speed > FrameHost.SpeedCap;
+        double k = capped ? FrameHost.SpeedCap / speed : 1.0;
         foreach (var g in grids)
         {
             Vector3D off = GridMembers.Position(g) - anchorPos;
@@ -886,20 +889,14 @@ public static class ServerFrames
                 if (IsFinite(sel.SemiMajorAxis)) _gridHighSpeed[g.Id] = (node.Name, sel);
                 continue;
             }
-            if (hs)
-            {
-                MoveGrid(g, dest, Vector3D.Zero);
-                var el = CaptureMath.CaptureElements(new StateVector(cel.Position + off, cel.Velocity + vRel), node.Mu, epoch);
-                if (IsFinite(el.SemiMajorAxis)) _gridHighSpeed[g.Id] = (node.Name, el);
-            }
-            else MoveGrid(g, dest, chart.VelFromInertial(cel.Position + off, cel.Velocity + vRel));
+            MoveGrid(g, dest, chart.VelFromInertial(cel.Position + off, cel.Velocity + vRel) * k);
         }
         // The player, if a member, arrives with the same offset from the anchor.
         long fid = f.Id;
         FrameHost.RequestArrival(fid, node.Name, target, anchorPos, cel.Position, cel.Velocity, epoch);
         SystemHost.Frames.Dissolve(fid);
         AnchorAccel.Remove(fid);
-        Event($"ARRIVE grid frame #{fid} -> {node.Name}: {grids.Count} grid(s), r={cel.Position.Length() / 1000:F1} km |v|={speed:F0} m/s{(hs ? " -> HighSpeed" : "")}");
+        Event($"ARRIVE grid frame #{fid} -> {node.Name}: {grids.Count} grid(s), r={cel.Position.Length() / 1000:F1} km |v|={speed:F0} m/s{(capped ? $" -> capped to {FrameHost.SpeedCap:F0}" : "")}");
     }
 
     /// <summary>Save: the grid HighSpeed conics. Caller holds FramesLock.</summary>

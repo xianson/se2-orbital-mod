@@ -255,6 +255,8 @@ public static class OrbitHud
             if (tgt != null) sb.Append((sb.Length > 0 ? "\n" : "") + tgt);
             string ring = Maneuvers.RingLine(SystemHost.Now);
             if (ring != null) sb.Append((sb.Length > 0 ? "\n" : "") + ring);
+            string entry = EntryHost.CardLine(SystemHost.Now);   // (reentry: the next pass, or the braking now)
+            if (entry != null) sb.Append((sb.Length > 0 ? "\n" : "") + entry);
             string loud = Contacts.LoudLine();   // (transmitting gives you away: say so, and how far)
             if (loud != null) sb.Append((sb.Length > 0 ? "\n" : "") + loud);
             string content = sb.ToString().TrimEnd('\n').Replace("\n\n", "\n");   // no blank lines

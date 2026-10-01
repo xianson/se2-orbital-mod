@@ -302,6 +302,35 @@ public static class DevHarness
                 OrbitalConfig.CaptureLegacySpace = On(a[1]);
                 return $"captureLegacySpace={OrbitalConfig.CaptureLegacySpace}";
 
+            case "approach":   // approach <body> <altKm> <speed m/s> <gammaDeg below the horizon>: your frame on that state
+            {
+                var op = FindPlanet(a[1]);
+                string ob = op != null ? SystemHost.BodyNameOf(op) : null;
+                var node = ob != null ? SystemHost.Registry?.Find(ob) : null;
+                var def = ob != null ? SystemHost.Registry?.FindDefinition(ob) : null;
+                if (node == null || def == null) return "no such planet";
+                double r = def.RadiusMeters + D(a[2]) * 1000, v = D(a[3]), g = D(a[4]) * Math.PI / 180, tt = SystemHost.Now;
+                var st = new SEAerospace.Orbital.StateVector(new Vector3D(r, 0, 0), new Vector3D(-v * Math.Sin(g), 0, v * Math.Cos(g)));
+                var el = CaptureMath.CaptureElements(st, node.Mu, tt);
+                return FrameHost.SetOrbitTo(ob, el, $"approach at {D(a[2])} km, {v} m/s, {D(a[4])} deg down (Pe {(el.PeriapsisRadius - def.RadiusMeters) / 1000:F1} km)");
+            }
+
+            case "blockhealth":   // blockhealth: every server grid with a block under full health
+            {
+                var sb2 = new System.Text.StringBuilder();
+                foreach (var g in GridMembers.All())
+                    if (g.IsServer && EntryDamage.Damaged(g)) sb2.Append($"{g.Id} '{g.DisplayName}': {EntryDamage.Health(g)}; ");
+                return sb2.Length > 0 ? sb2.ToString() : "every grid at full health";
+            }
+
+            case "entrycap":   // entrycap <m/s>|off: reentry's cap for a test (the world's own cap stays)
+                EntryHost.TestCap = a[1].Equals("off", StringComparison.OrdinalIgnoreCase) ? double.NaN : D(a[1]);
+                return "entry cap " + EntryHost.Cap;
+
+            case "entry":   // entry on|off: reentry's braking band
+                EntryHost.Enabled = On(a[1]);
+                return "entry " + EntryHost.Enabled;
+
             case "starproxy":   // starproxy on|off: Delfos drawn in the sky in flight
                 StarProxy.Enabled = On(a[1]);
                 return "star proxy " + StarProxy.Enabled;
@@ -1023,6 +1052,7 @@ public static class DevHarness
         lock (AsteroidBridge.RingInfo) foreach (var ri in AsteroidBridge.RingInfo) sb.AppendLine("  ring " + ri);
         sb.AppendLine($"sun {SunDriver.Status}");
         sb.AppendLine($"star {StarProxy.Status}");
+        sb.AppendLine($"entry {EntryHost.Status} | {EntryHost.CardLine(SystemHost.Now) ?? "no pass ahead"}");
         try
         {
             var session = _statusSession; var sec = session?.SessionComponents.TryGet<Keen.Game2.Simulation.GameSystems.Colonization.SectorsSessionComponent>();

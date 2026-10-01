@@ -56,6 +56,15 @@ send "rvtab off" "map off" "target Oblivara"
 poll "hud: the relative plot about a target" 10 st "^relnow"
 send "target off"
 
+# Reentry: a fast steep approach is predicted, braked through the band, and handed to physics at the border
+# at or under the cap (no clamp there: the band did it).
+mark; send "approach Verdure 37 1550 50"
+poll "entry: the pass on the card (predicted, then braking)" 5 st "^entry .*Entry"
+poll "entry: braked in the band" 30 logs "ENTRY frame #[0-9]* into Verdure's braking band"
+poll "entry: arrives at the border" 40 logs "ARRIVE frame #[0-9]* -> Verdure cell"
+uncapped() { ! since | grep -aq "ARRIVE frame.*capped"; }
+expect "entry: at or under the cap there (no clamp)" "$(since | grep -a 'ARRIVE frame' | tail -1 | cut -c60-220)" uncapped
+
 # The whole run: no fault, no Havok assertion, still running.
 MARK=0
 never "whole run: no mod fault" "\[ORBIT-FAULT\]"

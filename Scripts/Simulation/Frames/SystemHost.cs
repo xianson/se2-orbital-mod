@@ -191,6 +191,18 @@ public static class SystemHost
                 Timescale = 1.0;
             }
         }
+        // And ahead of a reentry (the braking band): seen, not skipped.
+        if (Timescale > 1.0)
+        {
+            double te = EntryHost.NextWarpStop(Now);
+            if (!double.IsNaN(te) && te <= next)
+            {
+                next = Math.Max(Now, te);
+                Log.Default?.Info($"[ORBIT-FRAME] warp x{Timescale} -> x1 ahead of the entry interface (t={te:F1})");
+                Timescale = 1.0;
+                WarpControl.Say("Warp stopped: entry ahead");
+            }
+        }
         // And at a time asked for ('Warp here' on the map).
         if (Timescale > 1.0 && !double.IsNaN(WarpStopAt) && WarpStopAt <= next)
         {
@@ -291,7 +303,7 @@ public static class SystemHost
                     Name = name, Parent = nameOf[host], HasOrbit = true,
                     SemiMajorAxisMeters = MoonOrbit(name, (b.Center - host.Center).Length()), Eccentricity = MoonEccentricity(name), MeanAnomalyAtEpochDeg = 90,
                     SurfaceGravityMps2 = law.G0 * mult, RadiusMeters = law.R0,
-                    HasAtmosphere = true, AtmosphereHeightMeters = law.R0 * AtmosphereFraction,
+                    HasAtmosphere = b.HasAtmosphere ?? true, AtmosphereHeightMeters = (b.HasAtmosphere ?? true) ? law.R0 * AtmosphereFraction : 0,   // (the game's: Palatine has none)
                     RotationPeriodSeconds = PlanetDay(),
                     Albedo = MoonAlbedo,
                     ParkSubtype = "SE2:" + name,
@@ -305,7 +317,7 @@ public static class SystemHost
                 MeanAnomalyAtEpochDeg = ChartOrbits.TryGetValue(name, out var cb) ? cb.bearingDeg : anomaly,
                 // Match the engine's physics after the inverse-square patch.
                 SurfaceGravityMps2 = law.G0 * mult, RadiusMeters = law.R0,
-                HasAtmosphere = true, AtmosphereHeightMeters = law.R0 * AtmosphereFraction,
+                HasAtmosphere = b.HasAtmosphere ?? true, AtmosphereHeightMeters = (b.HasAtmosphere ?? true) ? law.R0 * AtmosphereFraction : 0,   // (the game's: Palatine has none)
                 RotationPeriodSeconds = PlanetDay(), // the cell is the rotating chart (see Chart)
                 Albedo = PlanetAlbedo,
                 ParkSubtype = "SE2:" + name,

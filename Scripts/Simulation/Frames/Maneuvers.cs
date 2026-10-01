@@ -525,6 +525,37 @@ public static class Maneuvers
             break;
         }
 
+        // Reentry: where the braking band starts (the entry interface) and max-q, on the leg about that body;
+        // an airless body you would reach over the cap: its border, flagged.
+        {
+            var ep = EntryHost.Prediction; var air = EntryHost.Airless;
+            Vector2? first = null;
+            foreach (var l in legs)
+            {
+                void Mark(double tm, string what, bool strong)
+                {
+                    if (double.IsNaN(tm) || tm < l.T0 || tm > l.T1 || !Live(l.Body) || !MapPipeline.ToScreen(W(LegLoc(l, tm)), out var es) || !InMapArea(es)) return;
+                    if (first.HasValue && (es - first.Value).Length() < 60f * u) return;   // (too close to the entry's: it says enough)
+                    first ??= es;
+                    MapPipeline.ScreenCircle(es, (strong ? 5f : 3.5f) * u, EntryColor, 2f * u);
+                    if (strong) MapPipeline.ScreenCircle(es, 1.5f * u, EntryColor, 2.5f * u);
+                    HudPanel.TagAt(es + new Vector2(10f * u, 0), what, EntryColor, u, diamond: false);
+                }
+                if (ep != null && l.Body.Name == EntryHost.PredictedBody)
+                {
+                    double share = SEAerospace.Entry.Reentry.Share(ep.PeakHeat, false);
+                    Mark(ep.EnterTime, $"Entry  {ep.ArrivalSpeed:N0} m/s · heat {share:P0}{(share > 1 ? " — too hot" : "")}", true);
+                    Mark(ep.MaxQTime, $"Max q  {ep.PeakDecel / 9.81:F1} g", false);
+                    break;
+                }
+                if (air.HasValue && l.Body.Name == air.Value.body)
+                {
+                    Mark(air.Value.t, $"No air  {air.Value.speed:N0} > {EntryHost.Cap:N0} m/s", true);
+                    break;
+                }
+            }
+        }
+
         // Target: the closest approach on the path, and where the target is then (a ring), joined.
         if (Target != null)
         {
@@ -874,6 +905,8 @@ public static class Maneuvers
 
     static readonly ColorSRGB AutoColor = new ColorSRGB(0.96f, 0.62f, 0.18f, 1f);
     static readonly ColorSRGB ImpactColor = new ColorSRGB(1.00f, 0.30f, 0.25f, 1f);
+    /// <summary>Reentry's marks (the entry interface, max-q, an airless border): the colour of heat.</summary>
+    static readonly ColorSRGB EntryColor = new ColorSRGB(1.00f, 0.62f, 0.20f, 1f);
     static readonly ColorSRGB SectorIn = new ColorSRGB(0.45f, 1.00f, 0.55f, 1f);
     static readonly ColorSRGB SectorOut = new ColorSRGB(0.70f, 0.85f, 0.75f, 0.9f);
 

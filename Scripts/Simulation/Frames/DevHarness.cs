@@ -362,7 +362,7 @@ public static class DevHarness
                 return DevStress.Clone((long)D(a[1]), (int)D(a[2]), D(a[3]));
 
             case "breakblocks":   // breakblocks <id> <n> [every s]: destroy n of its blocks, one every s (0: all at once)
-                return DevStress.Break((long)D(a[1]), (int)D(a[2]), a.Length > 3 ? D(a[3]) : 0.1);
+                return DevStress.Break((long)D(a[1]), (int)D(a[2]), a.Length > 3 ? D(a[3]) : 0.1, a.Length > 4 ? D(a[4]) : 0);   // [radius m: a hit]
 
             case "bigs":   // bigs [n]: the n biggest server grids by block count (id, name, blocks, mass, km from you)
             {

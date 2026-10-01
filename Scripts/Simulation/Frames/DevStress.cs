@@ -15,6 +15,8 @@ public static class DevStress
 {
     static readonly Dictionary<long, double> _hold = new Dictionary<long, double>();
     static (long id, int left, double every, double next) _break;
+    static double _breakRadius;          // > 0: break near one spot (a hit), not anywhere
+    static Vector3D? _breakCentre;
     static readonly Random _rng = new Random(7);
     public static string Status = "-";
 
@@ -97,9 +99,10 @@ public static class DevStress
         Status = $"cloned grid {c.id} x{made} in {(System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000 / System.Diagnostics.Stopwatch.Frequency} ms";
     }
 
-    public static string Break(long id, int n, double every)
+    public static string Break(long id, int n, double every, double radius = 0)
     {
         _break = (id, n, Math.Max(0.0, every), 0);
+        _breakRadius = radius; _breakCentre = null;
         return $"breaking {n} block(s) of grid {id}, one every {every:F2} s";
     }
 
@@ -131,6 +134,18 @@ public static class DevStress
             for (int i = 0; i < per && all.Count > 0; i++)
             {
                 int k = _rng.Next(all.Count);
+                if (_breakRadius > 0)
+                {
+                    // a hit: around one spot, nearest first
+                    _breakCentre ??= all[k].Entity.Data.GetWorldTransform().Position;
+                    double best = double.MaxValue; k = -1;
+                    for (int q = 0; q < all.Count; q++)
+                    {
+                        double d = (all[q].Entity.Data.GetWorldTransform().Position - _breakCentre.Value).Length();
+                        if (d < best) { best = d; k = q; }
+                    }
+                    if (k < 0 || best > _breakRadius) { _break.left = 0; break; }
+                }
                 recv?.DealDamage(all[k], 1e9f);
                 all.RemoveAt(k);
                 done++;

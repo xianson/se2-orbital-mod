@@ -1114,7 +1114,9 @@ public sealed class TickRate
     public static readonly TickRate Server = new TickRate();
     /// <summary>Client frames that actually draw (after the once-per-frame dedup).</summary>
     public static readonly TickRate Draw = new TickRate();
-    private long _windowStart, _last; private int _n; private double _worst, _sum;
+    private long _windowStart, _last; private int _n; private double _worst, _sum, _lastPause;
+    /// <summary>Server tick gaps longer than this are logged ([HITCH]).</summary>
+    public static double HitchLogMs = 150;
     public volatile float PerSecond;
     /// <summary>The longest gap between two ticks in the last full second (ms): a hitch shows here.</summary>
     public volatile float WorstMs, MeanMs;
@@ -1122,7 +1124,19 @@ public sealed class TickRate
     {
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
         if (_windowStart == 0) _windowStart = now;
-        if (_last != 0) { double gap = (now - _last) * 1000.0 / System.Diagnostics.Stopwatch.Frequency; _sum += gap; if (gap > _worst) _worst = gap; }
+        if (_last != 0)
+        {
+            double gap = (now - _last) * 1000.0 / System.Diagnostics.Stopwatch.Frequency; _sum += gap; if (gap > _worst) _worst = gap;
+            // (the server's hitches, each one, logged with the garbage collection pause during it: to line them up
+            // with whatever else the log says happened then)
+            if (ReferenceEquals(this, Server))
+            {
+                double pause = System.GC.GetTotalPauseDuration().TotalMilliseconds;
+                if (gap > HitchLogMs)
+                    Keen.VRage.Library.Diagnostics.Log.Default?.Info($"[HITCH] server tick gap {gap:F0} ms (GC pause in it {pause - _lastPause:F0} ms, gen0/1/2 {System.GC.CollectionCount(0)}/{System.GC.CollectionCount(1)}/{System.GC.CollectionCount(2)})");
+                _lastPause = pause;
+            }
+        }
         _last = now;
         _n++;
         double el = (now - _windowStart) / (double)System.Diagnostics.Stopwatch.Frequency;

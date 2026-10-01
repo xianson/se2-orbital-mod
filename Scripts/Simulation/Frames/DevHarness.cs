@@ -330,6 +330,16 @@ public static class DevHarness
             case "aeroflames":   // aeroflames on|off: thruster flames for the aero controller's sharing
                 return PlanetRenderBridge.SetForeignFlag("AeroMod.ThrustTorque", "FlamesEnabled", On(a[1]));
 
+            case "gc":   // gc: a full blocking collection now (test only: it pauses the game), then the live heap
+            {
+                var t = System.Diagnostics.Stopwatch.StartNew();
+                System.GC.Collect(2, System.GCCollectionMode.Forced, true, true);
+                return $"full GC {t.ElapsedMilliseconds} ms: {GcMem()}";
+            }
+
+            case "aeroexport":   // aeroexport on|off: the aero mod writes each grid it builds to %TEMP%\AeroMod\*.boxes (for Tests/AeroBench)
+                return PlanetRenderBridge.SetForeignFlag("AeroMod.AeroExport", "Enabled", On(a[1]));
+
             case "aeroflight":   // aeroflight on|off: the aero mod's scripted flight test (the grid with the most wings)
                 return PlanetRenderBridge.SetForeignFlag("AeroMod.AeroGridComponent+AeroFlightTest", "Enabled", On(a[1]));
 
@@ -347,6 +357,9 @@ public static class DevHarness
 
             case "gridhold":   // gridhold <id> <m/s>: keep a grid moving forward at that speed (0 releases)
                 return DevStress.Hold((long)D(a[1]), D(a[2]));
+
+            case "gridclone":   // gridclone <id> <count> <spacing m>: copies of a grid in rows of ten above it
+                return DevStress.Clone((long)D(a[1]), (int)D(a[2]), D(a[3]));
 
             case "breakblocks":   // breakblocks <id> <n> [every s]: destroy n of its blocks, one every s (0: all at once)
                 return DevStress.Break((long)D(a[1]), (int)D(a[2]), a.Length > 3 ? D(a[3]) : 0.1);
@@ -1156,7 +1169,7 @@ public static class DevHarness
             if (vb != null) sb.AppendLine($"spin Verdure T={vb.RotationPeriodSeconds:F0}s theta={vb.RotationAngleAt(SystemHost.Now) * 180 / Math.PI:F1}deg worldSunPeriod={SystemHost.WorldSunPeriod:F0}s");
         }
         catch { }
-        sb.AppendLine($"modcost ms avg/max: client {ModCost.Client} server {ModCost.Server} map {ModCost.Map} | gc gen0 {System.GC.CollectionCount(0)} gen1 {System.GC.CollectionCount(1)} gen2 {System.GC.CollectionCount(2)} pause {System.GC.GetTotalPauseDuration().TotalMilliseconds:F0}ms alloc {System.GC.GetTotalAllocatedBytes() / 1048576}MB");
+        sb.AppendLine($"modcost ms avg/max: client {ModCost.Client} server {ModCost.Server} map {ModCost.Map} | gc gen0 {System.GC.CollectionCount(0)} gen1 {System.GC.CollectionCount(1)} gen2 {System.GC.CollectionCount(2)} pause {System.GC.GetTotalPauseDuration().TotalMilliseconds:F0}ms alloc {System.GC.GetTotalAllocatedBytes() / 1048576}MB {GcMem()}");
         sb.AppendLine($"mapcost ms avg/max: {ModCost.SectionList()}");
         sb.AppendLine($"bodymarkers {BodyMarkers.Status}");
         sb.AppendLine($"warpbill {WarpBill.Status}");
@@ -1203,4 +1216,11 @@ public static class DevHarness
 
     private static double D(string s) => double.Parse(s, System.Globalization.CultureInfo.InvariantCulture);
     private static bool On(string s) => s.Equals("on", StringComparison.OrdinalIgnoreCase) || s == "1" || s.Equals("true", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The managed heap after the last collection, its fragmentation, and the machine's memory load.</summary>
+    static string GcMem()
+    {
+        var m = System.GC.GetGCMemoryInfo();
+        return $"heap {m.HeapSizeBytes / 1048576}MB frag {m.FragmentedBytes / 1048576}MB load {m.MemoryLoadBytes * 100 / System.Math.Max(1, m.TotalAvailableMemoryBytes)}% (high {m.HighMemoryLoadThresholdBytes * 100 / System.Math.Max(1, m.TotalAvailableMemoryBytes)}%) compacted {m.Compacted} gen{m.Generation}";
+    }
 }

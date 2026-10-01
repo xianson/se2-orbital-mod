@@ -45,6 +45,58 @@ public static class DevStress
         return $"grid {id} q=({q.X:F4},{q.Y:F4},{q.Z:F4},{q.W:F4}) w=({w.X:F3},{w.Y:F3},{w.Z:F3}) |w|={w.Length():F4}";
     }
 
+    static (long id, int count, double spacing) _clone;
+
+    /// <summary>gridclone: copies of a grid (serialized and spawned as the game spawns split grids), in rows of
+    /// ten, `spacing` metres apart, above it: many big grids at once, for the aero mod's frame budget.</summary>
+    public static string Clone(long id, int count, double spacing)
+    {
+        _clone = (id, count, spacing);
+        return $"cloning grid {id} x{count}, {spacing:F0} m apart (server, next tick)";
+    }
+
+    static void CloneTick()
+    {
+        var c = _clone; _clone = default;
+        var g = GridMembers.Get(c.id);
+        if (g == null || !g.IsServer) { Status = "clone: no such grid"; return; }
+        var top = g.Entity;
+        var session = top.GetSession();
+        var ser = session.EntitySerializer;
+        var spawner = session.Get<Keen.VRage.Core.Game.Systems.IEntitySpawner>();
+        var wt = top.Data.GetWorldTransform();
+        var q = (QuaternionD)wt.Orientation;
+        Vector3D right = q * Vector3D.Right, up = q * Vector3D.Up;
+        int made = 0;
+        var t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+        for (int i = 1; i <= c.count; i++)
+        {
+            var bundle = new Keen.VRage.Core.Game.Systems.EntityBundle();
+            // (the game's own grid copy filter: the grid, and what hangs off it - but not generated blocks)
+            ser.Serialize(top, bundle, (e, _) =>
+            {
+                if (e == top) return true;
+                var h = e.TryGet<Keen.VRage.Core.Game.Components.HierarchyComponent>();
+                if (h == null) return false;
+                var cb = e.TryGet<CubeBlockComponent>();
+                if (cb != null && cb.Generated) return false;
+                return e.GetTopLevelParent() == top;
+            });
+            bundle = Keen.VRage.Core.Game.Systems.EntityBundleFunctions.DetachBundleFromLivingEntities(bundle);   // (new ids: as the game's paste does)
+            // (as encounter ships spawn: the grid's block bookkeeping waits for its blocks - inventories - to exist)
+            for (int r = 0; r < bundle.Roots; r++)
+            {
+                var gob = Keen.VRage.DCS.ObjectBuilders.EntityObjectBuilderFunctions.TryGetOB<CubeGridComponent, CubeGridObjectBuilder>(bundle.Builders[r]);
+                if (gob != null) gob.DelayInitSyncOps = true;
+            }
+            var offset = right * ((i % 10) * c.spacing) + up * ((i / 10 + 1) * c.spacing);
+            Keen.VRage.Core.Game.Systems.EntityBundleFunctions.TransformBundle(bundle, new WorldTransform(offset, Quaternion.Identity));
+            spawner.SpawnBundle(bundle);
+            made++;
+        }
+        Status = $"cloned grid {c.id} x{made} in {(System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000 / System.Diagnostics.Stopwatch.Frequency} ms";
+    }
+
     public static string Break(long id, int n, double every)
     {
         _break = (id, n, Math.Max(0.0, every), 0);
@@ -54,6 +106,7 @@ public static class DevStress
     /// <summary>Server tick.</summary>
     public static void Tick()
     {
+        if (_clone.count > 0) { try { CloneTick(); } catch (Exception e) { var m = ""; for (var x = e; x != null; x = x.InnerException) m += " <- " + x.GetType().Name + ": " + x.Message; Status = "clone failed:" + m; Keen.VRage.Library.Diagnostics.Log.Default?.Info("[STRESS] clone failed:" + m + " | " + e); } }
         lock (_hold)
             foreach (var kv in _hold)
             {

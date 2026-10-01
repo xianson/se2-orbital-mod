@@ -55,9 +55,11 @@ interaction shell, HighSpeed), ported. Verified in game with the harness:
 - **Treadmill:** in the berth the player is pinned, velocity drained and folded into the rails; the
   planets are proxies at the frame-relative celestial offset; the frame orbit is drawn from the rails.
 - **Warp:** rails-only; locks to x1 whenever the player is materialized.
-- **Arrival:** the rails orbit crossing the shell (75.6 km) hands the player back to the real planet at
+- **Arrival:** the rails orbit crossing the shell (75.6 km then; 78.1 km, 15 km up, since 2026-10-01) hands the player back to the real planet at
   the crossing, with the exact crossing state.
-- **HighSpeed (analytic):** above the 300 m/s cap the player rides the conic, placed each tick.
+- **HighSpeed (analytic):** above the 300 m/s cap the player rode the conic, placed each tick.
+  *Retired 2026-09-28: no rails inside a planet's frame; the cap is 1000 m/s and reentry (below)
+  brings you to it before the border. The HighSpeed notes below are history.*
 - **A full skimming revolution:** Ap 200 / Pe 8 km -> rails -> ARRIVE at 1262 m/s -> HighSpeed through
   periapsis at exactly 71.0 km -> STOW again at the 79.4 km floor. Orbit after two handoffs:
   a 166.6 km e 0.574 (was 167.0 / 0.575).
@@ -130,12 +132,34 @@ interaction shell, HighSpeed), ported. Verified in game with the harness:
 Remaining limits: local player only (client-driven; SP / listen host), HighSpeed thrust
 verified only as no false folds plus a harness kick (no real key press; grid thrust untested), legacy-space capture is opt-in, relative motion of members is integrated at x1 while the rails warp.
 
+## Reentry and the speed cap (2026-10-01)
+
+Inside a planet's frame the world's speed cap applies (1000 m/s, raised from 300; you are the
+planet's guest there, while in your own frame on rails nothing caps you). The planet frame's
+border is 15 km up at Verdure (shell = 1.6 atmosphere heights), where a circular orbit is about
+the cap: inside it everything is physical flight, every orbit is on rails.
+
+- **Braking band** (`Core/Entry/Reentry`, game-free, 32 offline checks): from the entry
+  interface (35 km up) to the border. Only speed over the cap (through the planet's spinning air)
+  is braked, so climbs and ordinary orbits are untouched; what is left at the border is taken
+  there, so the handover to physics is always at or under the cap. Warp-proof (integrated through
+  the band); aerobraking passes lower the apoapsis.
+- **Heat:** the energy shed, against a tolerance of 1.15 MJ/kg (x2 with heavy armour in front);
+  every normal transfer arrival comes in within it. Past it a grid's forward layer is worn in 5%
+  chunks, at most 50% of a block's health per entry: the rule alone never destroys a ship.
+- **Airless bodies** (from the game: Palatine's atmosphere has no density) have no band: an
+  arrival over the cap is clamped at the border, a jolt worth a quarter of the same heat.
+- **Seen ahead:** the orbit card ('Entry in 2:46 · 1,669 -> 990 m/s · heat 82%', then
+  'braking 5.3 g'), map marks (Entry, Max q, No air) and warp stopping 30 s before a pass.
+- **The sun:** the game's sun is vanilla (its own place and day cycle); Delfos is its own globe
+  in the sky (StarProxy), never under the sun's glare.
+
 ## Testing: three tiers
 
 | tier | command | time | what | when |
 |---|---|---|---|---|
 | fast gate | `tools/test_fast.sh` | ~15 s, no game | the scripts compiled as the game compiles them (ModCheck) + every offline suite in `Tests/` (orbits, frames, persistence, rendezvous, time, sensing): ~1200 checks | every change |
-| smoke | `tools/harness/test_smoke.sh` | ~1.5 min, one launch | the game side only: the mod loads (components, sensor blocks), a jointed grid goes on rails, an orbit stows, warp runs, contacts are spotted, the map / ring / Rendezvous tab / porkchop / HUD plot draw; no fault, no Havok assertion | engine-facing changes, before a commit |
+| smoke | `tools/harness/test_smoke.sh` | ~3 min, one launch | the game side only: the mod loads (components, sensor blocks), a jointed grid goes on rails, an orbit stows, warp runs, contacts are spotted, the map / ring / Rendezvous tab / porkchop / HUD plot draw, a reentry is predicted, braked and handed over at the cap; no fault, no Havok assertion | engine-facing changes, before a commit |
 | long | `tools/harness/test_all.sh` | ~1 h | jointed-grid moves, regression scenarios, perf budgets, save / load, a random soak | releases, bug hunts |
 
 Logic belongs in the game-free core (`Scripts/Simulation/Core`) where the fast gate can test it; the in-game
@@ -152,8 +176,8 @@ definitions (see the script for why SE2 2.4 needs a stand-in Vanilla to build mo
    conjunction). Everything above is verified with the character; seated players now get their
    grid's frame (observer, warp, planning), but no one has flown it yet. Also the map editor with a
    real mouse (verified through the harness only).
-3. **Real key-press test of HighSpeed thrust** (jetpack and piloted grids). Folding is verified with
-   no false folds and a harness kick only.
+3. **The speed cap as a setting** (vanilla 300 to 1000): the reentry rules follow any cap (tested
+   with 300), but the physics cap is set at definition load, before a world is known.
 4. **Proxy fidelity.** The map globe is low-poly and pale, with no atmosphere rim.
 5. **Gravity patch as the default.** The 1/r^2 patch is applied at runtime and saved with the world;
    decide whether a world without the mod's first load should be patched automatically.

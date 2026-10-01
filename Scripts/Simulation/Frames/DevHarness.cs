@@ -323,6 +323,40 @@ public static class DevHarness
                 return sb2.Length > 0 ? sb2.ToString() : "every grid at full health";
             }
 
+            case "debugdraw":   // debugdraw on|off: the engine's global debug draw (the aero mod turns it on)
+                Keen.VRage.Core.GlobalDebugSettings.Default.EnabledDebugDraw = On(a[1]);
+                return "engine debug draw " + Keen.VRage.Core.GlobalDebugSettings.Default.EnabledDebugDraw;
+
+            case "aerocost":   // aerocost on|off: the aero mod's [AERO-COST] line (where its time goes, once a second)
+                return PlanetRenderBridge.SetForeignFlag("AeroMod.AeroCost", "Log", On(a[1]));
+
+            case "aero":   // aero on|off: the whole aero mod's simulation (A/B tests)
+                return PlanetRenderBridge.SetForeignFlag("AeroMod.AeroSwitch", "Enabled", On(a[1]));
+
+            case "gridhold":   // gridhold <id> <m/s>: keep a grid moving forward at that speed (0 releases)
+                return DevStress.Hold((long)D(a[1]), D(a[2]));
+
+            case "breakblocks":   // breakblocks <id> <n> [every s]: destroy n of its blocks, one every s (0: all at once)
+                return DevStress.Break((long)D(a[1]), (int)D(a[2]), a.Length > 3 ? D(a[3]) : 0.1);
+
+            case "bigs":   // bigs [n]: the n biggest server grids by block count (id, name, blocks, mass, km from you)
+            {
+                var l = new List<(int n, OrbitalGridComponent g)>();
+                foreach (var g in GridMembers.All())
+                {
+                    if (!g.IsServer) continue;
+                    var cg = g.Entity.TryGet<Keen.Game2.Simulation.WorldObjects.CubeGrids.CubeGridComponent>();
+                    int n = 0;
+                    cg?.VisitAllBlocksWithComponent<Keen.Game2.Simulation.WorldObjects.CubeBlocks.CubeBlockComponent>(b => n++, false);
+                    l.Add((n, g));
+                }
+                l.Sort((x, y) => y.n.CompareTo(x.n));
+                var sb2 = new System.Text.StringBuilder($"{l.Count} grid(s): ");
+                for (int i = 0; i < Math.Min(l.Count, a.Length > 1 ? (int)D(a[1]) : 12); i++)
+                    sb2.Append($"[{l[i].g.Id} '{l[i].g.DisplayName}' {l[i].n} blocks {GridMembers.Mass(l[i].g) / 1000:F0} t dyn={GridMembers.IsDynamic(l[i].g)} {(GridMembers.Position(l[i].g) - camera.Position).Length() / 1000:F1} km at {GridMembers.Position(l[i].g).X:F0} {GridMembers.Position(l[i].g).Y:F0} {GridMembers.Position(l[i].g).Z:F0}] ");
+                return sb2.ToString();
+            }
+
             case "joins":   // joins <gridId>: what a grid is joined to (its connected group; static ones marked)
             {
                 var g = GridMembers.Get((long)D(a[1]));
@@ -1096,6 +1130,7 @@ public static class DevHarness
         lock (AsteroidBridge.RingInfo) foreach (var ri in AsteroidBridge.RingInfo) sb.AppendLine("  ring " + ri);
         sb.AppendLine($"sun {SunDriver.Status}");
         sb.AppendLine($"star {StarProxy.Status}");
+        sb.AppendLine($"frame server worst={TickRate.Server.WorstMs:F0}ms mean={TickRate.Server.MeanMs:F1}ms draw worst={TickRate.Draw.WorstMs:F0}ms mean={TickRate.Draw.MeanMs:F1}ms | stress {DevStress.Status}");
         sb.AppendLine($"entry {EntryHost.Status} | {EntryHost.CardLine(SystemHost.Now) ?? "no pass ahead"}");
         try
         {

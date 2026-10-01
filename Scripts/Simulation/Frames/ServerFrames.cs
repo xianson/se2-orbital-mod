@@ -211,6 +211,7 @@ public static class ServerFrames
         }
 
         if (_tick % 30 == 0) BuildSnapshot();
+        DevStress.Tick();
         if (DevFreeGrids)
         {
             DevFreeGrids = false;
@@ -1113,14 +1114,18 @@ public sealed class TickRate
     public static readonly TickRate Server = new TickRate();
     /// <summary>Client frames that actually draw (after the once-per-frame dedup).</summary>
     public static readonly TickRate Draw = new TickRate();
-    private long _windowStart; private int _n;
+    private long _windowStart, _last; private int _n; private double _worst, _sum;
     public volatile float PerSecond;
+    /// <summary>The longest gap between two ticks in the last full second (ms): a hitch shows here.</summary>
+    public volatile float WorstMs, MeanMs;
     public void Count()
     {
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
         if (_windowStart == 0) _windowStart = now;
+        if (_last != 0) { double gap = (now - _last) * 1000.0 / System.Diagnostics.Stopwatch.Frequency; _sum += gap; if (gap > _worst) _worst = gap; }
+        _last = now;
         _n++;
         double el = (now - _windowStart) / (double)System.Diagnostics.Stopwatch.Frequency;
-        if (el >= 1.0) { PerSecond = (float)(_n / el); _n = 0; _windowStart = now; }
+        if (el >= 1.0) { PerSecond = (float)(_n / el); WorstMs = (float)_worst; MeanMs = (float)(_sum / Math.Max(1, _n)); _n = 0; _worst = 0; _sum = 0; _windowStart = now; }
     }
 }

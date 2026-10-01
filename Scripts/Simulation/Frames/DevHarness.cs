@@ -330,6 +330,9 @@ public static class DevHarness
             case "aeroflames":   // aeroflames on|off: thruster flames for the aero controller's sharing
                 return PlanetRenderBridge.SetForeignFlag("AeroMod.ThrustTorque", "FlamesEnabled", On(a[1]));
 
+            case "aeroflight":   // aeroflight on|off: the aero mod's scripted flight test (the grid with the most wings)
+                return PlanetRenderBridge.SetForeignFlag("AeroMod.AeroGridComponent+AeroFlightTest", "Enabled", On(a[1]));
+
             case "aerocost":   // aerocost on|off: the aero mod's [AERO-COST] line (where its time goes, once a second)
                 return PlanetRenderBridge.SetForeignFlag("AeroMod.AeroCost", "Log", On(a[1]));
 

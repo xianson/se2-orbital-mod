@@ -327,6 +327,9 @@ public static class DevHarness
                 Keen.VRage.Core.GlobalDebugSettings.Default.EnabledDebugDraw = On(a[1]);
                 return "engine debug draw " + Keen.VRage.Core.GlobalDebugSettings.Default.EnabledDebugDraw;
 
+            case "aeroflames":   // aeroflames on|off: thruster flames for the aero controller's sharing
+                return PlanetRenderBridge.SetForeignFlag("AeroMod.ThrustTorque", "FlamesEnabled", On(a[1]));
+
             case "aerocost":   // aerocost on|off: the aero mod's [AERO-COST] line (where its time goes, once a second)
                 return PlanetRenderBridge.SetForeignFlag("AeroMod.AeroCost", "Log", On(a[1]));
 

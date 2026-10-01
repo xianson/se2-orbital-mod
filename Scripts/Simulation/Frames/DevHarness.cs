@@ -1153,7 +1153,7 @@ public static class DevHarness
             if (vb != null) sb.AppendLine($"spin Verdure T={vb.RotationPeriodSeconds:F0}s theta={vb.RotationAngleAt(SystemHost.Now) * 180 / Math.PI:F1}deg worldSunPeriod={SystemHost.WorldSunPeriod:F0}s");
         }
         catch { }
-        sb.AppendLine($"modcost ms avg/max: client {ModCost.Client} server {ModCost.Server} map {ModCost.Map} | gc gen0 {System.GC.CollectionCount(0)} gen1 {System.GC.CollectionCount(1)} gen2 {System.GC.CollectionCount(2)}");
+        sb.AppendLine($"modcost ms avg/max: client {ModCost.Client} server {ModCost.Server} map {ModCost.Map} | gc gen0 {System.GC.CollectionCount(0)} gen1 {System.GC.CollectionCount(1)} gen2 {System.GC.CollectionCount(2)} pause {System.GC.GetTotalPauseDuration().TotalMilliseconds:F0}ms alloc {System.GC.GetTotalAllocatedBytes() / 1048576}MB");
         sb.AppendLine($"mapcost ms avg/max: {ModCost.SectionList()}");
         sb.AppendLine($"bodymarkers {BodyMarkers.Status}");
         sb.AppendLine($"warpbill {WarpBill.Status}");

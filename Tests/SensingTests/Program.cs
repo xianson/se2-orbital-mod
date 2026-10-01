@@ -43,6 +43,7 @@ namespace SensingTest
             PlanetShineRule();
             GlareRule();
             WarpStoreBill();
+            TrackingRules();
             Console.WriteLine($"\n=== {_passed} passed, {_failed} failed ===");
             return _failed == 0 ? 0 : 1;
         }
@@ -197,6 +198,25 @@ namespace SensingTest
             double withGlare = Reach(l, st, Sun, true, bodies), noGlare = Reach(l, st, Sun, true, null);
             Ok("a station against the day side: the telescope's reach falls (to infrared)", withGlare < noGlare, $"{withGlare / 1000:F0} km vs {noGlare / 1000:F0} km");
             Ok("... radar does not care", Math.Abs(Reach(new Looker { At = eyeDay, Kind = Kind.Radar, Power = 1 }, st, Sun, true, bodies) - RadarReach(150, 1)) < 1e-6);
+        }
+
+        // Detected vs tracked: eyes and radar fix an orbit at once, a telescope needs two minutes, lidar ~10 s.
+        static void TrackingRules()
+        {
+            Console.WriteLine("-- tracking");
+            Ok("radar tracks at once", Tracking.Of(true, Tracking.Watch(0, Kind.Radar, false, 0.5)) == Tracking.Quality.Tracked);
+            Ok("eyes track at once", Tracking.Of(true, Tracking.Watch(0, Kind.Eyes, false, 0.5)) == Tracking.Quality.Tracked);
+            double d = 0; int n = 0;
+            while (Tracking.Of(true, d) != Tracking.Quality.Tracked && n < 10000) { d = Tracking.Watch(d, Kind.Telescope, false, 0.5); n++; }
+            Near("a telescope alone: tracked after 120 s of watching", n * 0.5, 120, 1e-9);
+            d = 0; n = 0;
+            while (Tracking.Of(true, d) != Tracking.Quality.Tracked && n < 10000) { d = Tracking.Watch(d, Kind.Telescope, true, 0.5); n++; }
+            Near("... with lidar on your target: 10 s", n * 0.5, 10, 1e-9);
+            Ok("watching is kept, never undone (a fit stays made)", Tracking.Watch(120, Kind.Telescope, false, 0.5) == 120 && Tracking.Watch(60, Kind.Radar, false, 0.5) == 120);
+            Ok("not seen at all: unknown", Tracking.Of(false, 0) == Tracking.Quality.Unknown);
+            Near("progress half way at 60 s", Tracking.Progress(60), 0.5, 1e-12);
+            Near("rough distance: 2 significant figures (421,870 m -> 420,000)", Tracking.Rough(421870), 420000, 1e-6);
+            Near("... 5,950 m -> 6,000", Tracking.Rough(5950), 6000, 1e-6);
         }
 
         static void WarpStoreBill()

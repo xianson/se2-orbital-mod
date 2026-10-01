@@ -112,12 +112,29 @@ public static class Contacts
         Loud = obs.Exists(o => o.Kind == SensorModel.Kind.Radar);
 
         // Seen by whom (null: by none): r its radius (m), its albedo, its temperature (a powered hull, a rock).
-        string Seen(Vector3D at, double r, double albedo, double tempK)
+        string Seen(Vector3D at, double r, double albedo, double tempK) { var k = SeenKind(at, r, albedo, tempK); return k == null ? null : Name(k.Value); }
+        SensorModel.Kind? SeenKind(Vector3D at, double r, double albedo, double tempK)
         {
             int i = SensorModel.SeenBy(obs, new SensorModel.Target { At = at, Radius = r, Albedo = albedo, TempK = tempK }, bodies, sun);
-            if (i < 0) return null;
-            var k = obs[i].Kind;
-            return k == SensorModel.Kind.Eyes ? "sight" : k == SensorModel.Kind.Radar ? "radar" : "telescope";
+            return i < 0 ? (SensorModel.Kind?)null : obs[i].Kind;
+        }
+        static string Name(SensorModel.Kind k) => k == SensorModel.Kind.Eyes ? "sight" : k == SensorModel.Kind.Radar ? "radar" : "telescope";
+        // Watching: what is seen and not yet tracked is watched (the telescope's lidar on your target speeds it).
+        string target = Maneuvers.Target;
+        bool lidar = false;
+        var newlyTracked = new List<string>();
+        void Watch(string key, string name, SensorModel.Kind k)
+        {
+            bool targeted = target != null && name == target;
+            if (targeted && k == SensorModel.Kind.Telescope) lidar = true;
+            lock (_dwell)
+            {
+                _dwell.TryGetValue(key, out double d0);
+                if (d0 >= Tracking.PassiveSeconds) return;
+                double d1 = Tracking.Watch(d0, k, targeted, TickSeconds);
+                _dwell[key] = d1;
+                if (d1 >= Tracking.PassiveSeconds) { newlyTracked.Add(name); Version++; }
+            }
         }
 
 
@@ -127,15 +144,18 @@ public static class Contacts
         foreach (var g in GridMembers.All())
         {
             if (!g.IsServer) continue;
-            lock (_grids) if (_grids.Contains(g.Id)) continue;
+            bool known; lock (_grids) known = _grids.Contains(g.Id);
+            if (known && TrackedGrid(g.Id)) continue;
             if (!IsContact(g)) continue;
             Vector3D m; bool ok;
             lock (ServerFrames.FramesLock) ok = FrameMarkers.ModelOf(GridMembers.Position(g), t, out m, out _, out _);
             if (!ok) continue;
-            string by = Seen(m, GridSize, GridAlbedo, GridTempK);
-            if (by == null) continue;
+            var k = SeenKind(m, GridSize, GridAlbedo, GridTempK);
+            if (k == null) continue;
+            Watch("g:" + g.Id, GroupName(g), k.Value);
+            if (known) continue;
             lock (_grids) _grids.Add(g.Id);
-            newGrids.Add((g.DisplayName, (m - eye).Length(), by));
+            newGrids.Add((g.DisplayName, (m - eye).Length(), Name(k.Value)));
         }
         // Planet ring rocks (seeded) and belt asteroids.
         foreach (var b in RingRocks.Belts())
@@ -144,20 +164,39 @@ public static class Contacts
             for (int i = 0; i < b.R.Length; i++)
             {
                 string label = $"{b.Name} #{b.Number[i]}";
-                if (KnownRock(label)) continue;
-                if (Seen(o + RingRocks.At(b, i, t), b.Cluster[i] ? 2600 : 1500, RockAlbedo, RockTempK) == null) continue;
+                bool known = KnownRock(label);
+                if (known && TrackedRock(label)) continue;
+                var k = SeenKind(o + RingRocks.At(b, i, t), b.Cluster[i] ? 2600 : 1500, RockAlbedo, RockTempK);
+                if (k == null) continue;
+                Watch("r:" + label, label, k.Value);
+                if (known) continue;
                 lock (_rocks) _rocks.Add(label);
                 newRocks.TryGetValue(b.Name, out int n); newRocks[b.Name] = n + 1;
             }
         }
         foreach (var (belt, label, home, cluster) in AsteroidFrames.All())
         {
-            if (KnownRock(label)) continue;
-            if (Seen(SectorHomes.Where(home, reg, t), cluster ? 2600 : 1500, RockAlbedo, RockTempK) == null) continue;
+            bool known = KnownRock(label);
+            if (known && TrackedRock(label)) continue;
+            var k = SeenKind(SectorHomes.Where(home, reg, t), cluster ? 2600 : 1500, RockAlbedo, RockTempK);
+            if (k == null) continue;
+            Watch("r:" + label, label, k.Value);
+            if (known) continue;
             lock (_rocks) _rocks.Add(label);
             newRocks.TryGetValue(belt, out int n); newRocks[belt] = n + 1;
         }
 
+        Lidar = lidar;
+        if (lidar) Loud = true;
+        if (newlyTracked.Count > 0)
+        {
+            int rocks = newlyTracked.FindAll(x => x.Contains(" #")).Count;
+            var tl = newlyTracked.FindAll(x => !x.Contains(" #"));
+            if (rocks > 0) tl.Add(rocks == 1 ? "a rock's orbit" : $"{rocks} rocks' orbits");
+            if (tl.Count > 3) { int more = tl.Count - 2; tl.RemoveRange(2, tl.Count - 2); tl.Add($"and {more} more"); }
+            if (!MapView.Visible && newGrids.Count == 0 && newRocks.Count == 0) GameUi.Toast(session, "tracked", "Tracked", string.Join("\n", tl), 3);
+            Log.Default?.Info("[ORBIT-CONTACT] tracked: " + string.Join("; ", tl));
+        }
         if (newGrids.Count > 0 || newRocks.Count > 0)
         {
             Version++;
@@ -171,7 +210,36 @@ public static class Contacts
         int ng; lock (_grids) ng = _grids.Count;
         int nr; lock (_rocks) nr = _rocks.Count;
         int nt = obs.FindAll(o => o.Kind == SensorModel.Kind.Telescope).Count, nrad = obs.FindAll(o => o.Kind == SensorModel.Kind.Radar).Count;
-        Status = $"known: {ng} grid(s), {nr} rock(s); looking: eyes, {nt} telescope(s), {nrad} radar(s){(Loud ? " (loud)" : "")}";
+        int ntr; lock (_dwell) { ntr = 0; foreach (var kv in _dwell) if (kv.Value >= Tracking.PassiveSeconds) ntr++; }
+        Status = $"known: {ng} grid(s), {nr} rock(s), {ntr} tracked; looking: eyes, {nt} telescope(s), {nrad} radar(s){(lidar ? ", lidar on the target" : "")}{(Loud ? " (loud)" : "")}";
+    }
+
+    // ── tracking (Core/Sensing/Tracking: detected -> tracked) ──
+    static readonly Dictionary<string, double> _dwell = new Dictionary<string, double>();
+    /// <summary>A telescope of yours is ranging your target with its laser (lidar): it gives you away.</summary>
+    public static bool Lidar;
+    static double DwellOf(string key) { if (!Enabled) return Tracking.PassiveSeconds; lock (_dwell) return _dwell.TryGetValue(key, out double d) ? d : 0; }
+    public static bool TrackedRock(string label) => !Enabled || label == null || DwellOf("r:" + label) >= Tracking.PassiveSeconds;
+    public static bool TrackedGrid(long id) => !Enabled || DwellOf("g:" + id) >= Tracking.PassiveSeconds || !IsContact(GridMembers.Get(id));
+    /// <summary>A rock target's tracking: null when it is not a rock contact (a sector, a body) or tracking is off.</summary>
+    public static double? RockProgress(string label)
+    {
+        if (!Enabled || label == null) return null;
+        bool isRock = false;
+        foreach (var b in RingRocks.Belts()) if (label.StartsWith(b.Name + " #")) isRock = true;
+        if (!isRock) foreach (var r in AsteroidFrames.All()) if (r.label == label) isRock = true;
+        return isRock ? Tracking.Progress(DwellOf("r:" + label)) : (double?)null;
+    }
+    /// <summary>The name a grid is targeted and marked by: its site's label, else its own.</summary>
+    static string GroupName(OrbitalGridComponent g)
+    {
+        lock (ServerFrames.FramesLock)
+        {
+            var f = SystemHost.Frames?.FindByMember(g.Id);
+            var site = f != null ? EncounterFrames.SiteOf(f.Id) : null;
+            if (site?.Label != null) return site.Label;
+        }
+        return g.DisplayName;
     }
 
     /// <summary>The grids you know of (ids), for the flight HUD's contact markers.</summary>
@@ -181,6 +249,8 @@ public static class Contacts
     public static List<string> RockKeys() { lock (_rocks) return new List<string>(_rocks); }
     public static List<long> GridKeys() { lock (_grids) return new List<long>(_grids); }
     public static void RestoreRock(string label) { lock (_rocks) _rocks.Add(label); Version++; }
+    public static List<string> TrackedKeys() { var l = new List<string>(); lock (_dwell) foreach (var kv in _dwell) if (kv.Value >= Tracking.PassiveSeconds) l.Add(kv.Key); return l; }
+    public static void RestoreTracked(string key) { lock (_dwell) _dwell[key] = Tracking.PassiveSeconds; Version++; }
     public static void RestoreGrid(long id) { lock (_grids) _grids.Add(id); Version++; }
 
     /// <summary>Harness: contacts reveal | forget | (status).</summary>
@@ -188,14 +258,15 @@ public static class Contacts
     {
         switch (a.Length > 1 ? a[1] : "")
         {
-            case "forget": lock (_rocks) _rocks.Clear(); lock (_grids) _grids.Clear(); Version++; return "contacts forgotten";
+            case "forget": lock (_rocks) _rocks.Clear(); lock (_grids) _grids.Clear(); lock (_dwell) _dwell.Clear(); Version++; return "contacts forgotten";
             case "reveal":
                 lock (_rocks)
                 {
                     foreach (var b in RingRocks.Belts()) for (int i = 0; i < b.R.Length; i++) _rocks.Add($"{b.Name} #{b.Number[i]}");
                     foreach (var r in AsteroidFrames.All()) _rocks.Add(r.label);
                 }
-                foreach (var g in GridMembers.All()) if (g.IsServer && IsContact(g)) lock (_grids) _grids.Add(g.Id);
+                foreach (var g in GridMembers.All()) if (g.IsServer && IsContact(g)) { lock (_grids) _grids.Add(g.Id); lock (_dwell) _dwell["g:" + g.Id] = Tracking.PassiveSeconds; }
+                lock (_rocks) lock (_dwell) foreach (var r in _rocks) _dwell["r:" + r] = Tracking.PassiveSeconds;
                 Version++; return "all revealed | " + Status;
             case "sensor": DevSensor = a.Length > 2 && a[2] == "telescope" ? Sensor.Telescope : a.Length > 2 && a[2] == "radar" ? Sensor.Radar : (Sensor?)null; return "stand-in sensor: " + (DevSensor?.ToString() ?? "none");
             case "on": Enabled = true; Version++; return "contacts on";

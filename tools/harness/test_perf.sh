@@ -4,7 +4,7 @@
 source "$(dirname "$0")/testlib.sh"
 [ "$1" = "--no-relaunch" ] || { echo "== relaunch"; "$SP/relaunch.sh" 2>&1 | tail -1; hold 15
 # (a stand-in telescope where you are: the harness world has no sensor block built; eyes alone see 20 km)
-send "contacts sensor telescope"; }
+send "contacts sensor radar"   # (radar: tracks at once, so ring predictions are on from the start); }
 mark; START=$MARK
 cost() { stat "^modcost" | sed -n "s/.* $1 \([0-9.]*\)\/\([0-9.]*\).*/\1 \2/p"; }   # part -> "avg max"
 # measure NAME PART BUDGET_MS: the worst of three one-second averages, against the budget

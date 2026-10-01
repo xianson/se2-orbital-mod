@@ -310,7 +310,7 @@ public static partial class CleanMap
         if (MapInput.LeftReleased && !MapCamera.DragEnded && !MapMenu.Open && Hovered != null && roids.Exists(x => x.label == Hovered))
             SelectedRock = SelectedRock == Hovered ? null : Hovered;
         foreach (var (label, home, cluster, live) in roids)
-            if (label == SelectedRock || label == Maneuvers.Target) RoidPath(W, toLocal, reg, t, home, label == Maneuvers.Target ? TargetText : LineSel);
+            if ((label == SelectedRock || label == Maneuvers.Target) && Contacts.TrackedRock(label)) RoidPath(W, toLocal, reg, t, home, label == Maneuvers.Target ? TargetText : LineSel);   // (its path once its orbit is known)
         foreach (var (label, home, cluster, live) in roids)
         {
             if (!Contacts.KnownRock(label)) continue;   // not seen yet
@@ -321,7 +321,7 @@ public static partial class CleanMap
             var c = label == Maneuvers.Target ? TargetText : hot ? LineSel : live ? RoidLive : Quiet(belt) ? HudPanel.Alpha(RoidColor, 0.4f) : RoidColor;
             MapPipeline.PickName = label;
             MapPipeline.ScreenRing(w, (cluster ? 4f : 2.8f) * u, c, (hot ? 2f : 1.4f) * u);
-            if (hot || !Quiet(belt)) MapPipeline.TextScreen(s + new Vector2(0, 12f * u), label, c, hot ? 0.6f : 0.5f);
+            if (hot || !Quiet(belt)) MapPipeline.TextScreen(s + new Vector2(0, 12f * u), Contacts.TrackedRock(label) ? label : "≈ " + label, c, hot ? 0.6f : 0.5f);
         }
         MapPipeline.PickName = null;
     }

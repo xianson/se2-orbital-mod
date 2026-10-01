@@ -166,7 +166,7 @@ public static class RingRocks
                     if (b.Body == l.Body) Scan(b, l, t, list);
         }
         catch (Exception e) { Status = "passes failed: " + e.Message; }
-        list.RemoveAll(p => !Contacts.KnownRock(p.Label));   // a rock you have not seen is not predicted
+        list.RemoveAll(p => !Contacts.TrackedRock(p.Label));   // a rock whose orbit you do not know is not predicted
         list.Sort((a, b) => a.T.CompareTo(b.T));
         _passes = list;
         return _passes;

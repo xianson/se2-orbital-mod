@@ -977,7 +977,11 @@ public static class Maneuvers
     /// <summary>The target's closest approach as a line for the orbit card (null: no target or no approach).</summary>
     public static string TargetLine(double t)
     {
-        if (Target == null || !Trajectory(t, out var legs, out _)) return null;
+        if (Target == null) return null;
+        // a rock seen but not tracked: no orbit yet, so no closest approach (a telescope's lidar on it speeds the fit)
+        if (Contacts.RockProgress(Target) is double prog && prog < 1)
+            return $"Target ≈ {Target}  ·  tracking {prog:P0}{(Contacts.Lidar ? "  ·  lidar ranging" : "  ·  bearing only")}";
+        if (!Trajectory(t, out var legs, out _)) return null;
         var ca = ClosestApproach(legs);
         return ca.ok && ca.d <= RendezvousRange ? $"Target {Target}  ·  rendezvous {HudPanel.Km(ca.d)} in {Clock(ca.t - t)}  ·  {RelSpeed(ca):N0} m/s" : $"Target {Target}  ·  no rendezvous on this path";
     }

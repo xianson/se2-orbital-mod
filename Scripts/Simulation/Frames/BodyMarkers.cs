@@ -93,9 +93,12 @@ public static class BodyMarkers
             if (!ok) continue;
             Vector3D d = m - camModel; double dist = d.Length();
             if (!(dist > ContactMinDistance)) continue;
-            var mk = ContactOf(group, name);
+            // detected, not yet tracked: '≈' and a rough distance (a bearing and a rough range, no orbit yet)
+            bool tracked = Contacts.TrackedGrid(id);
+            var mk = ContactOf(group, tracked ? name : "≈ " + name);
             if (mk == null) continue;
-            _items.Add(new Item { M = mk, World = camera.Position + camChart.FromInertial(d) * (System.Math.Min(dist, 5e4) / dist), Surface = dist, Contact = true });
+            _items.Add(new Item { M = mk, World = camera.Position + camChart.FromInertial(d) * (System.Math.Min(dist, 5e4) / dist),
+                                  Surface = tracked ? dist : SEAerospace.Sensing.Tracking.Rough(dist), Contact = true });
         }
     }
 

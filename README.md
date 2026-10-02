@@ -179,7 +179,7 @@ definitions (see the script for why SE2 2.4 needs a stand-in Vanilla to build mo
   Avg/max/peak in ms.
 - **Garbage per system:** the harness command `allocs on|off|show` (bytes per guarded system and
   per section).
-- **Garbage by type and call site:** `dotnet-trace` plus `D:ero	ools\AllocReport` (see its
+- **Garbage by type and call site:** `dotnet-trace` plus `D:/aero/tools/AllocReport` (see its
   header). Tonight's results: map 21 -> 5.8 MB/s, flight 5.3 -> 2.6 MB/s.
   - Reflection calls reuse their argument arrays; lines draw through the typed `DrawPath`.
   - `PlayerCache` replaces the engine's per-frame character query.

@@ -273,6 +273,4 @@ public static partial class CleanMap
         if (rpx < 4f * uu) MapPipeline.ScreenDisc(sc, 4f * uu, col);
     }
 
-    private static void Circle(Func<Vector3D, Vector3D> W, double r, ColorSRGB col, float px)
-        => Curve(a => new Vector3D(Math.Cos(a) * r, 0, Math.Sin(a) * r), W, 0, 2 * Math.PI, 96, col, px);
 }

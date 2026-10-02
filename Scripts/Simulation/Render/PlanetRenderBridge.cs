@@ -957,27 +957,7 @@ public static class PlanetRenderBridge
         catch (Exception e) { Log.Default?.Warning($"[ORBIT] teleport failed: {Inner(e)}"); return false; }
     }
 
-    /// <summary>Property or field by name, any visibility, walking base types.</summary>
-    /// <summary>Call a one-argument bool method by name (for types in assemblies mods cannot reference).</summary>
-    internal static bool CallBool(object target, string method, object arg)
-    {
-        foreach (MethodInfo m in target.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance))
-        {
-            if (m.Name != method || m.ReturnType != typeof(bool)) continue;
-            var ps = m.GetParameters();
-            if (ps.Length == 1 && ps[0].ParameterType.IsInstanceOfType(arg)) return (bool)m.Invoke(target, new[] { arg });
-        }
-        return false;
-    }
 
-    /// <summary>Show or hide a game render component's model (its RenderModelEntity's Visible flag).</summary>
-    /// <summary>Visible now, whatever was set before (the game hides some map objects by its own zoom).</summary>
-    public static void ForceRenderComponentVisible(object renderComponent)
-    {
-        if (renderComponent == null) return;
-        _rcVisible.Remove(renderComponent);
-        SetRenderComponentVisible(renderComponent, true);
-    }
 
     public static void SetRenderComponentVisible(object renderComponent, bool visible)
     {
@@ -1027,11 +1007,6 @@ public static class PlanetRenderBridge
     /// <summary>For the map pipeline: the render assembly, the RenderContracts instance, a type by name.</summary>
     public static Assembly RenderAssembly { get { ResolveRender(); return _renderAsm; } }
     public static object Contracts { get { ResolveRender(); return _contracts; } }
-    public static Type RenderOrCoreType(string fullName)
-    {
-        ResolveRender();
-        return _renderAsm?.GetType(fullName) ?? typeof(Keen.VRage.Core.Render.RenderRuntimeDataType).Assembly.GetType(fullName);
-    }
 
     /// <summary>list.Add(item) on a collection type mod code cannot reference.</summary>
     internal static bool CallAdd(object list, object item)

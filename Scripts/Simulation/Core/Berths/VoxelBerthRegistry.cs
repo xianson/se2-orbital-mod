@@ -172,15 +172,6 @@ namespace SEAerospace
             return !string.IsNullOrEmpty(body) && _occupied.Contains(body);
         }
 
-        /// <summary>Whether <paramref name="slot"/> is a RESERVED PLANET slot on the shared lattice
-        /// (0..N-1). The frame restore path uses this to re-point a Conjunction from an older save
-        /// whose saved slot now belongs to a planet, so two berths never share a slot.</summary>
-        public static bool IsPlanetSlot(int slot, SystemRegistry reg)
-        {
-            if (slot < 0 || reg == null) return false;
-            EnsureMapping(reg);
-            return slot < _slotOf.Count;   // planets own the contiguous block 0..N-1
-        }
 
         /// <summary>The occupied bodies paired with their fixed cell centers (snapshot-safe).</summary>
         public static IEnumerable<KeyValuePair<string, Vector3D>> Occupied(SystemRegistry reg)

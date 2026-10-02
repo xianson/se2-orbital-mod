@@ -446,13 +446,6 @@ public static class OrbitDisplay
         _hasPrev = true;
     }
 
-    private static void DrawText(WorldTransform camera, string text)
-    {
-        Vector3D fwd = (Vector3D)Vector3.Transform(Vector3.Forward, camera.Orientation);
-        Vector3D up = (Vector3D)Vector3.Transform(Vector3.Up, camera.Orientation);
-        Vector3D left = (Vector3D)Vector3.Transform(-Vector3.Right, camera.Orientation);
-        _builder.AddText(camera.Position + fwd * 10.0 + up * 3.0 + left * 4.0, text, ColorSRGB.Yellow, 0.7f);
-    }
 
     internal static void Clear()
     {

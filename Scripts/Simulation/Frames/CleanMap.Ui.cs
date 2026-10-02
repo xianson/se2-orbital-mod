@@ -173,8 +173,6 @@ public static partial class CleanMap
     private static readonly List<(GravityBody b, BoundingBox2 box)> _crumbs = new List<(GravityBody, BoundingBox2)>();
     private static double _lastClick;
     /// <summary>A body being flown to: the zoom-in switch opens it, whatever is under the cursor.</summary>
-    private static GravityBody _glide;
-    private static bool _glideToStar;
 
     /// <summary>The body drawn under a screen point this frame (within its drawn size or ring), or null.</summary>
     static GravityBody BodyAt(Vector2 m)

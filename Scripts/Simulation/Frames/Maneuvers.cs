@@ -862,38 +862,6 @@ public static class Maneuvers
         return $"After: Pe {HudPanel.Km(pe)}   Ap {HudPanel.Km(ap)}";
     }
 
-    private static void ClosestTo(string sector, List<Leg> legs, Func<Vector3D, double, Vector3D> toMap, Func<Vector3D, Vector3D> W, double limit, double t)
-    {
-        EncounterFrames.Site site = null;
-        foreach (var s in EncounterFrames.Sites) if (s.Sector == sector && s.Anchor) site = s;
-        if (site == null) return;
-        double best = double.MaxValue, bt = double.NaN; Vector3D bm = default, bs = default;
-        foreach (var l in legs)
-        {
-            double span = l.T1 - l.T0;
-            if (!(span > 0)) continue;
-            int n = 240;
-            for (int k = 0; k <= n; k++)
-            {
-                double tk = l.T0 + span * k / n;
-                if (!EncounterFrames.Ephemeris(site, tk, out var p, out var rel)) continue;
-                Vector3D sr = p.OriginInRoot(tk).Position + rel.Position, mr = RootAt(l, tk);
-                double d = (sr - mr).Length();
-                if (d < best) { best = d; bt = tk; bm = mr; bs = sr; }
-            }
-        }
-        if (double.IsNaN(bt)) return;
-        Vector3D a = toMap(bm, bt), b = toMap(bs, bt);
-        if (MapPipeline.ToScreen(W(a), out var sa) && MapPipeline.ToScreen(W(b), out var sb))
-        {
-            MapPipeline.ScreenCircle(sa, 5f, TgtColor, 2f);
-            MapPipeline.ScreenCircle(sb, 5f, TgtColor, 2f);
-            MapPipeline.ScreenLine(sa, sb, TgtColor, 1.2f);
-            string d = best >= 1e4 ? $"{best / 1000:N0} km" : $"{best / 1000:F1} km";
-            float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
-            HudPanel.TagAt(sb + new Vector2(8f * u, 10f * u), $"Closest {d}  in {Clock(bt - t)}", TgtColor, u, diamond: false);
-        }
-    }
 
     public static string Clock(double s)
     {

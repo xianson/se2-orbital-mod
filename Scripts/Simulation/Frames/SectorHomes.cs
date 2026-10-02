@@ -262,13 +262,6 @@ public static class SectorHomes
         return (a - b) / (2 * e);
     }
 
-    /// <summary>The same pull as seen in the turning frame (x offset, u velocity there).</summary>
-    public static Vector3D LagrangeAccelTurning(Vector3D x, Vector3D u, Vector3D omega, double w, double core)
-    {
-        double r = x.Length();
-        if (r <= core) return -2 * Vector3D.Cross(omega, u) - Vector3D.Cross(omega, Vector3D.Cross(omega, x));
-        return -w * w * (1 - core / r) * x;
-    }
 
     /// <summary>The drift (turning frame) that circles the point at distance r: none in the core (you stay put).</summary>
     public static double LagrangeCircleSpeed(double r, double w, double core) => r <= core ? 0 : w * Math.Sqrt(r * (r - core));
@@ -320,25 +313,7 @@ public static class SectorHomes
         v = (Where(h, reg, t + e) - Where(h, reg, t - e)) / (2 * e);
     }
 
-    /// <summary>Where on its Lagrange orbit you are after tau (turning frame, axes as at the start): the ellipse through (d, v).</summary>
-    public static Vector3D LagrangeOrbitAt(Vector3D d, Vector3D v, Vector3D omega, double w, double tau)
-    {
-        Vector3D vRot = v - Vector3D.Cross(omega, d);
-        return d * Math.Cos(w * tau) + vRot * (Math.Sin(w * tau) / w);
-    }
 
-    /// <summary>Gravity at a root-frame point from a primary and its body, with the indirect term (what balances a Lagrange point).</summary>
-    public static Vector3D PairGravity(GravityBody s, Vector3D x, double t)
-    {
-        Vector3D o1 = s.Parent.OriginInRoot(t).Position, o2 = s.OriginInRoot(t).Position, rel = o2 - o1;
-        Vector3D a = x - o1, b = x - o2;
-        double la = a.Length(), lb = b.Length(), lr = rel.Length();
-        Vector3D g = Vector3D.Zero;
-        if (la > 1) g -= a * (s.Parent.Mu / (la * la * la));
-        if (lb > 1) g -= b * (s.Mu / (lb * lb * lb));
-        if (lr > 1) g -= rel * (s.Mu / (lr * lr * lr));
-        return g;
-    }
 
     /// <summary>The period the sector moves round with (its ring's, its body's orbit, its pair's).</summary>
     public static double Period(Home h, SystemRegistry reg)

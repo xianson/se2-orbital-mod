@@ -184,15 +184,6 @@ public static class MapPipeline
         catch (Exception e) { LastError = (e.InnerException ?? e).Message; return false; }
     }
 
-    /// <summary>Colour a section of our model through the renderer's own public SetSectorParameters.</summary>
-    public static void ColourSection(object renderer, string section, ColorSRGB main, ColorSRGB gradient)
-    {
-        try
-        {
-            renderer?.GetType().GetMethod("SetSectorParameters")?.Invoke(renderer, new object[] { Keen.VRage.Library.Utils.StringId.Get(section), main, gradient });
-        }
-        catch (Exception e) { LastError = "colour: " + (e.InnerException ?? e).Message; }
-    }
 
     /// <summary>Put the game's own sector model back.</summary>
     public static void Restore(object sectorsRenderer)
@@ -365,11 +356,6 @@ public static class MapPipeline
         if (poly != null && poly.Count >= 3) { var a = new Vector2[poly.Count]; poly.CopyTo(a, 0); _areas.Add(new Area { Poly = a }); }
     }
 
-    /// <summary>A round sector area on screen (centre, radius px).</summary>
-    public static void OccludeDisc(Vector2 c, float r)
-    {
-        if (r > 1f) _areas.Add(new Area { C = c, R = r });
-    }
 
     /// <summary>A screen point inside a polygon (even-odd).</summary>
     public static bool InPolygon(Vector2[] p, Vector2 s)

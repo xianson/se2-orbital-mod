@@ -65,7 +65,6 @@ public static class EncounterFrames
     private static Site[] _siteSnap = new Site[0];
     public static IEnumerable<Site> Sites => System.Threading.Volatile.Read(ref _siteSnap);
     private static void SitesChanged() => System.Threading.Volatile.Write(ref _siteSnap, new List<Site>(_sites.Values).ToArray());
-    public static int SiteCount => _sites.Count;
     public static bool IsSite(ProximityFrame f) => f != null && _sites.ContainsKey(f.Id);
     public static Site SiteOf(long frameId) => _sites.TryGetValue(frameId, out var s) ? s : null;
 
@@ -351,14 +350,6 @@ public static class EncounterFrames
         return SectorHomes.Where(s.Home, reg, t, out centre);   // a ring's point, a Lagrange point, a body still to come
     }
 
-    /// <summary>
-    /// A Lagrange site's dynamics: its Lagrange orbit (SectorHomes.LagrangeOrbit: a closed ellipse round
-    /// the point in the frame turning with the planet, at the pair's real libration rate), at every point;
-    /// L1 / L2 / L3 hold you: no relative pull at all (the real ones are unstable; drifting off is no fun).
-    /// False for any frame that is not a Lagrange site.
-    /// </summary>
-    /// <summary>A site's point at t (root frame), or null.</summary>
-    public static Vector3D? SitePoint(long frameId, double t) => _sites.TryGetValue(frameId, out var s) ? SiteRoot(s, t) : (Vector3D?)null;
 
     public static bool LagrangeDynamics(long frameId, double t, out Func<Vector3D, Vector3D, Vector3D> relAccel)
     {

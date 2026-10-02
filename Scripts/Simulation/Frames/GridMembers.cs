@@ -178,34 +178,6 @@ public static class GridMembers
         catch { return true; }   // unknown: be safe, do not move it
     }
 
-    /// <summary>
-    /// The grids joined to this one by physics constraints (wheels, rotors, hinges, locked gear, docked
-    /// connectors), itself included, followed through every joint. Unknown bodies are skipped.
-    /// </summary>
-    public static List<OrbitalGridComponent> ConstrainedGroup(OrbitalGridComponent g)
-    {
-        var group = new List<OrbitalGridComponent> { g };
-        try
-        {
-            var physics = g.Session?.Get<Keen.VRage.Physics.IPhysics>();
-            if (physics == null) return group;
-            var byBody = new Dictionary<Keen.VRage.DCS.Accessors.DEntity, OrbitalGridComponent>();
-            foreach (var o in All()) if (o.IsServer == g.IsServer && o.Entity != null) byBody[o.Entity.DEntity] = o;
-            var seen = new HashSet<long> { g.Id };
-            for (int i = 0; i < group.Count; i++)
-            {
-                var cur = group[i];
-                if (!physics.HasBody(cur.Entity.DEntity)) continue;
-                using (var buf = new Keen.VRage.Library.Memory.Buffer<Keen.VRage.DCS.Accessors.DEntity>(Keen.VRage.Library.Memory.Allocator.Pool, "OrbitalGroup"))
-                {
-                    physics.GetDirectlyConnectedBodies(cur.Entity.DEntity, buf);
-                    foreach (var b in buf) if (byBody.TryGetValue(b, out var o) && seen.Add(o.Id)) group.Add(o);
-                }
-            }
-        }
-        catch { }
-        return group;
-    }
 
     /// <summary>
     /// Everything that must move with a grid (as the game's fast travel collects it): the grid and every

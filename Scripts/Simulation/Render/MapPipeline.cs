@@ -514,8 +514,8 @@ public static class MapPipeline
             var box = new BoundingBox2(s - size * 0.5f - new Vector2(4, 2), s + size * 0.5f + new Vector2(4, 2));
             _placed.Add(box); MarkShown(key, 0);
             var shadow = new ColorSRGB(0f, 0f, 0f, 0.8f);
-            _drawString.Invoke(_batch, new object[] { _font, s - size * 0.5f + new Vector2(1.5f, 1.5f), shadow, text, scale, false, null, 0f });
-            _drawString.Invoke(_batch, new object[] { _font, s - size * 0.5f, color, text, scale, false, null, 0f });
+            DrawStringArgs(s - size * 0.5f + new Vector2(1.5f, 1.5f), shadow, text, scale);
+            DrawStringArgs(s - size * 0.5f, color, text, scale);
         }
         catch { }
     }
@@ -547,18 +547,19 @@ public static class MapPipeline
     public static void ScreenRect(Vector2 min, Vector2 max, ColorSRGB fill)
     {
         if (_batch == null || _drawLine == null) return;
-        var ps = _drawLine.GetParameters();
+        if (!ReferenceEquals(_solidFor, _drawLine)) { _solid = _drawLine.GetParameters()[4].DefaultValue; _solidFor = _drawLine; }
         float h = max.Y - min.Y, y = (min.Y + max.Y) * 0.5f;
-        _drawLine.Invoke(_batch, new object[] { new Vector2(min.X, y), new Vector2(max.X, y), fill, h, ps[4].DefaultValue, 1f, false });
+        _lineArgs[0] = new Vector2(min.X, y); _lineArgs[1] = new Vector2(max.X, y); _lineArgs[2] = fill; _lineArgs[3] = h; _lineArgs[4] = _solid; _lineArgs[5] = _one; _lineArgs[6] = _false;
+        _drawLine.Invoke(_batch, _lineArgs);
     }
 
     /// <summary>A dashed screen-space line (the batch's own dashing).</summary>
     public static void ScreenDashed(Vector2 a, Vector2 b, ColorSRGB color, float width, float dashScale = 1f)
     {
         if (_batch == null || _drawLine == null || !Clip(ref a, ref b)) return;
-        var ps = _drawLine.GetParameters();
-        object dash = Enum.ToObject(ps[4].ParameterType, 1);
-        _drawLine.Invoke(_batch, new object[] { a, b, color, width, dash, dashScale, false });
+        if (!ReferenceEquals(_dashFor, _drawLine)) { _dash = Enum.ToObject(_drawLine.GetParameters()[4].ParameterType, 1); _dashFor = _drawLine; }
+        _lineArgs[0] = a; _lineArgs[1] = b; _lineArgs[2] = color; _lineArgs[3] = width; _lineArgs[4] = _dash; _lineArgs[5] = dashScale; _lineArgs[6] = _false;
+        _drawLine.Invoke(_batch, _lineArgs);
     }
 
     /// <summary>Size of a text in the UI font at a scale (px).</summary>
@@ -617,6 +618,19 @@ public static class MapPipeline
         _drawLine.Invoke(_batch, _lineArgs);
     }
     static readonly QuadraticBezier2[] _seg1 = new QuadraticBezier2[1];
+    // DrawString's font parameter is a render type mods cannot name (no typed delegate): one argument array,
+    // reused, with its constants boxed once (a new array per string was a good part of the HUD's garbage)
+    static readonly object[] _strArgs = new object[8];
+    static readonly object _false = false, _zero = 0f, _one = 1f;
+    static readonly object[] _imgArgs = new object[6];
+    static object _dash, _dashFor;
+    static readonly List<Vector2> _discPoly = new List<Vector2>(48);
+    static void DrawStringArgs(Vector2 at, ColorSRGB color, string text, float scale)
+    {
+        _strArgs[0] = _font; _strArgs[1] = at; _strArgs[2] = color; _strArgs[3] = text; _strArgs[4] = scale;
+        _strArgs[5] = _false; _strArgs[6] = null; _strArgs[7] = _zero;
+        _drawString.Invoke(_batch, _strArgs);
+    }
     static readonly object[] _lineArgs = new object[7];
 
     // ── the batch's own vector drawing: smooth paths, fills, and the game's icons ──
@@ -714,7 +728,7 @@ public static class MapPipeline
     public static void ScreenFill(IList<Vector2> poly, ColorSRGB color)
     {
         if (_batch == null || _fill == null || poly == null || poly.Count < 3) return;
-        var pts = new List<Vector2>(poly);
+        IList<Vector2> pts = poly;   // (copied only to be clipped)
         if (ClipRect.HasValue)
         {
             var r = ClipRect.Value;
@@ -730,7 +744,7 @@ public static class MapPipeline
         try { _fill(_qb, n, color); } catch { _fill = null; }
     }
 
-    static List<Vector2> ClipPoly(List<Vector2> pts, Func<Vector2, bool> inside, Func<Vector2, Vector2, Vector2> cross)
+    static List<Vector2> ClipPoly(IList<Vector2> pts, Func<Vector2, bool> inside, Func<Vector2, Vector2, Vector2> cross)
     {
         var o = new List<Vector2>();
         for (int i = 0; i < pts.Count; i++)
@@ -779,7 +793,8 @@ public static class MapPipeline
         {
             var box = new BoundingBox2(c - new Vector2(half, half), c + new Vector2(half, half));
             if (PickName != null) AddPick(c - new Vector2(half, 0), c + new Vector2(half, 0));
-            _drawImageM.Invoke(_batch, new object[] { h, box, color, false, null, null });
+            _imgArgs[0] = h; _imgArgs[1] = box; _imgArgs[2] = color; _imgArgs[3] = _false; _imgArgs[4] = null; _imgArgs[5] = null;
+            _drawImageM.Invoke(_batch, _imgArgs);
             return true;
         }
         catch (Exception e) { VectorStatus = "icon draw: " + (e.InnerException ?? e).Message; _drawImageM = null; return false; }
@@ -792,7 +807,7 @@ public static class MapPipeline
     {
         if (!CanFill) { ScreenDot(c, r, color); return; }
         int n = Math.Clamp((int)(r * 0.8f), 12, 48);
-        var poly = new List<Vector2>(n);
+        var poly = _discPoly; poly.Clear();   // (one list: ScreenFill draws it at once)
         for (int i = 0; i < n; i++) { double a = 2 * Math.PI * i / n; poly.Add(c + new Vector2((float)(Math.Cos(a) * r), (float)(Math.Sin(a) * r))); }
         ScreenFill(poly, color);
     }
@@ -803,7 +818,7 @@ public static class MapPipeline
         if (_batch == null || _drawImageM == null || !MapIcons.Has(name)) return false;
         object h = MapIcons.Handle(name);
         if (h == null) return false;
-        try { _drawImageM.Invoke(_batch, new object[] { h, new BoundingBox2(min, max), color, false, null, null }); return true; }
+        try { _imgArgs[0] = h; _imgArgs[1] = new BoundingBox2(min, max); _imgArgs[2] = color; _imgArgs[3] = _false; _imgArgs[4] = null; _imgArgs[5] = null; _drawImageM.Invoke(_batch, _imgArgs); return true; }
         catch { return false; }
     }
 
@@ -862,8 +877,8 @@ public static class MapPipeline
         try
         {
             var shadow = new ColorSRGB(0f, 0f, 0f, 0.8f);
-            _drawString.Invoke(_batch, new object[] { _font, at + new Vector2(1.5f, 1.5f), shadow, text, scale, false, null, 0f });
-            _drawString.Invoke(_batch, new object[] { _font, at, color, text, scale, false, null, 0f });
+            DrawStringArgs(at + new Vector2(1.5f, 1.5f), shadow, text, scale);
+            DrawStringArgs(at, color, text, scale);
         }
         catch { }
     }

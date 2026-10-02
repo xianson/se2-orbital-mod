@@ -241,11 +241,10 @@ public partial class ServerPlanetBeacon
         lock (_riderLock) { dv = _riderDv; vset = _riderVel; _riderDv = Vector3D.Zero; _riderVel = null; }
         if (vset.HasValue || dv.LengthSquared() > 0)
         {
-            var chars = new List<Entity>();
-            var session = beacon.Entity.GetSession();
-            if (session != null && session.TryFillAliveCharacters(chars) && chars.Count > 0)
+            var ch = PlayerCache.Of(beacon.Entity.GetSession());
+            if (ch != null)
             {
-                var ctx = chars[0].Data;
+                var ctx = ch.Data;
                 Vector3D v = vset ?? (Vector3D)ctx.Get<RigidBodyData>().LinearVelocity;
                 v += dv;
                 if (!double.IsNaN(v.X + v.Y + v.Z)) ctx.Set(new RigidBodyData { LinearVelocity = (Vector3)v });
@@ -253,14 +252,14 @@ public partial class ServerPlanetBeacon
         }
         try
         {
-            var pc = new List<Entity>();
             var ss = beacon.Entity.GetSession();
-            if (ss != null && ss.TryFillAliveCharacters(pc) && pc.Count > 0)
+            var pc0 = PlayerCache.Of(ss);
+            if (pc0 != null)
             {
-                _playerPos = pc[0].Data.GetWorldTransform().Position;
-                _playerVel = (Vector3D)pc[0].Data.Get<RigidBodyData>().LinearVelocity;
+                _playerPos = pc0.Data.GetWorldTransform().Position;
+                _playerVel = (Vector3D)pc0.Data.Get<RigidBodyData>().LinearVelocity;
                 _playerSeen = true;
-                DelfosHeat.Apply(ss, pc[0], _playerPos);   // Delfos's heat on the server copy (the damage)
+                DelfosHeat.Apply(ss, pc0, _playerPos);   // Delfos's heat on the server copy (the damage)
             }
         }
         catch { }

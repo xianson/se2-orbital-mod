@@ -20,6 +20,15 @@ namespace OrbitalMod;
 public static class OrbitDisplay
 {
     private const int PathPoints = 160;
+    private static OrbitPath _path;
+    private static KeplerianElements _pathEl;
+    private static double _pathSoi;
+    private static Vector3D[] _worldA, _worldB;
+    private static bool _worldFlip;
+    /// <summary>The same orbit shape (where along it does not matter).</summary>
+    private static bool SameShape(in KeplerianElements a, in KeplerianElements b)
+        => a.SemiMajorAxis == b.SemiMajorAxis && a.Eccentricity == b.Eccentricity && a.Inclination == b.Inclination
+        && a.Raan == b.Raan && a.ArgPeriapsis == b.ArgPeriapsis && a.Mu == b.Mu;
     private const double MinSpeed = 0.5;      // m/s; below this there is no meaningful orbit
     private const double VelocitySmoothing = 0.05;   // (the fallback estimate: seated / HighSpeed)
     private const double DominanceMargin = 1.1;
@@ -227,14 +236,24 @@ public static class OrbitDisplay
                 if (IsFinite(ae.SemiMajorAxis)) anchorEl = ae;
             }
         }
-        OrbitPath path = OrbitSampler.SamplePath(el, PathPoints, parent.SoiRadius);
+        // (the orbit's shape changes only with its elements - on rails, not every frame: sampled again only then,
+        //  and the world points go into two buffers in turn - new arrays every frame were ~0.5 MB/s of garbage)
+        if (!SameShape(el, _pathEl) || parent.SoiRadius != _pathSoi || _path.Points == null)
+        {
+            _path = OrbitSampler.SamplePath(el, PathPoints, parent.SoiRadius);
+            _pathEl = el; _pathSoi = parent.SoiRadius;
+        }
+        OrbitPath path = _path;
         // The orbit itself is drawn by the HUD (OrbitHud.DrawPath: a smooth screen curve, behind the
         // planet hidden); here only its points in the world.
         var pts = path.Points;
         Vector3D[] world = null;
         if (pts != null && pts.Length > 1)
         {
-            world = new Vector3D[pts.Length];
+            _worldFlip = !_worldFlip;
+            ref Vector3D[] buf = ref (_worldFlip ? ref _worldA : ref _worldB);
+            if (buf == null || buf.Length != pts.Length) buf = new Vector3D[pts.Length];
+            world = buf;
             for (int i = 0; i < pts.Length; i++) world[i] = SEAerospace.PlanetBerths.WorldFromCelestial(obs, parentOrg + pts[i]);
         }
         var def = reg.FindDefinition(frame.ParentBodyName);

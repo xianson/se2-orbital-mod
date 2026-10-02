@@ -161,9 +161,8 @@ public static class ServerFrames
         if (dt <= 0 || dt > 0.25) dt = 1.0 / 60.0;
         _tick++;
 
-        var chars = new List<Entity>();
-        if (session.TryFillAliveCharacters(chars) && chars.Count > 0)
-            PlayerPosition = chars[0].Data.GetWorldTransform().Position;
+        var player = PlayerCache.Of(session);
+        if (player != null) PlayerPosition = player.Data.GetWorldTransform().Position;
 
         if (StopAllGrids)
         {

@@ -951,8 +951,7 @@ public static class FrameHost
 
     internal static Entity PlayerCharacter(Keen.VRage.Core.Game.Systems.Session session)
     {
-        var list = new List<Entity>();
-        return session.TryFillAliveCharacters(list) && list.Count > 0 ? list[0] : null;
+        return PlayerCache.Of(session);
     }
 
     /// <summary>The frame of the grid a seated player sits in (a member grid within 300 m). Caller holds FramesLock.</summary>

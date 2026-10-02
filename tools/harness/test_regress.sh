@@ -37,8 +37,15 @@ expect "ring rocks: a crossing predicts rendezvous" "passes: '${n:-none}'" test 
 
 # 3. Ring rocks: co-orbiting inside the ring, the nearest rock becomes a site and its rocks come out.
 mark; send "orbit Verdure 65 65 0"
-check "ring rocks: a near rock becomes a site" "ring rock Oblivara #[0-9]* near" 40 5
-check "ring rocks: its rocks come out" "ROCKS out: Oblivara #" 40 5
+# (the pass through the ring in step 2 can already have made the nearest rock a site - rocks move with the clock: then
+#  you merge into its site instead of a new one appearing; both are the behaviour asked for)
+check "ring rocks: a near rock becomes a site (or you join its site)" "ring rock Oblivara #[0-9]* near\|MERGE frame #[0-9]* -> #[0-9]*" 40 5
+joined=$(since | grep -ao "MERGE frame #[0-9]* -> #[0-9]*" | head -1 | grep -o "#[0-9]*$")
+if [ -n "$joined" ] && ! since | grep -aq "ring rock Oblivara #[0-9]* near"; then
+    expect "ring rocks: its rocks come out (the site you joined)" "site $joined has no rocks out" grep -aq "ROCKS out: Oblivara #[0-9]* (frame $joined)" "$(log)"
+else
+    check "ring rocks: its rocks come out" "ROCKS out: Oblivara #" 40 5
+fi
 
 # 3b. The orbit command takes you out of a rock's frame (a site) onto the orbit you asked for.
 send "orbit Verdure 300 300"; hold 10

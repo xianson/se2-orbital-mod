@@ -1006,8 +1006,10 @@ public static class FrameHost
     public static void Guard(string name, Action a)
     {
         long m0 = AllocWatch ? GC.GetAllocatedBytesForCurrentThread() : 0;
+        long t0 = ModCost.Start();
         try { a(); }
         catch (Exception ex) { Fault(name, ex); }
+        ModCost.Sec(name).Stop(t0);   // (each guarded system's time: the status line's mapcost list)
         if (AllocWatch) lock (_allocs) { _allocs.TryGetValue(name, out long b); _allocs[name] = b + GC.GetAllocatedBytesForCurrentThread() - m0; }
     }
 

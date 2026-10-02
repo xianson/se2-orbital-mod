@@ -342,13 +342,24 @@ public static partial class CleanMap
     }
 
     /// <summary>Lagrange zones on screen (name, outline), for double-click: this frame's and last frame's.</summary>
-    private static List<(string name, Vector2[] poly)> _lens = new List<(string, Vector2[])>(), _lensPrev = new List<(string, Vector2[])>();
+    // (the outlines' lists are pooled: a map frame draws several zones, so no per-frame arrays)
+    private static List<(string name, List<Vector2> poly)> _lens = new List<(string, List<Vector2>)>(), _lensPrev = new List<(string, List<Vector2>)>();
+    private static readonly List<List<Vector2>> _lensPool = new List<List<Vector2>>();
     static void LensHit(string name, IList<Vector2> poly)
     {
         if (string.IsNullOrEmpty(name) || poly == null || poly.Count < 3) return;
-        var a = new Vector2[poly.Count]; poly.CopyTo(a, 0); _lens.Add((name, a));
+        List<Vector2> a;
+        if (_lensPool.Count > 0) { a = _lensPool[_lensPool.Count - 1]; _lensPool.RemoveAt(_lensPool.Count - 1); a.Clear(); }
+        else a = new List<Vector2>(poly.Count);
+        for (int i = 0; i < poly.Count; i++) a.Add(poly[i]);
+        _lens.Add((name, a));
     }
-    static void SwapLens() { var s = _lensPrev; _lensPrev = _lens; _lens = s; _lens.Clear(); }
+    static void SwapLens()
+    {
+        var s = _lensPrev; _lensPrev = _lens; _lens = s;
+        foreach (var l in _lens) _lensPool.Add(l.poly);
+        _lens.Clear();
+    }
 
     /// <summary>
     /// A double-click on a Lagrange zone: centre on it and frame it (about half the view), so its inside

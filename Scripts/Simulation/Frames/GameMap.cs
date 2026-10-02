@@ -29,7 +29,7 @@ public static class GameMap
     public static double DefaultDistance;
     /// <summary>The closest zoom (map units), set by the map for the body it is about.</summary>
     public static double MinZoom = 1e-5;
-    private static bool _gameHidden, _labelsHidden;
+    private static bool _gameHidden;
 
     // Colours: the colonization states, KSP conventions for orbits.
     private static readonly ColorSRGB Locked = new ColorSRGB(0.42f, 0.45f, 0.5f);
@@ -67,7 +67,6 @@ public static class GameMap
             if (def > 0) PlanetRenderBridge.SettleMapZoom(map, def, def);
         }
         HideGame(map);
-        _labelsHidden = true;
         ModCost.Sec("gm.hide").Stop(g0); g0 = ModCost.Start();
 
         var reg = SystemHost.Registry;
@@ -429,7 +428,6 @@ public static class GameMap
     /// <summary>The game's star model is on the map this frame (the map then draws no disc of its own).</summary>
     public static bool StarPlaced;
     private static bool _starModelTried;
-    private static int Frame;
     /// <summary>How much bigger than its own model Delfos shows on the map.</summary>
     public static double StarScale = 1.0;   // (moved off the map plane toward the camera, the model stopped drawing)
     public static string StarDebug = "-";

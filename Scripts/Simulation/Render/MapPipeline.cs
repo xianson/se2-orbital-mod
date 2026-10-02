@@ -297,7 +297,8 @@ public static class MapPipeline
         _picks.Clear();
         _occluders.Clear();
         // Last frame's sector areas answer this frame (orbit lines are drawn before the sectors).
-        _areasPrev.Clear(); _areasPrev.AddRange(_areas); _areas.Clear();
+        _areaPool.AddRange(_areasPrev); _areasPrev.Clear();
+        var swap = _areasPrev; _areasPrev = _areas; _areas = swap;
         _areasAt = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
         try
         {
@@ -345,15 +346,21 @@ public static class MapPipeline
     private struct Occluder { public Vector2 C; public float R; public double Depth, RWorld; }
     private static readonly List<Occluder> _occluders = new List<Occluder>();
 
-    // Sector areas on screen (a polygon, or a disc when Poly is null): orbit lines are not drawn through them.
-    private struct Area { public Vector2[] Poly; public Vector2 C; public float R; }
-    private static readonly List<Area> _areas = new List<Area>(), _areasPrev = new List<Area>();
+    // Sector areas on screen (outline polygons): orbit lines are not drawn through them. Two lists swapped each frame;
+    // the outlines' own lists are pooled (a map frame draws several areas: no per-frame arrays).
+    private static List<List<Vector2>> _areas = new List<List<Vector2>>(), _areasPrev = new List<List<Vector2>>();
+    private static readonly List<List<Vector2>> _areaPool = new List<List<Vector2>>();
     private static double _areasAt;
 
     /// <summary>A sector's area on screen (its outline): orbit lines do not cross it.</summary>
     public static void OccludeArea(IList<Vector2> poly)
     {
-        if (poly != null && poly.Count >= 3) { var a = new Vector2[poly.Count]; poly.CopyTo(a, 0); _areas.Add(new Area { Poly = a }); }
+        if (poly == null || poly.Count < 3) return;
+        List<Vector2> a;
+        if (_areaPool.Count > 0) { a = _areaPool[_areaPool.Count - 1]; _areaPool.RemoveAt(_areaPool.Count - 1); a.Clear(); }
+        else a = new List<Vector2>(poly.Count);
+        for (int i = 0; i < poly.Count; i++) a.Add(poly[i]);
+        _areas.Add(a);
     }
 
 
@@ -371,12 +378,10 @@ public static class MapPipeline
     {
         double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
         if (_areasPrev.Count == 0 || now - _areasAt > 0.3) return false;
-        foreach (var a in _areasPrev)
+        foreach (var p in _areasPrev)
         {
-            if (a.Poly == null) { if ((s - a.C).LengthSquared() < a.R * a.R) return true; continue; }
             bool inside = false;
-            var p = a.Poly;
-            for (int i = 0, j = p.Length - 1; i < p.Length; j = i++)
+            for (int i = 0, j = p.Count - 1; i < p.Count; j = i++)
                 if ((p[i].Y > s.Y) != (p[j].Y > s.Y) && s.X < (p[j].X - p[i].X) * (s.Y - p[i].Y) / (p[j].Y - p[i].Y) + p[i].X) inside = !inside;
             if (inside) return true;
         }

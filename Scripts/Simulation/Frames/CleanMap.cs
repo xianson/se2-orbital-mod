@@ -393,14 +393,13 @@ public static partial class CleanMap
     public static string ViewFocus;
     /// <summary>What the map shows (the system, or a body's view): menus close when it changes.</summary>
     public static string ViewKey = "";
-    private static bool? _wasSolar;
 
     /// <summary>Where a body (a planet about the sun) sits in the system view, in map-local units.</summary>
     public static Vector3D SolarLocal(GravityBody b, double t)
         => Flat(b.OriginInRoot(t).Position - (_anchor != null ? _anchor.OriginInRoot(t).Position : Vector3D.Zero));
 
     /// <summary>The map closed: the next opening starts from where you are.</summary>
-    public static void ResetView() { ViewFocus = null; _wasSolar = null; _fitPending = true; _anchor = null; _zoomTo = null; }
+    public static void ResetView() { ViewFocus = null; _fitPending = true; _anchor = null; _zoomTo = null; }
     private static bool _fitPending = true;
 
     /// <summary>The planet the view is about (null: the system view). Only its own things are drawn.</summary>

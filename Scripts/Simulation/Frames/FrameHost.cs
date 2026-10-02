@@ -492,7 +492,6 @@ public static class FrameHost
         _overCapWait = 0;
         bool capped = speed > SpeedCap * 1.001;
         Vector3D applied = capped ? worldVel * (SpeedCap / speed) : worldVel;
-        bool hs = false;
         _hsActive = false;
 
         long fid = f.Id;

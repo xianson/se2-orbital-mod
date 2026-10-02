@@ -17,7 +17,7 @@ public static class SpecCam
     private static Target _target;
     private static string _planet;
     private static double _dist, _bearing, _elev;
-    private static Vector3D _fixedPos, _fixedLook;
+    private static Vector3D _fixedLook;
     public static string Status = "off";
     /// <summary>The spectator transform while active: proxies and orbit lines must be built for this viewpoint.</summary>
     public static WorldTransform? Current;

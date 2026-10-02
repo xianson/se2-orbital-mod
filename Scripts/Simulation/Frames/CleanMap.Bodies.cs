@@ -227,13 +227,14 @@ public static partial class CleanMap
     /// A planet's own sector (its near space): not an orbit, so a faint dashed boundary (gold when
     /// selected), with the sector's name centred above the whole area.
     /// </summary>
+    static readonly List<Vector2> _ownRing = new List<Vector2>(64);   // (reused: drawn at once; OccludeArea and LensHit copy)
     static void OwnSector(Func<Vector3D, Vector3D> W, double r, Band b, Vector3D centre = default, bool faint = false)
     {
         float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
         var col = faint ? HudPanel.Alpha(Dim, 0.3f) : b.Selected ? HudPanel.Alpha(LineSel, 0.85f) : b.Name == Hovered ? HudPanel.Alpha(StateColor(b), 0.8f) : HudPanel.Alpha(StateColor(b), 0.45f);
         const int n = 64;
         Vector2 top = default; bool haveTop = false;
-        var ring = new List<Vector2>(n);
+        var ring = _ownRing; ring.Clear();
         for (int i = 0; i < n; i++)
         {
             double a = 2 * Math.PI * i / n;

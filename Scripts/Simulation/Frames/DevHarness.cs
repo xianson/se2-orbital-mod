@@ -977,6 +977,15 @@ public static class DevHarness
                 return "grid orbit queued (server, next tick)";
             }
 
+            case "aeroset":   // aeroset Type.Member value (AeroMod. prefix implied): a static of the aero mod
+            case "aeroget":   // aeroget Type.Member
+            {
+                if (a.Length < 2) return "usage: aeroset Type.Member value | aeroget Type.Member";
+                int dot = a[1].LastIndexOf('.');
+                if (dot < 0) return "need Type.Member";
+                string type = a[1].Substring(0, dot); if (!type.Contains('.')) type = "AeroMod." + type;
+                return PlanetRenderBridge.ForeignValue(type, a[1].Substring(dot + 1), a[0] == "aeroset" && a.Length > 2 ? a[2] : null);
+            }
             case "aerospike":
                 // aerospike on|off: the aero mod's experiment (holds every grid at 50 m/s, freezes the sim).
                 return PlanetRenderBridge.SetForeignFlag("AeroMod.AeroSpeedSpike", "Enabled", On(a[1]));

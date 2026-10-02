@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Reflection;
+using System.Globalization;
 using Keen.Game2.Client.WorldObjects;
 using Keen.Game2.Simulation.GameSystems.Discoveries.Discoverables;
 using Keen.Game2.Simulation.GameSystems.RangedAffectGenerators.Gravity;
@@ -876,6 +877,39 @@ public static class PlanetRenderBridge
     /// the aero mod's in-progress experiment that holds every grid at 50 m/s and freezes the main
     /// thread). Runtime only; the other mod's files are untouched. Returns a description.
     /// </summary>
+    /// <summary>DEV: read (value null) or set a static field or property of another mod's type (bool, int, float,
+    /// double, string), e.g. the aero mod's tuning knobs and counters.</summary>
+    public static string ForeignValue(string typeName, string member, string value)
+    {
+        try
+        {
+            foreach (Assembly a in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type t;
+                try { t = a.GetType(typeName); } catch { continue; }
+                if (t == null) continue;
+                const BindingFlags S = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+                FieldInfo f = t.GetField(member, S); PropertyInfo p = f == null ? t.GetProperty(member, S) : null;
+                Type ft = f?.FieldType ?? p?.PropertyType;
+                if (ft == null) return $"{typeName}.{member}: no such static";
+                if (value != null)
+                {
+                    object v = ft == typeof(bool) ? (object)(value == "on" || value == "true" || value == "1")
+                             : ft == typeof(int) ? int.Parse(value, CultureInfo.InvariantCulture)
+                             : ft == typeof(float) ? float.Parse(value, CultureInfo.InvariantCulture)
+                             : ft == typeof(double) ? double.Parse(value, CultureInfo.InvariantCulture)
+                             : ft == typeof(string) ? value : null;
+                    if (v == null) return $"{typeName}.{member}: {ft.Name} not settable";
+                    if (f != null) f.SetValue(null, v); else p.SetValue(null, v);
+                }
+                object now = f != null ? f.GetValue(null) : p.GetValue(null);
+                return $"{typeName}.{member}={Convert.ToString(now, CultureInfo.InvariantCulture)}";
+            }
+            return $"{typeName} not loaded";
+        }
+        catch (Exception e) { return "failed: " + Inner(e); }
+    }
+
     public static string SetForeignFlag(string typeName, string field, bool value)
     {
         try

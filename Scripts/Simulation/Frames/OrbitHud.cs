@@ -153,6 +153,7 @@ public static class HudPanel
 /// </summary>
 public static class OrbitHud
 {
+    static readonly List<Vector2> _orbitPts = new List<Vector2>(161), _relPts = new List<Vector2>(161);
     public sealed class Readout
     {
         public string Body, Mode;
@@ -373,7 +374,7 @@ public static class OrbitHud
             if (mr > 3f * u) MapStyle.BoundaryCircle(ms, mr, HudPanel.Alpha(new ColorSRGB(0.75f, 0.8f, 0.88f, 1f), 0.55f), MapStyle.Thin(u), u);
         }
         // Your orbit.
-        var path = new List<Vector2>(r.RelPath.Length);
+        var path = _orbitPts; path.Clear();   // (reused: drawn here, every frame)
         foreach (var q in r.RelPath) if (IsFinite(q)) path.Add(P(q));
         MapPipeline.ScreenPath(path, r.PathClosed, Orbit, 1.6f * u);
         // Pe / Ap.
@@ -506,7 +507,7 @@ public static class OrbitHud
             MapStyle.Boundary(arc, false, HudPanel.Alpha(orange, 0.7f), MapStyle.Thin(u), u);
         }
         // Your next revolution: dashed, with quarter-revolution ticks (time from now) and its direction.
-        var path = new List<Vector2>(r.Relative.Count);
+        var path = _relPts; path.Clear();   // (reused: drawn here, every frame)
         foreach (var q in r.Relative) path.Add(P(q));
         MapStyle.Plan(path, false, Orbit, 1.5f * u, u);
         int n = path.Count - 1, full = Math.Max(1, r.RelSamples - 1);

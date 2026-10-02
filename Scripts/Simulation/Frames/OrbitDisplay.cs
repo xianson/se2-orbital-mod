@@ -24,7 +24,10 @@ public static class OrbitDisplay
     private static KeplerianElements _pathEl;
     private static double _pathSoi;
     private static Vector3D[] _worldA, _worldB;
-    private static bool _worldFlip;
+    private static bool _worldFlip, _relFlip;
+    private static Vector3D[] _relPathA, _relPathB;
+    private static readonly List<(double along, double radial)> _relA = new List<(double, double)>(161), _relB = new List<(double, double)>(161), _holdA = new List<(double, double)>(161), _holdB = new List<(double, double)>(161);
+    private static readonly List<double> _crossA = new List<double>(161), _crossB = new List<double>(161), _holdXA = new List<double>(161), _holdXB = new List<double>(161);
     /// <summary>The same orbit shape (where along it does not matter).</summary>
     private static bool SameShape(in KeplerianElements a, in KeplerianElements b)
         => a.SemiMajorAxis == b.SemiMajorAxis && a.Eccentricity == b.Eccentricity && a.Inclination == b.Inclination
@@ -278,8 +281,11 @@ public static class OrbitDisplay
         if (riding)
         {
             var rc = OrbitHud.Current;
-            rc.RelCross = new List<double>(161);
-            rc.Relative = Curvilinear(anchorEl, el, t, out rc.RelNow, cross: rc.RelCross);
+            // (the plot's lists in two sets used in turn: the HUD draws the current frame's; new ones every frame
+            //  were most of the flight HUD's garbage)
+            _relFlip = !_relFlip;
+            rc.RelCross = _relFlip ? _crossA : _crossB; rc.RelCross.Clear();
+            rc.Relative = Curvilinear(anchorEl, el, t, out rc.RelNow, cross: rc.RelCross, into: _relFlip ? _relA : _relB);
             rc.RelNowCross = rc.RelCross.Count > 0 ? rc.RelCross[0] : 0;
             // Past the frame's boundary you leave it on your own orbit: the prediction stops there.
             rc.RelSamples = rc.Relative.Count;
@@ -304,8 +310,8 @@ public static class OrbitDisplay
                 // 24.8 deg in 488 s at n = 8.9e-4 rad/s). That circle is the prediction, not a frozen dot.
                 double nAn = anchorEl.IsElliptic && IsFinite(anchorEl.MeanMotion) ? anchorEl.MeanMotion : 0;
                 double P = nAn > 0 ? 2 * Math.PI / nAn : 3600;
-                var hold = new List<(double, double)>(161);
-                var holdX = new List<double>(161);
+                var hold = _relFlip ? _holdA : _holdB; hold.Clear();
+                var holdX = _relFlip ? _holdXA : _holdXB; holdX.Clear();
                 for (int i = 0; i <= 160; i++)
                 {
                     double a = nAn * P * i / 160, ca = Math.Cos(a), sa = Math.Sin(a);
@@ -329,7 +335,7 @@ public static class OrbitDisplay
                 _predList = null;
             }
             predDone:
-            if (_predList == null && !rc.Holding && rc.Relative.Count > 1) { _predList = rc.Relative; _predT = t; _predPeriod = rc.RelPeriod; _predN = Math.Max(1, rc.RelSamples - 1); }
+            if (_predList == null && !rc.Holding && rc.Relative.Count > 1) { _predList = new List<(double along, double radial)>(rc.Relative); /* (its own copy: the lists are reused) */ _predT = t; _predPeriod = rc.RelPeriod; _predN = Math.Max(1, rc.RelSamples - 1); }
         }
         {
             // For the orbit disc and the direction markers: the orbit about the body in world axes.
@@ -337,7 +343,13 @@ public static class OrbitDisplay
             Vector3D M(Vector3D x) => SEAerospace.PlanetBerths.WorldFromCelestial(obs, parentOrg + x) - rd.BodyWorld;
             Vector3D here = M(cur.Position);
             Vector3D D(Vector3D v) => v.LengthSquared() > 0 ? Vector3D.Normalize(M(cur.Position + Vector3D.Normalize(v) * 1000) - here) : Vector3D.Zero;
-            if (pts != null) { rd.RelPath = new Vector3D[pts.Length]; for (int i = 0; i < pts.Length; i++) rd.RelPath[i] = M(pts[i]); }
+            if (pts != null)
+            {
+                ref Vector3D[] rp = ref (_worldFlip ? ref _relPathA : ref _relPathB);
+                if (rp == null || rp.Length != pts.Length) rp = new Vector3D[pts.Length];
+                rd.RelPath = rp;
+                for (int i = 0; i < pts.Length; i++) rd.RelPath[i] = M(pts[i]);
+            }
             rd.PlayerRel = here; rd.Pro = D(cur.Velocity); rd.Nor = D(Vector3D.Cross(cur.Position, cur.Velocity)); rd.Rad = D(cur.Position);
             rd.PeRel = M(OrbitSampler.PositionAtTrueAnomaly(el, 0));
             rd.ApRel = el.IsElliptic ? M(OrbitSampler.PositionAtTrueAnomaly(el, Math.PI)) : (Vector3D?)null;
@@ -422,7 +434,7 @@ public static class OrbitDisplay
         return g?.DisplayName ?? "Anchor";
     }
 
-    static List<(double along, double radial)> Curvilinear(KeplerianElements anchor, KeplerianElements you, double t, out (double along, double radial) now, int samples = 160, List<double> cross = null)
+    static List<(double along, double radial)> Curvilinear(KeplerianElements anchor, KeplerianElements you, double t, out (double along, double radial) now, int samples = 160, List<double> cross = null, List<(double, double)> into = null)
     {
         (double, double) At(double tk) => At3(tk, out _);
         (double, double) At3(double tk, out double oop)
@@ -439,7 +451,7 @@ public static class OrbitDisplay
             return (th * r0, b.Position.Length() - r0);
         }
         now = At(t);
-        var list = new List<(double, double)>(samples + 1);
+        var list = into ?? new List<(double, double)>(samples + 1); list.Clear();
         double P = anchor.IsElliptic && IsFinite(anchor.Period) ? anchor.Period : 3600;
         for (int k = 0; k <= samples && samples > 0; k++) { list.Add(At3(t + P * k / samples, out double o)); cross?.Add(o); }
         return list;

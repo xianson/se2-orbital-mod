@@ -358,6 +358,9 @@ public static class DevHarness
             case "gridhold":   // gridhold <id> <m/s>: keep a grid moving forward at that speed (0 releases)
                 return DevStress.Hold((long)D(a[1]), D(a[2]));
 
+            case "cutgrid":   // cutgrid <id> <thickness m>: a slab through the grid's middle, in one tick (it splits)
+                return DevStress.Cut((long)D(a[1]), D(a[2]));
+
             case "gridclone":   // gridclone <id> <count> <spacing m>: copies of a grid in rows of ten above it
                 return DevStress.Clone((long)D(a[1]), (int)D(a[2]), D(a[3]));
 

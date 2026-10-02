@@ -99,6 +99,40 @@ public static class DevStress
         Status = $"cloned grid {c.id} x{made} in {(System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000 / System.Diagnostics.Stopwatch.Frequency} ms";
     }
 
+    static (long id, double thickness) _cut;
+
+    /// <summary>cutgrid: every block within thickness/2 of the grid's middle (along its longest axis), in one tick -
+    /// the grid falls in two (a split, for the aero mod's broken-off pieces).</summary>
+    public static string Cut(long id, double thickness)
+    {
+        _cut = (id, thickness);
+        return $"cutting grid {id} through its middle, {thickness:F1} m thick (server, next tick)";
+    }
+
+    static void CutTick()
+    {
+        var c = _cut; _cut = default;
+        var g = GridMembers.Get(c.id);
+        if (g == null || !g.IsServer) { Status = "cut: no such grid"; return; }
+        var grid = g.Entity.TryGet<CubeGridComponent>();
+        var recv = g.Entity.TryGet<GridDamageReceiverComponent>();
+        var all = new List<CubeBlockComponent>();
+        grid?.VisitAllBlocksWithComponent<CubeBlockComponent>(b => { if (b != null) all.Add(b); }, false);
+        if (all.Count == 0) { Status = "cut: no blocks"; return; }
+        var gwt = g.Entity.Data.GetWorldTransform();
+        var local = all.Select(b => (b, p: WorldTransform.TransformDirectionInv((Vector3)(b.Entity.Data.GetWorldTransform().Position - gwt.Position), gwt))).ToList();
+        var lo = local.Aggregate(new Vector3(float.MaxValue), (m, t) => Vector3.Min(m, t.p)); var hi = local.Aggregate(new Vector3(float.MinValue), (m, t) => Vector3.Max(m, t.p));
+        var ext = hi - lo; int axis = ext.X >= ext.Y && ext.X >= ext.Z ? 0 : ext.Y >= ext.Z ? 1 : 2;
+        float mid = axis == 0 ? (lo.X + hi.X) / 2 : axis == 1 ? (lo.Y + hi.Y) / 2 : (lo.Z + hi.Z) / 2;
+        int done = 0;
+        foreach (var (b, p) in local)
+        {
+            float a = axis == 0 ? p.X : axis == 1 ? p.Y : p.Z;
+            if (MathF.Abs(a - mid) <= c.thickness / 2) { recv?.DealDamage(b, 1e9f); done++; }
+        }
+        Status = $"cut {done} block(s) of '{g.DisplayName}' across axis {axis}";
+    }
+
     public static string Break(long id, int n, double every, double radius = 0)
     {
         _break = (id, n, Math.Max(0.0, every), 0);
@@ -109,6 +143,7 @@ public static class DevStress
     /// <summary>Server tick.</summary>
     public static void Tick()
     {
+        if (_cut.id != 0) { try { CutTick(); } catch (Exception e) { Status = "cut failed: " + e.Message; } }
         if (_clone.count > 0) { try { CloneTick(); } catch (Exception e) { var m = ""; for (var x = e; x != null; x = x.InnerException) m += " <- " + x.GetType().Name + ": " + x.Message; Status = "clone failed:" + m; Keen.VRage.Library.Diagnostics.Log.Default?.Info("[STRESS] clone failed:" + m + " | " + e); } }
         lock (_hold)
             foreach (var kv in _hold)

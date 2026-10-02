@@ -49,6 +49,7 @@ public static class GameMap
                             SectorsSessionComponent sectors, Vector3D cam, Vector3D mapPos, Quaternion orient, double t)
     {
         if (!Enabled) { RestoreGame(map); return false; }
+        long g0 = ModCost.Start();
         if (_baseMax < 0) _baseMax = map.MaxDistance;
         if (map.MaxDistance < _baseMax * (float)ZoomOutFactor) map.MaxDistance = _baseMax * (float)ZoomOutFactor;
         // And in much closer: a low orbit is a speck at the planet view's sector-wide frame (KSP zooms
@@ -67,6 +68,7 @@ public static class GameMap
         }
         HideGame(map);
         _labelsHidden = true;
+        ModCost.Sec("gm.hide").Stop(g0); g0 = ModCost.Start();
 
         var reg = SystemHost.Registry;
         Vector3D origin = sectors.MapWorldPosition;
@@ -86,6 +88,7 @@ public static class GameMap
         var planets = new List<GravityBody>();
         foreach (var body in reg.Root.Children) if (SystemHost.BeaconOf.ContainsKey(body.Name)) planets.Add(body);
         var infos = Classify(sectors, reg, planets);
+        ModCost.Sec("gm.classify").Stop(g0);
         if (CleanMap.Enabled)
         {
             var bands = new List<CleanMap.Band>();

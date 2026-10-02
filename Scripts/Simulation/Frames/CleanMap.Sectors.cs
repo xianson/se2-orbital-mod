@@ -424,6 +424,7 @@ public static partial class CleanMap
     /// <summary>Map units per metre of a level's toLocal (it is linear).</summary>
     static double LocalScale(Func<Vector3D, Vector3D> toLocal) => (toLocal(new Vector3D(1e6, 0, 0)) - toLocal(Vector3D.Zero)).Length() / 1e6;
 
+    static readonly List<Vector2> _saOuter = new List<Vector2>(97), _saInner = new List<Vector2>(97), _saPoly = new List<Vector2>(194);
     static void SectorArea(Func<Vector3D, Vector3D> W, Func<double, Vector3D> relAt, Func<Vector3D, Vector3D> toLocal, Band b, double span = SectorSpan, double kWidth = 0, bool taper = false, bool faint = false)
     {
         float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
@@ -431,7 +432,8 @@ public static partial class CleanMap
         bool ring = span >= 0.5;
         if (ring && !(kWidth > 0)) k = Math.Min(k, 0.03);   // a belt: a thin ring
         int n = ring ? 96 : 24;
-        var outer = new List<Vector2>(n + 1); var inner = new List<Vector2>(n + 1);
+        // (three lists reused: everything they are handed draws at once or copies - LensHit, OccludeArea)
+        var outer = _saOuter; var inner = _saInner; outer.Clear(); inner.Clear();
         for (int i = 0; i <= n; i++)
         {
             Vector3D r = ring ? relAt((double)i / n) : relAt(-span + 2 * span * i / n);
@@ -440,7 +442,7 @@ public static partial class CleanMap
             if (!MapPipeline.ToScreen(W(toLocal(r * (1 + ki))), out var so) || !MapPipeline.ToScreen(W(toLocal(r * (1 - ki))), out var si)) return;
             outer.Add(so); inner.Add(si);
         }
-        var poly = new List<Vector2>(outer);
+        var poly = _saPoly; poly.Clear(); poly.AddRange(outer);
         for (int i = inner.Count - 1; i >= 0; i--) poly.Add(inner[i]);
         if (!ring && b.Home?.Kind == SectorHomes.Kind.Lagrange) LensHit(b.Name, poly);
         var c = b.Selected ? LineSel : StateColor(b);

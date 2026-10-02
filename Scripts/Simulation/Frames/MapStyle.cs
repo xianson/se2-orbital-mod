@@ -27,10 +27,11 @@ public static class MapStyle
     public static void BoundaryCircle(Vector2 centre, float r, ColorSRGB c, float width, float u)
     {
         int n = Math.Clamp((int)(r / (3f * u)), 24, 128);
-        var pts = new List<Vector2>(n);
+        var pts = _circle; pts.Clear();   // (one list: drawn at once)
         for (int i = 0; i < n; i++) { double a = 2 * Math.PI * i / n; pts.Add(centre + new Vector2((float)Math.Cos(a) * r, (float)Math.Sin(a) * r)); }
         Boundary(pts, true, c, width, u);
     }
+    static readonly List<Vector2> _circle = new List<Vector2>(128);
 
     /// <summary>A plan or prediction: long dashes.</summary>
     public static void Plan(IList<Vector2> pts, bool closed, ColorSRGB c, float width, float u)

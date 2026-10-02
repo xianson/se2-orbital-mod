@@ -268,6 +268,7 @@ public static class Maneuvers
     private static bool _addPending; private static double _addT; private static Vector2 _addAt;
 
     private struct Sample { public double T; public Vector2 S; public bool Planned; }
+    private static readonly List<Sample> _samplesA = new List<Sample>(1024), _samplesB = new List<Sample>(1024);
 
     /// <summary>
     /// Draw the trajectory, nodes and handles, and run the editor. Called inside the map's UI batch.
@@ -324,7 +325,10 @@ public static class Maneuvers
         Vector3D Loc(GravityBody b, Vector3D rel, double tk) => toMap(Place(b, rel, tk), PinT(b, tk));
         Vector3D LegLoc(Leg l, double tk) => Loc(l.Body, OrbitPropagation.StateAt(l.El, tk).Position, tk);
 
-        var samples = new List<Sample>();
+        // (two lists in turn: the last frame's is kept for the mouse; a new one every frame, grown by doubling, was
+        //  ~1.5 MB/s of garbage with the map open)
+        var samples = ReferenceEquals(_lastSamples, _samplesA) ? _samplesB : _samplesA;
+        samples.Clear();
         int patch = 0;
         var legColour = new List<ColorSRGB>();
         var legPatch = new List<int>();

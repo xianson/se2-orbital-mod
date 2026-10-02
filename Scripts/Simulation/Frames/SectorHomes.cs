@@ -272,37 +272,48 @@ public static class SectorHomes
     /// the plane); L1 / L2 a sphere of 15 % of the Hill radius round the point.
     /// </summary>
     public static bool InLagrangeRegion(Home h, SystemRegistry reg, double t, Vector3D rootPos)
-    {
-        var test = LagrangeRegion(h, reg, t);
-        return test != null && test(rootPos);
-    }
+        => Region.Make(h, reg, t, out var r) && r.Contains(rootPos);   // (no closure: the server asks this every tick)
 
     /// <summary>The same test, set up once for a time t (for many points).</summary>
     public static Func<Vector3D, bool> LagrangeRegion(Home h, SystemRegistry reg, double t)
+        => Region.Make(h, reg, t, out var r) ? q => r.Contains(q) : null;
+
+    /// <summary>A Lagrange region set up for a time (see InLagrangeRegion).</summary>
+    struct Region
     {
-        if (h?.Kind != Kind.Lagrange) return null;
-        var s = reg.Find(h.Host);
-        if (s?.Parent == null) return null;
-        Vector3D p = Where(h, reg, t, out Vector3D centre);
-        if (h.Point <= 2) { double R = 0.15 * HillRadius(s); return q => (q - p).LengthSquared() <= R * R; }
-        Vector3D b = p - centre;
-        double rb = b.Length();
-        if (!(rb > 0)) return null;
-        var st = s.StateInParentAt(t);
-        Vector3D n = Vector3D.Normalize(Vector3D.Cross(st.Position, st.Velocity));
-        double phiMax = 2 * Math.PI * 0.035;
-        return q =>
+        Home H; GravityBody S; double T, R, Rb, PhiMax; Vector3D P, Centre, B, N; bool Sphere;
+
+        public static bool Make(Home h, SystemRegistry reg, double t, out Region r)
         {
-            Vector3D a = q - centre;
-            double z = Vector3D.Dot(a, n);
-            Vector3D ap = a - n * z;
+            r = default;
+            if (h?.Kind != Kind.Lagrange) return false;
+            var s = reg.Find(h.Host);
+            if (s?.Parent == null) return false;
+            r.H = h; r.S = s; r.T = t;
+            r.P = Where(h, reg, t, out r.Centre);
+            if (h.Point <= 2) { r.Sphere = true; r.R = 0.15 * HillRadius(s); return true; }
+            r.B = r.P - r.Centre;
+            r.Rb = r.B.Length();
+            if (!(r.Rb > 0)) return false;
+            var st = s.StateInParentAt(t);
+            r.N = Vector3D.Normalize(Vector3D.Cross(st.Position, st.Velocity));
+            r.PhiMax = 2 * Math.PI * 0.035;
+            return true;
+        }
+
+        public bool Contains(Vector3D q)
+        {
+            if (Sphere) return (q - P).LengthSquared() <= R * R;
+            Vector3D a = q - Centre;
+            double z = Vector3D.Dot(a, N);
+            Vector3D ap = a - N * z;
             if (!(ap.LengthSquared() > 0)) return false;
-            double phi = Math.Atan2(Vector3D.Dot(n, Vector3D.Cross(b, ap)), Vector3D.Dot(b, ap));
-            if (Math.Abs(phi) > phiMax) return false;
-            double half = 0.035 * rb * Math.Max(0.08, Math.Cos(phi / phiMax * Math.PI / 2));
-            double mid = OrbitRadiusToward(s, t, ap) * (h.Point == 3 ? rb / OrbitRadiusToward(s, t, b) : 1);   // along the orbit path
+            double phi = Math.Atan2(Vector3D.Dot(N, Vector3D.Cross(B, ap)), Vector3D.Dot(B, ap));
+            if (Math.Abs(phi) > PhiMax) return false;
+            double half = 0.035 * Rb * Math.Max(0.08, Math.Cos(phi / PhiMax * Math.PI / 2));
+            double mid = OrbitRadiusToward(S, T, ap) * (H.Point == 3 ? Rb / OrbitRadiusToward(S, T, B) : 1);   // along the orbit path
             return Math.Abs(ap.Length() - mid) <= half && Math.Abs(z) <= half;
-        };
+        }
     }
 
     /// <summary>A Lagrange point's place and velocity (root frame) at t.</summary>

@@ -119,12 +119,12 @@ public static class Maneuvers
     }
 
     /// <summary>The whole trajectory from t: legs (patched), and each node as applied.</summary>
-    private static double _cT = double.NaN; private static string _cSig; private static List<Leg> _cLegs; private static List<Applied> _cApplied; private static bool _cOk;
+    private static double _cT = double.NaN; private static long _cSig; private static List<Leg> _cLegs; private static List<Applied> _cApplied; private static bool _cOk;
 
     /// <summary>The trajectory, memoised: the map, the HUD and warp ask for it every frame.</summary>
     public static bool Trajectory(double t, out List<Leg> legs, out List<Applied> applied)
     {
-        string sig = Signature(t);
+        long sig = Signature(t);
         if (t == _cT && sig == _cSig && _cLegs != null) { legs = _cLegs; applied = _cApplied; return _cOk; }
         _cOk = TrajectoryUncached(t, out legs, out applied);
         if (_cOk) CutAtImpact(legs, applied);
@@ -167,12 +167,22 @@ public static class Maneuvers
         }
     }
 
-    private static string Signature(double t)
+    /// <summary>What the trajectory depends on, as a 64-bit hash (it was a string built every frame: ~150 KB/s
+    /// of garbage and the doubles' formatting).</summary>
+    private static long Signature(double t)
     {
-        var sb = new System.Text.StringBuilder();
-        if (Base(t, out var b, out var el)) sb.Append(b.Name).Append(el.SemiMajorAxis).Append(el.Eccentricity).Append(el.Epoch).Append(el.TrueAnomaly).Append(el.Inclination);
-        lock (Nodes) foreach (var n in Nodes) sb.Append('|').Append(n.T).Append(n.Pro).Append(n.Nor).Append(n.Rad).Append(n.Dirty).Append(n.TBody);
-        return sb.ToString();
+        ulong h = 0x9E3779B97F4A7C15UL;
+        void Mix(ulong x) { h ^= x; h *= 0xbf58476d1ce4e5b9UL; h ^= h >> 31; }
+        void D(double x) => Mix((ulong)BitConverter.DoubleToInt64Bits(x));
+        if (Base(t, out var b, out var el)) { Mix((ulong)(uint)(b.Name?.GetHashCode() ?? 0)); D(el.SemiMajorAxis); D(el.Eccentricity); D(el.Epoch); D(el.TrueAnomaly); D(el.Inclination); }
+        else Mix(1);
+        lock (Nodes)
+            foreach (var n in Nodes)
+            {
+                Mix(0x7C);   // ('|')
+                D(n.T); D(n.Pro); D(n.Nor); D(n.Rad); Mix(n.Dirty ? 1UL : 2UL); Mix((ulong)(uint)(n.TBody?.GetHashCode() ?? 0));
+            }
+        return (long)h;
     }
 
     private static bool TrajectoryUncached(double t, out List<Leg> legs, out List<Applied> applied)
@@ -989,7 +999,7 @@ public static class Maneuvers
 
     public struct Crossing { public string Name; public double T; public bool Entry; public Leg Leg; }
     private static List<Crossing> _cross = new List<Crossing>();
-    private static double _crossAt = -1; private static string _crossSig;
+    private static double _crossAt = -1; private static long _crossSig = long.MinValue;
 
     /// <summary>
     /// When the path comes within the merge range (10 km) of a sector's site, and when it is 20 km away
@@ -999,7 +1009,7 @@ public static class Maneuvers
     public static List<Crossing> SectorCrossings(double t, List<Leg> legs)
     {
         double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
-        string sig = _cSig;
+        long sig = _cSig;
         if (sig == _crossSig && now - _crossAt < 1.0) return _cross;
         _crossSig = sig; _crossAt = now;
         var list = new List<Crossing>();

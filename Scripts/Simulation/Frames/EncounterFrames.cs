@@ -410,16 +410,33 @@ public static class EncounterFrames
     private static readonly Dictionary<long, Ride> _rides = new Dictionary<long, Ride>();
 
     /// <summary>The Lagrange sites (a sector's point each).</summary>
-    public static IEnumerable<Site> LagrangeSites()
+    public static List<Site> LagrangeSites()
     {
-        var real = new List<Site>();
-        foreach (var s in new List<Site>(_sites.Values)) if (s.Home?.Kind == SectorHomes.Kind.Lagrange) real.Add(s);
-        foreach (var s in real) yield return s;
-        // Every other Lagrange zone on the map (a body's L1-L5 with its parent, sector or not) is a sphere
-        // of influence too: entered, ridden and left the same way.
-        foreach (var v in VirtualLagrange())
-            if (!real.Exists(r => r.Home.Host == v.Home.Host && r.Home.Point == v.Home.Point)) yield return v;
+        // (kept until the sites or the bodies change: built anew on every call - the server's tick and the
+        //  planner - it was lists, an iterator and a lambda per zone each time)
+        IEnumerable<Site> snap = Sites;   // (as IEnumerable: a var of a mod type array is banned in game, VRS1001 - ModCheck misses it)
+        var virt = VirtualLagrange();
+        lock (_lagLock)
+        {
+            if (ReferenceEquals(snap, _lagFor) && ReferenceEquals(virt, _lagVirtFor)) return _lagSites;
+            var l = new List<Site>();
+            if (snap != null) foreach (var s in snap) if (s.Home?.Kind == SectorHomes.Kind.Lagrange) l.Add(s);
+            int nReal = l.Count;
+            // Every other Lagrange zone on the map (a body's L1-L5 with its parent, sector or not) is a sphere
+            // of influence too: entered, ridden and left the same way.
+            foreach (var v in virt)
+            {
+                bool dup = false;
+                for (int i = 0; i < nReal && !dup; i++) dup = l[i].Home.Host == v.Home.Host && l[i].Home.Point == v.Home.Point;
+                if (!dup) l.Add(v);
+            }
+            _lagSites = l; _lagFor = snap; _lagVirtFor = virt;
+            return l;
+        }
     }
+    private static readonly object _lagLock = new object();
+    private static List<Site> _lagSites = new List<Site>(), _lagVirtFor;
+    private static object _lagFor;
 
     private static List<Site> _virtual;
     private static int _virtualKey = -1;

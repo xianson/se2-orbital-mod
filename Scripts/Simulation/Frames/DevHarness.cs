@@ -849,6 +849,7 @@ public static class DevHarness
             case "ringrocks":   // ringrocks [n <perRing>] : the rings' seeded rocks and the passes on your plan
             {
                 if (a.Length > 2 && a[1] == "n") RingRocks.PerRing = int.Parse(a[2]);
+                RingRocks.Recheck();
                 RingRocks.Belts();
                 var sb = new System.Text.StringBuilder(RingRocks.Status);
                 double tn = SystemHost.Now;

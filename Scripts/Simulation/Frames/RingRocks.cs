@@ -52,15 +52,24 @@ public static class RingRocks
 
     private static List<Belt> _belts = new List<Belt>();
     private static string _beltsSig;
+    private static long _beltsAt;
+    /// <summary>The next Belts() checks the rings at once (a setting changed).</summary>
+    public static void Recheck() => _beltsAt = 0;
 
     /// <summary>The rings, from the game's tori (server) or the client's ring entities; rebuilt when they change.</summary>
     public static List<Belt> Belts()
     {
         var reg = SystemHost.Registry;
         if (reg == null || !Enabled) return _belts;
+        // (rings change at load and almost never after: checked once a second - every call built lists and a
+        //  signature string, from the server's tick and several times a client frame)
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        if (_beltsSig != null && now - _beltsAt < System.Diagnostics.Stopwatch.Frequency) return _belts;
+        _beltsAt = now;
         var found = new List<(string planet, double inner, double outer, double half)>();
+        var known = PlanetRings.Known();
         foreach (var kv in SystemHost.BeaconOf)
-            foreach (var (c, inn, outr, half) in PlanetRings.Known())
+            foreach (var (c, inn, outr, half) in known)
                 if ((c - kv.Value.Center).Length() < Math.Max(5000.0, 0.05 * outr) && outr > inn) { found.Add((kv.Key, inn, outr, half)); break; }
         found.Sort((a, b) => string.CompareOrdinal(a.planet, b.planet));
         // (its name too: at load the rings come before the sector sites, which name them; renamed then)

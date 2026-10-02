@@ -384,6 +384,7 @@ public static partial class CleanMap
     /// A Lagrange zone's calm core (no pull at all), once zoomed in enough to see it: a dotted circle in
     /// its orbit plane round the point, named when big.
     /// </summary>
+    static readonly List<Vector2> _corePts = new List<Vector2>(64);   // (reused: Boundary draws at once)
     static void CoreMark(Func<Vector3D, Vector3D> W, Func<Vector3D, Vector3D> toLocal, SectorHomes.Home h, SystemRegistry reg, Vector3D at)
     {
         double core = SectorHomes.LagrangeCore(h, reg);
@@ -392,7 +393,7 @@ public static partial class CleanMap
         Vector3D c = toLocal(at);
         double rl = core * LocalScale(toLocal);
         if (!MapPipeline.ToScreen(W(c), out var cs)) return;
-        var pts = new List<Vector2>(64);
+        var pts = _corePts; pts.Clear();
         float rmax = 0;
         for (int i = 0; i < 64; i++)
         {

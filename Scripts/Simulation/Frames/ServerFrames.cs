@@ -199,7 +199,7 @@ public static class ServerFrames
                 EncounterFrames.ServerTick(session, _tick);
                 DevFlight.ServerTick();
                 DevFlight.ServerCommandTick();
-                var frames = new List<ProximityFrame>(SystemHost.Frames.Frames);
+                var frames = _tickFrames; frames.Clear(); frames.AddRange(SystemHost.Frames.Frames);   // (a snapshot: frames dissolve as they arrive)
                 EntryHost.ServerTick(frames, SystemHost.Now);   // reentry (the braking band, an airless border's clamp): before arrivals
                 foreach (var f in frames) UpdateGridFrame(f, dt);
                 StepGridHighSpeed();
@@ -479,6 +479,9 @@ public static class ServerFrames
 
     // ───────────────────────────── per-frame update (grids) ─────────────────────────────
 
+    private static readonly List<ProximityFrame> _tickFrames = new List<ProximityFrame>();
+    private static bool HasGrid(List<OrbitalGridComponent> grids, long id) { foreach (var g in grids) if (g.Id == id) return true; return false; }
+    private static readonly List<OrbitalGridComponent> _frameGrids = new List<OrbitalGridComponent>();   // (UpdateGridFrame's: one frame at a time, from Tick)
     private static void UpdateGridFrame(ProximityFrame f, double dt)
     {
         var reg = SystemHost.Registry;
@@ -486,7 +489,7 @@ public static class ServerFrames
         if (parent == null) return;
 
         // Grid members (server copies, still alive and dynamic).
-        var grids = new List<OrbitalGridComponent>();
+        var grids = _frameGrids; grids.Clear();
         foreach (long id in f.Members)
         {
             if (!GridMembers.IsGridId(id)) continue;
@@ -563,7 +566,7 @@ public static class ServerFrames
                 }
             }
         }
-        else if (!f.IsEncounter && (f.AnchorEntityId == AsteroidAnchorId || (GridMembers.IsGridId(f.AnchorEntityId) && !grids.Exists(g => g.Id == f.AnchorEntityId))))
+        else if (!f.IsEncounter && (f.AnchorEntityId == AsteroidAnchorId || (GridMembers.IsGridId(f.AnchorEntityId) && !HasGrid(grids, f.AnchorEntityId))))
         {
             // The static anchor (or a grid anchor) is gone: the player anchors again if nothing else can.
             if (grids.Count == 0 && f.HasMember(FrameHost.PlayerId))

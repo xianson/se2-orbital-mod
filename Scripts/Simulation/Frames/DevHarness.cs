@@ -358,6 +358,9 @@ public static class DevHarness
             case "gridhold":   // gridhold <id> <m/s>: keep a grid moving forward at that speed (0 releases)
                 return DevStress.Hold((long)D(a[1]), D(a[2]));
 
+            case "gridvel":   // gridvel <id> <m/s>: straight down along the local gravity, hold released (a crash)
+                return DevStress.Dive((long)D(a[1]), D(a[2]));
+
             case "cutgrid":   // cutgrid <id> <thickness m>: a slab through the grid's middle, in one tick (it splits)
                 return DevStress.Cut((long)D(a[1]), D(a[2]));
 

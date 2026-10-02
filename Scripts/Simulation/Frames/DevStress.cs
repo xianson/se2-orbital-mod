@@ -99,6 +99,28 @@ public static class DevStress
         Status = $"cloned grid {c.id} x{made} in {(System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000 / System.Diagnostics.Stopwatch.Frequency} ms";
     }
 
+    static (long id, double speed) _dive;
+
+    /// <summary>gridvel: a grid sent straight down (along the gravity where it is) at a speed, its hold released -
+    /// a crash into the planet, for the aero mod under real impact damage.</summary>
+    public static string Dive(long id, double speed)
+    {
+        lock (_hold) _hold.Remove(id);
+        _dive = (id, speed);
+        return $"grid {id} sent down at {speed:F0} m/s (server, next tick)";
+    }
+
+    static void DiveTick()
+    {
+        var d = _dive; _dive = default;
+        var g = GridMembers.Get(d.id);
+        if (g == null || !g.IsServer) { Status = "dive: no such grid"; return; }
+        var grav = g.Entity.Data.TryGet<Keen.VRage.Core.Game.GameSystems.Gravity.GravityEffectData>(out var ge) ? ge.GravitySum : Vector3.Zero;
+        if (grav.LengthSquared() < 1e-4f) { Status = "dive: no gravity here"; return; }
+        GridMembers.SetVelocity(g, (Vector3D)Vector3.Normalize(grav) * d.speed);
+        Status = $"grid {d.id} diving at {d.speed:F0} m/s";
+    }
+
     static (long id, double thickness) _cut;
 
     /// <summary>cutgrid: every block within thickness/2 of the grid's middle (along its longest axis), in one tick -
@@ -143,6 +165,7 @@ public static class DevStress
     /// <summary>Server tick.</summary>
     public static void Tick()
     {
+        if (_dive.id != 0) { try { DiveTick(); } catch (Exception e) { Status = "dive failed: " + e.Message; } }
         if (_cut.id != 0) { try { CutTick(); } catch (Exception e) { Status = "cut failed: " + e.Message; } }
         if (_clone.count > 0) { try { CloneTick(); } catch (Exception e) { var m = ""; for (var x = e; x != null; x = x.InnerException) m += " <- " + x.GetType().Name + ": " + x.Message; Status = "clone failed:" + m; Keen.VRage.Library.Diagnostics.Log.Default?.Info("[STRESS] clone failed:" + m + " | " + e); } }
         lock (_hold)

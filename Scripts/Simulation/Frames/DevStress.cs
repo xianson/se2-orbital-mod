@@ -71,29 +71,26 @@ public static class DevStress
         Vector3D right = q * Vector3D.Right, up = q * Vector3D.Up;
         int made = 0;
         var t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+        var cgrid = top.TryGet<CubeGridComponent>();
+        // serialized once, as the game's undo of a grid deletion keeps a grid: the grid and its own blocks only -
+        // nothing else (inventories' and owners' entities stay out: the blocks' components make their own); each
+        // copy is a clone of that (new entities throughout)
+        var source = new Keen.VRage.Core.Game.Systems.EntityBundle();
+        ser.Serialize(top, source, (e, _) =>
+        {
+            var cg = e.TryGet<CubeGridComponent>();
+            if (cg != null) return e == top;
+            var cb = e.TryGet<CubeBlockComponent>();
+            return cb != null && cb.Grid == cgrid;
+        }, new Keen.VRage.Core.Game.Systems.GameEntitySerializer.BundleSerializationParameters());
         for (int i = 1; i <= c.count; i++)
         {
-            var bundle = new Keen.VRage.Core.Game.Systems.EntityBundle();
-            // (the game's own grid copy filter: the grid, and what hangs off it - but not generated blocks)
-            ser.Serialize(top, bundle, (e, _) =>
-            {
-                if (e == top) return true;
-                var h = e.TryGet<Keen.VRage.Core.Game.Components.HierarchyComponent>();
-                if (h == null) return false;
-                var cb = e.TryGet<CubeBlockComponent>();
-                if (cb != null && cb.Generated) return false;
-                return e.GetTopLevelParent() == top;
-            });
-            bundle = Keen.VRage.Core.Game.Systems.EntityBundleFunctions.DetachBundleFromLivingEntities(bundle);   // (new ids: as the game's paste does)
-            // (as encounter ships spawn: the grid's block bookkeeping waits for its blocks - inventories - to exist)
-            for (int r = 0; r < bundle.Roots; r++)
-            {
-                var gob = Keen.VRage.DCS.ObjectBuilders.EntityObjectBuilderFunctions.TryGetOB<CubeGridComponent, CubeGridObjectBuilder>(bundle.Builders[r]);
-                if (gob != null) gob.DelayInitSyncOps = true;
-            }
+            var bundle = Keen.VRage.Core.Game.Systems.EntityBundleFunctions.CloneBundleCollectClonedInstances(source).Bundle;
             var offset = right * ((i % 10) * c.spacing) + up * ((i / 10 + 1) * c.spacing);
             Keen.VRage.Core.Game.Systems.EntityBundleFunctions.TransformBundle(bundle, new WorldTransform(offset, Quaternion.Identity));
-            spawner.SpawnBundle(bundle);
+            // (staged and async, as the game spawns encounters: the synchronous SpawnBundle builds the grid before its
+            //  blocks' own data exists - "Data not found" in an inventory's mass - on every grid tried)
+            spawner.SpawnBundleAsync(new Keen.VRage.Core.Game.Systems.GameEntitySerializer.BundleInitArgs { Bundle = bundle });
             made++;
         }
         Status = $"cloned grid {c.id} x{made} in {(System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000 / System.Diagnostics.Stopwatch.Frequency} ms";

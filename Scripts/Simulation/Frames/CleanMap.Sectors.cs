@@ -137,6 +137,8 @@ public static partial class CleanMap
     /// A body's Lagrange points (with its primary), sector or not: a small faint mark and "L4" etc.
     /// Points a sector sits on are left to the sector.
     /// </summary>
+    // A body's empty Lagrange points as faint zones: name, home and band made once per zone, not every frame.
+    private static readonly Dictionary<(string, int), Band> _ghostZones = new Dictionary<(string, int), Band>();
     static void LagrangeMarks(List<Band> bands, SystemRegistry reg, double t, Func<Vector3D, Vector3D> W, Func<Vector3D, Vector3D> toLocal, GravityBody body, int fromPoint, int toPoint)
     {
         if (body?.Parent == null) return;
@@ -144,13 +146,17 @@ public static partial class CleanMap
         var col = HudPanel.Alpha(Dim, 0.55f);
         for (int p = fromPoint; p <= toPoint; p++)
         {
-            if (bands.Exists(b => b.Home.Kind == SectorHomes.Kind.Lagrange && b.Home.Host == body.Name && b.Home.Point == p)) continue;
-            var h = new SectorHomes.Home { Kind = SectorHomes.Kind.Lagrange, Host = body.Name, Point = p };
+            bool taken = false;
+            foreach (var b in bands) if (b.Home.Kind == SectorHomes.Kind.Lagrange && b.Home.Host == body.Name && b.Home.Point == p) { taken = true; break; }
+            if (taken) continue;
+            string shown = SystemHost.DisplayName(body.Name);
+            if (!_ghostZones.TryGetValue((shown, p), out var ghost) || ghost.Home.Host != body.Name)
+                _ghostZones[(shown, p)] = ghost = new Band { Name = $"{shown} L{p}", Home = new SectorHomes.Home { Kind = SectorHomes.Kind.Lagrange, Host = body.Name, Point = p } };
+            var h = ghost.Home;
             Vector3D at = SectorHomes.Where(h, reg, t, out Vector3D centre);
             // Its shape, as a sector's but faint: L3-L5 a lens on the body's orbit, L1 / L2 a small zone.
             // Named as its zone ("Palatine L2"): double-click centres on it, as on a sector.
-            string zoneName = $"{SystemHost.DisplayName(body.Name)} L{p}";
-            var ghost = new Band { Name = zoneName, Home = h };
+            string zoneName = ghost.Name;
             _markerAt[zoneName] = W(toLocal(at));
             if (p >= 3)
             {
@@ -169,7 +175,7 @@ public static partial class CleanMap
                 Vector2 toC = cs - s;
                 if (toC.LengthSquared() > 1f) lab = s + Vector2.Normalize(toC) * ((es - s).Length() + 14f * u);
             }
-            MapPipeline.TextScreen(lab, $"{SystemHost.DisplayName(body.Name)} L{p}", col, 0.5f);
+            MapPipeline.TextScreen(lab, zoneName, col, 0.5f);
         }
     }
 

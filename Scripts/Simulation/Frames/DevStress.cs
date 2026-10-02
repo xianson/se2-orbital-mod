@@ -136,15 +136,15 @@ public static class DevStress
                 int k = _rng.Next(all.Count);
                 if (_breakRadius > 0)
                 {
-                    // a hit: around one spot, nearest first
-                    _breakCentre ??= all[k].Entity.Data.GetWorldTransform().Position;
-                    double best = double.MaxValue; k = -1;
-                    for (int q = 0; q < all.Count; q++)
+                    // a hit: around one spot, nearest first (sorted once a tick: a scan per break was the harness's own hitch)
+                    if (i == 0)
                     {
-                        double d = (all[q].Entity.Data.GetWorldTransform().Position - _breakCentre.Value).Length();
-                        if (d < best) { best = d; k = q; }
+                        _breakCentre ??= all[k].Entity.Data.GetWorldTransform().Position;
+                        var c0 = _breakCentre.Value;
+                        all = all.Select(b => (b, d: (b.Entity.Data.GetWorldTransform().Position - c0).LengthSquared())).Where(t => t.d <= _breakRadius * _breakRadius).OrderByDescending(t => t.d).Select(t => t.b).ToList();
                     }
-                    if (k < 0 || best > _breakRadius) { _break.left = 0; break; }
+                    if (all.Count == 0) { _break.left = 0; break; }
+                    k = all.Count - 1;   // (nearest last: removed from the end)
                 }
                 recv?.DealDamage(all[k], 1e9f);
                 all.RemoveAt(k);

@@ -213,14 +213,20 @@ public static partial class CleanMap
             if (_toMap != null && ManeuverEditor) Maneuvers.MapDraw(_toMap, W, _limit, t, Mouse, selName, anchor.Name);   // editable at every zoom
             ModCost.Sec("trajectory").Stop(s0); s0 = ModCost.Start();
             MapPipeline.ClipRect = null;   // menus, the warp bar, hints: unclipped
+            long u0 = ModCost.Start();
             Title(anchor.IsRoot ? null : anchor, playerPlanet, playerOrbit);
+            ModCost.Sec("ui.title").Stop(u0); u0 = ModCost.Start();
             if (ManeuverEditor) ContextMenu(bands, t);
             _lastW = W; _lastSolar = false;
+            ModCost.Sec("ui.menu").Stop(u0); u0 = ModCost.Start();
             FocusInput(reg, t, W, false);
             BodyTooltip(reg, playerPlanet, playerOrbit);
+            ModCost.Sec("ui.focus+tip").Stop(u0); u0 = ModCost.Start();
             ListInput(W);
             Hints();
+            ModCost.Sec("ui.list+hints").Stop(u0); u0 = ModCost.Start();
             WarpBar.DrawMap(Mouse);
+            ModCost.Sec("ui.warpbar").Stop(u0);
             ModCost.Sec("ui").Stop(s0);
             }
         }

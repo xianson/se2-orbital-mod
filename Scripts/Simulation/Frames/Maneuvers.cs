@@ -289,7 +289,9 @@ public static class Maneuvers
         if (!Trajectory(t, out var legs, out var applied)) { Status = "no trajectory"; return; }
         if (OrbitHud.Walking && Nodes.Count == 0) { Status = "walking about"; return; }   // no path while walking about (a plan still shows)
         // A Lagrange sector ahead (or around you) takes over the path from its entry.
+        long lg0 = ModCost.Start();
         var lagPlan = LagrangeCached(t, legs, applied);
+        ModCost.Sec("trajectory.lagrange").Stop(lg0);
         if (lagPlan != null) legs = CutAtLagrange(legs, lagPlan.TE);
         HudPanel.BeginLabels();
         // The selected node's gizmo (as drawn last frame) comes first: other tags keep clear of it.
@@ -603,9 +605,12 @@ public static class Maneuvers
 
         // Sector crossings: where the path comes within the merge range of a sector's site (you arrive
         // there, by conjunction) and where it leaves the site's bubble again.
-        foreach (var c in SectorCrossings(t, legs))
+        long sc0 = ModCost.Start();
+        var crossings = SectorCrossings(t, legs);
+        ModCost.Sec("trajectory.crossings").Stop(sc0);
+        foreach (var c in crossings)
         {
-            if (!Live(c.Leg.Body)) continue;
+            if (c.T < t || !Live(c.Leg.Body)) continue;   // (passed: the list is kept while the plan holds)
             Vector3D loc = LegLoc(c.Leg, c.T);
             if (Math.Sqrt(loc.X * loc.X + loc.Z * loc.Z) > limit * 1.04 || !MapPipeline.ToScreen(W(loc), out var cs) || !InMapArea(cs)) continue;
             var cc = c.Entry ? SectorIn : SectorOut;
@@ -1003,7 +1008,7 @@ public static class Maneuvers
 
     public struct Crossing { public string Name; public double T; public bool Entry; public Leg Leg; }
     private static List<Crossing> _cross = new List<Crossing>();
-    private static double _crossAt = -1; private static long _crossSig = long.MinValue;
+    private static double _crossAt = -1; private static long _crossSig = long.MinValue; private static object _crossSites;
 
     /// <summary>
     /// When the path comes within the merge range (10 km) of a sector's site, and when it is 20 km away
@@ -1014,8 +1019,11 @@ public static class Maneuvers
     {
         double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
         long sig = _cSig;
-        if (sig == _crossSig && now - _crossAt < 1.0) return _cross;
-        _crossSig = sig; _crossAt = now;
+        // (they change only with the plan or the sites: recomputed then - ~7 ms - and as a fallback every 10 s; it
+        //  was every second, a 7 ms frame each second with the map open)
+        object sites = EncounterFrames.Sites;
+        if (sig == _crossSig && ReferenceEquals(sites, _crossSites) && now - _crossAt < 10.0) return _cross;
+        _crossSig = sig; _crossAt = now; _crossSites = sites;
         var list = new List<Crossing>();
         const double enter = 10000, leave = ServerFrames.SlotRadius;
         foreach (var site in EncounterFrames.Sites)

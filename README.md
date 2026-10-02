@@ -153,6 +153,10 @@ the cap: inside it everything is physical flight, every orbit is on rails.
   'braking 5.3 g'), map marks (Entry, Max q, No air) and warp stopping 30 s before a pass.
 - **The sun:** the game's sun is vanilla (its own place and day cycle); Delfos is its own globe
   in the sky (StarProxy), never under the sun's glare.
+- **Plasma** (2026-10-02): while a frame is braked, `EntryHost` feeds the aero mod's reentry
+  plasma (`AeroMod.AeroEntryFx.External`, set by reflection) each member grid's air velocity and a
+  glow (sqrt(decel / 50 m/s^2), 0.15..1): grids on rails sit still in their frame, so the aero mod
+  cannot see their speed itself.
 
 ## Testing: three tiers
 
@@ -165,6 +169,26 @@ the cap: inside it everything is physical flight, every orbit is on rails.
 Logic belongs in the game-free core (`Scripts/Simulation/Core`) where the fast gate can test it; the in-game
 tiers only check what needs the engine. Sensor blocks: `tools/blocks/gen_blocks.py --build` compiles their
 definitions (see the script for why SE2 2.4 needs a stand-in Vanilla to build mod content).
+
+## Performance and profiling (2026-10-02)
+
+- **Budgets:** `tools/harness/test_perf.sh`: 11 scenes against per-frame budgets. Last run all
+  within: flight 0.15 ms client / 0.04 ms server, map 2.1-2.4 ms.
+- **Per-section timings:** the status line's `mapcost` list (`ModCost.Sec`). It includes every
+  `FrameHost.Guard`ed client system and the map's `ui.*`, `trajectory.*` and `gm.*` sections.
+  Avg/max/peak in ms.
+- **Garbage per system:** the harness command `allocs on|off|show` (bytes per guarded system and
+  per section).
+- **Garbage by type and call site:** `dotnet-trace` plus `D:ero	ools\AllocReport` (see its
+  header). Tonight's results: map 21 -> 5.8 MB/s, flight 5.3 -> 2.6 MB/s.
+  - Reflection calls reuse their argument arrays; lines draw through the typed `DrawPath`.
+  - `PlayerCache` replaces the engine's per-frame character query.
+- **Mod scripts:** never use `var` for an array of a mod-defined type. The game bans it (VRS1001)
+  and the mod fails to load. The files' `#pragma warning disable` hides that from offline analyzers;
+  ModCheck's own rule MODVAR1 catches it.
+- **The rings lock:** `PlanetRings.Known` must never wait for `PlanetRenderBridge.Lock`. The server
+  calls it holding the frames lock, while the client takes the frames lock inside the render lock:
+  waiting deadlocked both threads (fixed 2026-10-02).
 
 ## Open items, highest value first
 

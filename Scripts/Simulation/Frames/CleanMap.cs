@@ -347,8 +347,8 @@ public static partial class CleanMap
             Seg(ta, pa, tm, pm, depth + 1); Seg(tm, pm, tb, pb, depth + 1);
         }
         // Consecutive pieces join into runs; each run is one smooth path.
-        var run = new List<Vector2>();
-        void Flush() { if (run.Count > 1) MapPipeline.ScreenPath(run, false, runDim ? dim : col, px * u); run = new List<Vector2>(); }
+        var run = _curveRun; run.Clear();   // (one list for every curve: ScreenPath draws it at once)
+        void Flush() { if (run.Count > 1) MapPipeline.ScreenPath(run, false, runDim ? dim : col, px * u); run.Clear(); }
         void Emit(Vector2 sa, Vector2 sb, bool below)
         {
             if (run.Count > 0 && ((run[run.Count - 1] - sa).LengthSquared() > 0.25f || below != runDim)) { var last = run[run.Count - 1]; Flush(); if ((last - sa).LengthSquared() <= 0.25f) run.Add(last); }
@@ -366,6 +366,7 @@ public static partial class CleanMap
         Flush();
     }
 
+    static readonly List<Vector2> _curveRun = new List<Vector2>();
     static double Wall() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
     private static Func<Vector3D, double, Vector3D> _toMap;
     private static double _limit;

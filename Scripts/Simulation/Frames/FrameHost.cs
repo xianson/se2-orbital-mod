@@ -1006,8 +1006,30 @@ public static class FrameHost
     /// </summary>
     public static void Guard(string name, Action a)
     {
+        long m0 = AllocWatch ? GC.GetAllocatedBytesForCurrentThread() : 0;
         try { a(); }
         catch (Exception ex) { Fault(name, ex); }
+        if (AllocWatch) lock (_allocs) { _allocs.TryGetValue(name, out long b); _allocs[name] = b + GC.GetAllocatedBytesForCurrentThread() - m0; }
+    }
+
+    /// <summary>DEV (harness: allocs on|off|show): bytes allocated per guarded system, since the last show.</summary>
+    public static bool AllocWatch;
+    static readonly Dictionary<string, long> _allocs = new Dictionary<string, long>();
+    static long _allocsSince = System.Diagnostics.Stopwatch.GetTimestamp();
+    public static void AllocAdd(string name, long bytes) { lock (_allocs) { _allocs.TryGetValue(name, out long b); _allocs[name] = b + bytes; } }
+    public static string AllocReport()
+    {
+        double secs = (System.Diagnostics.Stopwatch.GetTimestamp() - _allocsSince) / (double)System.Diagnostics.Stopwatch.Frequency;
+        var sb = new System.Text.StringBuilder($"allocs over {secs:F0} s (KB/s):");
+        lock (_allocs)
+        {
+            var l = new List<KeyValuePair<string, long>>(_allocs);
+            l.Sort((x, y) => y.Value.CompareTo(x.Value));
+            foreach (var kv in l) sb.Append($" {kv.Key} {kv.Value / 1024.0 / Math.Max(secs, 0.001):F0}");
+            _allocs.Clear();
+        }
+        _allocsSince = System.Diagnostics.Stopwatch.GetTimestamp();
+        return sb.ToString();
     }
 
     private static readonly Dictionary<string, int> _faults = new Dictionary<string, int>();

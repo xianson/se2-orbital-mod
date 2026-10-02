@@ -978,6 +978,9 @@ public static class DevHarness
                 return "grid orbit queued (server, next tick)";
             }
 
+            case "allocs":   // allocs on|off|show: bytes allocated per guarded client system (FrameHost.Guard)
+                if (a.Length > 1 && a[1] != "show") { FrameHost.AllocWatch = On(a[1]); FrameHost.AllocReport(); return "alloc watch " + FrameHost.AllocWatch; }   // (a fresh window)
+                return FrameHost.AllocReport();
             case "aeroset":   // aeroset Type.Member value (AeroMod. prefix implied): a static of the aero mod
             case "aeroget":   // aeroget Type.Member
             {

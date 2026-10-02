@@ -452,26 +452,34 @@ public static class MapPipeline
     /// <summary>All map text is drawn this much larger than the sizes the callers ask for (legibility).</summary>
     public static float TextScale = 1.3f;
 
-    private static MethodInfo _measure; private static object[] _measureArgs;
 
     /// <summary>The font's own measure of a string at scale 1 (the method is found once).</summary>
     private static Vector2 Measure(string text)
     {
-        if (_measure == null)
+        // The font's MeasureString takes a ReadOnlySpan<char>, which reflection cannot pass: bound once as a typed
+        // delegate (to this font). It was looked for as a string overload that does not exist: every call searched
+        // all the font's methods again (~1.5 MB/s of garbage with the map open) and measured nothing (zero).
+        if (!ReferenceEquals(_measureFor, _font))
         {
-            foreach (var m in _font.GetType().GetMethods())
+            _measureFor = _font; _measureFn = null;
+            try
             {
-                if (m.Name != "MeasureString" || m.ReturnType != typeof(Vector2)) continue;
-                var ps = m.GetParameters();
-                if (ps.Length == 0 || ps[0].ParameterType != typeof(string)) continue;
-                var args = new object[ps.Length];
-                for (int q = 1; q < ps.Length; q++) args[q] = ps[q].HasDefaultValue ? ps[q].DefaultValue : (ps[q].ParameterType.IsValueType ? Activator.CreateInstance(ps[q].ParameterType) : null);
-                _measure = m; _measureArgs = args; break;
+                foreach (var m in _font.GetType().GetMethods())
+                {
+                    if (m.Name != "MeasureString" || m.ReturnType != typeof(Vector2)) continue;
+                    var ps = m.GetParameters();
+                    if (ps.Length != 1 || ps[0].ParameterType != typeof(ReadOnlySpan<char>)) continue;
+                    _measureFn = (MeasureFn)Delegate.CreateDelegate(typeof(MeasureFn), _font, m);
+                    break;
+                }
             }
-            if (_measure == null) return Vector2.Zero;
+            catch { _measureFn = null; }
         }
-        try { _measureArgs[0] = text; return (Vector2)_measure.Invoke(_font, _measureArgs); } catch { return Vector2.Zero; }
+        if (_measureFn == null) return Vector2.Zero;
+        try { return _measureFn(text.AsSpan()); } catch { _measureFn = null; return Vector2.Zero; }
     }
+    private delegate Vector2 MeasureFn(ReadOnlySpan<char> text);
+    private static MeasureFn _measureFn; private static object _measureFor;
 
     /// <summary>Text centred on a screen point, clear of labels placed before it (else left out).</summary>
     public static bool TextScreen(Vector2 s, string text, ColorSRGB color, float scale, bool dryRun = false)
@@ -596,9 +604,20 @@ public static class MapPipeline
     static void Seg(Vector2 a, Vector2 b, ColorSRGB color, float width)
     {
         if (_batch == null || _drawLine == null || !Clip(ref a, ref b)) return;
+        // (a straight piece of path through the batch's typed DrawPath: the reflected DrawLine boxed its seven
+        //  arguments into a new array per segment - ~9 MB/s of the map's garbage)
+        if (_path != null)
+        {
+            _seg1[0] = new QuadraticBezier2 { From = a, Control = (a + b) * 0.5f, To = b };
+            try { _path(new ReadOnlySpan<QuadraticBezier2>(_seg1, 0, 1), color, width, false); return; }
+            catch { _path = null; }
+        }
         if (!ReferenceEquals(_solidFor, _drawLine)) { _solid = _drawLine.GetParameters()[4].DefaultValue; _solidFor = _drawLine; }
-        _drawLine.Invoke(_batch, new object[] { a, b, color, width, _solid, 1f, false });
+        _lineArgs[0] = a; _lineArgs[1] = b; _lineArgs[2] = color; _lineArgs[3] = width; _lineArgs[4] = _solid; _lineArgs[5] = 1f; _lineArgs[6] = false;
+        _drawLine.Invoke(_batch, _lineArgs);
     }
+    static readonly QuadraticBezier2[] _seg1 = new QuadraticBezier2[1];
+    static readonly object[] _lineArgs = new object[7];
 
     // ── the batch's own vector drawing: smooth paths, fills, and the game's icons ──
     // DrawPath / DrawFill take a ReadOnlySpan, which reflection cannot pass: they are bound as typed
@@ -644,18 +663,26 @@ public static class MapPipeline
     /// <summary>The drawn part of a polyline: its runs inside ClipRect.</summary>
     static List<List<Vector2>> Runs(IList<Vector2> pts, bool closed)
     {
-        var runs = new List<List<Vector2>>();
+        // (the lists are reused: ScreenPath draws each run before the next call - new ones every path were most
+        //  of the map's garbage, ~20 MB/s with it open)
+        foreach (var r in _runs) { r.Clear(); _runPool.Add(r); }
+        _runs.Clear();
         List<Vector2> cur = null;
         int n = pts.Count, segs = closed ? n : n - 1;
         for (int i = 0; i < segs; i++)
         {
             Vector2 a = pts[i], b = pts[(i + 1) % n];
             if (!Clip(ref a, ref b)) { cur = null; continue; }
-            if (cur == null || (cur[cur.Count - 1] - a).LengthSquared() > 0.01f) { cur = new List<Vector2> { a }; runs.Add(cur); }
+            if (cur == null || (cur[cur.Count - 1] - a).LengthSquared() > 0.01f)
+            {
+                if (_runPool.Count > 0) { cur = _runPool[_runPool.Count - 1]; _runPool.RemoveAt(_runPool.Count - 1); } else cur = new List<Vector2>();
+                cur.Add(a); _runs.Add(cur);
+            }
             cur.Add(b);
         }
-        return runs;
+        return _runs;
     }
+    static readonly List<List<Vector2>> _runs = new List<List<Vector2>>(), _runPool = new List<List<Vector2>>();
 
     /// <summary>A smooth line through screen points (a curve through their midpoints), clipped.</summary>
     public static void ScreenPath(IList<Vector2> pts, bool closed, ColorSRGB color, float width)

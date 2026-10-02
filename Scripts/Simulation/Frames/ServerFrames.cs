@@ -1079,9 +1079,17 @@ public sealed class ModCost
     public static readonly ModCost Client = new ModCost(), Server = new ModCost(), Map = new ModCost();
     private long _windowStart; private double _sum, _max; private int _n;
     public volatile float AvgMs, MaxMs, PeakMs;   // (Peak: the worst frame ever, for one-off stalls)
-    public static long Start() => System.Diagnostics.Stopwatch.GetTimestamp();
+    public static long Start()
+    {
+        if (FrameHost.AllocWatch) _allocMark = GC.GetAllocatedBytesForCurrentThread();
+        return System.Diagnostics.Stopwatch.GetTimestamp();
+    }
+    // (DEV, allocs on: a named section's bytes since the last Start - the map draws on one thread)
+    [ThreadStatic] static long _allocMark;   // (per thread: the server's Start must not move the map's mark)
+    string _name;
     public void Stop(long start)
     {
+        if (_name != null && FrameHost.AllocWatch) FrameHost.AllocAdd("map:" + _name, GC.GetAllocatedBytesForCurrentThread() - _allocMark);
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
         double ms = (now - start) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
         lock (this)
@@ -1098,7 +1106,7 @@ public sealed class ModCost
     public static readonly Dictionary<string, ModCost> Sections = new Dictionary<string, ModCost>();
     public static ModCost Sec(string name)
     {
-        lock (Sections) { if (!Sections.TryGetValue(name, out var c)) Sections[name] = c = new ModCost(); return c; }
+        lock (Sections) { if (!Sections.TryGetValue(name, out var c)) Sections[name] = c = new ModCost { _name = name }; return c; }
     }
     public static string SectionList()
     {

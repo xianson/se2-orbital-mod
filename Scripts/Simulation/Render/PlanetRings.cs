@@ -212,9 +212,21 @@ public static class PlanetRings
     {
         var l = new List<(Vector3D, double, double, double)>();
         lock (AsteroidBridge.Rings) l.AddRange(AsteroidBridge.Rings);
-        if (l.Count == 0) lock (PlanetRenderBridge.Lock) foreach (var r in _rings) l.Add((r.Center, r.Inner, r.Outer, r.Half));
+        if (l.Count > 0) return l;
+        // The client's rings, but never WAITING for the render lock: the server thread asks this holding the frames
+        // lock, and the client takes the frames lock inside the render lock (FrameMarkers) - waiting deadlocked both
+        // threads (a world with no server-side rings, e.g. Concordia: froze on an approach). Busy: the last read.
+        if (System.Threading.Monitor.TryEnter(PlanetRenderBridge.Lock))
+        {
+            try { foreach (var r in _rings) l.Add((r.Center, r.Inner, r.Outer, r.Half)); }
+            finally { System.Threading.Monitor.Exit(PlanetRenderBridge.Lock); }
+            lock (_knownLock) { _lastKnown.Clear(); _lastKnown.AddRange(l); }
+        }
+        else lock (_knownLock) l.AddRange(_lastKnown);
         return l;
     }
+    static readonly object _knownLock = new object();
+    static readonly List<(Vector3D C, double In, double Out, double Half)> _lastKnown = new List<(Vector3D, double, double, double)>();
 
     /// <summary>After a map frame: the map rings not placed in it are hidden.</summary>
     public static void MapEnd() => MapRingMesh.End();

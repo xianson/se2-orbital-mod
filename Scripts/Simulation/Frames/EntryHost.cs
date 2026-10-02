@@ -30,6 +30,30 @@ public static class EntryHost
     static readonly Dictionary<long, (double limit, double upTo, double worn)> _wear = new Dictionary<long, (double, double, double)>();
     public static string Status = "-";
 
+    // ── the aero mod's entry plasma (AeroMod.AeroEntryFx.External): grids on rails sit still in their frame while
+    //    the frame is braked through the air, so the aero mod cannot see their speed; it is told, per grid, the air
+    //    past it (world axes are the inertial axes here) and how hard it burns ──
+    static readonly Dictionary<Entity, (Vector3D air, double strength, double t)> _glow = new Dictionary<Entity, (Vector3D, double, double)>();
+    static bool _glowHooked;
+    /// <summary>Diagnostics: the hook is set; grid glows written; asked for / answered.</summary>
+    public static bool GlowHooked => _glowHooked;
+    public static int GlowWrites, GlowAsks, GlowAnswers;
+    static int _glowTries;
+    /// <summary>Braking (m/s^2) at which the plasma is full.</summary>
+    public const double GlowFullDecel = 50.0;
+
+    /// <summary>For the aero mod: a grid's air velocity (xyz, m/s) and glow (w, 0..1) while its frame is braked.</summary>
+    public static Vector4 GlowOf(Entity grid)
+    {
+        lock (_glow)
+        {
+            GlowAsks++;
+            if (grid == null || !_glow.TryGetValue(grid, out var g) || SystemHost.Now - g.t > 1.0) return default;
+            GlowAnswers++;
+            return new Vector4((float)g.air.X, (float)g.air.Y, (float)g.air.Z, (float)g.strength);
+        }
+    }
+
     /// <summary>A body's braking band (invalid: none).</summary>
     public static Band BandOf(string body)
     {
@@ -64,6 +88,8 @@ public static class EntryHost
     public static void ServerTick(List<ProximityFrame> frames, double t)
     {
         if (!Enabled) return;
+        if (!_glowHooked && _glowTries++ % 600 == 0)   // (until the aero mod is there: about every 10 s)
+            _glowHooked = PlanetRenderBridge.SetForeignStatic("AeroMod.AeroEntryFx", "External", (Func<Entity, Vector4>)GlowOf);
         int braking = 0;
         foreach (var f in frames)
         {
@@ -102,6 +128,15 @@ public static class EntryHost
             if (!IsFinite(el)) { FrameHost.Event($"ENTRY frame #{f.Id}: braking gave no orbit (kept the old)"); continue; }
             f.Elements = el;
             braking++;
+            {
+                var s = OrbitPropagation.StateAt(el, t);
+                Vector3D air = Reentry.AirVelocity(s.Position, s.Velocity, SpinOf(f.ParentBodyName));
+                double strength = Math.Clamp(Math.Sqrt(log.PeakDecel / GlowFullDecel), 0.15, 1.0);
+                lock (_glow)
+                    foreach (long id in f.Members)
+                        if (GridMembers.IsGridId(id) && GridMembers.Get(id) is OrbitalGridComponent gm && gm.Entity != null)
+                        { _glow[gm.Entity] = (air, strength, t); GlowWrites++; }
+            }
             Wear(f, t, heat);
             bool first; lock (_heat) first = _inPass.Add(f.Id);
             if (first) FrameHost.Event($"ENTRY frame #{f.Id} into {f.ParentBodyName}'s braking band at {log.ArrivalSpeed:F0} m/s (cap {Cap:F0})");
@@ -178,6 +213,9 @@ public static class EntryHost
 
     static void EndPass(ProximityFrame f, double heat)
     {
+        lock (_glow)
+            foreach (long id in f.Members)
+                if (GridMembers.IsGridId(id) && GridMembers.Get(id) is OrbitalGridComponent gm && gm.Entity != null) _glow.Remove(gm.Entity);
         lock (_heat) foreach (long id in f.Members) _wear.Remove(id);
         Log(f, heat);
     }

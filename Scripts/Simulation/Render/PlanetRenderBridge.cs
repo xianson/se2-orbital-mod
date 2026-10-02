@@ -910,6 +910,27 @@ public static class PlanetRenderBridge
         catch (Exception e) { return "failed: " + Inner(e); }
     }
 
+    /// <summary>Set a static field of another mod's type to an object of a type it accepts (e.g. a hook delegate:
+    /// the aero mod's AeroEntryFx.External). False if the mod or field is absent or the type does not fit.</summary>
+    public static bool SetForeignStatic(string typeName, string field, object value)
+    {
+        try
+        {
+            foreach (Assembly a in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type t;
+                try { t = a.GetType(typeName); } catch { continue; }
+                if (t == null) continue;
+                FieldInfo f = t.GetField(field, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                if (f == null || (value != null && !f.FieldType.IsInstanceOfType(value))) return false;
+                f.SetValue(null, value);
+                return true;
+            }
+        }
+        catch { }
+        return false;
+    }
+
     public static string SetForeignFlag(string typeName, string field, bool value)
     {
         try

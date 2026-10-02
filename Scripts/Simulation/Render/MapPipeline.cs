@@ -479,6 +479,8 @@ public static class MapPipeline
         try { return _measureFn(text.AsSpan()); } catch { _measureFn = null; return Vector2.Zero; }
     }
     private delegate Vector2 MeasureFn(ReadOnlySpan<char> text);
+    /// <summary>The font's own measure is bound (else MeasureText estimates).</summary>
+    public static bool CanMeasure => _measureFn != null;
     private static MeasureFn _measureFn; private static object _measureFor;
 
     /// <summary>Text centred on a screen point, clear of labels placed before it (else left out).</summary>

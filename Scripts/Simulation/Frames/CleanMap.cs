@@ -46,14 +46,25 @@ public static partial class CleanMap
     /// <summary>The text, cut with an ellipsis to fit a width (px) at a scale.</summary>
     static string Fit(string text, float width, float scale)
     {
-        if (string.IsNullOrEmpty(text) || MapPipeline.MeasureText(text, scale).X <= width) return text;
-        for (int n = text.Length - 1; n > 0; n--)
-        {
-            string t = text.Substring(0, n).TrimEnd() + "...";
-            if (MapPipeline.MeasureText(t, scale).X <= width) return t;
-        }
-        return "";
+        if (string.IsNullOrEmpty(text)) return text;
+        // (remembered: a list row's text is cut to its column every frame - a substring and a measure per character
+        //  removed - and it rarely changes)
+        var key = (text, (int)MathF.Round(width), (int)MathF.Round(scale * 1000f));
+        if (_fit.TryGetValue(key, out var done)) return done;
+        string r = "";
+        if (MapPipeline.MeasureText(text, scale).X <= width) r = text;
+        else
+            for (int n = text.Length - 1; n > 0; n--)
+            {
+                string t = text.Substring(0, n).TrimEnd() + "...";
+                if (MapPipeline.MeasureText(t, scale).X <= width) { r = t; break; }
+            }
+        if (!MapPipeline.CanMeasure) return r;   // (an estimate: not kept)
+        if (_fit.Count > 512) _fit.Clear();
+        _fit[key] = r;
+        return r;
     }
+    static readonly Dictionary<(string, int, int), string> _fit = new Dictionary<(string, int, int), string>();
 
     private static double _lastMesh;
     private static string _lastKey;

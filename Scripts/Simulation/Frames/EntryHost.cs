@@ -32,16 +32,17 @@ public static class EntryHost
 
     // ── the aero mod's entry plasma: grids on rails sit still in their frame while the frame is braked through the
     //    air, so the aero mod cannot see their speed; it is told, per grid, the air past it (world axes are the
-    //    inertial axes here) and how hard it burns. Its public API's ENTRY SOURCE (AeroMod.AeroApi, version 2 -
-    //    checked across both repos by tools/check_contract.sh): we register Glow under "OrbitalMod"; while registered
-    //    our strength owns the grid's plasma ──
+    //    inertial axes here) and how hard it burns. Its public API's ENTRY SOURCE (AeroMod.AeroApi, version 2 or
+    //    later; the source's own contract is 2 - checked across both repos by tools/check_contract.sh): we register
+    //    Glow under "OrbitalMod"; while registered our strength owns the grid's plasma ──
     static readonly Dictionary<Entity, (Vector3D air, double strength, double t)> _glow = new Dictionary<Entity, (Vector3D, double, double)>();
     static bool _glowHooked;
     /// <summary>Diagnostics: the hook is set; grid glows written; asked for / answered.</summary>
     public static bool GlowHooked => _glowHooked;
     public static int GlowWrites, GlowAsks, GlowAnswers;
     static int _glowTries;
-    /// <summary>The aero mod's API version this build speaks (= AeroMod.AeroApi.Version).</summary>
+    /// <summary>The entry-source contract this build speaks (= AeroMod.AeroEntryFx.EntrySourceContract, what
+    /// RegisterEntrySource returns; aero's API version, AeroApi.Version, may be higher - members are only added).</summary>
     public const int AeroEntryContract = 2;
     const string AeroOwner = "OrbitalMod";
     static System.Reflection.MethodInfo _aeroRegister, _aeroHas;
@@ -256,6 +257,18 @@ public static class EntryHost
             }
             if (w.worn >= EntryDamage.MaxPerEntry - 1e-9) w.upTo = double.MaxValue;   // this entry's allowance is spent
             lock (_heat) _wear[id] = w;
+        }
+    }
+
+    /// <summary>A grid's wear this entry (for OrbitalApi): its heat tolerance (J/kg; doubled by heavy armour in front), the
+    /// heat it has been worn up to (J/kg; double.MaxValue once this entry's allowance is spent), and the fraction of its
+    /// forward layer worn so far (at most EntryDamage.MaxPerEntry). False: not worn this entry.</summary>
+    public static bool TryGetWear(long gridId, out double limit, out double upTo, out double worn)
+    {
+        lock (_heat)
+        {
+            if (_wear.TryGetValue(gridId, out var w)) { limit = w.limit; upTo = w.upTo; worn = w.worn; return true; }
+            limit = upTo = worn = 0; return false;
         }
     }
 

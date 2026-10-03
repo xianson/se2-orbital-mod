@@ -102,15 +102,16 @@ public partial class ServerPlanetBeacon : Component, IInSceneListener
 
     /// <summary>Load: the saved orbital state (frames, clock, HighSpeed conics). See <see cref="SavedState"/>.</summary>
     [Keen.VRage.DCS.Annotations.Init]
-    private void InitState(Keen.Game2.Simulation.GameSystems.EntityNameSessionComponentObjectBuilder ob) => SavedState.OnLoaded(ob);
+    private void InitState(Keen.Game2.Simulation.GameSystems.EntityNameSessionComponentObjectBuilder ob) { OrbitalSettings.Load(ob); SavedState.OnLoaded(ob); }
 
     /// <summary>Save: every planet writes the same global state (the first one read on load wins).</summary>
     [Keen.VRage.DCS.Annotations.Serializer]
-    private void SerializeState(Keen.Game2.Simulation.GameSystems.EntityNameSessionComponentObjectBuilder ob) => SavedState.Capture(ob, Entity);
+    private void SerializeState(Keen.Game2.Simulation.GameSystems.EntityNameSessionComponentObjectBuilder ob) { SavedState.Capture(ob, Entity); OrbitalSettings.Save(ob, Entity); }
 
     void IInSceneListener.OnAddedToScene()
     {
         ServerSession ??= Entity.GetSession();
+        OrbitalSettings.BeaconAdded();   // (the world's settings: the host's overrides file, the server side seen)
         _beacon = new PlanetBeacon
         {
             Center = Entity.Data.GetWorldTransform().Position,
@@ -140,6 +141,7 @@ public partial class ServerPlanetBeacon : Component, IInSceneListener
     void IInSceneListener.OnBeforeRemovedFromScene()
     {
         AsteroidBridge.Restore();   // the session ends: shared definitions get their densities back
+        OrbitalSettings.BeaconRemoved();   // (the last one: world settings back to defaults for the next world)
         if (_beacon != null) PlanetBeacons.Remove(_beacon);
         _beacon = null;
     }

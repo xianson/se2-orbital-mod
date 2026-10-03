@@ -140,6 +140,8 @@ public static class ServerFrames
         if (_lastTickStamp != 0 && dt < 0.004) return; // once per frame
         _lastTickStamp = now;
         TickRate.Server.Count();
+        if (!OrbitalSettings.SawServer) OrbitalSettings.SawServer = true;
+        OrbitalSettings.Poll();   // (the settings files, every ~2 s)
         SavedState.ApplyRadarSettings();
         lock (FramesLock) SpawnGuard.Tick(AsteroidBridge.Generator(session));   // no encounters on a planet's border (before they materialize); reads frames
         AsteroidBridge.Tick(session);   // no procedural asteroids, ever (encounters and our own system place them)

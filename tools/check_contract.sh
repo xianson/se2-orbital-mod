@@ -10,10 +10,16 @@ fx="$AERO/Simulation/Integration/AeroEntryFx.cs"
 api="$AERO/Simulation/Integration/AeroApi.cs"
 rc=0; bad() { rc=1; echo "      $1"; }
 
-# 1. the entry source (EntryHost.cs <-> AeroApi.cs, the aero mod's public API)
+# 1. the entry source (EntryHost.cs <-> AeroApi.cs, the aero mod's public API). Two numbers: the API's version (members
+#    are only added, so orbital needs at least the version it was written for) and the entry source's own contract
+#    (what RegisterEntrySource returns; EntryHost hooks only on an exact match).
+NEED_API=2   # (the oldest AeroApi.Version with every member orbital reaches)
 a=$(grep -o 'public const int Version = [0-9]*' "$api" | grep -o '[0-9]*$')
+[ -n "$a" ] && [ "$a" -ge "$NEED_API" ] || bad "aero API version $a, orbital needs >= $NEED_API"
+e=$(grep -o 'public const int EntrySourceContract = [0-9]*' "$fx" | grep -o '[0-9]*$')
 o=$(grep -o 'public const int AeroEntryContract = [0-9]*' Scripts/Simulation/Frames/EntryHost.cs | grep -o '[0-9]*$')
-[ -n "$a" ] && [ "$a" = "$o" ] || bad "aero API version: aero $a, orbital $o"
+[ -n "$e" ] && [ "$e" = "$o" ] || bad "entry-source contract: aero $e, orbital $o"
+grep -q 'public static int RegisterEntrySource(string owner, Delegate source) => AeroEntryFx.RegisterEntrySource' "$api" || bad "AeroApi.RegisterEntrySource no longer returns AeroEntryFx's contract"
 grep -q 'public static int RegisterEntrySource(string owner, Delegate source)' "$api" || bad "AeroApi.RegisterEntrySource(string, Delegate) missing"
 grep -q 'public static bool HasEntrySource(string owner, Delegate source)' "$api" || bad "AeroApi.HasEntrySource(string, Delegate) missing"
 grep -q '"AeroMod.AeroApi"' Scripts/Simulation/Frames/EntryHost.cs || bad "EntryHost no longer finds AeroMod.AeroApi"
@@ -29,5 +35,5 @@ for f in $(grep -rl '"AeroMod\.' Scripts --include=*.cs); do
 done
 grep -rq '"AeroMod.AeroEntryFx", "External"' Scripts && bad "the retired AeroEntryFx.External is still poked"
 
-[ $rc -eq 0 ] && echo "PASS  contract (aero API $a; reflected names)" || echo "FAIL  contract"
+[ $rc -eq 0 ] && echo "PASS  contract (aero API $a, entry source $e; reflected names)" || echo "FAIL  contract"
 exit $rc

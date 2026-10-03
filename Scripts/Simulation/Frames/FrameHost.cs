@@ -109,6 +109,8 @@ public static class FrameHost
     public static void Tick(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera, double gravityMultiplier)
     {
         TickRate.Client.Count();
+        if (!OrbitalSettings.SawClient) OrbitalSettings.SawClient = true;
+        OrbitalSettings.Poll();   // (the settings files, every ~2 s)
         _mult = gravityMultiplier > 0 ? gravityMultiplier : 1.0;
         if (!SystemHost.Built)
         {

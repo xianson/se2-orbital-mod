@@ -55,9 +55,23 @@ public static class DevHarness
     private static float _clientGravityMultiplier = float.NaN;
     public static string LastShot = "";
 
+    // the client frame clock (Poll runs once a client frame): every frame's length, for the 'fps' command
+    private static long _lastFrameTick;
+    private static readonly double[] _frameMs = new double[600];
+    private static int _frameIdx, _frameCount;
+
     public static void Poll(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera)
     {
         if (!OrbitalConfig.DevHarness) return;
+        {
+            long now0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (_lastFrameTick != 0)
+            {
+                _frameMs[_frameIdx] = (now0 - _lastFrameTick) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+                _frameIdx = (_frameIdx + 1) % _frameMs.Length; if (_frameCount < _frameMs.Length) _frameCount++;
+            }
+            _lastFrameTick = now0;
+        }
         _statusSession = session; _lastCamera = camera;
         try
         {
@@ -802,6 +816,17 @@ public static class DevHarness
                 GameMap.HideGameSectors = On(a[1]);
                 return "hide game sector mesh=" + GameMap.HideGameSectors;
 
+            case "fps":   // fps [frames]: the client's frame rate over the last frames (default 300): average, 1% low, worst
+            {
+                int n = Math.Min(_frameCount, a.Length > 1 ? Math.Max(10, (int)D(a[1])) : 300);
+                if (n < 10) return "fps: not enough frames yet";
+                var ms = new double[n];
+                for (int i = 0; i < n; i++) ms[i] = _frameMs[((_frameIdx - 1 - i) % _frameMs.Length + _frameMs.Length) % _frameMs.Length];
+                Array.Sort(ms);
+                double sum = 0; foreach (var m in ms) sum += m;
+                double avg = sum / n, p99 = ms[Math.Min(n - 1, (int)(n * 0.99))];
+                return $"fps {1000.0 / avg:F1} avg ({avg:F2} ms), 1% low {1000.0 / p99:F1} ({p99:F1} ms), worst {ms[n - 1]:F1} ms over {n} frames";
+            }
             case "perf":   // GPU / render / main thread ms (average/max since the last stats log)
                 return PlanetRenderBridge.FrameStats(session) + $" | mapcam {MapCamera.Enabled}: {MapCamera.Status}";
             case "meshrebuild":

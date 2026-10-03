@@ -733,6 +733,26 @@ public static class PlanetRenderBridge
             foreach (var m in comps.GetType().GetMethods()) if (m.Name == "TryGet" && m.IsGenericMethodDefinition && m.GetParameters().Length == 0) { tryGet = m; break; }
             object rec = tryGet?.MakeGenericMethod(t).Invoke(comps, null);
             object st = rec?.GetType().GetProperty("ImmediateStats")?.GetValue(rec);
+            if (st == null)
+            {
+                // not in this session: every recorder registers with the engine's StatsRecorderEngineComponent
+                object engine = typeof(Keen.VRage.Core.VRageCore).GetProperty("Instance", BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy)?.GetValue(null)
+                                ?.GetType().GetProperty("Engine")?.GetValue(typeof(Keen.VRage.Core.VRageCore).GetProperty("Instance", BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy)?.GetValue(null));
+                Type te = render.GetType("Keen.VRage.Render.EngineComponents.StatsRecorderEngineComponent");
+                object ec = null;
+                if (engine != null && te != null)
+                    foreach (var m in engine.GetType().GetMethods())
+                        if (m.Name == "Get" && m.IsGenericMethodDefinition && m.GetParameters().Length == 0)
+                        {
+                            try { ec = m.MakeGenericMethod(te).Invoke(engine, null); } catch (Exception) { ec = null; }
+                            if (ec != null) break;
+                        }
+                if (ec == null) return "no stats (engine " + (engine == null ? "null" : engine.GetType().Name) + ", recorder component not found)";
+                var list = ec?.GetType().GetField("_statsRecorders", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(ec) as System.Collections.IEnumerable;
+                int nrec = 0;
+                if (list != null) foreach (var r in list) { nrec++; st = r?.GetType().GetProperty("ImmediateStats")?.GetValue(r); if (st != null) break; }
+                if (st == null) return $"no stats ({nrec} recorders registered)";
+            }
             if (st == null) return "no stats";
             string F(string field)
             {

@@ -172,6 +172,67 @@ public static class PlasmaSpike
             case "FrontDepth": FrontDepth = v; StopPuffs(); break;
             case "SparkBright": SparkBright = v; StopPuffs(); break;
             case "SparkRate": SparkRate = (int)v is 100 or 75 or 50 or 25 or 12 or 6 ? (int)v : SparkRate; StopPuffs(); break;
+            case "SparkTex": SparkTex = Math.Clamp((int)v, 0, 6); StopPuffs(); break;
+            case "SparkAspect": SparkAspect = v; StopPuffs(); break;
+            case "StreakLen": StreakLen = v is 4f or 1f or 0.3f or 0.1f ? v : StreakLen; StopPuffs(); break;
+            case "Accel": Accel = v; StopPuffs(); break;
+            case "SpawnSize": SpawnSize = v; StopPuffs(); break;
+            case "Strict": Strict = v != 0; StopPuffs(); break;
+            case "ConeRing": ConeRing = Math.Clamp((int)v, 6, 512); StopPuffs(); break;
+            case "ConeOutlier": ConeOutlier = v; StopPuffs(); break;
+            case "VapourDownMix": VapourDownMix = v; StopPuffs(); break;
+            case "VapourJitter": VapourJitter = v; StopPuffs(); break;
+            case "TipMinSpeed": TipMinSpeed = v; break;
+            case "TipBase": TipBase = v; break;
+            case "TipLiftGain": TipLiftGain = v; break;
+            case "TipMachBoost": TipMachBoost = v; break;
+            case "TipLenBase": TipLenBase = v; StopPuffs(); break;
+            case "TipLenPerMs": TipLenPerMs = v; StopPuffs(); break;
+            case "TipLenMax": TipLenMax = v; StopPuffs(); break;
+            case "TipMinFrac": TipMinFrac = v; StopPuffs(); break;
+            case "TipScale": TipScale = v; StopPuffs(); break;
+            case "TipSpeed": TipSpeed = v; StopPuffs(); break;
+            case "ConeSlab": ConeSlab = Math.Max(0.2f, v); StopPuffs(); break;
+            case "ConeLoop": ConeLoop = (int)v; StopPuffs(); break;
+            case "ConeStation": ConeStation = v; StopPuffs(); break;
+            case "ConeMargin": ConeMargin = v; StopPuffs(); break;
+            case "ConeSpacing": ConeSpacing = Math.Max(0.3f, v); StopPuffs(); break;
+            case "ConeFlare": ConeFlare = v; StopPuffs(); break;
+            case "ConeEmitScale": ConeEmitScale = v; StopPuffs(); break;
+            case "ConeSpeed": ConeSpeed = v; StopPuffs(); break;
+            case "ConeVariant": ConeVariant = (int)v; StopPuffs(); break;
+            case "EdgeCollide": EdgeCollide = (int)v; StopPuffs(); break;
+            case "MachOverride": MachOverride = v; break;
+            case "VapourRho": VapourRho = v; break;
+            case "AxisTol": AxisTol = v; break;
+            case "ConeScale": ConeScale = v; StopPuffs(); break;
+            case "VapourEdgeScale": VapourEdgeScale = v; StopPuffs(); break;
+            case "ChordShift": ChordShift = v; StopPuffs(); break;
+            case "VapourSpeed": VapourSpeed = v; StopPuffs(); break;
+            case "ConeIn": ConeBand[0] = v; break;
+            case "ConeFull": ConeBand[1] = v; break;
+            case "ConeEnd": ConeBand[2] = v; break;
+            case "ConeOut": ConeBand[3] = v; break;
+            case "LiftSens": LiftSens = v; StopPuffs(); break;
+            case "LiftTest": LiftTest = v; StopPuffs(); break;
+            case "ChordGap": ChordGap = v; _shapeKey = null; StopPuffs(); break;
+            case "SnapToHull": SnapToHull = v != 0; StopPuffs(); break;
+            case "SnapRadius": SnapRadius = v; StopPuffs(); break;
+            case "SnapLift": SnapLift = v; StopPuffs(); break;
+            case "VapourSpawn": VapourSpawn = v; StopPuffs(); break;
+            case "DownMix": DownMix = v; StopPuffs(); break;
+            case "Jitter": Jitter = v; StopPuffs(); break;
+            case "RateJitter": RateJitter = v; StopPuffs(); break;
+            case "NormalSource": NormalSource = (int)v; StopPuffs(); break;
+            case "NormalRadius": NormalRadius = Math.Max(0.3f, v); StopPuffs(); break;
+            case "SurfaceSpray": SurfaceSpray = v != 0; StopPuffs(); break;
+            case "SprayOut": SprayOut = v; StopPuffs(); break;
+            case "SurfaceOff": SurfaceOff = v; StopPuffs(); break;
+            case "Weighted": Weighted = v != 0; StopPuffs(); break;
+            case "Heat": Heat = v; StopPuffs(); break;
+            case "CpMix": CpMix = v; StopPuffs(); break;
+            case "WeightGamma": WeightGamma = v; StopPuffs(); break;
+            case "WeightMin": WeightMin = v; StopPuffs(); break;
             case "LineDensity": LineDensity = Math.Clamp((int)v, 1, 8); StopPuffs(); break;
             case "SparkLevel": SparkLevel = Math.Clamp((int)v, 1, 5); StopPuffs(); break;
             case "SparkColor": SparkColor = (int)v; StopPuffs(); break;
@@ -264,7 +325,8 @@ public static class PlasmaSpike
             var wt = _client.Data.GetWorldTransform();
             if (_mat == null && (Status = MakeMaterial()) != null) { _on = false; return; }
             int fr = FrameNow();
-            if (Mode == 5 ? (!_fieldUp && _puffWhy == null) || _lightAt == default : _model == null || fr != _shownFrame)
+            if (Mode == 6 || Mode == 7) VapourFlow();
+            if (Mode >= 5 ? (!_fieldUp && _puffWhy == null) || _lightAt == default : _model == null || fr != _shownFrame)
             {
                 _frame = fr;
                 long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -285,8 +347,10 @@ public static class PlasmaSpike
             if (_light != null && !_lightSet) SetLight();
             Status = $"on: grid {_grid} frame {_frame} (atlas {_cellsX}x{_cellsY}, frames {_first}+{_count} at {_fps}/s) build {_buildMs:F1} ms {_n} verts"
                    + (_light != null ? $" light {Light:F0} at {_lightAt}" : _lightWhy != null ? " light: " + _lightWhy : "")
-                   + (Mode == 5 ? $" puffs {_puffs.Count}" + (_puffWhy != null ? " (" + _puffWhy + ")" : "")
-                                + (_lineBad > 0 ? $" badlines {_lineBad}" : "") + (_spot != null ? " spot" : _spotWhy != null ? " spot: " + _spotWhy : "") + $" lights {_gridLights.Count}" + (_gridLightWhy != null ? " (" + _gridLightWhy + ")" : "") : "");
+                   + (Mode >= 5 ? $" puffs {_puffs.Count}" + (_puffWhy != null ? " (" + _puffWhy + ")" : "")
+                                + (Weighted ? $" weighted ({_chunkDrag.Count} chunks, {_weightSkipped} cold skipped{(_dragWhy != null ? ", " + _dragWhy : "")})" : "")
+                                + (_lineBad > 0 ? $" badlines {_lineBad}" : "") + (_spot != null ? " spot" : _spotWhy != null ? " spot: " + _spotWhy : "") + $" lights {_gridLights.Count}" + (_gridLightWhy != null ? " (" + _gridLightWhy + ")" : "")
+                                + (Mode == 6 || Mode == 7 ? " | " + _vapourStatus : "") : "");
         }
         catch (Exception e) { Status = "failed: " + PlanetRenderBridge.Inner(e); _on = false; Dispose(); StopLight(); StopPuffs(); }
     }
@@ -478,6 +542,7 @@ public static class PlasmaSpike
         foreach (var p in pts) { float x = Vector3.Dot(p, a), y = Vector3.Dot(p, b); x0 = Math.Min(x0, x); x1 = Math.Max(x1, x); y0 = Math.Min(y0, y); y1 = Math.Max(y1, y); }
         float m = Margin * R; x0 -= m; x1 += m; y0 -= m; y1 += m;
         int N = Res; float dx = (x1 - x0) / N, dy = (y1 - y0) / N;
+        _ga = a; _gb = b; _gx0 = x0; _gy0 = y0; _gdx = dx; _gdy = dy;
         // the front-most hull point per cell (the surface the air reaches first)
         var depth = new float[N + 1, N + 1]; var has = new bool[N + 1, N + 1];
         foreach (var p in pts)
@@ -486,6 +551,27 @@ public static class PlasmaSpike
             if (i < 0 || j < 0 || i > N || j > N) continue;
             float d = Vector3.Dot(p, f);
             if (!has[i, j] || d > depth[i, j]) { depth[i, j] = d; has[i, j] = true; }
+        }
+        // ...and the back of the FIRST CONTIGUOUS piece behind it (the cell's chord: front - back). The whole column's
+        // rear-most point took the tailplane behind a wing as part of the wing's chord - half of that sat in the air
+        // between them (a detached line of vapour); now the chord stops at the first gap of ChordGap metres
+        _hullBack = new float[N + 1, N + 1];
+        var colDepths = new Dictionary<int, List<float>>();
+        foreach (var p in pts)
+        {
+            int i = (int)MathF.Round((Vector3.Dot(p, a) - x0) / dx), j = (int)MathF.Round((Vector3.Dot(p, b) - y0) / dy);
+            if (i < 0 || j < 0 || i > N || j > N) continue;
+            int key = i * (N + 1) + j;
+            if (!colDepths.TryGetValue(key, out var l)) colDepths[key] = l = new List<float>();
+            l.Add(Vector3.Dot(p, f));
+        }
+        for (int i = 0; i <= N; i++) for (int j = 0; j <= N; j++) _hullBack[i, j] = float.MaxValue;
+        foreach (var kv in colDepths)
+        {
+            var l = kv.Value; l.Sort(); l.Reverse();   // front (largest) first
+            float back = l[0];
+            for (int k = 1; k < l.Count; k++) { if (back - l[k] > ChordGap) break; back = l[k]; }
+            _hullBack[kv.Key / (N + 1), kv.Key % (N + 1)] = back;
         }
         _hullHas = (bool[,])has.Clone(); _hullSurf = new Vector3[N + 1, N + 1];
         for (int i = 0; i <= N; i++) for (int j = 0; j <= N; j++)
@@ -595,7 +681,12 @@ public static class PlasmaSpike
     }
 
     /// <summary>The windward ("wetted") hull surface on the shock grid: which cells have hull, and its front-most point.</summary>
+    private static Vector3 _ga, _gb;
+    private static float _gx0, _gy0, _gdx, _gdy;
     private static bool[,] _hullHas;
+    private static float[,] _hullBack;
+    /// <summary>The chord ends at the first gap along the flow longer than this (metres).</summary>
+    public static float ChordGap = 1.5f;
     private static Vector3[,] _hullSurf;
 
     private static string _shapeKey;
@@ -748,7 +839,7 @@ public static class PlasmaSpike
             }
             return null;
         }
-        if (Mode == 3 || Mode == 5)
+        if (Mode == 3 || Mode == 5 || Mode == 6 || Mode == 7)
         {
             var g = GridMembers.Get(_grid);
             var pts = g?.Entity != null ? HullPoints(g.Entity) : null;
@@ -767,6 +858,30 @@ public static class PlasmaSpike
             }
             var P3 = _P3; var past = _past;
             int N = P3.GetLength(0) - 1;
+            if (Mode == 7)
+            {
+                // flight: the plasma lines, then the vapour, in one field (no StopPuffs between); each with its own spray
+                if (!_fieldUp && _puffWhy == null)
+                {
+                    StopPuffs(); _noStop = true; _lastF = f;
+                    try
+                    {
+                        _sub = 5; SpawnPuffs(P3, past, _ring, f, R); StopSpot(); _spotUsed = -1f;
+                        float dm = DownMix, jt = Jitter; DownMix = VapourDownMix; Jitter = VapourJitter;
+                        try { _sub = 6; SpawnVapour(P3, f, R, N, pts); } finally { DownMix = dm; Jitter = jt; }
+                    }
+                    finally { _noStop = false; _sub = 0; }
+                    _fieldUp = true;
+                }
+                if (_lightAt == default) LightPlace(P3, pts, f);
+                return null;
+            }
+            if (Mode == 6)
+            {
+                if (!_fieldUp && _puffWhy == null) { SpawnVapour(P3, f, R, N, pts); _fieldUp = true; }
+                if (_lightAt == default) LightPlace(P3, pts, f);
+                return null;
+            }
             if (Mode == 5)
             {
                 if (!_fieldUp && _puffWhy == null) { SpawnPuffs(P3, past, _ring, f, R); _fieldUp = true; }
@@ -952,7 +1067,7 @@ public static class PlasmaSpike
 
     /// <summary>An effect under the (client) grid's render root at a grid-space transform - it follows the grid - with
     /// its own user parameters (out); null and why on failure.</summary>
-    private static object SpawnEffect(Keen.VRage.DCS.Components.Entity grid, Guid effect, RelativeTransform at, out object prm, out string why)
+    private static object SpawnEffect(Keen.VRage.DCS.Components.Entity grid, Guid effect, RelativeTransform at, out object prm, out string why, Action<object> init = null)
     {
         prm = null; why = null;
         try
@@ -980,6 +1095,7 @@ public static class PlasmaSpike
             }
             if (!DefinitionManager.Instance.TryGetDefinition(effect, out Definition def) || def == null) { why = "effect not loaded: " + effect; return null; }
             prm = Activator.CreateInstance(_tParams);
+            init?.Invoke(prm);   // (a boxed struct: the sets stick)
             var p = _spawn.GetParameters();
             var args = new object[p.Length];
             for (int i = 0; i < args.Length; i++) args[i] = p[i].HasDefaultValue ? p[i].DefaultValue : null;
@@ -1019,7 +1135,7 @@ public static class PlasmaSpike
     /// <summary>Where the sparks come from: 0 the shock sheet, 1 the hull's windward surface (every PuffEvery cells),
     /// 2 its silhouette edge (lit cells beside unlit ones, every EdgeEvery of them), 3 surface and edge. Hull
     /// emitters sit SurfaceLift x R upwind of the hull.</summary>
-    public static int PuffSource = 5, EdgeEvery = 2;
+    public static int PuffSource = 4, EdgeEvery = 2;   // (the outline only: the user's pick)
     /// <summary>PuffSource bit 4: LINE emitters along the hull shadow's outline (marching squares over the windward
     /// mask, smoothed LineSmooth passes, cut into SegLen metre segments): each a spawn box along its segment, spraying
     /// downwind - continuous along the outline. Sparks LineScale big; within FrontDepth x R of the front the short
@@ -1028,7 +1144,7 @@ public static class PlasmaSpike
     public static int LineSmooth = 2;
     private static readonly Guid LineShockViolet = new Guid("ccbf284f-50ca-59f8-8898-c870b3122f31"), LineTailViolet = new Guid("3b24bc6d-83a9-5468-87ef-df83ce644f98");
     private static readonly Guid LineShockOrange = new Guid("a4274abe-a27c-5279-ad54-c6ae558dee2a"), LineTailOrange = new Guid("3c4c31a7-66f0-5222-9cbf-c107360be119");
-    public static float SurfaceLift = 0.05f;
+    public static float SurfaceLift = 0.01f;   // (was 0.05: tighter to the skin)
     /// <summary>Lights over the windward surface, every LightGrid cells (0: the one light at the nose), each LightEach
     /// strong, LightLift x R off the hull; at most LightMax of them.</summary>
     public static int LightGrid = 0, LightMax = 24;   // (point lights spilled everywhere: the spot below instead)
@@ -1052,7 +1168,7 @@ public static class PlasmaSpike
     /// <summary>What each point spews: 0 fire puffs, 1 sparks (a streaking spray downwind), 2 both.</summary>
     public static int Sparks = 1;
     /// <summary>The sparks' speed x (on top of the spacing the effects are authored per metre of).</summary>
-    public static float SparkSpeed = 1f;
+    public static float SparkSpeed = 0.25f;   // (the user: shorter than 0.4x)
     /// <summary>TEST: one spark effect at the nose only - 1 scale 9 turned downwind, 2 scale 1 turned, 3 scale 1 unturned.</summary>
     public static int PuffTest;
     private static readonly Guid ShockSparksOrange = new Guid("88d92e33-42d6-57d6-92e5-6c1b6e145b75"), TailSparksOrange = new Guid("a5dffd10-c970-5b4b-b93c-60fb8b1eb3fe");
@@ -1070,6 +1186,19 @@ public static class PlasmaSpike
     /// <summary>Outline emitters LineDensity x closer (SegLen / it), each at SparkRate / it (the nearest built rate:
     /// 100 50 25 12 6 - deep sparks only) - the same sparks in all, finer along the outline. Sizes and speeds unchanged.</summary>
     public static int LineDensity = 1;
+    /// <summary>LOCAL DRAG drives each emitter (Weighted: the aero mod's PlasmaField_Weighted* effects, rate = the
+    /// emitter's held effect time): weight = the hull's local pressure there - each 8 m chunk of the aero force table's
+    /// Newtonian drag along the flow over its frontal area (its share for this flow direction, shadowing included),
+    /// blended over neighbouring chunks - times (1 - CpMix + CpMix cos^2) of the local surface slope (the face model's
+    /// own Newtonian term, finer than a chunk); normalised to the hottest emitter, ^WeightGamma. Rate = Heat x weight
+    /// (/ LineDensity on the outline). Emitters under WeightMin not spawned.</summary>
+    public static bool Weighted = true;
+    public static float Heat = 1f, CpMix = 0.6f, WeightGamma = 1f, WeightMin = 0.03f;
+    private static readonly List<(Vector3 c, float drag, float frontal)> _chunkDrag = new();
+    private static string _dragWhy;
+    private static float _weightMax = 1f;
+    private static Vector3 _flow;
+    private static int _weightSkipped;
     private static int LineRate
     {
         get
@@ -1109,7 +1238,8 @@ public static class PlasmaSpike
         {
             int i2 = d == 0 ? i + 1 : i, j2 = d == 0 ? j : j + 1;
             var (hi, hj) = Has(i, j) ? (i, j) : (i2, j2);
-            return (Plane(i, j) + Plane(i2, j2)) * 0.5f + f * Vector3.Dot(_hullSurf[hi, hj], f);
+            float front = Vector3.Dot(_hullSurf[hi, hj], f), back = _hullBack != null && _hullBack[hi, hj] < float.MaxValue ? _hullBack[hi, hj] : front;
+            return (Plane(i, j) + Plane(i2, j2)) * 0.5f + f * (front - _chordShift * (front - back));
         }
         var adj = new Dictionary<long, List<long>>();
         void Link(long x, long y) { (adj.TryGetValue(x, out var lx) ? lx : adj[x] = new List<long>()).Add(y); (adj.TryGetValue(y, out var ly) ? ly : adj[y] = new List<long>()).Add(x); }
@@ -1191,7 +1321,18 @@ public static class PlasmaSpike
 
     private static void LineSegment(Vector3 p0, Vector3 p1, Vector3 f, float R, float zFront, Vector3 lift)
     {
-        if (!_draining) { _spawnQueue.Enqueue(() => LineSegment(p0, p1, f, R, zFront, lift)); return; }
+        if (!_draining)
+        {
+            // (queued: flight mode's pass (_sub) and the vapour's own spray captured now - they are restored after the pass)
+            int s7 = _sub; float dm = DownMix, jt = Jitter;
+            _spawnQueue.Enqueue(() =>
+            {
+                int o7 = _sub; float odm = DownMix, ojt = Jitter;
+                _sub = s7; DownMix = dm; Jitter = jt;
+                try { LineSegment(p0, p1, f, R, zFront, lift); } finally { _sub = o7; DownMix = odm; Jitter = ojt; }
+            });
+            return;
+        }
         Vector3 sdir = p1 - p0; sdir -= f * Vector3.Dot(sdir, f);
         float len = sdir.Length();
         if (len < 0.05f * SegLen) return;   // (a run straight along the flow: no width across it)
@@ -1208,16 +1349,84 @@ public static class PlasmaSpike
         //  Shaders/Transparent/Particles/ParticleEmission.hlsl - so a long box sprays along itself. Round point emitters,
         //  close together along the outline, instead.)
         Guid e = SparkColor == 3 && LineDensity > 1 ? RateGuid(front ? 3 : 4, LineRate) : front ? ShockSparks : TailSparks;
-        object h = SpawnEffect(_client, e, new RelativeTransform(mid, q), out object prm, out _puffWhy);
-        if (h == null) return;
-        _puffs.Add(h);
-        try
+        float held = WeightTime(mid - lift, LineDensity);
+        if (held == 0f) { _weightSkipped++; return; }
+        if (Mode == 6 || (Mode == 7 && _sub == 6))
+        {
+            // (the vapour sheets: the same placement and spray direction, its own effect; the weight at heat 1 is kept and
+            //  VapourFlow multiplies it by the Mach band every quarter second)
+            float w = held > 0f ? held / Math.Max(1e-3f, Heat) : 1f;
+            w *= SuctionSide(mid - lift, f);
+            if (RateJitter > 0f) w *= 1f + RateJitter * ((float)_rng.NextDouble() * 2f - 1f);
+            if (DownMix >= 0f)
+            {
+                Vector3 rad0 = mid - _stagMid; rad0 -= f * Vector3.Dot(rad0, f);
+                Vector3 radU0 = rad0.LengthSquared() > 1e-4f ? Vector3.Normalize(rad0) : sdir;
+                var hn0 = HullNormal(mid - lift, f);
+                Vector3 along0 = hn0 != null ? radU0 - Vector3.Dot(radU0, hn0.Value) * hn0.Value : Vector3.Zero;
+                along0 -= f * Vector3.Dot(along0, f);
+                if (along0.LengthSquared() > 1f) along0 = Vector3.Normalize(along0);
+                q = Quaternion.CreateFromTwoVectors(Vector3.UnitZ, Vector3.Normalize(DownMix * -f + (1f - DownMix) * along0));
+            }
+            Vector3 at0 = mid;
+            if (SnapToHull)
+            {
+                var hit = NearestHull(mid - lift, SnapRadius);
+                if (hit == null) return;   // (no skin within SnapRadius: an emitter in the air would be a detached line)
+                var hn1 = HullNormal(hit.Value, f);
+                at0 = hit.Value + (hn1 ?? f) * SnapLift;
+            }
+            VapourEffect(EdgeCollide == 0 ? new Guid("5d0c7a3e-0105-4000-8000-000000000001") : VapourEdge, at0, q, VapourEdgeScale, w, false, -1f, false, VapourSpawn);
+            return;
+        }
+        if (held > 0f && RateJitter > 0f) held = Math.Clamp(held * (1f + RateJitter * ((float)_rng.NextDouble() * 2f - 1f)), 0.001f, 0.999f);
+        if (held > 0f) e = Recipe ? RecipeGuid(!front) : RateGuid(TexKind(!front), StreakField);
+        if (DownMix >= 0f)
+        {
+            // ALONG the surface (in its plane, not off it): out from the ship's axis, flattened onto the hull there
+            // (a wing edge: spanwise to the tip; the fuselage: round it); with no hull normal, along the outline
+            Vector3 rad = mid - _stagMid; rad -= f * Vector3.Dot(rad, f);
+            Vector3 radU = rad.LengthSquared() > 1e-4f ? Vector3.Normalize(rad) : sdir;
+            var hn = HullNormal(mid - lift, f);
+            Vector3 along = hn != null ? radU - Vector3.Dot(radU, hn.Value) * hn.Value : sdir * MathF.Sign(Vector3.Dot(sdir, radU) + 1e-6f);
+            along -= f * Vector3.Dot(along, f);   // (across the flow: the downwind part is DownMix's)
+            // NOT renormalised: where "outward" runs into the surface (a wing's underside: out = down, the surface
+            // flat) almost nothing is left in its plane and the side push fades to none - renormalised (or falling
+            // back to plain outward) it sprayed straight down off the wing in combs
+            if (along.LengthSquared() > 1f) along = Vector3.Normalize(along);
+            Vector3 dir = Vector3.Normalize(DownMix * -f + (1f - DownMix) * along);
+            if (Jitter > 0f)
+            {
+                float t = MathF.Tan(Jitter * MathF.PI / 180f);
+                var r = new Vector3((float)_rng.NextDouble() * 2 - 1, (float)_rng.NextDouble() * 2 - 1, (float)_rng.NextDouble() * 2 - 1);
+                r -= dir * Vector3.Dot(r, dir);
+                dir = Vector3.Normalize(dir + r * t);
+            }
+            q = Quaternion.CreateFromTwoVectors(Vector3.UnitZ, dir);
+        }
+        else if (NormalSource == 1 && SurfaceSpray)
+        {
+            var hn = HullNormal(mid - lift, f);
+            if (hn != null) q = Quaternion.CreateFromTwoVectors(Vector3.UnitZ, SprayDir(mid - lift, f, hn.Value));
+        }
+        void FillLine(object prm)
         {
             var t = prm.GetType();
             t.GetField("EmitterScaleMultiplier").SetValue(prm, LineScale);
             t.GetField("VelocityMultiplier").SetValue(prm, Math.Max(0.01f, SparkSpeed));
             t.GetField("ColorMultiplier").SetValue(prm, new ColorSRGB(SparkBright, SparkBright, SparkBright, 1f));
+            t.GetField("EmitterSizeMultiplier").SetValue(prm, SpawnSize);
+            t.GetField("ParticleAspectRatio").SetValue(prm, SparkAspect);
+            if (Strict) t.GetField("VelocityDirection").SetValue(prm, Vector3.UnitZ);
+        }
+        object h = SpawnEffect(_client, e, new RelativeTransform(mid, q), out object prm, out _puffWhy, FillLine);
+        if (h == null) return;
+        _puffs.Add(h);
+        try
+        {
             h.GetType().GetMethod("SetParameters", AnyInst).Invoke(h, new[] { prm });
+            if (Mode == 7) { float w7 = held > 0f ? held / Math.Max(1e-3f, Heat) : 1f; _plasma.Add((h, w7)); held = Math.Clamp(_entryS * w7, 0.00001f, 0.999f); }
+            if (held > 0f) h.GetType().GetMethod("FixEffectTime", AnyInst).Invoke(h, new object[] { true, TimeSpan.FromSeconds(held) });
         }
         catch (Exception ex) { _puffWhy = "set: " + PlanetRenderBridge.Inner(ex); }
     }
@@ -1251,7 +1460,7 @@ public static class PlasmaSpike
                 switch (ps[i].Name)
                 {
                     case "debugName": args[i] = "PlasmaSpot"; break;
-                    case "lightIntensityRGB": args[i] = new ColorLinear(lr * Spot, lg * Spot, lb * Spot, 1f); break;
+                    case "lightIntensityRGB": args[i] = new ColorLinear(lr * Spot * _spotMul, lg * Spot * _spotMul, lb * Spot * _spotMul, 1f); break;
                     case "outerConeAngle": args[i] = cone; break;
                     case "localLightTransform": args[i] = new RelativeTransform(at, q2); break;
                     case "rootEntity": args[i] = _spotRoot; break;
@@ -1306,9 +1515,669 @@ public static class PlasmaSpike
 
     private static bool _fieldUp;
 
+    /// <summary>Every chunk of the grid's aero force table: its centre, Newtonian drag along the flow f and frontal area
+    /// (its share for f, at unit dynamic pressure). By reflection: the aero mod is another assembly.</summary>
+    private static void ChunkDrag(Vector3 f)
+    {
+        _chunkDrag.Clear(); _dragWhy = null;
+        try
+        {
+            var g = GridMembers.Get(_grid);
+            object aero = null;
+            foreach (var c in g.Entity.Components) if (c != null && c.GetType().FullName == "AeroMod.AeroGridComponent") { aero = c; break; }
+            object table = aero?.GetType().GetField("_chunks", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(aero);
+            if (table == null) { _dragWhy = "no chunk table"; return; }
+            var tt = table.GetType();
+            int n = (int)tt.GetField("N").GetValue(table);
+            int count = (int)tt.GetProperty("ChunkCount").GetValue(table);
+            var bounds = (System.Collections.IList)tt.GetField("Bounds").GetValue(table);
+            var getShare = tt.GetMethod("GetShare");
+            var hasShare = tt.GetMethod("HasShare");
+            // the direction's cube face and fractional vertex (as ForceTable.Locate), bilinear weights
+            Vector3 d = f; float ax = MathF.Abs(d.X), ay = MathF.Abs(d.Y), az = MathF.Abs(d.Z), aa, bb; int face;
+            if (ax >= ay && ax >= az) { face = d.X >= 0 ? 0 : 1; aa = d.Y / ax; bb = d.Z / ax; }
+            else if (ay >= az) { face = d.Y >= 0 ? 2 : 3; aa = d.X / ay; bb = d.Z / ay; }
+            else { face = d.Z >= 0 ? 4 : 5; aa = d.X / az; bb = d.Y / az; }
+            float u = Math.Clamp((aa + 1f) * 0.5f * n, 0, n), w = Math.Clamp((bb + 1f) * 0.5f * n, 0, n);
+            int i0 = Math.Min((int)u, n - 1), j0 = Math.Min((int)w, n - 1);
+            float fu = u - i0, fw = w - j0;
+            int Idx(int i, int j) => (face * (n + 1) + i) * (n + 1) + j;   // (ForceTable.Index: face, i, j)
+            var corners = new[] { (Idx(i0, j0), (1 - fu) * (1 - fw)), (Idx(i0 + 1, j0), fu * (1 - fw)), (Idx(i0, j0 + 1), (1 - fu) * fw), (Idx(i0 + 1, j0 + 1), fu * fw) };
+            for (int c = 0; c < count; c++)
+            {
+                if (!(bool)hasShare.Invoke(table, new object[] { c })) continue;
+                var sh = (float[])getShare.Invoke(table, new object[] { c });
+                float f1x = 0, f1y = 0, f1z = 0, fr = 0;
+                foreach (var (k, wt) in corners) { int o = k * 13; f1x += sh[o + 3] * wt; f1y += sh[o + 4] * wt; f1z += sh[o + 5] * wt; fr += sh[o + 12] * wt; }
+                float drag = -(f1x * f.X + f1y * f.Y + f1z * f.Z);
+                var (lo, hi) = ((Vector3, Vector3))bounds[c];
+                if (fr > 1e-3f) _chunkDrag.Add(((lo + hi) * 0.5f, Math.Max(0f, drag), fr));
+            }
+            if (_chunkDrag.Count == 0) _dragWhy = "no windward chunks";
+        }
+        catch (Exception e) { _dragWhy = "chunk drag: " + PlanetRenderBridge.Inner(e); _chunkDrag.Clear(); }
+    }
+
+    /// <summary>The local pressure at p: the chunks' drag over their frontal area, Gaussian-blended (sigma 0.6 chunk).</summary>
+    private static float LocalPressure(Vector3 p)
+    {
+        if (_chunkDrag.Count == 0) return 1f;
+        float sig2 = 2f * (0.6f * 8f) * (0.6f * 8f), sd = 0f, sf = 0f;
+        foreach (var (c, drag, fr) in _chunkDrag)
+        {
+            float d2 = (c - p).LengthSquared();
+            if (d2 > 9f * 64f) continue;
+            float g = MathF.Exp(-d2 / sig2);
+            sd += g * drag; sf += g * fr;
+        }
+        return sf > 1e-4f ? sd / sf : 0f;
+    }
+
+    /// <summary>cos^2 of the windward surface's slope at p (from the shadow grid's depth), 1 if no hull there.</summary>
+    private static float SurfaceCos2(Vector3 p, Vector3 f)
+    {
+        if (_hullHas == null) return 1f;
+        int N = _hullHas.GetLength(0) - 1;
+        int i = (int)MathF.Round((Vector3.Dot(p, _ga) - _gx0) / _gdx), j = (int)MathF.Round((Vector3.Dot(p, _gb) - _gy0) / _gdy);
+        // the nearest hull cell (an outline point sits half a cell out)
+        int bi = -1, bj = -1;
+        for (int r = 0; r <= 2 && bi < 0; r++)
+            for (int di = -r; di <= r && bi < 0; di++) for (int dj = -r; dj <= r; dj++)
+            { int ii = i + di, jj = j + dj; if (ii >= 0 && jj >= 0 && ii <= N && jj <= N && _hullHas[ii, jj]) { bi = ii; bj = jj; break; } }
+        if (bi < 0) return 1f;
+        float Z(int ii, int jj) => Vector3.Dot(_hullSurf[ii, jj], f);
+        bool H(int ii, int jj) => ii >= 0 && jj >= 0 && ii <= N && jj <= N && _hullHas[ii, jj];
+        float gx = 0, gy = 0;
+        if (H(bi + 1, bj) && H(bi - 1, bj)) gx = (Z(bi + 1, bj) - Z(bi - 1, bj)) / (2 * _gdx);
+        else if (H(bi + 1, bj)) gx = (Z(bi + 1, bj) - Z(bi, bj)) / _gdx;
+        else if (H(bi - 1, bj)) gx = (Z(bi, bj) - Z(bi - 1, bj)) / _gdx;
+        else gx = 3f;   // (a lone cell across: a thin edge seen side on)
+        if (H(bi, bj + 1) && H(bi, bj - 1)) gy = (Z(bi, bj + 1) - Z(bi, bj - 1)) / (2 * _gdy);
+        else if (H(bi, bj + 1)) gy = (Z(bi, bj + 1) - Z(bi, bj)) / _gdy;
+        else if (H(bi, bj - 1)) gy = (Z(bi, bj) - Z(bi, bj - 1)) / _gdy;
+        else gy = 3f;
+        return 1f / (1f + gx * gx + gy * gy);   // (cos^2 of the normal (-gx, -gy, 1) to the flow)
+    }
+
+    /// <summary>Surface emitters spray along the hull (SurfaceSpray), SprayOut of a normal outward, SurfaceOff x R off it.</summary>
+    public static bool SurfaceSpray = true;
+    public static float SprayOut = 0.35f, SurfaceOff = 0.01f;
+    private static Vector3 _stagMid;
+    /// <summary>Where the spray's surface normal comes from: 0 the shadow grid's depth slope (front surface only),
+    /// 1 the HULL - a plane fitted to its face centres within NormalRadius of the emitter (every emitter, the outline
+    /// too: its spray flares out off the edges). Oriented to face the flow and away from the ship's axis.</summary>
+    public static int NormalSource = 1;   // (the hull normals steer the spray; Accel bends it back downwind)
+    /// <summary>(Accel: no longer used - the user GravityForce never reached the GPU (read once at spawn, and the gravity
+    /// multiplier it needs attaches a planet-gravity probe that overwrote it, world-space, in the sparks' local frame:
+    /// they fell sideways). The push is the effects' AccelerationFactor, along each spark's own downwind way.)
+    /// SpawnSize: the spawn sphere x (EmitterSizeMultiplier - their size and speed unchanged): sparks born at the skin.</summary>
+    public static float Accel = 60f, SpawnSize = 0.3f;
+    /// <summary>The weighted sparks' drawn length: StreakMultiplier 4 (the original), 1, 0.3 or 0.1 (a spark is drawn
+    /// 0.5 x speed x it long - pushed downwind they speed up: 4 made whiskers).</summary>
+    public static float StreakLen = 0.3f;
+    /// <summary>The sparks' length : width (ParticleAspectRatio: the streak's length x it, ParticleRenderingVertex.hlsl).
+    /// A streak is (size x 0.5 x speed x StreakMultiplier) long but a whole size wide: short, slow sparks came out as
+    /// wide as long - flecks across their motion.</summary>
+    public static float SparkAspect = 4f;
+    /// <summary>The weighted sparks' texture: 0 FireSparks' (soft: splotches), 1 Thorn (the rain streaks': a point
+    /// with a soft falloff - a long tapered diamond), 2 ThrusterFlame_Dot (a firmer dot).</summary>
+    public static int SparkTex = 1;
+    private static int TexKind(bool tail) => SparkTex == 1 ? (tail ? 8 : 7) : SparkTex == 2 ? (tail ? 10 : 9) : (tail ? 6 : 5);
+    /// <summary>SparkTex 3-6: the game's own spark emitters as they are (gen_plasma_field.py RECIPES) - 3 grinder main
+    /// spark, 4 welder sparks, 5 explosion sparks, 6 directional sparks - in our colours, drag-weighted.</summary>
+    private static bool Recipe => SparkTex >= 3;
+    private static Guid RecipeGuid(bool tail) => new Guid($"5d0c7a3e-{(11 + 2 * (SparkTex - 3) + (tail ? 1 : 0)):x4}-4000-8000-000000000001");
+    private static int StreakField => StreakLen >= 3f ? 0 : (int)MathF.Round(StreakLen * 100f);
+    public static float NormalRadius = 1.5f;
+    /// <summary>Outline emitters' spray: DownMix of it downwind, the rest ALONG the surface there - in the hull's plane,
+    /// out from the ship's axis (negative DownMix: off - the older modes); each tilted at random up to Jitter degrees, its rate varied up to
+    /// +-RateJitter (a fixed pattern per spawn, so it doesn't flicker on respawn).</summary>
+    public static float DownMix = 0.7f, Jitter = 12f, RateJitter = 0.3f;
+    /// <summary>Vapour edge emitters snapped onto the nearest real hull face centre within SnapRadius metres, SnapLift out
+    /// along its surface normal; their spawn sphere x VapourSpawn (EmitterSizeMultiplier) - born on the skin.</summary>
+    public static bool SnapToHull = true;
+    /// <summary>The SUCTION side: vapour forms on the side the lift points to (low pressure), little on the other. Each
+    /// edge emitter's weight x (1 - k) + k x clamp(0.5 + 1.5 n.lift), k = LiftSens x the lift strength (capped 1); the
+    /// lift from the aero mod (its force across the travel), or LiftTest (along the grid's up across the flow) when > 0 -
+    /// a held test grid has no real air, so no aero lift. Placed again when it changes much.</summary>
+    public static float LiftSens = 1.5f, LiftTest;
+    private static Vector3 _liftDir; private static float _liftCoef, _liftUsed = -1f;
+    public static float SnapRadius = 2f, SnapLift = 0.05f, VapourSpawn = 0.3f;
+    /// <summary>Every spark held on its emitter's spray direction, every frame (the instance's VelocityDirection: the GPU
+    /// re-applies it - ParticleSimulation.hlsl); off: the emitter's cone and speed spread show.</summary>
+    public static bool Strict;
+    private static Random _rng = new Random(1);
+    private static Dictionary<long, List<Vector3>> _hullHash;
+    private static List<Vector3> _hashFor;
+
+    private static long HKey(int x, int y, int z) => ((long)(x & 0x1FFFFF) << 42) | ((long)(y & 0x1FFFFF) << 21) | (long)(z & 0x1FFFFF);
+
+    /// <summary>The hull's normal at p from its face centres nearby (the smallest axis of their spread), or null.</summary>
+    /// <summary>The suction-side factor at p: (1 - k) + k clamp(0.5 + 1.5 n.lift); 1 with no lift.</summary>
+    private static float SuctionSide(Vector3 p, Vector3 f)
+    {
+        Vector3 L; float coef;
+        if (LiftTest > 0f) { L = Vector3.UnitY - f * Vector3.Dot(Vector3.UnitY, f); coef = LiftTest; }
+        else { L = _liftDir; coef = _liftCoef; }
+        if (L.LengthSquared() < 1e-6f || coef <= 0f) return 1f;
+        L = Vector3.Normalize(L);
+        var hit = NearestHull(p, SnapRadius);
+        var n = HullNormal(hit ?? p, f);
+        if (n == null) return 1f;
+        float k = Math.Min(1f, LiftSens * coef);
+        return (1f - k) + k * Math.Clamp(0.5f + 1.5f * Vector3.Dot(n.Value, L), 0f, 1f);
+    }
+
+    /// <summary>The nearest hull face centre to p within r metres (the hull hash of HullNormal), or null.</summary>
+    private static Vector3? NearestHull(Vector3 p, float r)
+    {
+        if (_hull == null) return null;
+        if (!ReferenceEquals(_hashFor, _hull)) HullNormal(p, Vector3.UnitX);   // (builds the hash)
+        if (_hullHash == null) return null;
+        int cx = (int)MathF.Floor(p.X), cy = (int)MathF.Floor(p.Y), cz = (int)MathF.Floor(p.Z), ri = (int)MathF.Ceiling(r);
+        Vector3? best = null; float bd = r * r;
+        for (int x = -ri; x <= ri; x++) for (int y = -ri; y <= ri; y++) for (int z = -ri; z <= ri; z++)
+            if (_hullHash.TryGetValue(HKey(cx + x, cy + y, cz + z), out var l))
+                foreach (var q in l) { float d = (q - p).LengthSquared(); if (d < bd) { bd = d; best = q; } }
+        return best;
+    }
+
+    private static Vector3? HullNormal(Vector3 p, Vector3 f)
+    {
+        var pts = _hull;
+        if (pts == null) return null;
+        if (!ReferenceEquals(_hashFor, pts))
+        {
+            _hullHash = new Dictionary<long, List<Vector3>>();
+            foreach (var q in pts)
+            {
+                long k = HKey((int)MathF.Floor(q.X), (int)MathF.Floor(q.Y), (int)MathF.Floor(q.Z));
+                if (!_hullHash.TryGetValue(k, out var l)) _hullHash[k] = l = new List<Vector3>();
+                l.Add(q);
+            }
+            _hashFor = pts;
+        }
+        float r = NormalRadius, r2 = r * r;
+        int cx = (int)MathF.Floor(p.X), cy = (int)MathF.Floor(p.Y), cz = (int)MathF.Floor(p.Z), ri = (int)MathF.Ceiling(r);
+        Vector3 m = Vector3.Zero; int n = 0;
+        var near = new List<Vector3>();
+        for (int x = -ri; x <= ri; x++) for (int y = -ri; y <= ri; y++) for (int z = -ri; z <= ri; z++)
+            if (_hullHash.TryGetValue(HKey(cx + x, cy + y, cz + z), out var l))
+                foreach (var q in l) if ((q - p).LengthSquared() <= r2) { near.Add(q); m += q; n++; }
+        if (n < 4) return null;
+        m /= n;
+        // covariance; its smallest eigenvector by inverse-free iteration: the largest of (trace*I - C)
+        float xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0;
+        foreach (var q in near) { var d = q - m; xx += d.X * d.X; xy += d.X * d.Y; xz += d.X * d.Z; yy += d.Y * d.Y; yz += d.Y * d.Z; zz += d.Z * d.Z; }
+        float tr = xx + yy + zz + 1e-4f;
+        // M = tr*I - C
+        float a11 = tr - xx, a12 = -xy, a13 = -xz, a22 = tr - yy, a23 = -yz, a33 = tr - zz;
+        Vector3 v = Vector3.Normalize(f + new Vector3(0.11f, 0.07f, 0.05f));
+        for (int it = 0; it < 24; it++)
+        {
+            var w = new Vector3(a11 * v.X + a12 * v.Y + a13 * v.Z, a12 * v.X + a22 * v.Y + a23 * v.Z, a13 * v.X + a23 * v.Y + a33 * v.Z);
+            float len = w.Length(); if (len < 1e-8f) break;
+            v = w / len;
+        }
+        // out of the local surface: p against its neighbours' mean (a thin plate's top face up, its bottom face down);
+        // when p sits at the mean (inside a solid), facing the flow and away from the ship's axis as before
+        Vector3 off = p - m;
+        if (off.LengthSquared() > 0.04f * 0.04f) { if (Vector3.Dot(v, off) < 0) v = -v; return v; }
+        Vector3 rad = p - _stagMid; rad -= f * Vector3.Dot(rad, f);
+        Vector3 outward = f + (rad.LengthSquared() > 1e-4f ? Vector3.Normalize(rad) * 0.7f : Vector3.Zero);
+        if (Vector3.Dot(v, outward) < 0) v = -v;
+        return v;
+    }
+
+    /// <summary>The spray's direction at p: the flow deflected along the surface (normal nrm) plus SprayOut x nrm.</summary>
+    private static Vector3 SprayDir(Vector3 p, Vector3 f, Vector3 nrm)
+    {
+        Vector3 along = -f - Vector3.Dot(-f, nrm) * nrm;
+        if (along.LengthSquared() < 0.01f)
+        {
+            Vector3 rad = p - _stagMid; rad -= f * Vector3.Dot(rad, f);
+            along = rad.LengthSquared() > 1e-4f ? Vector3.Normalize(rad) : Vector3.Cross(f, Vector3.UnitY);
+        }
+        return Vector3.Normalize(Vector3.Normalize(along) + SprayOut * nrm);
+    }
+
+    /// <summary>The windward surface's outward normal at shadow cell (i, j), from the depth's slope.</summary>
+    private static Vector3 SurfaceNormal(int i, int j, Vector3 f)
+    {
+        int N = _hullHas.GetLength(0) - 1;
+        bool H(int ii, int jj) => ii >= 0 && jj >= 0 && ii <= N && jj <= N && _hullHas[ii, jj];
+        float Z(int ii, int jj) => Vector3.Dot(_hullSurf[ii, jj], f);
+        float gx = 0f, gy = 0f;
+        if (H(i + 1, j) && H(i - 1, j)) gx = (Z(i + 1, j) - Z(i - 1, j)) / (2 * _gdx);
+        else if (H(i + 1, j)) gx = (Z(i + 1, j) - Z(i, j)) / _gdx;
+        else if (H(i - 1, j)) gx = (Z(i, j) - Z(i - 1, j)) / _gdx;
+        if (H(i, j + 1) && H(i, j - 1)) gy = (Z(i, j + 1) - Z(i, j - 1)) / (2 * _gdy);
+        else if (H(i, j + 1)) gy = (Z(i, j + 1) - Z(i, j)) / _gdy;
+        else if (H(i, j - 1)) gy = (Z(i, j) - Z(i, j - 1)) / _gdy;
+        // z(x, y) = depth along f: the surface's normal facing the flow is f - gx a - gy b
+        return Vector3.Normalize(f - _ga * gx - _gb * gy);
+    }
+
+    private static float RawWeight(Vector3 p, Vector3 f) => LocalPressure(p) * (1f - CpMix + CpMix * SurfaceCos2(p, f));
+
+    // ── Mode 6: TRANSONIC VAPOUR - the condensation cone at the grid's widest station, and sheets off the outline half a
+    //    chord downwind; driven by the aero mod's real Mach, density and flow direction (AeroEntryFx.TryGetFlow, by
+    //    reflection - D:\aero\docs\REFLECTION_AND_WHITELIST.md). Effects: the aero mod's Vapour_* (tools/particles/gen_vapor.py).
+
+    /// <summary>Mach bands (in, full .. full, out): the cone and the edge sheets; density factor (rho / VapourRho)^0.5,
+    /// capped at 1. The flow axis follows the real travel (AoA); past AxisTol degrees the field is placed again.
+    /// ConeScale: the cone ring x the grid's widest radius; VapourEdgeScale: the edge sprays' size; ChordShift: how far
+    /// back along the chord the edge emitters sit (0.5 = mid-chord).</summary>
+    public static float[] ConeBand = { 0.90f, 0.97f, 1.02f, 1.08f }, EdgeBand = { 0.80f, 0.90f, 1.02f, 1.10f };
+    public static float VapourRho = 1.0f, AxisTol = 5f, ConeScale = 1.0f, VapourEdgeScale = 4f, ChordShift = 0.5f, VapourSpeed = 1f;
+    /// <summary>TEST: a fixed Mach (0: the real one) - the shape at any speed.</summary>
+    public static float MachOverride;
+    /// <summary>DIAGNOSTIC: 0 the cone as built, 1 without collisions, 2 without collisions or the inner-cone ring;
+    /// EdgeCollide 0: the edge without collisions.</summary>
+    public static int ConeVariant, EdgeCollide = 1;
+    /// <summary>The cone as a LOOP of emitters (the user's idea): 0 the single ellipsoid emitter (old), 1 the plane's whole
+    /// frontal silhouette, 2 its convex hull (a rounder loop) - at ConeStation of the hull's length from the nose, pushed
+    /// ConeMargin metres out from the body (from the fuselage axis: the shadow cell with the longest chord), an emitter every
+    /// ConeSpacing metres, each spraying ConeFlare outward + the rest downwind, ConeEmitScale big, ConeSpeed fast.</summary>
+    public static int ConeLoop = 3;
+    /// <summary>ConeLoop 3 (the user's design): ConeRing emitters evenly round the fuselage axis at the station, each
+    /// PROJECTED onto the plane's outer skin along its angle (the farthest hull point in that angular slice, within
+    /// ConeSlab metres of the station) - a collar on the skin, fuselage all round, the wings and fin where they cross it -
+    /// each the thick wide ConeSpray (Vapour_ConeSpray), outward-and-back.</summary>
+    public static int ConeRing = 48;
+    public static float ConeSlab = 1.5f, ConeOutlier = 1.3f;
+    /// <summary>Wingtip lines: the tip vortex trail (Vapour_Tip) from every outline point that sticks out furthest from
+    /// the fuselage axis - a local maximum of its distance, at least TipMinFrac of the farthest - at that tip's trailing
+    /// edge; on from TipBand (Mach), x density. Not transonic: tip vortices condense whenever fast in humid air.</summary>
+    public static float TipMinFrac = 0.7f, TipScale = 3f, TipSpeed = 1f;
+    public static float[] TipBand = { 0.25f, 0.45f, 5f, 6f };   // (unused since the tips run at all speeds; kept for the knob)
+    /// <summary>Tip trails at ALL speeds, by flight regime: on from TipMinSpeed (full by 3x it), strength TipBase + TipLiftGain x
+    /// the lift strength (a slow, high-lift approach shows them strongest - the vortex is the lift), x (1 + TipMachBoost x the
+    /// transonic band), x density. Length grows with airspeed: TipLenBase + TipLenPerMs x speed metres, up to TipLenMax
+    /// (placed again when the speed moves TipRespawn of itself - the length is fixed at spawn).</summary>
+    /// <summary>Flight mode (7): the vapour's spray (the plasma keeps DownMix / Jitter); the plasma's held time = the aero
+    /// mod's entry strength (AeroEntryFx.EntryStrength: Mach 2 onset, density-scaled) x each line's weight, the spot light
+    /// x the strength (placed again when it moves a quarter).</summary>
+    public static float VapourDownMix = 0.97f, VapourJitter = 4f;
+    private static int _sub; private static bool _noStop; private static Vector3 _lastF;
+    private static float _entryS, _spotMul = 1f, _spotUsed = -1f;
+    private static readonly List<(object h, float w)> _plasma = new List<(object, float)>();
+    private static MethodInfo _entryStrength; private static bool _entryLooked;
+    public static float TipMinSpeed = 15f, TipBase = 0.35f, TipLiftGain = 0.8f, TipMachBoost = 0.5f;
+    public static float TipLenBase = 20f, TipLenPerMs = 0.25f, TipLenMax = 150f, TipRespawn = 0.25f;
+    private static float _speed, _tipSpeedUsed = -1f;
+    /// <summary>The Tip effect's own trail length at VelocityMultiplier 1: 4 m/s x TipScale (EmitterScaleMultiplier scales
+    /// local speeds) x 5 s life.</summary>
+    private static float TipLenAtOne => 4f * TipScale * 5f;
+    private static readonly Guid VapourTip = new Guid("5d0c7a3e-0107-4000-8000-000000000001");
+    private static float _tipI;
+    private static readonly Guid VapourConeSpray = new Guid("5d0c7a3e-0106-4000-8000-000000000001");
+    public static float ConeStation = 0.5f, ConeMargin = 1.5f, ConeSpacing = 1.2f, ConeFlare = 0.35f, ConeEmitScale = 3f, ConeSpeed = 3f;
+    private static readonly Guid VapourCone = new Guid("5d0c7a3e-0101-4000-8000-000000000001"), VapourEdge = new Guid("5d0c7a3e-0102-4000-8000-000000000001");
+    private static float _chordShift;
+    private static readonly List<(object h, float w, int kind)> _vapour = new List<(object, float, int)>();   // (kind 0 edge, 1 cone, 2 tip)
+    private static float _mach, _rho, _coneI, _edgeI;
+    private static bool _flowFound;
+    private static long _flowAt;
+    private static string _vapourStatus = "";
+    private static MethodInfo _tryGetFlow;
+    private static string _flowWhy;
+
+    private static float Smooth(float a, float b, float x) { float t = Math.Clamp((x - a) / Math.Max(1e-4f, b - a), 0f, 1f); return t * t * (3f - 2f * t); }
+    private static float Band(float[] k, float m) => Smooth(k[0], k[1], m) * (1f - Smooth(k[2], k[3], m));
+
+    /// <summary>Four times a second: the grid's air from the aero mod; the axis follows it (placed again past AxisTol);
+    /// every vapour effect's rate set to its band x density x local weight.</summary>
+    private static void VapourFlow()
+    {
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        if (now - _flowAt < System.Diagnostics.Stopwatch.Frequency / 4) return;
+        _flowAt = now;
+        try
+        {
+            if (_tryGetFlow == null && _flowWhy == null)
+            {
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    var t = asm.GetType("AeroMod.AeroEntryFx");
+                    if (t != null) { _tryGetFlow = t.GetMethod("TryGetFlow", BindingFlags.Public | BindingFlags.Static); break; }
+                }
+                if (_tryGetFlow == null) _flowWhy = "aero mod's TryGetFlow not found";
+            }
+            _flowFound = false;
+            if (_tryGetFlow != null && _client != null)
+            {
+                var args = new object[] { _client.Data.GetWorldTransform().Position, null, null, null, null, null, null };
+                if ((bool)_tryGetFlow.Invoke(null, args))
+                {
+                    _flowFound = true;
+                    var travel = (Vector3)args[1]; _mach = (float)args[2]; _rho = (float)args[3];
+                    _liftDir = (Vector3)args[5]; _liftCoef = (float)args[6]; _speed = (float)args[4];
+                    if (travel.LengthSquared() > 0.5f && Vector3.Dot(Vector3.Normalize(travel), _axis) < MathF.Cos(AxisTol * MathF.PI / 180f))
+                    {
+                        _axis = Vector3.Normalize(travel);   // (the AoA moved: the shadow, outline and weights again)
+                        _shapeKey = null; StopPuffs(); _lightAt = default;
+                    }
+                }
+            }
+            float m = MachOverride > 0f ? MachOverride : _mach;
+            float dens = MachOverride > 0f ? 1f : MathF.Min(1f, MathF.Sqrt(Math.Max(0f, _rho) / Math.Max(0.01f, VapourRho)));
+            bool live = _flowFound || MachOverride > 0f;
+            _coneI = live ? Band(ConeBand, m) * dens : 0f;
+            _edgeI = live ? Band(EdgeBand, m) * dens : 0f;
+            float spd = MachOverride > 0f ? MachOverride * 340f : _speed;
+            float on = Math.Clamp((spd - TipMinSpeed) / (2f * TipMinSpeed), 0f, 1f); on = on * on * (3f - 2f * on);
+            float coef = LiftTest > 0f ? LiftTest : _liftCoef;
+            _tipI = live ? Math.Min(1f, on * Math.Clamp(TipBase + TipLiftGain * coef, 0f, 1f) * (1f + TipMachBoost * Band(EdgeBand, m)) * dens) : 0f;
+            // the trail length is fixed at spawn: placed again when the speed has moved enough
+            if (live && _tipSpeedUsed > 0f && MathF.Abs(spd - _tipSpeedUsed) > TipRespawn * _tipSpeedUsed)
+            {
+                if (Mode == 7 && _fieldUp) RespawnTips(); else StopPuffs();
+            }
+            if (Mode == 7) FlightPlasma(m, MachOverride > 0f ? 1.225f : _rho);
+            foreach (var (h, w, kind) in _vapour)
+            {
+                float held = Math.Clamp((kind == 1 ? _coneI : kind == 2 ? _tipI : _edgeI) * w, 0.001f, 0.999f);
+                h.GetType().GetMethod("FixEffectTime", AnyInst).Invoke(h, new object[] { true, TimeSpan.FromSeconds(held) });
+            }
+            _vapourStatus = $"vapour: {(live ? "" : "no flow ")}M {m:F3} rho {_rho:F2} cone {_coneI:F2} edge {_edgeI:F2} tip {_tipI:F2} plasma {_entryS:F2} lift {(LiftTest > 0f ? LiftTest : _liftCoef):F2} ({_vapour.Count} effects){(_flowWhy != null ? " " + _flowWhy : "")}";
+        }
+        catch (Exception e) { _vapourStatus = "vapour flow: " + PlanetRenderBridge.Inner(e); }
+    }
+
+    /// <summary>Mode 6's field: the cone at the widest station, the edge sheets along the outline half a chord back.</summary>
+    private static void SpawnVapour(Vector3[,] P3, Vector3 f, float R, int N, List<Vector3> pts)
+    {
+        StopPuffs();
+        var turn = Quaternion.CreateFromTwoVectors(Vector3.UnitZ, -f);
+        // the middle across the flow, and the widest station along it (the 1 m slice with the most hull, ~ the wing)
+        Vector3 mid = Vector3.Zero; foreach (var q in pts) mid += q - f * Vector3.Dot(q, f); mid /= Math.Max(1, pts.Count);
+        var slices = new Dictionary<int, int>(); float rMax = 0f;
+        foreach (var q in pts)
+        {
+            int k = (int)MathF.Floor(Vector3.Dot(q, f));
+            slices[k] = slices.TryGetValue(k, out int c) ? c + 1 : 1;
+            Vector3 rad = q - f * Vector3.Dot(q, f) - mid; rMax = Math.Max(rMax, rad.Length());
+        }
+        int best = 0, bestN = -1; foreach (var kv in slices) if (kv.Value > bestN) { bestN = kv.Value; best = kv.Key; }
+        Vector3 conePos = mid + f * (best + 0.5f);
+        float coneR = Math.Max(2f, rMax * ConeScale);
+        if (ConeLoop > 0) { ConeLoopEmitters(P3, f, N, pts); goto edges; }
+        VapourEffect(ConeVariant == 1 ? new Guid("5d0c7a3e-0103-4000-8000-000000000001") : ConeVariant == 2 ? new Guid("5d0c7a3e-0104-4000-8000-000000000001") : VapourCone,
+                     conePos, turn, coneR, 1f, true);
+        edges:
+        // the edge sheets: the reentry outline, half a chord back, weighted by the local drag
+        if (Weighted)
+        {
+            ChunkDrag(f);
+            _weightMax = 1e-6f;
+            for (int i = 0; i <= N; i++) for (int j = 0; j <= N; j++) if (_hullHas[i, j]) _weightMax = Math.Max(_weightMax, RawWeight(_hullSurf[i, j], f));
+        }
+        _flow = f;
+        _stagMid = mid;
+        _chordShift = ChordShift;
+        try { SpawnLines(P3, f, R, N, turn); }
+        finally { _chordShift = 0f; }
+        _vapourStatus = ConeLoop > 0 ? _vapourStatus : $"vapour placed: cone r {coneR:F1} m at station {best}";
+    }
+
+    /// <summary>The cone as a loop: the frontal silhouette (or its convex hull) at one station along the hull, pushed out
+    /// from the fuselage axis, an emitter every ConeSpacing metres spraying outward-and-back.</summary>
+    private static void ConeLoopEmitters(Vector3[,] P3, Vector3 f, int N, List<Vector3> pts)
+    {
+        // the station: ConeStation of the hull's length from the nose
+        float zMax = float.MinValue, zMin = float.MaxValue;
+        foreach (var q in pts) { float z = Vector3.Dot(q, f); zMax = Math.Max(zMax, z); zMin = Math.Min(zMin, z); }
+        float zSt = zMax - ConeStation * (zMax - zMin);
+        // the fuselage axis: the shadow cell with the longest chord (front - back)
+        Vector3 axis = Vector3.Zero; float bestChord = -1f;
+        for (int i = 0; i <= N; i++) for (int j = 0; j <= N; j++)
+            if (_hullHas[i, j] && _hullBack[i, j] < float.MaxValue)
+            {
+                float ch = Vector3.Dot(_hullSurf[i, j], f) - _hullBack[i, j];
+                if (ch > bestChord) { bestChord = ch; axis = _hullSurf[i, j] - f * Vector3.Dot(_hullSurf[i, j], f); }
+            }
+        if (ConeLoop == 3)
+        {
+            // n angles round the axis; each projected out onto the skin: the farthest hull point in its angular slice,
+            // within ConeSlab of the station
+            var far = new float[ConeRing]; var at = new Vector3[ConeRing];
+            for (int k = 0; k < ConeRing; k++) far[k] = -1f;
+            foreach (var q in pts)
+            {
+                float z = Vector3.Dot(q, f);
+                if (Math.Abs(z - zSt) > ConeSlab) continue;
+                Vector3 r = q - f * z - axis;
+                float x = Vector3.Dot(r, _ga), y = Vector3.Dot(r, _gb), d = MathF.Sqrt(x * x + y * y);
+                int k = (int)MathF.Floor((MathF.Atan2(y, x) + MathF.PI) / (2f * MathF.PI) * ConeRing) % ConeRing;
+                if (d > far[k]) { far[k] = d; at[k] = q; }
+            }
+            // outliers culled: angles whose skin is far beyond the ring's median (the wings and fin crossing the station
+            // pulled the ring out along them - it shrink-wrapped the plane; now they just pass through the cone)
+            var radii = new List<float>(); for (int k = 0; k < ConeRing; k++) if (far[k] >= 0f) radii.Add(far[k]);
+            radii.Sort(); float median = radii.Count > 0 ? radii[radii.Count / 2] : 0f;
+            int n = 0, culled = 0;
+            for (int k = 0; k < ConeRing; k++)
+            {
+                if (far[k] < 0f) continue;   // (no hull at this angle near the station)
+                if (far[k] > ConeOutlier * median) { culled++; continue; }
+                float ang = (k + 0.5f) / ConeRing * 2f * MathF.PI - MathF.PI;
+                Vector3 outv = _ga * MathF.Cos(ang) + _gb * MathF.Sin(ang);
+                Vector3 pos = at[k] - f * (Vector3.Dot(at[k], f) - zSt) + outv * ConeMargin;
+                Vector3 dir = Vector3.Normalize(ConeFlare * outv + (1f - ConeFlare) * -f);
+                VapourEffect(VapourConeSpray, pos, Quaternion.CreateFromTwoVectors(Vector3.UnitZ, dir), ConeEmitScale, 1f, true, ConeSpeed);
+                n++;
+            }
+            int tips = WingtipLines(f, N, axis);
+            _vapourStatus = $"vapour placed: {tips} tip lines ({TipWhy}); cone ring {n}/{ConeRing} ({culled} outliers past {ConeOutlier:F1}x the median {median:F1} m) on the skin at {ConeStation:P0} of {zMax - zMin:F0} m, axis chord {bestChord:F1} m";
+            return;
+        }
+        // the silhouette, in the plane across the flow (a, b coordinates)
+        var chains = Outline(P3, f, N);
+        var loops = new List<List<Vector2>>();
+        Vector2 P2(Vector3 v) => new Vector2(Vector3.Dot(v, _ga), Vector3.Dot(v, _gb));
+        Vector3 P3d(Vector2 v) => _ga * v.X + _gb * v.Y;
+        if (ConeLoop == 2)
+        {
+            // convex hull of every outline point (monotone chain)
+            var all = new List<Vector2>();
+            foreach (var c in chains) foreach (var v in c) all.Add(P2(v));
+            all.Sort((u, w) => u.X != w.X ? u.X.CompareTo(w.X) : u.Y.CompareTo(w.Y));
+            float Cross(Vector2 o, Vector2 u, Vector2 w) => (u.X - o.X) * (w.Y - o.Y) - (u.Y - o.Y) * (w.X - o.X);
+            var hull = new List<Vector2>();
+            for (int pass = 0; pass < 2; pass++)
+            {
+                int start = hull.Count;
+                for (int k = 0; k < all.Count; k++)
+                {
+                    var pt = pass == 0 ? all[k] : all[all.Count - 1 - k];
+                    while (hull.Count >= start + 2 && Cross(hull[hull.Count - 2], hull[hull.Count - 1], pt) <= 0) hull.RemoveAt(hull.Count - 1);
+                    hull.Add(pt);
+                }
+                hull.RemoveAt(hull.Count - 1);
+            }
+            loops.Add(hull);
+        }
+        else foreach (var c in chains) { var l = new List<Vector2>(); foreach (var v in c) l.Add(P2(v)); if (l.Count >= 3) loops.Add(l); }
+        Vector2 ax = P2(axis);
+        int placed = 0;
+        foreach (var loop in loops)
+        {
+            // along the closed loop every ConeSpacing metres
+            float have = 0f;
+            for (int k = 0; k < loop.Count; k++)
+            {
+                Vector2 u = loop[k], w = loop[(k + 1) % loop.Count];
+                float l = (w - u).Length(); if (l < 1e-4f) continue;
+                float at = 0f;
+                while (have + (l - at) >= ConeSpacing)
+                {
+                    at += ConeSpacing - have; have = 0f;
+                    Vector2 pt = u + (w - u) * (at / l);
+                    Vector2 outv = pt - ax; outv = outv.LengthSquared() > 1e-4f ? Vector2.Normalize(outv) : new Vector2(0, 1);
+                    Vector3 out3 = P3d(outv);
+                    Vector3 pos = P3d(pt) + out3 * ConeMargin + f * zSt;
+                    Vector3 dir = Vector3.Normalize(ConeFlare * out3 + (1f - ConeFlare) * -f);
+                    VapourEffect(EdgeCollide == 0 ? new Guid("5d0c7a3e-0105-4000-8000-000000000001") : VapourEdge, pos,
+                                 Quaternion.CreateFromTwoVectors(Vector3.UnitZ, dir), ConeEmitScale, 1f, true, ConeSpeed);
+                    placed++;
+                }
+                have += l - at;
+            }
+        }
+        _vapourStatus = $"vapour placed: cone loop {(ConeLoop == 2 ? "hull" : "silhouette")} {placed} emitters at {ConeStation:P0} of {zMax - zMin:F0} m, axis chord {bestChord:F1} m";
+    }
+
+    private static MethodInfo _wingTips; private static bool _wingTipsLooked;
+    private static readonly List<Vector3> _tipPts = new List<Vector3>(), _tipNs = new List<Vector3>();
+    public static string TipWhy = "";
+
+    /// <summary>Only the tip lines again (their length is fixed at spawn): the old ones disposed, new ones placed.</summary>
+    private static void RespawnTips()
+    {
+        for (int i = _vapour.Count - 1; i >= 0; i--)
+        {
+            if (_vapour[i].kind != 2) continue;
+            var h = _vapour[i].h; _vapour.RemoveAt(i); _puffs.Remove(h); DisposeEffect(h);
+        }
+        if (_P3 != null) WingtipLines(_lastF, _P3.GetLength(0) - 1, Vector3.Zero);
+    }
+
+    /// <summary>Flight mode: the plasma lines' held time and the spot light from the entry strength at this Mach / density.</summary>
+    private static void FlightPlasma(float mach, float rho)
+    {
+        if (!_entryLooked)
+        {
+            _entryLooked = true;
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                var t = asm.GetType("AeroMod.AeroEntryFx");
+                if (t != null) { _entryStrength = t.GetMethod("EntryStrength", BindingFlags.Public | BindingFlags.Static); break; }
+            }
+        }
+        _entryS = _entryStrength != null ? (float)_entryStrength.Invoke(null, new object[] { mach, rho }) : 0f;
+        foreach (var (h, w) in _plasma)
+        {
+            float held = Math.Clamp(_entryS * w, 0.00001f, 0.999f);
+            h.GetType().GetMethod("FixEffectTime", AnyInst).Invoke(h, new object[] { true, TimeSpan.FromSeconds(held) });
+        }
+        // the spot: off below 2 %, else Spot x strength, placed again when it moved a quarter
+        if (Spot > 0f && _P3 != null)
+        {
+            bool want = _entryS > 0.02f;
+            if (!want) { if (_spotUsed > 0f) StopSpot(); _spotUsed = -1f; }
+            else if (want && (_spotUsed < 0f || MathF.Abs(_entryS - _spotUsed) > 0.25f * _spotUsed))
+            {
+                StopSpot(); _spotMul = _entryS; _spotUsed = _entryS;
+                SpawnSpot(_lastF, _shapeR, _P3.GetLength(0) - 1);
+            }
+        }
+    }
+
+    /// <summary>One tip line at each of the aero mod's wing tips; weighted by how much the wing lifts along the flow's lift
+    /// direction (|wing normal . lift|; a fin at zero sideslip makes no tip vortex). -1: no aero wings (use the outline).</summary>
+    private static int AeroWingTips(Vector3 f)
+    {
+        var g = GridMembers.Get(_grid);
+        if (g?.Entity == null) { TipWhy = "no grid"; return -1; }
+        if (!_wingTipsLooked)
+        {
+            _wingTipsLooked = true;
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                var t = asm.GetType("AeroMod.AeroEntryFx");
+                if (t != null) { _wingTips = t.GetMethod("WingTips", BindingFlags.Public | BindingFlags.Static); break; }
+            }
+        }
+        if (_wingTips == null) { TipWhy = "aero mod's WingTips not found"; return -1; }
+        int n = (int)_wingTips.Invoke(null, new object[] { g.Entity, _tipPts, _tipNs });
+        if (n == 0) { TipWhy = "the aero mod has no wings for this grid"; return -1; }
+        Vector3 L = LiftTest > 0f ? Vector3.UnitY - f * Vector3.Dot(Vector3.UnitY, f) : _liftDir;
+        bool haveL = L.LengthSquared() > 1e-6f; if (haveL) L = Vector3.Normalize(L);
+        var q = Quaternion.CreateFromTwoVectors(Vector3.UnitZ, -f);
+        float spd = MachOverride > 0f ? MachOverride * 340f : _speed;
+        _tipSpeedUsed = Math.Max(1f, spd);
+        float len = Math.Clamp(TipLenBase + TipLenPerMs * spd, 5f, TipLenMax);
+        float vm = TipSpeed * len / TipLenAtOne;
+        int placed = 0;
+        for (int i = 0; i < n; i++)
+        {
+            float w = haveL ? Math.Clamp(MathF.Abs(Vector3.Dot(_tipNs[i], L)), 0f, 1f) : 1f;
+            if (w < 0.2f) continue;
+            VapourEffect(VapourTip, _tipPts[i], q, TipScale, w, false, vm, true);
+            placed++;
+        }
+        TipWhy = $"{placed}/{n} aero wing tips, {len:F0} m at {spd:F0} m/s";
+        return placed;
+    }
+
+    /// <summary>Wingtip lines: outline points (the frontal silhouette) furthest from the fuselage axis locally (a maximum over
+    /// +-6 neighbours) and at least TipMinFrac of the farthest; each at its cell's rearmost hull point (the trailing edge).</summary>
+    private static int WingtipLines(Vector3 f, int N, Vector3 axis)
+    {
+        // the aero mod's own wings (AeroEntryFx.WingTips, by reflection): their span ends at the trailing edge
+        int fromWings = AeroWingTips(f);
+        if (fromWings >= 0) return fromWings;
+        var chains = Outline(_P3, f, N);
+        float rFar = 0f;
+        foreach (var c in chains) foreach (var v in c) rFar = Math.Max(rFar, (v - f * Vector3.Dot(v, f) - axis).Length());
+        int n = 0;
+        foreach (var c in chains)
+        {
+            int cnt = c.Count;
+            for (int i = 0; i < cnt; i++)
+            {
+                Vector3 pi = c[i] - f * Vector3.Dot(c[i], f);
+                float r = (pi - axis).Length();
+                if (r < TipMinFrac * rFar) continue;
+                bool max = true;
+                for (int d = -6; d <= 6 && max; d++)
+                {
+                    if (d == 0) continue;
+                    var q = c[((i + d) % cnt + cnt) % cnt];
+                    if ((q - f * Vector3.Dot(q, f) - axis).Length() > r) max = false;
+                }
+                if (!max) continue;
+                // the trailing edge there: the rearmost hull point in its shadow cell
+                int ci = Math.Clamp((int)MathF.Round((Vector3.Dot(c[i], _ga) - _gx0) / _gdx), 0, N);
+                int cj = Math.Clamp((int)MathF.Round((Vector3.Dot(c[i], _gb) - _gy0) / _gdy), 0, N);
+                float back = _hullBack[ci, cj] < float.MaxValue ? _hullBack[ci, cj] : Vector3.Dot(c[i], f);
+                VapourEffect(VapourTip, pi + f * back, Quaternion.CreateFromTwoVectors(Vector3.UnitZ, -f), TipScale, 1f, false, TipSpeed, true);
+                n++;
+                i += 6;   // (one per tip)
+            }
+        }
+        return n;
+    }
+
+    /// <summary>One vapour effect: scale (sizes, ring, speeds), its local weight (rate x it), held by VapourFlow.</summary>
+    private static void VapourEffect(Guid effect, Vector3 at, Quaternion q, float scale, float weight, bool cone, float speed = -1f, bool tip = false, float spawn = -1f)
+    {
+        if (!_draining) { _spawnQueue.Enqueue(() => VapourEffect(effect, at, q, scale, weight, cone, speed, tip, spawn)); return; }
+        void Fill(object prm)
+        {
+            var t = prm.GetType();
+            if (spawn > 0f) t.GetField("EmitterSizeMultiplier").SetValue(prm, spawn);
+            t.GetField("EmitterScaleMultiplier").SetValue(prm, Math.Max(0.1f, scale));
+            t.GetField("VelocityMultiplier").SetValue(prm, Math.Max(0.01f, speed > 0f ? speed : VapourSpeed));
+        }
+        object h = SpawnEffect(_client, effect, new RelativeTransform(at, q), out object prm, out _puffWhy, Fill);
+        if (h == null) return;
+        _puffs.Add(h);
+        int kind = tip ? 2 : cone ? 1 : 0;
+        _vapour.Add((h, weight, kind));
+        float held = Math.Clamp((kind == 1 ? _coneI : kind == 2 ? _tipI : _edgeI) * weight, 0.001f, 0.999f);
+        try { h.GetType().GetMethod("FixEffectTime", AnyInst).Invoke(h, new object[] { true, TimeSpan.FromSeconds(held) }); }
+        catch (Exception e) { _puffWhy = "vapour time: " + PlanetRenderBridge.Inner(e); }
+    }
+
     private static void StopPuffs()
     {
-        _spawnQueue.Clear(); _fieldUp = false;
+        if (_noStop) return;   // (flight mode: the plasma and the vapour spawned as one field)
+        _plasma.Clear(); _spotMul = 1f; _spotUsed = -1f;
+        _vapour.Clear();
+        _rng = new Random(1);
+        _spawnQueue.Clear(); _fieldUp = false; _weightSkipped = 0;
         foreach (var h in _puffs) DisposeEffect(h);
         _puffs.Clear(); _puffWhy = null;
         foreach (var h in _gridLights) DisposeEffect(h);
@@ -1329,10 +2198,25 @@ public static class PlasmaSpike
         float cell = (P3[N, 0] - P3[0, 0]).Length() / N;
         if (LightGrid > 0) SpawnGridLights(f, R, N);
         if (Spot > 0f) SpawnSpot(f, R, N);
+        if (Weighted)
+        {
+            ChunkDrag(f);
+            _weightMax = 1e-6f;
+            for (int i = 0; i <= N; i++) for (int j = 0; j <= N; j++) if (_hullHas[i, j]) _weightMax = Math.Max(_weightMax, RawWeight(_hullSurf[i, j], f));
+        }
+        _flow = f;
+        {
+            _stagMid = Vector3.Zero; int sc0 = 0;
+            for (int i = 0; i <= N; i++) for (int j = 0; j <= N; j++) if (_hullHas[i, j]) { _stagMid += _hullSurf[i, j]; sc0++; }
+            if (sc0 > 0) _stagMid /= sc0;
+        }
         if ((PuffSource & 4) != 0) { SpawnLines(P3, f, R, N, turn); if (_puffWhy != null) return; }
         if ((PuffSource & 3) != 0)
         {
             var H = _hullHas; var S = _hullSurf; Vector3 up = f * (SurfaceLift * R);
+            _stagMid = Vector3.Zero; int sc = 0;
+            for (int i = 0; i <= N; i++) for (int j = 0; j <= N; j++) if (H[i, j]) { _stagMid += S[i, j]; sc++; }
+            if (sc > 0) _stagMid /= sc;
             float hz = float.MinValue;
             for (int i = 0; i <= N; i++) for (int j = 0; j <= N; j++) if (H[i, j]) hz = Math.Max(hz, Vector3.Dot(S[i, j], f));
             int fs2 = FrontEvery > 0 ? Math.Min(FrontEvery, step) : step, edgeN = 0;
@@ -1347,7 +2231,11 @@ public static class PlasmaSpike
                     {
                         bool front = FrontEvery > 0 && hz - Vector3.Dot(S[i, j], f) < FrontDepth * R && i % fs2 == 0 && j % fs2 == 0;
                         if (!(i % step == 0 && j % step == 0) && !front) continue;
-                        Puff(ShockSparks, S[i, j] + up, turn, cell * (front ? fs2 : step) * PuffScale);
+                        var nrm = (NormalSource == 1 ? HullNormal(S[i, j], f) : null) ?? SurfaceNormal(i, j, f);
+                        Vector3 dir = SprayDir(S[i, j], f, nrm);
+                        var turnHere = SurfaceSpray ? Quaternion.CreateFromTwoVectors(Vector3.UnitZ, dir) : turn;
+                        Vector3 at = SurfaceSpray ? S[i, j] + nrm * (SurfaceOff * R) : S[i, j] + up;
+                        Puff(ShockSparks, at, turnHere, cell * (front ? fs2 : step) * PuffScale);
                     }
                     if (_puffWhy != null) return;
                 }
@@ -1383,22 +2271,46 @@ public static class PlasmaSpike
     private static readonly Queue<Action> _spawnQueue = new Queue<Action>();
     public static int SpawnPerTick = 12;
 
+    /// <summary>The emitter's held time: heat x its local weight (normalised, ^WeightGamma) / density; -1 unweighted.</summary>
+    private static float WeightTime(Vector3 at, float density)
+    {
+        if (!Weighted) return -1f;
+        float w = MathF.Pow(Math.Clamp(RawWeight(at, _flow) / _weightMax, 0f, 1f), WeightGamma);
+        if (w < WeightMin) return 0f;
+        return Math.Clamp(Heat * w / Math.Max(1f, density), 0.001f, 0.999f);
+    }
+
     private static void Puff(Guid effect, Vector3 at, Quaternion turn, float scale)
     {
         if (!_draining) { _spawnQueue.Enqueue(() => Puff(effect, at, turn, scale)); return; }
-        object h = SpawnEffect(_client, effect, new RelativeTransform(at, turn), out object prm, out _puffWhy);
-        if (h == null) return;
-        _puffs.Add(h);
-        try
+        bool spark0 = effect != ShockPuff && effect != StreamPuff;
+        float held = spark0 ? WeightTime(at, 1f) : -1f;
+        if (held == 0f) { _weightSkipped++; return; }
+        if (held > 0f) effect = Recipe ? RecipeGuid(effect == TailSparks) : RateGuid(TexKind(effect == TailSparks), StreakField);
+        bool spark = effect != ShockPuff && effect != StreamPuff;
+        void Fill(object prm)
         {
             var t = prm.GetType();
             t.GetField("EmitterScaleMultiplier").SetValue(prm, Math.Max(0.1f, scale));
-            bool spark = effect != ShockPuff && effect != StreamPuff;
             if (spark) t.GetField("ColorMultiplier").SetValue(prm, new ColorSRGB(SparkBright, SparkBright, SparkBright, 1f));
             // (measured: a local-space effect's particle speed is already x its EmitterScaleMultiplier - x the spacing
             //  again sent the sparks 9x too fast, starting a plane-length behind their point; puffs kept as tuned)
             t.GetField("VelocityMultiplier").SetValue(prm, spark ? Math.Max(0.01f, SparkSpeed) : Math.Max(0.1f, scale));
+            if (spark)
+            {
+                t.GetField("EmitterSizeMultiplier").SetValue(prm, SpawnSize);
+                t.GetField("ParticleAspectRatio").SetValue(prm, SparkAspect);
+                if (Strict) t.GetField("VelocityDirection").SetValue(prm, Vector3.UnitZ);
+            }
+        }
+        object h = SpawnEffect(_client, effect, new RelativeTransform(at, turn), out object prm, out _puffWhy, Fill);
+        if (h == null) return;
+        _puffs.Add(h);
+        try
+        {
             h.GetType().GetMethod("SetParameters", AnyInst).Invoke(h, new[] { prm });
+            if (Mode == 7) { float w7 = held > 0f ? held / Math.Max(1e-3f, Heat) : 1f; _plasma.Add((h, w7)); held = Math.Clamp(_entryS * w7, 0.00001f, 0.999f); }
+            if (held > 0f) h.GetType().GetMethod("FixEffectTime", AnyInst).Invoke(h, new object[] { true, TimeSpan.FromSeconds(held) });
         }
         catch (Exception e) { _puffWhy = "set: " + PlanetRenderBridge.Inner(e); }
     }

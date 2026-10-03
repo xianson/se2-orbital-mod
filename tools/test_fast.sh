@@ -12,6 +12,8 @@ out=$(dotnet build "$MODCHECK" -nologo -v q 2>&1)
 if echo "$out" | grep -q "Build succeeded"; then echo "PASS  compile (ModCheck)  $(( $(date +%s)-s ))s"
 else rc=1; echo "FAIL  compile (ModCheck)"; echo "$out" | grep -E " error " | sort -u | head -20; fi
 
+out=$(tools/check_contract.sh 2>&1) || rc=1; echo "$out"
+
 for d in Tests/*/; do
     [ -n "$(ls "$d"*.csproj 2>/dev/null)" ] || continue
     s=$(date +%s)

@@ -30,15 +30,64 @@ public static class EntryHost
     static readonly Dictionary<long, (double limit, double upTo, double worn)> _wear = new Dictionary<long, (double, double, double)>();
     public static string Status = "-";
 
-    // ── the aero mod's entry plasma (AeroMod.AeroEntryFx.External): grids on rails sit still in their frame while
-    //    the frame is braked through the air, so the aero mod cannot see their speed; it is told, per grid, the air
-    //    past it (world axes are the inertial axes here) and how hard it burns ──
+    // ── the aero mod's entry plasma: grids on rails sit still in their frame while the frame is braked through the
+    //    air, so the aero mod cannot see their speed; it is told, per grid, the air past it (world axes are the
+    //    inertial axes here) and how hard it burns. Its public API's ENTRY SOURCE (AeroMod.AeroApi, version 2 -
+    //    checked across both repos by tools/check_contract.sh): we register Glow under "OrbitalMod"; while registered
+    //    our strength owns the grid's plasma ──
     static readonly Dictionary<Entity, (Vector3D air, double strength, double t)> _glow = new Dictionary<Entity, (Vector3D, double, double)>();
     static bool _glowHooked;
     /// <summary>Diagnostics: the hook is set; grid glows written; asked for / answered.</summary>
     public static bool GlowHooked => _glowHooked;
     public static int GlowWrites, GlowAsks, GlowAnswers;
     static int _glowTries;
+    /// <summary>The aero mod's API version this build speaks (= AeroMod.AeroApi.Version).</summary>
+    public const int AeroEntryContract = 2;
+    const string AeroOwner = "OrbitalMod";
+    static System.Reflection.MethodInfo _aeroRegister, _aeroHas;
+    static int _aeroAsmCount = -1;
+    static Func<Entity, ValueTuple<Vector3, float>> _glowSource;
+    /// <summary>Diagnostics: why the aero hook is not set ("" when it is).</summary>
+    public static string GlowWhy = "not tried";
+
+    /// <summary>Register with the aero mod (about every 10 s): found once per change of the loaded assemblies (no scan
+    /// otherwise - the aero mod absent costs nothing), then a cheap "still registered?" (a new session or a reloaded
+    /// aero mod re-registers).</summary>
+    static void HookAero()
+    {
+        _glowSource ??= Glow;
+        try
+        {
+            var asms = AppDomain.CurrentDomain.GetAssemblies();
+            if (asms.Length != _aeroAsmCount)
+            {
+                _aeroAsmCount = asms.Length; _aeroRegister = _aeroHas = null; _glowHooked = false;
+                foreach (var a in asms)
+                {
+                    Type t;
+                    try { t = a.GetType("AeroMod.AeroApi"); } catch { continue; }
+                    if (t == null) continue;
+                    _aeroRegister = t.GetMethod("RegisterEntrySource", new[] { typeof(string), typeof(Delegate) });
+                    _aeroHas = t.GetMethod("HasEntrySource", new[] { typeof(string), typeof(Delegate) });
+                    break;
+                }
+                if (_aeroRegister == null || _aeroHas == null) { GlowWhy = "aero mod not loaded (or older than contract " + AeroEntryContract + ")"; return; }
+            }
+            if (_aeroRegister == null) return;
+            if (_glowHooked && (bool)_aeroHas.Invoke(null, new object[] { AeroOwner, _glowSource })) return;
+            int c = (int)_aeroRegister.Invoke(null, new object[] { AeroOwner, _glowSource });
+            _glowHooked = c == AeroEntryContract;
+            GlowWhy = _glowHooked ? "" : $"aero mod speaks contract {c}, this build {AeroEntryContract}";
+        }
+        catch (Exception e) { _glowHooked = false; _aeroRegister = null; _aeroAsmCount = -1; GlowWhy = "hook failed: " + e.GetType().Name; }
+    }
+
+    /// <summary>The entry source: a grid's air velocity (world, m/s) and strength (0..1, 0 none) while its frame is braked.</summary>
+    static ValueTuple<Vector3, float> Glow(Entity grid)
+    {
+        var v = GlowOf(grid);
+        return (new Vector3(v.X, v.Y, v.Z), v.W);
+    }
     /// <summary>Braking (m/s^2) at which the plasma is full.</summary>
     public const double GlowFullDecel = 50.0;
 
@@ -88,8 +137,7 @@ public static class EntryHost
     public static void ServerTick(List<ProximityFrame> frames, double t)
     {
         if (!Enabled) return;
-        if (!_glowHooked && _glowTries++ % 600 == 0)   // (until the aero mod is there: about every 10 s)
-            _glowHooked = PlanetRenderBridge.SetForeignStatic("AeroMod.AeroEntryFx", "External", (Func<Entity, Vector4>)GlowOf);
+        if (_glowTries++ % 600 == 0) HookAero();   // (about every 10 s: found, then kept registered)
         int braking = 0;
         foreach (var f in frames)
         {

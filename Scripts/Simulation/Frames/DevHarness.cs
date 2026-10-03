@@ -65,6 +65,7 @@ public static class DevHarness
                          FrameHost.PlayerPosition);
         }
         catch (Exception e) { SpecCam.Status = "error " + e.Message; }
+        PlasmaSpike.Tick();   // (DEV spike: the reentry plasma as our own mesh)
         try { _clientGravityMultiplier = session.Get<Keen.VRage.Physics.IPhysics>().GravityMultiplier; } catch { }
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
         if (now - _lastPoll < PollSeconds * System.Diagnostics.Stopwatch.Frequency) return;
@@ -265,11 +266,12 @@ public static class DevHarness
                     case "off": return SpecCam.Off(session);
                     case "planet": return SpecCam.Planet(a[2], D(a[3]), a.Length > 4 ? D(a[4]) : 0, a.Length > 5 ? D(a[5]) : 30);
                     case "player": return SpecCam.Player(D(a[2]), a.Length > 3 ? D(a[3]) : 0, a.Length > 4 ? D(a[4]) : 30);
+                    case "grid": return SpecCam.Grid((long)D(a[2]), D(a[3]), a.Length > 4 ? D(a[4]) : 90, a.Length > 5 ? D(a[5]) : 15);   // cam grid <id> <distKm> [bearing from its nose] [elev]
                     case "sun": return SpecCam.Sun();
                     case "mapbody": return SpecCam.MapBody(a[2], D(a[3]), a.Length > 4 ? D(a[4]) : 0, a.Length > 5 ? D(a[5]) : 60);
                     case "map": return SpecCam.Map(D(a[2]), a.Length > 3 ? D(a[3]) : 0, a.Length > 4 ? D(a[4]) : 60);
                 }
-                return "cam off|planet|player|map";
+                return "cam off|planet|player|grid|map";
 
             case "testship":   // testship [charge 0..1]: a test ship (battery, telescope, radar) 60 m ahead, yours
                 return DevTestShip.Spawn(session, camera, a.Length > 1 ? D(a[1]) : 1.0);
@@ -874,6 +876,28 @@ public static class DevHarness
                 ServerFrames.GridDamp.Enqueue((long.Parse(a[1]), On(a[2])));
                 return "grid dampeners queued (server, next tick)";
 
+            case "plasmaspike":   // plasmaspike <gridId> <nose x y z> <radius> <axis> [emitterGuid] [cells] | off  (DEV spike)
+                return PlasmaSpike.Command(a);
+            case "plasmaset":   // plasmaset <knob> <value>
+                return a.Length > 2 ? PlasmaSpike.Set(a[1], a[2]) : "plasmaset <knob> <value>";
+            case "plasmastatus":
+                return PlasmaSpike.Status;
+            case "plasmadump":   // plasmadump <path>: the spike grid's hull points (for the offline prototype)
+                return a.Length > 1 ? PlasmaSpike.Dump(a[1]) : "plasmadump <path>";
+            case "gridup":   // gridup <gridId> <m>: move a grid straight up (against its gravity, from the aero mod) by m
+            {
+                var g = GridMembers.Get((long)D(a[1]));
+                if (g?.Entity == null) return "no grid";
+                Type ph = null;
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies()) { ph = asm.GetType("AeroMod.PhysicsHack"); if (ph != null) break; }
+                var gm = ph?.GetMethod("GetGravityDirection");
+                if (gm == null) return "no AeroMod.PhysicsHack.GetGravityDirection";
+                var down = (Vector3)gm.Invoke(null, new object[] { g.Entity.Data });
+                if (down.LengthSquared() < 0.25f) return "no gravity here";
+                var d = -(Vector3D)Vector3.Normalize(down) * D(a[2]);
+                ServerFrames.GridMove.Enqueue((g.Id, d, false));
+                return $"grid {g.Id} up by {D(a[2])} m (gravity {down})";
+            }
             case "gridmove":   // gridmove <gridId> <x> <y> <z> [group] (m, world; DEV: refuses jointed grids unless 'group' moves all joined together)
                 ServerFrames.GridMove.Enqueue((long.Parse(a[1]), new Vector3D(D(a[2]), D(a[3]), D(a[4])), a.Length > 5 && a[5] == "group"));
                 return "grid move queued (server, next tick)";

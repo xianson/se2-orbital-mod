@@ -13,11 +13,12 @@ namespace OrbitalMod;
 /// </summary>
 public static class SpecCam
 {
-    public enum Target { None, Fixed, Planet, Player, Map, Point, Sun, MapBody }
+    public enum Target { None, Fixed, Planet, Player, Map, Point, Sun, MapBody, Grid }
     private static Target _target;
     private static string _planet;
     private static double _dist, _bearing, _elev;
     private static Vector3D _fixedLook;
+    private static long _grid;
     public static string Status = "off";
     /// <summary>The spectator transform while active: proxies and orbit lines must be built for this viewpoint.</summary>
     public static WorldTransform? Current;
@@ -27,6 +28,11 @@ public static class SpecCam
 
     public static string Player(double distKm, double bearingDeg, double elevDeg)
     { _target = Target.Player; _dist = distKm * 1000; _bearing = bearingDeg; _elev = elevDeg; return $"spectator: player at {distKm} km"; }
+
+    /// <summary>Orbit a grid, the bearing measured from its nose (0 ahead, 90 its right side, 180 behind), the
+    /// elevation from its own deck: the same view of it however it is turned or moving (screenshots of effects).</summary>
+    public static string Grid(long id, double distKm, double bearingDeg, double elevDeg)
+    { _target = Target.Grid; _grid = id; _dist = distKm * 1000; _bearing = bearingDeg; _elev = elevDeg; return $"spectator: grid {id} at {distKm} km"; }
 
     /// <summary>Over the colonization map diorama; distance in map units (the map camera uses 0.2-1).</summary>
     public static string Map(double dist, double bearingDeg, double elevDeg)
@@ -68,6 +74,20 @@ public static class SpecCam
                 if (!p.HasValue) { Status = "no planet " + _planet; return; }
                 look = p.Value; break;
             case Target.Player: look = playerPos; break;
+            case Target.Grid:
+            {
+                var g = GridMembers.Get(_grid);
+                if (g?.Entity == null) { Status = "no grid " + _grid; return; }
+                var gw = g.Entity.Data.GetWorldTransform();
+                Vector3D gf = Vector3D.Normalize(WorldTransform.TransformDirection(Vector3.Forward, gw));
+                Vector3D gu = Vector3D.Normalize(WorldTransform.TransformDirection(Vector3.Up, gw));
+                Vector3D gr = Vector3D.Cross(gf, gu);
+                double gb = _bearing * Math.PI / 180, ge = _elev * Math.PI / 180;
+                Vector3D gpos = gw.Position + (gf * Math.Cos(gb) + gr * Math.Sin(gb)) * Math.Cos(ge) * _dist + gu * Math.Sin(ge) * _dist;
+                Vector3 gfwd = (Vector3)Vector3D.Normalize(gw.Position - gpos);
+                var gwt = new WorldTransform(gpos, Quaternion.CreateFromForwardUp(gfwd, (Vector3)gu));
+                Current = gwt; cam.SetTransformOverride(gwt); Status = $"Grid {_grid} dist={_dist:F0} bearing={_bearing} elev={_elev}"; return;
+            }
             case Target.Point: look = _fixedLook; break;
             case Target.MapBody:
                 if (!MapView.GlobePos.TryGetValue(_planet, out look)) { Status = "no map globe " + _planet; return; }

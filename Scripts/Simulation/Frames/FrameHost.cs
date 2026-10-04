@@ -866,14 +866,11 @@ public static class FrameHost
             Vector3D arriveAt = VoxelBerthRegistry.TryGetCell(a.Body, SystemHost.Registry, out Vector3D acell)
                 ? acell + achart.FromInertial(relPos) : a.Target + off;
             double speed = chartVel.Length();
-            bool hs = speed > SpeedCap;
-            if (hs)
-            {
-                EngageHighSpeed(a.Body, relPos, a.CelVel, a.Epoch);
-                var noDamp = new PlayerRequest { Dampeners = false };
-                ServerPlanetBeacon.ApplyToCharacter(session, noDamp, "client");
-                ServerPlanetBeacon.PendingPlayer = noDamp;
-            }
+            // (the grids of this frame arrive capped - TryMaterializeGrids - so the player is capped with them: arriving
+            //  in HighSpeed a hair over the cap (1010 vs 990) re-stowed the player inside the planet's frame and the
+            //  whole frame arrived a second time)
+            if (speed > SpeedCap) { chartVel *= SpeedCap / speed; speed = SpeedCap; }
+            bool hs = false;
             PlayerFrame = null;
             _wasInKeep = true;
             StartTeleport(session, arriveAt, hs ? Vector3D.Zero : chartVel, t);

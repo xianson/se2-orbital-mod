@@ -499,6 +499,8 @@ public static class FrameHost
         Vector3D applied = capped ? worldVel * (SpeedCap / speed) : worldVel;
         _hsActive = false;
 
+        // (a frame with grids in it arrives on the server - grids and the player together, RequestArrival)
+        foreach (long mid in f.Members) if (GridMembers.IsGridId(mid)) return;
         long fid = f.Id;
         SystemHost.Frames.Dissolve(fid);
         PlayerFrame = null;

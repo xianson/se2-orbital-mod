@@ -725,7 +725,9 @@ public static class ServerFrames
         // and the world caps speed (as KSP limits warp by circumstance).
         if (N > 1.0 && fastest > WarpMemberSpeed) LimitWarp(fastest / N);
 
-        if (f.IsEncounter || (anchor == null && !isStatic)) return;   // encounter frames never arrive; a player-anchored frame arrives client-side
+        // encounter frames never arrive; a player-anchored frame with no grids arrives client-side - with grids in it, here
+        // (the client moved only the player and left the ships at the berth with no frame)
+        if (f.IsEncounter || (anchor == null && !isStatic && grids.Count == 0)) return;
         FrameHost.TryReparent(f, t);
         // A static anchor's frame arrives too (its orbit meets the planet): everything in it drops into
         // the planet's space, static grids placed at their offsets (an asteroid itself stays).
@@ -733,7 +735,7 @@ public static class ServerFrames
         if (isStatic)
             foreach (long id in f.Members)
                 if (GridMembers.IsGridId(id) && GridMembers.Get(id) is OrbitalGridComponent sg && sg.IsServer && !GridMembers.IsDynamic(sg)) all.Add(sg);
-        TryMaterializeGrids(f, all, anchor != null ? GridMembers.Position(anchor) : staticPos, t);
+        TryMaterializeGrids(f, all, anchor != null ? GridMembers.Position(anchor) : isStatic ? staticPos : f.BerthCenter, t);   // (player-anchored: the berth is the player)
     }
 
     // ───────────────────────────── DEV: station-keeping test grids ─────────────────────────────

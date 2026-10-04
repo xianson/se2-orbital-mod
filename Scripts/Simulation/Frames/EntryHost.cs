@@ -93,6 +93,9 @@ public static class EntryHost
     }
     /// <summary>Braking (m/s^2) at which the plasma is full.</summary>
     public const double GlowFullDecel = 50.0;
+    /// <summary>Drag braking (m/s^2) under which a pass is not shown as an entry (no plasma, no event); the cap rule's
+    /// braking always is.</summary>
+    public const double GlowMinDecel = 1.0;
 
     /// <summary>For the aero mod: a grid's air velocity (xyz, m/s) and glow (w, 0..1) while its frame is braked.</summary>
     public static Vector4 GlowOf(Entity grid)
@@ -135,10 +138,12 @@ public static class EntryHost
         double wall = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
         lock (_beta) if (_beta.TryGetValue(f.Id, out var c) && wall - c.wall < BetaRefresh) return c.beta;
         double mass = 0, area = 0; bool measured = false, asked = false;
-        foreach (long id in f.Members)
+        // (the member list is the server's: copied under its lock - the client calls this too)
+        long[] ids; lock (ServerFrames.FramesLock) ids = f.Members.ToArray();
+        foreach (long id in ids)
         {
             if (!GridMembers.IsGridId(id) || !(GridMembers.Get(id) is OrbitalGridComponent g) || g.Entity == null) continue;
-            mass += GridMembers.Mass(g);
+            double gmass = GridMembers.Mass(g);
             if (_aeroPredict == null) continue;
             try
             {
@@ -158,13 +163,13 @@ public static class EntryHost
                     if (drag > 0) sum += drag / (0.5 * rho * v * v);
                     n++;
                 }
-                if (n == BetaDirs.Length) { area += sum / n; measured = true; }
+                if (n == BetaDirs.Length) { area += sum / n; mass += gmass; measured = true; }   // (mass of the measured grids only: a part-measured ship is not all mass, half the drag)
             }
             catch { }
         }
         double beta = measured ? Reentry.Beta(mass, area) : Reentry.DefaultBeta;
-        // (a table asked for: the default only for a moment - measured again in ~1 s, not BetaRefresh)
-        lock (_beta) _beta[f.Id] = (beta, asked && !measured ? wall - BetaRefresh + 1 : wall);
+        // (any table asked for: measured again in ~1 s, not BetaRefresh - until every grid has one)
+        lock (_beta) _beta[f.Id] = (beta, asked ? wall - BetaRefresh + 1 : wall);
         LastBetaMeasured = measured;
         return beta;
     }
@@ -197,6 +202,16 @@ public static class EntryHost
         }
     }
     /// <summary>A grid frame's heat goes with it when its grids arrive (the damage is applied from it).</summary>
+    /// <summary>A new world: frame ids start over, so every per-frame entry state (heat, braking, the ballistic
+    /// coefficients, the glow) and the prediction are dropped.</summary>
+    public static void ResetWorld()
+    {
+        lock (_heat) { _last.Clear(); _heat.Clear(); _braking.Clear(); _inPass.Clear(); _wear.Clear(); _jolted.Clear(); }
+        lock (_beta) _beta.Clear();
+        lock (_glow) _glow.Clear();
+        Prediction = null; Airless = null;
+    }
+
     public static void Forget(long frameId) { lock (_heat) { _last.Remove(frameId); _heat.Remove(frameId); _braking.Remove(frameId); _inPass.Remove(frameId); } lock (_beta) _beta.Remove(frameId); }
 
     /// <summary>Server tick (FramesLock held): brake every railed frame inside a band.</summary>
@@ -248,6 +263,9 @@ public static class EntryHost
             if (!IsFinite(el)) { FrameHost.Event($"ENTRY frame #{f.Id}: braking gave no orbit (kept the old)"); continue; }
             f.Elements = el;
             braking++;
+            // (a whisper of drag - grazing the band's top, a low orbit decaying - is no entry: no plasma, no event)
+            bool visible = log.PeakDecel >= GlowMinDecel || log.Shed > log.DragShed;
+            if (visible)
             {
                 var s = OrbitPropagation.StateAt(el, t);
                 Vector3D air = Reentry.AirVelocity(s.Position, s.Velocity, SpinOf(f.ParentBodyName));
@@ -258,7 +276,7 @@ public static class EntryHost
                         { _glow[gm.Entity] = (air, strength, t); GlowWrites++; }
             }
             Wear(f, t, heat);
-            bool first; lock (_heat) first = _inPass.Add(f.Id);
+            bool first = false; if (visible) lock (_heat) first = _inPass.Add(f.Id);
             if (first) FrameHost.Event($"ENTRY frame #{f.Id} into {f.ParentBodyName}'s braking band at {log.ArrivalSpeed:F0} m/s (cap {Cap:F0})");
         }
         lock (_heat)

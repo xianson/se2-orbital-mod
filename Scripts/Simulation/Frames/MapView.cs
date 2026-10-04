@@ -108,10 +108,14 @@ public static class MapView
     static void SectorlessScene(Keen.VRage.Core.Game.Systems.Session session, ColonizationMapSessionComponent map)
     {
         if (map == null) return;
+        // (a new session: the last one's failures and pending toggle do not count)
+        if (!ReferenceEquals(session, _sceneSession)) { _sceneSession = session; _sceneFailures = 0; _togglePending = false; _hidVisuals = false; _noticeBlanked = false; _blankTries = 0; }
+        // (a posted toggle that never ran must not block the next for good)
+        if (_togglePending && System.Diagnostics.Stopwatch.GetTimestamp() - _toggleAt > 3 * System.Diagnostics.Stopwatch.Frequency) _togglePending = false;
         SectorsSessionComponent sec = null;
         try { sec = session.SessionComponents.TryGet<SectorsSessionComponent>(); } catch { }
         Sectorless = sec == null || sec.Sectors.Count == 0;
-        if (Sectorless && !_noticeBlanked) _noticeBlanked = BlankText("MapDataUnavailable");
+        if (Sectorless && !_noticeBlanked && _blankTries++ < 20) _noticeBlanked = BlankText("MapDataUnavailable");
         bool want = false;
         if (Sectorless)
         {
@@ -127,11 +131,14 @@ public static class MapView
         }
         if (_togglePending) return;
         if (want && !map.IsVisible && _sceneFailures < 3) Toggle(map, true);   // (three failures: given up this session)
-        if (want && map.IsVisible && _sceneOurs) HideSectorVisuals(map);
         else if (!want && _sceneOurs) { if (map.IsVisible) Toggle(map, false); else _sceneOurs = false; }
+        // (the placeholder sector ring hidden once per opening)
+        if (want && map.IsVisible && _sceneOurs) { if (!_hidVisuals) { HideSectorVisuals(map); _hidVisuals = true; } }
+        else _hidVisuals = false;
     }
 
     static volatile bool _togglePending;
+    static long _toggleAt; static object _sceneSession; static bool _hidVisuals; static int _blankTries;
     static object _uiDispatcher; static System.Reflection.MethodInfo _uiPost; static object[] _uiPostDefaults; static bool _uiLooked;
 
     /// <summary>ToggleMap switches the camera (an entity is closed): never from inside a scene job - that asserted and
@@ -163,7 +170,7 @@ public static class MapView
             }
         }
         if (_uiDispatcher == null || _uiPost == null) { Status = "sectorless world: no UI dispatcher to show the map scene from"; return; }
-        _togglePending = true;
+        _togglePending = true; _toggleAt = System.Diagnostics.Stopwatch.GetTimestamp();
         var args = (object[])_uiPostDefaults.Clone();
         args[0] = (Action)(() =>
         {

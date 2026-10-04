@@ -126,7 +126,8 @@ namespace SEAerospace
         /// 1.6 (2026-10-01): the border at ~15 km at Verdure, 5.7 km above the air.
         /// 1.0 (2026-10-03, the user): the border IS the atmosphere's top - physical flight exactly where the air is;
         /// every orbit above it on rails. Reentry's braking band (Reentry, a "fake" outer atmosphere ~1x the
-        /// atmosphere's height thick) sits on top of it. (The airless hill clearance still applies when larger.)</summary>
+        /// atmosphere's height thick) sits on top of it. (Atmospheric bodies use this alone - ShellRadius - not the
+        /// airless hill clearance: the air covers the terrain.)</summary>
         public const double ShellAtmosphereMult = 1.0;   // the planet frame's border = the atmosphere's top (9.5 km up at Verdure)
 
         /// <summary>Airless-body shell clearance as a fraction of the radius — a STAND-IN for

@@ -331,6 +331,10 @@ public static class SystemHost
         foreach (var b in beacons) far = Math.Max(far, b.Center.Length());
         PlanetBerths.CurrentBerth = new Vector3D(0, far + 2.0e6, 0);
 
+        // (a new world: the last one's berth rules and entry state must not apply - the planet slots are reserved below,
+        //  before this world's zones are set)
+        BerthAllocator.IsForbidden = null; BerthAllocator.IsClear = null;
+        EntryHost.ResetWorld();
         VoxelBerthRegistry.Clear();
         SystemBuildResult res = SystemRegistry.Build(def);
         if (!res.Ok)

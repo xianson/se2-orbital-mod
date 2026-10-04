@@ -912,6 +912,9 @@ public static class Maneuvers
         var b = EntryHost.BandOf(body.Name);
         if (!b.IsValid) return;
         var faint = HudPanel.Alpha(EntryColor, 0.35f);
+        // (the ring's directions from a CIRCULAR copy of the orbit - same plane: a hyperbola's own positions past its
+        //  asymptotes come out at a negative radius, the direction flipped - chords across the planet)
+        el.Eccentricity = 0; el.SemiMajorAxis = 1;
         void Ring(double radius, bool dotted, string label)
         {
             var run = new List<Vector2>();

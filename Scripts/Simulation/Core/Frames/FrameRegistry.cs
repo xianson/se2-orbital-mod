@@ -188,6 +188,9 @@ namespace SEAerospace.Frames
                 // fall through to a fresh, bounded slot instead of trusting the saved value.
                 Vector3D fresh;
                 frame.BerthSlotId = _allocator.Allocate(out fresh);
+                // (a saved berth refused - inside a planet's frame: its grids are still at the old centre; they follow)
+                if (berthSlotId >= 0 && !double.IsNaN(berthCenter.X))
+                    frame.PendingBerthShift = fresh - berthCenter;
                 frame.BerthCenter = fresh;
             }
 

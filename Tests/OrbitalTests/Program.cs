@@ -1042,6 +1042,15 @@ namespace Orbital.Tests
                 var stuck = new BerthAllocator(2000.0, 20000.0);
                 int sid = stuck.Allocate(out Vector3D sc);
                 Ok("berths: the not-clear give-up still never lands inside a planet", (sc - planet).Length() >= zone + stuck.SlotRadius);
+                // a restored frame whose saved berth is inside a planet's frame: a fresh berth, and its grids to follow
+                BerthAllocator.IsClear = null;
+                var ralloc = new BerthAllocator(2000.0, 20000.0);
+                var freg = new FrameRegistry(ralloc);
+                var el = new KeplerianElements { SemiMajorAxis = 1e7, Eccentricity = 0.1, Mu = 3.986e14 };
+                var old = ralloc.SlotCenter(0);
+                var rf = freg.RestoreFrame(77, "Earth", el, Vector3D.Zero, Vector3D.Zero, 0, new List<long>(), 0, old, false);
+                Ok("berths: a restored frame's forbidden berth is replaced", rf != null && rf.BerthSlotId != 0 && (rf.BerthCenter - planet).Length() >= zone + ralloc.SlotRadius);
+                Ok("berths: its grids are to follow (the shift to the fresh berth)", rf != null && (rf.PendingBerthShift - (rf.BerthCenter - old)).Length() < 1e-6 && rf.PendingBerthShift.Length() > 1);
             }
             finally { BerthAllocator.IsClear = keepClear; BerthAllocator.IsForbidden = keepForbid; }
         }

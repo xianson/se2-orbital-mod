@@ -198,6 +198,19 @@ public static class ServerFrames
                         Event($"gridmove: {set.Count} entit(ies) to move by {gm.d.Length():F0} m (before the next physics step)");
                     }
                 }
+                // A restored frame whose saved berth was refused (inside a planet's frame): its grids follow it to the
+                // fresh one, all together, once they are all loaded (or given up after ~10 s).
+                foreach (var pf in SystemHost.Frames.Frames)
+                {
+                    if (pf.PendingBerthShift.LengthSquared() < 1) continue;
+                    bool all = true;
+                    foreach (long mid in pf.Members) if (GridMembers.IsGridId(mid) && GridMembers.Get(mid) == null) { all = false; break; }
+                    if (!all && ++pf.PendingBerthWait < 600) continue;
+                    int moved = 0;
+                    foreach (long mid in pf.Members) if (GridMembers.IsGridId(mid) && GridMembers.Get(mid) != null) { GridMove.Enqueue((mid, pf.PendingBerthShift, true)); moved++; }
+                    Event($"frame #{pf.Id}: saved berth was inside a planet's frame - {moved} grid(s) follow it {pf.PendingBerthShift.Length() / 1000:F1} km to the fresh one{(all ? "" : " (some never loaded)")}");
+                    pf.PendingBerthShift = Vector3D.Zero; pf.PendingBerthWait = 0;
+                }
                 EncounterFrames.ServerTick(session, _tick);
                 DevFlight.ServerTick();
                 DevFlight.ServerCommandTick();

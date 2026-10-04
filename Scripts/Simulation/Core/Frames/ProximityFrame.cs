@@ -46,6 +46,12 @@ namespace SEAerospace.Frames
         public int BerthSlotId = -1;
         public Vector3D BerthCenter;
 
+        /// <summary>Not persisted: a restored frame whose saved berth was refused (inside a planet's frame) got a fresh
+        /// one; its member grids, still at the old one, are to be moved by this much (ServerFrames, once they are loaded).
+        /// Zero: nothing pending.</summary>
+        public Vector3D PendingBerthShift;
+        public int PendingBerthWait;
+
         /// <summary>True if this is an ENCOUNTER conjunction booted out of a player's berth into
         /// its own slot (rob 2026-06-16) — a non-player grid that spawned inside a player berth and
         /// was relocated here so it doesn't clutter the player's. Marks the frame EXEMPT from the

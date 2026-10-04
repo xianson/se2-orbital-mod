@@ -104,6 +104,7 @@ public static class GridGen
                     return $"steering grid {IdOf(e)}: {V(w)} rad/s";
                 }
                 case "aero": return AeroReadout(Grid(a, 2));
+                case "id": { var e = Grid(a, 2); return "id " + (e != null ? IdOf(e) : 0); }   // (gen id [N]: a spawned grid's harness id; 0 until registered)
                 case "hinges": return string.Join(" || ", _hinges.Select((h, i) => HingeLine(i)));
                 case "hold":
                 {
@@ -259,7 +260,7 @@ public static class GridGen
         return n >= 0 && n < _spawned.Count ? _spawned[n] : null;
     }
 
-    static System.Reflection.MethodInfo _flight, _forces, _lift;
+    static System.Reflection.MethodInfo _flight, _forces, _lift, _ground;
     static bool _apiLooked;
 
     /// <summary>The grid's aero, from the aerodynamics mod's API (AeroMod.AeroApi, by reflection: the mods compile apart).</summary>
@@ -272,7 +273,7 @@ public static class GridGen
             foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
             {
                 var t = asm.GetType("AeroMod.AeroApi"); if (t == null) continue;
-                _flight = t.GetMethod("TryGetFlight"); _forces = t.GetMethod("TryGetForces"); _lift = t.GetMethod("TryGetLift"); break;
+                _flight = t.GetMethod("TryGetFlight"); _forces = t.GetMethod("TryGetForces"); _lift = t.GetMethod("TryGetLift"); _ground = t.GetMethod("TryGetGroundHeight"); break;
             }
         }
         if (_flight == null) return "aero mod's API not found";
@@ -282,7 +283,9 @@ public static class GridGen
         _forces.Invoke(null, g);
         var l = new object[] { e, null, null };
         _lift.Invoke(null, l);
-        return $"M {(float)f[3]:F2} v {(float)f[2]:F0} m/s rho {(float)f[4]:F2} q {(float)f[5]:F0} Pa travel {V((Vector3)f[1])} | force {V((Vector3)g[1])} N torque {V((Vector3)g[2])} N m drag {(float)g[3]:F0} lift {(float)g[4]:F0} frontal {(float)g[5]:F1} m2 | lift dir {V((Vector3)l[1])} CL(frontal) {(float)l[2]:F3}";
+        var gh = new object[] { e, null };
+        if (_ground != null) _ground.Invoke(null, gh);
+        return $"M {(float)f[3]:F2} v {(float)f[2]:F0} m/s rho {(float)f[4]:F2} q {(float)f[5]:F0} Pa travel {V((Vector3)f[1])} | force {V((Vector3)g[1])} N torque {V((Vector3)g[2])} N m drag {(float)g[3]:F0} lift {(float)g[4]:F0} frontal {(float)g[5]:F1} m2 | lift dir {V((Vector3)l[1])} CL(frontal) {(float)l[2]:F3} | ground {(gh[1] is float gm ? gm : -1f):F1} m";
     }
 
     /// <summary>The harness id of a grid entity (its OrbitalGridComponent), 0 while not registered.</summary>

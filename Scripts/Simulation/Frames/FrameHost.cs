@@ -783,11 +783,15 @@ public static class FrameHost
     private static void PublishObserver(Vector3D cam, SystemRegistry reg, double t)
     {
         var f = PlayerFrame;
-        if (f != null && reg.Find(f.ParentBodyName) is GravityBody parent)
+        // (the frame's elements, body and berth are the server's, written each tick: copied under its lock - a torn read
+        //  jittered the observer for a frame)
+        KeplerianElements fel = default; string fbody = null; Vector3D fberth = default;
+        if (f != null) lock (ServerFrames.FramesLock) { fel = f.Elements; fbody = f.ParentBodyName; fberth = f.BerthCenter; }
+        if (f != null && reg.Find(fbody) is GravityBody parent)
         {
-            StateVector cur = OrbitPropagation.StateAt(f.Elements, t);
+            StateVector cur = OrbitPropagation.StateAt(fel, t);
             StateVector cel = parent.StateInRoot(cur, t);
-            var of = new ObserverFrame(f.BerthCenter, cel.Position, cel.Velocity, null);
+            var of = new ObserverFrame(fberth, cel.Position, cel.Velocity, null);
             Observer = of;
             PlanetBerths.LocalConjunctionFrame = of;
             ObserverPlanet = null;

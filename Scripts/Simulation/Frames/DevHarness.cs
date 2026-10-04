@@ -1021,6 +1021,35 @@ public static class DevHarness
                 return $"devrider on: {off.Length() / 1000:F1} km from frame #{pf.Id}'s centre";
             }
 
+            case "nearcenter":   // nearcenter: every grid within a planet radius of any planet's centre (the game's watchdog)
+            {
+                var sb3 = new System.Text.StringBuilder();
+                foreach (var kv in SystemHost.BeaconOf)
+                {
+                    var pdef = SystemHost.Registry?.FindDefinition(kv.Key);
+                    double R = pdef?.RadiusMeters ?? 0;
+                    foreach (var g in GridMembers.All())
+                    {
+                        if (!g.IsServer) continue;
+                        double d = (GridMembers.Position(g) - kv.Value.Center).Length();
+                        if (d < Math.Max(R * 0.5, 1000)) sb3.Append($"[{kv.Key}: grid {g.Id} '{g.DisplayName}' {d / 1000:F1} km from centre (R {R / 1000:F0} km)] ");
+                    }
+                }
+                // (and the player's character: a stowed player's body has to be somewhere)
+                try
+                {
+                    var ch = FrameHost.PlayerCharacter(session);
+                    if (ch != null)
+                    {
+                        var cp = ch.Data.GetWorldTransform().Position;
+                        foreach (var kv in SystemHost.BeaconOf)
+                            sb3.Append($"[character {(cp - kv.Value.Center).Length() / 1000:F1} km from {kv.Key}'s centre] ");
+                    }
+                }
+                catch { }
+                return sb3.Length > 0 ? sb3.ToString() : "no grid within half a planet radius of any centre";
+            }
+
             case "gridorbit":
             {
                 // gridorbit <gridId> <planet> <apoAltKm> <periAltKm> [incDeg] [phaseDeg]

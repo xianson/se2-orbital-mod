@@ -85,6 +85,9 @@ namespace SEAerospace.Frames
                 {
                     Vector3I c = _cells[id];
                     center = _origin + new Vector3D(c.X * _spacing, c.Y * _spacing, c.Z * _spacing);
+                    // NEVER inside a planet's frame (a berth there parked grids in a planet - the game's own watchdog
+                    // flagged "entity near center of planet"): skipped outright, never given up on (unlike IsClear).
+                    if (IsForbidden != null && IsForbidden(center, _slotRadius)) { id++; continue; }
                     // A slot is only handed out physically empty: grids left behind in a freed slot (or a rock)
                     // would sit right next to whoever lands there. (Give up checking after many: never stall.)
                     if (IsClear == null || skipped > 256 || IsClear(center, _slotRadius))
@@ -102,6 +105,11 @@ namespace SEAerospace.Frames
         /// not checked. Static: every allocator uses it (the one a save restores is built fresh).</summary>
         public static System.Func<Vector3D, double, bool> IsClear;
 
+        /// <summary>Whether a slot's space (centre, radius) reaches into a planet's frame - a berth must never be there:
+        /// Allocate skips it (always), Reserve refuses it (a saved slot there gets a fresh one). Null: nothing forbidden.
+        /// Static, as IsClear.</summary>
+        public static System.Func<Vector3D, double, bool> IsForbidden;
+
         // Hard ceiling on lattice growth. EnsureCells materializes ~slotId cells, so a corrupt or crafted
         // persisted slot id (e.g. 2,000,000,000 from a hand-edited save) would OOM/hang the world load.
         // A real world never has anywhere near a million conjunction berths; beyond this we refuse to grow.
@@ -115,6 +123,7 @@ namespace SEAerospace.Frames
         {
             if (slotId < 0 || slotId >= MaxSlots) return false;
             EnsureCells(slotId + 1);
+            if (IsForbidden != null && IsForbidden(SlotCenter(slotId), _slotRadius)) return false;   // (never inside a planet's frame)
             _occupied.Add(slotId);
             return true;
         }

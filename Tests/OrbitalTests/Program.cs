@@ -54,6 +54,7 @@ namespace Orbital.Tests
             RendezvousHysteresis();
 
             BerthAllocatorPacking();
+            BerthAllocatorForbidden();
             VoxelBerthDeterministicGrid();
             BodyWorldPosFrameRelative();
             LatticeSeparation();
@@ -1014,6 +1015,36 @@ namespace Orbital.Tests
         }
 
         // ---- frame runtime foundation ----
+
+        /// <summary>Berths never inside a planet's frame: Allocate skips forbidden slots (whatever IsClear says), Reserve
+        /// refuses them.</summary>
+        private static void BerthAllocatorForbidden()
+        {
+            var keepClear = BerthAllocator.IsClear; var keepForbid = BerthAllocator.IsForbidden;
+            try
+            {
+                var alloc = new BerthAllocator(2000.0, 20000.0);
+                Vector3D planet = alloc.SlotCenter(0);          // a "planet" sitting on the first slots
+                double zone = alloc.Spacing * 1.5;               // its frame reaches the neighbouring slots
+                BerthAllocator.IsClear = null;
+                BerthAllocator.IsForbidden = (c, r) => (c - planet).Length() < zone + r;
+                bool allOut = true;
+                for (int i = 0; i < 40; i++)
+                {
+                    int id = alloc.Allocate(out Vector3D c);
+                    if ((c - planet).Length() < zone + alloc.SlotRadius) allOut = false;
+                }
+                Ok("berths: none allocated inside a planet's frame (40 allocations)", allOut);
+                var fresh = new BerthAllocator(2000.0, 20000.0);
+                Ok("berths: a saved slot inside a planet's frame is refused", !fresh.Reserve(0) && !fresh.IsOccupied(0));
+                // and IsClear's give-up never lets one through: everything 'not clear'
+                BerthAllocator.IsClear = (c, r) => false;
+                var stuck = new BerthAllocator(2000.0, 20000.0);
+                int sid = stuck.Allocate(out Vector3D sc);
+                Ok("berths: the not-clear give-up still never lands inside a planet", (sc - planet).Length() >= zone + stuck.SlotRadius);
+            }
+            finally { BerthAllocator.IsClear = keepClear; BerthAllocator.IsForbidden = keepForbid; }
+        }
 
         private static void BerthAllocatorPacking()
         {

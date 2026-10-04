@@ -349,6 +349,19 @@ public static class SystemHost
                 if (g.IsServer && (GridMembers.Position(g) - c).Length() < r) return false;
             return !AsteroidBridge.NearestAsteroid(c, r, out _);
         };
+        // Berths NEVER inside a planet's frame: a slot whose sphere reaches into any planet's frame (its border radius,
+        // with 5 % to spare) is forbidden - never allocated, a saved one refused.
+        var planetZones = new List<(Vector3D c, double r)>();
+        foreach (var kv in BeaconOf)
+        {
+            var pdef = reg.FindDefinition(kv.Key);
+            if (pdef != null) planetZones.Add((kv.Value.Center, PlanetBerths.ShellRadius(pdef) * 1.05));
+        }
+        BerthAllocator.IsForbidden = (c, r) =>
+        {
+            foreach (var z in planetZones) if ((c - z.c).Length() < z.r + r) return true;
+            return false;
+        };
         FrameRegistry.Publish(new FrameRegistry(alloc));
 
         // Inverse-square gravity in each planet cell, reaching across the cell.

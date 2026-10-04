@@ -132,6 +132,46 @@ namespace EntryTest
                 Ok("aerobrake: drag off, unchanged", !l0.Braked && Math.Abs(same.SemiMajorAxis - e0.SemiMajorAxis) < 1e-6);
             }
 
+            // Periapsis from a state (the cap rule's gate): an ellipse, a hyperbola, a near-radial fall.
+            {
+                double rp = B.Bottom + 3000, ra = R + 300000, a = 0.5 * (rp + ra);
+                var pe = new StateVector(new Vector3D(rp, 0, 0), new Vector3D(0, Math.Sqrt(Mu * (2 / rp - 1 / a)), 0));
+                var elE = OrbitPropagation.AtTime(Reentry.ToElements(pe, Mu, 0), 0);
+                var sE = OrbitPropagation.StateAt(elE, 400);
+                Ok("periapsis from state: ellipse", Math.Abs(Reentry.PeriapsisRadius(sE.Position, sE.Velocity, Mu) - rp) < 5, $"{Reentry.PeriapsisRadius(sE.Position, sE.Velocity, Mu) - rp:F2} m");
+                var hp = new StateVector(new Vector3D(rp, 0, 0), new Vector3D(0, 1.3 * Math.Sqrt(2 * Mu / rp), 0));
+                var elH = OrbitPropagation.AtTime(Reentry.ToElements(hp, Mu, 0), 0);
+                var sH = OrbitPropagation.StateAt(elH, -300);
+                Ok("periapsis from state: hyperbola", Math.Abs(Reentry.PeriapsisRadius(sH.Position, sH.Velocity, Mu) - rp) < 5, $"{Reentry.PeriapsisRadius(sH.Position, sH.Velocity, Mu) - rp:F2} m");
+                double rr = Reentry.PeriapsisRadius(new Vector3D(R + 50000, 0, 0), new Vector3D(-1500, 1e-3, 0), Mu);
+                Ok("periapsis from state: near radial ~0 (no NaN)", !double.IsNaN(rr) && rr >= 0 && rr < 1, $"{rr:E2} m");
+            }
+
+            // Drag alone captures a hyperbolic arrival (a deep dip, no cap): the orbit after the pass is bound.
+            {
+                const double NoCap = 1e9;
+                double rp = B.Bottom + 0.25 * (B.Top - B.Bottom);
+                var hp = new StateVector(new Vector3D(rp, 0, 0), new Vector3D(0, 1.02 * Math.Sqrt(2 * Mu / rp), 0));
+                var at = OrbitPropagation.AtTime(Reentry.ToElements(hp, Mu, 0), 0);
+                var e0 = Reentry.ToElements(OrbitPropagation.StateAt(at, -400), Mu, 0);
+                // (the lightest ship that still skips out: scan the ballistic coefficient up from very draggy)
+                Pass pr = null; double used = 0;
+                foreach (double beta in new[] { 30.0, 60, 100, 150, 250, 400, 700, 1000 })
+                {
+                    var p1 = Reentry.Predict(e0, B, NoSpin, NoCap, 0, 4000, 0, beta);
+                    if (p1.HasAfter) { pr = p1; used = beta; break; }
+                }
+                Ok("aerocapture: hyperbolic in, bound out", e0.Eccentricity > 1 && pr != null && pr.After.Eccentricity < 1, $"e {e0.Eccentricity:F3} -> {(pr != null ? pr.After.Eccentricity.ToString("F3") : "none")} at beta {used}");
+            }
+
+            // An orbit inside the band all the way round: the prediction ends in the air (landing), not "after".
+            {
+                double rc = B.Bottom + 0.4 * (B.Top - B.Bottom);
+                var c0 = At(rc, Math.Sqrt(Mu / rc), 0);
+                var pr = Reentry.Predict(c0, B, NoSpin, 2000, 0, 6 * 3600, 0, 30);
+                Ok("inside the band: the prediction lands", pr.Landing && !pr.HasAfter, $"landing {pr.Landing}, after {pr.HasAfter}");
+            }
+
             // Decay: a circular orbit inside the band, under the cap, sinks with drag (and stays put without it).
             {
                 double rc = 0.5 * (B.Bottom + B.Top);

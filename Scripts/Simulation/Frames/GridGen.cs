@@ -107,6 +107,19 @@ public static class GridGen
                     return $"steering grid {IdOf(e)}: {V(w)} rad/s";
                 }
                 case "aero": return AeroReadout(Grid(a, 2));
+                case "air":
+                {
+                    // gen air N x,y,z | gen air off: the test airflow along a direction in grid N's frame, set as ONE world
+                    // direction for every grid (AeroMod.AeroEntryFx.TestWorld) - the flap grids then see the plane's air
+                    if (a.Length > 2 && a[2] == "off") { PlanetRenderBridge.ForeignValue("AeroMod.AeroEntryFx", "TestWorld", ""); return "test air: per grid"; }
+                    var e = Grid(a, 2); if (e == null || a.Length < 4) return "gen air N x,y,z | gen air off";
+                    var p = a[3].Split(',');
+                    var local = Vector3.Normalize(new Vector3(float.Parse(p[0], CI), float.Parse(p[1], CI), float.Parse(p[2], CI)));
+                    var w = Vector3.Transform(local, e.Data.GetWorldTransform().Orientation);
+                    string val = string.Format(CI, "{0:R},{1:R},{2:R}", w.X, w.Y, w.Z);
+                    PlanetRenderBridge.ForeignValue("AeroMod.AeroEntryFx", "TestWorld", val);
+                    return "test air (world) " + val;
+                }
                 case "id": { var e = Grid(a, 2); return "id " + (e != null ? IdOf(e) : 0); }   // (gen id [N]: a spawned grid's harness id; 0 until registered)
                 case "hinges": return string.Join(" || ", _hinges.Select((h, i) => HingeLine(i)));
                 case "hold":

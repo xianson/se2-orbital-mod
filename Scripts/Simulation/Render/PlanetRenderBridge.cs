@@ -1062,29 +1062,56 @@ public static class PlanetRenderBridge
         catch (Exception e) { Log.Default?.Info("[ORBIT] CallAdd: " + (e.InnerException ?? e).Message); return false; }
     }
 
+    // Member lookups cached per (type, name), misses included: GetMember/SetMember run ~35 times a map frame, and a lookup
+    // walked the type chain with GetProperty/GetField each time.
+    sealed class MemberSlot { public PropertyInfo P; public FieldInfo F; }
+    static readonly Dictionary<(Type, string), MemberSlot> _members = new Dictionary<(Type, string), MemberSlot>();
+    static MemberSlot Slot(Type type, string name, bool forWrite)
+    {
+        var key = (type, forWrite ? "=" + name : name);
+        lock (_members)
+        {
+            if (_members.TryGetValue(key, out var slot)) return slot;
+            slot = new MemberSlot();
+            for (Type t = type; t != null && slot.P == null && slot.F == null; t = t.BaseType)
+            {
+                if (forWrite)
+                {
+                    var f = t.GetField(name, AnyInstance);
+                    if (f != null) { slot.F = f; break; }
+                    var p = t.GetProperty(name, AnyInstance);
+                    if (p != null && p.CanWrite) slot.P = p;
+                }
+                else
+                {
+                    var p = t.GetProperty(name, AnyInstance);
+                    if (p != null && p.GetIndexParameters().Length == 0) { slot.P = p; break; }
+                    var f = t.GetField(name, AnyInstance);
+                    if (f != null) slot.F = f;
+                }
+            }
+            _members[key] = slot;
+            return slot;
+        }
+    }
+
     internal static object GetMember(object target, string name)
     {
         if (target == null) return null;
-        for (Type t = target.GetType(); t != null; t = t.BaseType)
-        {
-            PropertyInfo p = t.GetProperty(name, AnyInstance);
-            if (p != null && p.GetIndexParameters().Length == 0) return p.GetValue(target);
-            FieldInfo f = t.GetField(name, AnyInstance);
-            if (f != null) return f.GetValue(target);
-        }
-        return null;
+        var slot = Slot(target.GetType(), name, false);
+        return slot.P != null ? slot.P.GetValue(target) : slot.F?.GetValue(target);
     }
 
-    internal static void SetMember(object target, string name, object value)
+    /// <summary>Sets a member; false (logged once) when there is none. It threw - ~200 ms a frame after a game patch renamed
+    /// one the map sets every frame.</summary>
+    internal static bool SetMember(object target, string name, object value)
     {
-        for (Type t = target.GetType(); t != null; t = t.BaseType)
-        {
-            FieldInfo f = t.GetField(name, AnyInstance);
-            if (f != null) { f.SetValue(target, value); return; }
-            PropertyInfo p = t.GetProperty(name, AnyInstance);
-            if (p != null && p.CanWrite) { p.SetValue(target, value); return; }
-        }
-        throw new MissingMemberException(target.GetType().Name, name);
+        if (target == null) return false;
+        var slot = Slot(target.GetType(), name, true);
+        if (slot.F != null) { slot.F.SetValue(target, value); return true; }
+        if (slot.P != null) { slot.P.SetValue(target, value); return true; }
+        WarnOnce("setmember-" + target.GetType().Name + "." + name, $"no writable member {target.GetType().Name}.{name}");
+        return false;
     }
 
     internal static Type FindType(string assemblyName, string typeName)

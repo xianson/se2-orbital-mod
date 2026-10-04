@@ -142,7 +142,7 @@ public static class GameUi
         try
         {
             double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
-            if (_moveVm == null || now > _nextFind)
+            if (now > _nextFind)   // (every 2 s, found or not: with nothing found it searched ~400 nodes EVERY frame)
             {
                 _nextFind = now + 2.0;
                 object found = null;

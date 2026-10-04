@@ -970,6 +970,7 @@ public static class MapPipeline
 
     // ── the game's own GPS marker look (GPSMarkerHelpers.DrawSingleMarker) ──
     private static object _gpsSettings, _lodFull;
+    private static long _gpsRetryAt;
     private static MethodInfo _drawSingle;
     public static string GpsError = "";
 
@@ -982,7 +983,7 @@ public static class MapPipeline
         if (_batch == null || _cam == null || marker == null) return false;
         try
         {
-            if (_gpsSettings == null && !BuildGpsSettings(session)) return false;
+            if (_gpsSettings == null && (System.Diagnostics.Stopwatch.GetTimestamp() < _gpsRetryAt || !BuildGpsSettings(session))) return false;
             var wt = _cam.Entity.Data.GetWorldTransform();
             Vector3D fwd = (QuaternionD)wt.Orientation * Vector3D.Forward;
             Vector2 size = ScreenSize, centre = size * 0.5f;
@@ -1003,7 +1004,13 @@ public static class MapPipeline
             _drawSingle.Invoke(null, new object[] { _gpsSettings, _batch, _lodFull, centre, centre, s, false, edge, marker, distance });
             return true;
         }
-        catch (Exception e) { GpsError = (e.InnerException ?? e).Message; _gpsSettings = null; return false; }
+        catch (Exception e)
+        {
+            // (latched for a few seconds: cleared settings were rebuilt and thrown again every frame, for every marker)
+            GpsError = (e.InnerException ?? e).Message; _gpsSettings = null;
+            _gpsRetryAt = System.Diagnostics.Stopwatch.GetTimestamp() + 5 * System.Diagnostics.Stopwatch.Frequency;
+            return false;
+        }
     }
 
     private static bool BuildGpsSettings(Keen.VRage.Core.Game.Systems.Session session)

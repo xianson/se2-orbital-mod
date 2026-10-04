@@ -126,7 +126,10 @@ namespace SEAerospace.Frames
             Vector3D virtualVelocity, Vector3D pendingDrainDv, long anchorEntityId,
             IList<long> memberIds, int berthSlotId, Vector3D berthCenter, bool isEncounter)
         {
-            if (id == 0) return null;
+            if (id <= 0 || id > (long.MaxValue >> 2)) return null;   // (a crafted id: never overflow the id counter)
+            // (an id already live - a frame made before the save applied, or a duplicate line - is never overwritten:
+            //  the live frame's grids would be orphaned. The restored one takes a fresh id)
+            if (_byId.ContainsKey(id)) id = _nextFrameId++;
 
             ProximityFrame frame = new ProximityFrame();
             frame.Id = id;

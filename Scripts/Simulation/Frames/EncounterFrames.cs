@@ -132,7 +132,7 @@ public static class EncounterFrames
         RefreshRides(t);
         if (tick % 20 == 0) AdoptIntoSites();
         ProcessNewGrids(t);
-        if (tick % 60 == 0) Prune();
+        // (Prune runs from ServerFrames: it must run with encounters off too)
     }
 
     // ───────────────────────────── authored sites ─────────────────────────────
@@ -807,7 +807,10 @@ public static class EncounterFrames
     // ───────────────────────────── bookkeeping ─────────────────────────────
 
     /// <summary>Drop members that no longer exist; an encounter frame left empty dissolves.</summary>
-    private static void Prune()
+    static readonly Dictionary<long, double> _missingSince = new Dictionary<long, double>();
+    /// <summary>Every frame's members checked (ServerFrames, once a second; encounters on or off): dead characters, grids
+    /// gone; empty frames dissolved.</summary>
+    internal static void Prune()
     {
         long player = FrameHost.PlayerId;
         foreach (var f in new List<ProximityFrame>(SystemHost.Frames.Frames))
@@ -818,9 +821,21 @@ public static class EncounterFrames
                     if (!GridMembers.IsGridId(id) && id != player) SystemHost.Frames.RemoveMember(id);
             if (!f.IsEncounter)
             {
+                // (a grid deleted while its frame was on rails - ground down, despawned - never left it: the frame
+                //  never emptied. Pruned after 10 s missing, and only once the save is applied - grids register late)
+                if (SavedState.Idle)
+                    foreach (long id in new List<long>(f.Members))
+                    {
+                        if (!GridMembers.IsGridId(id)) continue;
+                        if (GridMembers.Get(id) != null) { _missingSince.Remove(id); continue; }
+                        double now = SystemHost.Now;
+                        if (!_missingSince.TryGetValue(id, out double since)) { _missingSince[id] = now; continue; }
+                        if (now - since > 10) { SystemHost.Frames.RemoveMember(id); _missingSince.Remove(id); Event($"frame #{f.Id}: grid {id} gone - removed"); }
+                    }
                 if (f.Members.Count == 0) { long pid = f.Id; SystemHost.Frames.Dissolve(pid); ServerFrames.AnchorAccel.Remove(pid); Event($"frame #{pid} empty -> dissolved"); }
                 continue;
             }
+            if (!_built) continue;   // (encounter frames: only once their sites are built, as before)
             foreach (long id in new List<long>(f.Members))
                 if (GridMembers.IsGridId(id) && GridMembers.Get(id) == null) SystemHost.Frames.RemoveMember(id);
             if (f.Members.Count == 0 && !(SiteOf(f.Id)?.Anchor ?? false))

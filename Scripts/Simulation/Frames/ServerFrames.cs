@@ -211,6 +211,7 @@ public static class ServerFrames
                     Event($"frame #{pf.Id}: saved berth was inside a planet's frame - {moved} grid(s) follow it {pf.PendingBerthShift.Length() / 1000:F1} km to the fresh one{(all ? "" : " (some never loaded)")}");
                     pf.PendingBerthShift = Vector3D.Zero; pf.PendingBerthWait = 0;
                 }
+                if (_tick % 60 == 0 && SystemHost.Built && SystemHost.Frames != null) EncounterFrames.Prune();
                 EncounterFrames.ServerTick(session, _tick);
                 DevFlight.ServerTick();
                 DevFlight.ServerCommandTick();
@@ -218,7 +219,7 @@ public static class ServerFrames
                 EntryHost.ServerTick(frames, SystemHost.Now);   // reentry (the braking band, an airless border's clamp): before arrivals
                 foreach (var f in frames) UpdateGridFrame(f, dt);
                 StepGridHighSpeed();
-                if (_tick % 10 == 0) StowLoneGrids();
+                if (_tick % 10 == 0 && SavedState.Idle) StowLoneGrids();   // (not before the save is applied: a frame made now took a saved frame's id)
                 ApplyFictitious(dt);
                 if (_tick % MergeScreenInterval == 0) ScreenMerges(MergeScreenInterval * dt);
             }
@@ -407,6 +408,7 @@ public static class ServerFrames
             bool bandA = RadialBand(fa.Elements, out double peA, out double apA);
             for (int b = a + 1; b < frames.Count; b++)
             {
+                if (SystemHost.Frames.Get(fa.Id) == null) break;   // (a merge dissolved fa itself: no more merges into it)
                 var fb = frames[b];
                 if (SystemHost.Frames.Get(fb.Id) == null || !Finite(fb.Elements)) continue;
                 if (fa.ParentBodyName != fb.ParentBodyName) continue;
@@ -595,6 +597,7 @@ public static class ServerFrames
                     if (IsFinite(el.SemiMajorAxis) && IsFinite(el.MeanMotion)) { f.Elements = el; f.BerthCenter = pp; }
                 }
                 f.AnchorEntityId = FrameHost.PlayerId;
+                AnchorAccel.Remove(f.Id);   // (the old grid anchor's last acceleration would push every later joiner for good)
                 Event($"frame #{f.Id}: anchor -> the player");
             }
         }
@@ -951,7 +954,16 @@ public static class ServerFrames
             Vector3D dest = cell + chart.FromInertial(cel.Position + off);   // berth offsets are inertial
             if (!GridMembers.IsDynamic(g))
             {
-                GridMembers.SetPosition(g, dest);
+                // (a static grid with joints - a ship docked to the station - moved mid-tick left the constraint
+                //  stretched across thousands of km: the set moves together, before the physics step)
+                if (GridMembers.IsConstrained(g))
+                {
+                    var set = new List<Entity>();
+                    Vector3D d = dest - GridMembers.Position(g);
+                    if (!GridMembers.MoveSet(g, set, out string why)) { set.Clear(); set.Add(g.Entity); Event($"arrival: grid {g.Id}'s joined set not movable ({why}): it moves alone"); }
+                    lock (_deferred) foreach (var e in set) _deferred.Add((e, e.Data.GetWorldTransform().Position + d, Vector3D.Zero));
+                }
+                else GridMembers.SetPosition(g, dest);
                 // A static grid keeps its orbit too (placed each tick along it, as a HighSpeed grid): dropped
                 // without its velocity it fell straight down (the game made it dynamic).
                 var sel = CaptureMath.CaptureElements(new StateVector(cel.Position + off, cel.Velocity), node.Mu, epoch);
@@ -977,7 +989,12 @@ public static class ServerFrames
     }
 
     /// <summary>Load: put a grid back on its HighSpeed conic.</summary>
-    internal static void RestoreGridHighSpeed(long id, string body, KeplerianElements el) => _gridHighSpeed[id] = (body, el);
+    internal static void RestoreGridHighSpeed(long id, string body, KeplerianElements el)
+    {
+        // (a corrupt saved entry - NaN elements - matched neither exit test: MoveGrid(NaN) and ~60 log lines a second)
+        if (!IsFinite(el.SemiMajorAxis) || !IsFinite(el.Eccentricity) || !IsFinite(el.MeanMotion) || el.Mu <= 0 || string.IsNullOrEmpty(body)) return;
+        _gridHighSpeed[id] = (body, el);
+    }
 
     /// <summary>Grids above the cap in a planet cell ride their conic (analytic HighSpeed, as the player).</summary>
     private static void StepGridHighSpeed()

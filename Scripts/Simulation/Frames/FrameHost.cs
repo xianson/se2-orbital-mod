@@ -133,6 +133,8 @@ public static class FrameHost
         Entity ch = PlayerCharacter(session);
         Seated = ch != null && IsSeated(ch);
         Debug = ch == null ? "no character" : Seated ? "seated" : $"eva tpPending={_tpPending} wasInKeep={_wasInKeep}";
+        // (the save is applied seated too: loading in a seat restored no frame, and standing up later teleported the ship)
+        if (ch != null && Seated && !SavedState.Idle) lock (ServerFrames.FramesLock) SavedState.TryApply(IdOf(ch));
         if (ch != null && !IsSeated(ch))
         {
             long id = IdOf(ch);
@@ -1040,7 +1042,8 @@ public static class FrameHost
     public static void Fault(string name, Exception ex)
     {
         string key = name + ":" + ex.GetType().Name + ":" + ex.TargetSite?.Name;
-        _faults.TryGetValue(key, out int n); _faults[key] = ++n;
+        int n;
+        lock (_faults) { _faults.TryGetValue(key, out n); _faults[key] = ++n; }   // (both threads fault here)
         LastFault = $"{DateTime.Now:HH:mm:ss} {name}: {ex.GetType().Name}: {ex.Message} (x{n})";
         if (n <= 3 || n % 1000 == 0) Log.Default?.Error($"[ORBIT-FAULT] {name} (x{n}): {ex}");
     }

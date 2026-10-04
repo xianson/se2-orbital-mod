@@ -33,7 +33,7 @@ namespace OrbitalMod;
 /// </summary>
 public static class GridGen
 {
-    sealed class Hinge { public float Target = float.NaN, Gain = 4f, Last = float.NaN, ErrSum, ErrPeak, SwingSum, SwingPeak; public int Samples; public int Block; public float Min, Max; public List<(Guid p, Vector3I at, IntegerOrientation o)> Flap = new(); public Entity Entity; public bool Spawned, Done; public int Wait; public string Why = ""; }
+    sealed class Hinge { public bool LimitsSet; public float Target = float.NaN, Gain = 4f, Last = float.NaN, ErrSum, ErrPeak, SwingSum, SwingPeak; public int Samples; public int Block; public float Min, Max; public List<(Guid p, Vector3I at, IntegerOrientation o)> Flap = new(); public Entity Entity; public bool Spawned, Done; public int Wait; public string Why = ""; }
     static readonly List<Entity> _spawned = new List<Entity>();
     static readonly List<Hinge> _hinges = new List<Hinge>();
     static readonly List<(Guid prefab, Entity grid)> _measured = new List<(Guid, Entity)>();
@@ -188,7 +188,16 @@ public static class GridGen
     {
         foreach (var h in _hinges)
         {
-            if (!h.Done || float.IsNaN(h.Target) || h.Entity == null || !HingeAngle(h, out float ang)) continue;
+            if (!h.Done || h.Entity == null || !HingeAngle(h, out float ang)) continue;
+            if (!h.LimitsSet && ang >= h.Min * MathF.PI / 180f && ang <= h.Max * MathF.PI / 180f)
+            {
+                // (each limit is clamped by the other: max, min, then max again - whatever the defaults were)
+                var hc = h.Entity.TryGet<HingeComponent>();
+                float lo = h.Min * MathF.PI / 180f, hi = h.Max * MathF.PI / 180f;
+                if (hc != null) { hc.SetEnableLocalLimits(true); hc.SetLocalMaxLimit(hi); hc.SetLocalMinLimit(lo); hc.SetLocalMaxLimit(hi); }
+                h.LimitsSet = true;
+            }
+            if (float.IsNaN(h.Target)) continue;
             float err = h.Target - ang;
             h.Entity.TryGet<HingeComponent>()?.SetVelocity(h.Gain * err);
             h.ErrSum += MathF.Abs(err); h.ErrPeak = MathF.Max(h.ErrPeak, MathF.Abs(err));
@@ -225,9 +234,6 @@ public static class GridGen
                 if (hc == null) { h.Why = "hinge gone"; h.Done = true; continue; }
                 if (!h.Spawned)
                 {
-                    // (each limit is clamped by the other: max, min, then max again - whatever the defaults were)
-                    float lo = h.Min * MathF.PI / 180f, hi = h.Max * MathF.PI / 180f;
-                    hc.SetEnableLocalLimits(true); hc.SetLocalMaxLimit(hi); hc.SetLocalMinLimit(lo); hc.SetLocalMaxLimit(hi);
                     hc.RequestSpawnTop(); h.Spawned = true; continue;
                 }
                 var head = hc.ConnectedEntity;
@@ -238,7 +244,9 @@ public static class GridGen
                     if (DefinitionManager.Instance.TryGetDefinition(p, out PrefabDefinition pd) && pd != null)
                         GridBuilder.AddBlockToGrid(grid, at, o, pd.Get());
                 h.Done = true;
-                h.Target = 0.5f * (h.Min + h.Max) * MathF.PI / 180f;   // (held at its neutral, the middle of its limits: a new head hangs at 0)
+                // (held at its neutral - 90, the flap trailing, when the limits hold it, else their middle: a new head hangs
+                //  at 0; the limits are set only once it is inside them - set now, the game widens them to include 0)
+                h.Target = (h.Min <= 90f && h.Max >= 90f ? 90f : 0.5f * (h.Min + h.Max)) * MathF.PI / 180f;
             }
         }
         catch (Exception e) { Status = "tick: " + e.Message; }

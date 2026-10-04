@@ -234,8 +234,22 @@ public static class SavedState
                             ArgPeriapsis = P(p[7]), TrueAnomaly = P(p[8]), Mu = P(p[9]), Epoch = P(p[10]),
                         };
                         if (!FramePersistence.IsValidElements(el, out string why)) { Log.Default?.Info($"[ORBIT-FRAME] restore: frame {p[1]} invalid ({why})"); break; }
+                        // (a body this system does not have - renamed, a shifted _N suffix - left the frame on rails for good:
+                        //  dropped, its grids stay where they are; a saved mu from another gravity multiplier propagated
+                        //  with the old mu while reparenting used the new: the elements re-derived with the body's)
+                        var fbody = SystemHost.Registry?.Find(Unesc(p[2]));
+                        if (SystemHost.Registry != null && fbody == null) { Log.Default?.Info($"[ORBIT-FRAME] restore: frame {p[1]} about an unknown body '{Unesc(p[2])}': dropped"); break; }
+                        if (fbody != null && fbody.Mu > 0 && Math.Abs(el.Mu - fbody.Mu) > 1e-9 * fbody.Mu)
+                        {
+                            var rel = OrbitalMath.ToElements(OrbitalMath.ToState(el), fbody.Mu, el.Epoch);
+                            if (!FramePersistence.IsValidElements(rel, out string why2)) { Log.Default?.Info($"[ORBIT-FRAME] restore: frame {p[1]} invalid with {fbody.Name}'s mu ({why2})"); break; }
+                            Log.Default?.Info($"[ORBIT-FRAME] restore: frame {p[1]} saved with mu {el.Mu:G6}, {fbody.Name}'s is {fbody.Mu:G6}: re-derived");
+                            el = rel;
+                        }
                         var vv = new Vector3D(P(p[11]), P(p[12]), P(p[13]));
                         var pd = new Vector3D(P(p[14]), P(p[15]), P(p[16]));
+                        if (!GridMembers.Finite(vv)) vv = Vector3D.Zero;
+                        if (!GridMembers.Finite(pd)) pd = Vector3D.Zero;
                         long anchor = Map(long.Parse(p[17], Inv));
                         int slot = int.Parse(p[18], Inv);
                         var center = new Vector3D(P(p[19]), P(p[20]), P(p[21]));
@@ -257,9 +271,20 @@ public static class SavedState
                         break;
                     }
                     case "node":
-                        if (p.Length >= 14) Maneuvers.Restore(P(p[1]), P(p[2]), P(p[3]), P(p[4]), Unesc(p[5]), ParseEl(p, 6));
-                        else Maneuvers.Restore(P(p[1]), P(p[2]), P(p[3]), P(p[4]));
+                    {
+                        // (NaN in a node made its burn report NaN m/s left and never complete; a bad target orbit was used
+                        //  as is: restored Dirty, re-planned)
+                        double nt = P(p[1]), np = P(p[2]), nn = P(p[3]), nr = P(p[4]);
+                        if (!(IsFin(nt) && IsFin(np) && IsFin(nn) && IsFin(nr))) { Log.Default?.Info("[ORBIT-FRAME] restore: node not finite: dropped"); break; }
+                        if (p.Length >= 14)
+                        {
+                            string tb = Unesc(p[5]); var ta = ParseEl(p, 6);
+                            bool okT = FramePersistence.IsValidElements(ta, out _) && (SystemHost.Registry == null || SystemHost.Registry.Find(tb) != null);
+                            if (okT) Maneuvers.Restore(nt, np, nn, nr, tb, ta); else Maneuvers.Restore(nt, np, nn, nr);
+                        }
+                        else Maneuvers.Restore(nt, np, nn, nr);
                         break;
+                    }
                     case "gpshid":
                         FrameMarkers.RestoreHidden(Unesc(p[1]));
                         break;
@@ -289,6 +314,8 @@ public static class SavedState
                         long id = Map(long.Parse(p[1], Inv));
                         if (id == 0) break;
                         var el = ParseEl(p, 3);
+                        if (!FramePersistence.IsValidElements(el, out string hwhy) || SystemHost.Registry != null && SystemHost.Registry.Find(Unesc(p[2])) == null)
+                        { Log.Default?.Info($"[ORBIT-FRAME] restore: HighSpeed state for {id} about '{Unesc(p[2])}' invalid ({hwhy ?? "unknown body"}): dropped"); break; }
                         if (id == playerId) FrameHost.RestoreHighSpeed(Unesc(p[2]), el);
                         else ServerFrames.RestoreGridHighSpeed(id, Unesc(p[2]), el);
                         hs++;
@@ -307,6 +334,7 @@ public static class SavedState
 
     private static string D(double v) => v.ToString("R", Inv);
     private static double P(string s) => double.Parse(s, NumberStyles.Float, Inv);
+    private static bool IsFin(double x) => !double.IsNaN(x) && !double.IsInfinity(x);
     private static string Esc(string s) => string.IsNullOrEmpty(s) ? "-" : s.Replace("%", "%25").Replace(" ", "%20").Replace("\n", "%0A");
     private static string Unesc(string s) => s == "-" ? "" : s.Replace("%0A", "\n").Replace("%20", " ").Replace("%25", "%");
 

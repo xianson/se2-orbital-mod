@@ -171,7 +171,9 @@ public static class DevHarness
                 if (long.TryParse(a[1], out long gid)) lock (ServerFrames.GridPositions) found = ServerFrames.GridPositions.TryGetValue(gid, out gp);
                 if (!found) return "unknown grid (see status)";
                 double off = a.Length > 2 ? D(a[2]) : 150.0;
-                Vector3D from = gp + Vector3D.Normalize(camera.Position - gp) * off;
+                Vector3D away = camera.Position - gp;   // (the camera on the grid - after a relaunch - had no direction: NaN, an invalid quaternion)
+                if (!(away.LengthSquared() > 1e-6) || !GridMembers.Finite(away)) away = Vector3D.UnitY;
+                Vector3D from = gp + Vector3D.Normalize(away) * off;
                 Teleport(session, from, gp - from);
                 return $"-> {off:F0} m from grid {gid}";
             }
@@ -1115,7 +1117,7 @@ public static class DevHarness
     private static void Teleport(Keen.VRage.Core.Game.Systems.Session session, Vector3D position, Vector3D? facing, Quaternion? keep = null)
     {
         Quaternion q = keep ?? Quaternion.Identity;
-        if (facing.HasValue && facing.Value.LengthSquared() > 1e-6)
+        if (facing.HasValue && facing.Value.LengthSquared() > 1e-6 && GridMembers.Finite(facing.Value))
         {
             Vector3 fwd = (Vector3)Vector3D.Normalize(facing.Value);
             Vector3 up = Math.Abs(fwd.Y) > 0.95f ? Vector3.UnitZ : Vector3.UnitY;

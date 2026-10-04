@@ -263,6 +263,19 @@ public static partial class CleanMap
                 parts.Add(ph);
             }
 
+        // A world without colonization sectors: no part at all, so the game's placeholder sector ring stayed (the wedges).
+        // One tiny hexagon under the map's centre replaces its mesh with nothing visible.
+        if (parts.Count == 0)
+        {
+            var ph = new MapPipeline.Part { Name = "OrbitalEmpty" };
+            for (int q = 0; q < 6; q++)
+            {
+                double a = Math.PI * q / 3;
+                ph.Outline.Add(new Vector3((float)(Math.Cos(a) * 2e-4), -0.002f, (float)(Math.Sin(a) * 2e-4)));
+            }
+            parts.Add(ph);
+        }
+
         // The mesh changes only when the view changes, or every MeshRebuildSeconds (motion).
         double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
         string key = "unified";
@@ -271,7 +284,10 @@ public static partial class CleanMap
         {
             bool ok = MapPipeline.ShowParts(sectorsRenderer, parts);
             _lastKey = key; _lastMesh = now; _lastMeshSimT = t;
-            Status = ok ? $"{key} parts={parts.Count}" : $"{key} mesh failed: {MapPipeline.LastError}";
+            Status = ok ? $"{key} parts={parts.Count}" : $"{key} mesh failed: {MapPipeline.LastError} (parts={parts.Count})";
+            // (nothing of ours to show in its place - a world without colonization sectors - the game's own sector mesh
+            //  would show through: hidden; closing the map restores it, GameMap.RestoreGame)
+            if (!ok && sectorsRenderer != null) PlanetRenderBridge.SetRenderComponentVisible(sectorsRenderer, false);
         }
         ModCost.Sec("parts+mesh").Stop(s2);
     }

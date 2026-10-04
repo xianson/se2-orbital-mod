@@ -94,14 +94,189 @@ public static class MapView
         try { return session?.SessionComponents.TryGet<ColonizationMapSessionComponent>(); } catch { return null; }
     }
 
+    // ── a world without colonization sectors (a scenario: Concordia) ──
+    // The game builds its colonization map only where there are sectors (TerminalScreenViewModel / MapTabViewModel
+    // .ColonizationMapAvailable: Sectors.Count > 0): elsewhere its Map tab is the GPS list alone, and the map scene - the
+    // diorama this map is drawn in - is never shown. So while the terminal is on its Map tab in such a world, the scene is
+    // shown here (ColonizationMapSessionComponent.ToggleMap: no sector needed) and hidden again when it leaves.
+    static System.Reflection.FieldInfo _openVm;
+    static System.Reflection.PropertyInfo _mapTabSel;
+    static bool _sceneOurs;
+    /// <summary>Whether this world has no colonization sectors (the map scene is ours to show).</summary>
+    public static bool Sectorless { get; private set; }
+
+    static void SectorlessScene(Keen.VRage.Core.Game.Systems.Session session, ColonizationMapSessionComponent map)
+    {
+        if (map == null) return;
+        SectorsSessionComponent sec = null;
+        try { sec = session.SessionComponents.TryGet<SectorsSessionComponent>(); } catch { }
+        Sectorless = sec == null || sec.Sectors.Count == 0;
+        if (Sectorless && !_noticeBlanked) _noticeBlanked = BlankText("MapDataUnavailable");
+        bool want = false;
+        if (Sectorless)
+        {
+            var term = session.SessionComponents.TryGet<Keen.Game2.Client.GameSystems.Interaction.TerminalControllerSessionComponent>();
+            _openVm ??= typeof(Keen.Game2.Client.GameSystems.Interaction.TerminalControllerSessionComponent).GetField("_openVM", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            // (the view model's type lives in an assembly scripts cannot reference: its IsMapTabSelected by reflection)
+            object vm = term != null ? _openVm?.GetValue(term) : null;
+            if (vm != null)
+            {
+                _mapTabSel ??= vm.GetType().GetProperty("IsMapTabSelected");
+                want = _mapTabSel?.GetValue(vm) is bool b && b;
+            }
+        }
+        if (_togglePending) return;
+        if (want && !map.IsVisible && _sceneFailures < 3) Toggle(map, true);   // (three failures: given up this session)
+        if (want && map.IsVisible && _sceneOurs) HideSectorVisuals(map);
+        else if (!want && _sceneOurs) { if (map.IsVisible) Toggle(map, false); else _sceneOurs = false; }
+    }
+
+    static volatile bool _togglePending;
+    static object _uiDispatcher; static System.Reflection.MethodInfo _uiPost; static object[] _uiPostDefaults; static bool _uiLooked;
+
+    /// <summary>ToggleMap switches the camera (an entity is closed): never from inside a scene job - that asserted and
+    /// crashed the game (twice: the engine's SynchronizationContext.Post runs its callback at once, in the job). Posted
+    /// to the UI's dispatcher (Avalonia's Dispatcher.UIThread - where the game's own map tab runs it; scripts cannot
+    /// reference Avalonia, so by reflection), which runs it outside the scene's jobs. No dispatcher: not shown.</summary>
+    static void Toggle(ColonizationMapSessionComponent map, bool show)
+    {
+        if (!_uiLooked)
+        {
+            _uiLooked = true;
+            foreach (var a in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                if (a.GetName().Name != "Avalonia.Base") continue;
+                var t = a.GetType("Avalonia.Threading.Dispatcher");
+                _uiDispatcher = t?.GetProperty("UIThread")?.GetValue(null);
+                foreach (var m in t?.GetMethods() ?? Array.Empty<System.Reflection.MethodInfo>())
+                {
+                    var ps = m.GetParameters();
+                    if (m.Name != "Post" || ps.Length == 0 || ps[0].ParameterType != typeof(Action)) continue;
+                    _uiPost = m;
+                    _uiPostDefaults = new object[ps.Length];
+                    for (int k = 1; k < ps.Length; k++)
+                        _uiPostDefaults[k] = ps[k].HasDefaultValue && ps[k].DefaultValue != null ? ps[k].DefaultValue
+                            : ps[k].ParameterType.IsValueType ? Activator.CreateInstance(ps[k].ParameterType) : null;
+                    break;
+                }
+                break;
+            }
+        }
+        if (_uiDispatcher == null || _uiPost == null) { Status = "sectorless world: no UI dispatcher to show the map scene from"; return; }
+        _togglePending = true;
+        var args = (object[])_uiPostDefaults.Clone();
+        args[0] = (Action)(() =>
+        {
+            try
+            {
+                if (map.IsVisible != show)
+                {
+                    // (no sectors: its sector selection would index an empty list - off before showing)
+                    if (show) { map.ToggleSectorSelection(false); EnsureDiscoveries(map); }
+                    map.ToggleMap();
+                }
+                _sceneOurs = show;
+            }
+            catch (Exception e)
+            {
+                Status = "map scene toggle failed: " + e.Message;
+                Log.Default?.Warning("[ORBIT] sectorless map scene: " + e);
+                // (ShowMap throws after switching the camera and before marking itself visible: the camera would stay in
+                //  map mode with the game thinking the map closed. Mark it visible and hide it - its own restore path)
+                if (show) Recover(map);
+                _sceneOurs = false;
+            }
+            finally { _togglePending = false; }
+        });
+        try { _uiPost.Invoke(_uiDispatcher, args); }
+        catch (Exception e) { _togglePending = false; _uiPost = null; Status = "map scene post failed: " + e.Message; }
+    }
+
+    static System.Reflection.FieldInfo _discField;
+    /// <summary>What ShowMap needs that only the colonization tab sets up: the map entity, and the player's discovery record
+    /// (an empty one when missing: the type's public constructor).</summary>
+    static void EnsureDiscoveries(ColonizationMapSessionComponent map)
+    {
+        _ = map.MapEntity;   // (the map's diorama entity is spawned on first use - by the colonization tab, which a sectorless
+                             //  world never builds; ShowMap's discovered planets hang off it: null, the NullReferenceException)
+        _discField ??= typeof(ColonizationMapSessionComponent).GetField("_discoveriesPlayerData", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        if (_discField != null && _discField.GetValue(map) == null)
+            _discField.SetValue(map, new Keen.Game2.Simulation.GameSystems.Discoveries.DiscoveriesPlayerData());
+    }
+
+    static bool _noticeBlanked;
+    /// <summary>The game's GPS page says "Map Data Unavailable" across the map in a world without sectors - where this map
+    /// now is. Its localized text (LocalizationPackage's string tables, by reflection, as the aero mod's Mach readout
+    /// does) blanked; true once done.</summary>
+    static bool BlankText(string key)
+    {
+        try
+        {
+            var tm = Keen.VRage.Library.Utils.Singleton<Keen.VRage.Library.Localization.TextManager>.Instance;
+            var src = typeof(Keen.VRage.Library.Localization.TextManager).GetField("_textSource", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(tm);
+            if (src == null) return false;
+            var id = Keen.VRage.Library.Utils.StringId.Get(key);
+            bool any = false;
+            foreach (string table in new[] { "_baseLanguageStrings", "_localizedStrings" })
+            {
+                if (!(src.GetType().GetField(table, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(src) is Dictionary<Keen.VRage.Library.Utils.StringId, Keen.VRage.Library.Localization.ContentText> d)) continue;
+                if (!d.TryGetValue(id, out var ct)) continue;
+                ct.Text = " ";
+                d[id] = ct;
+                any = true;
+            }
+            return any;
+        }
+        catch { return true; }   // (not again: it is cosmetic)
+    }
+
+    static bool _sectorVisualsLogged;
+    /// <summary>A sectorless world's map entity still draws a placeholder sector ring (the wedges): every render component
+    /// on it or its children whose type names a sector, hidden while the scene is ours (closing restores the game's state
+    /// through RestoreGame / HideMap). The first time, what is there goes to the log.</summary>
+    static void HideSectorVisuals(ColonizationMapSessionComponent map)
+    {
+        var e = map.MapEntity;
+        if (e == null) return;
+        var sb = _sectorVisualsLogged ? null : new System.Text.StringBuilder();
+        void Visit(Entity x, int depth)
+        {
+            foreach (var c in x.Components)
+            {
+                if (c == null) continue;
+                string n = c.GetType().Name;
+                sb?.Append(new string(' ', depth * 2)).Append(n).Append((char)10);
+                if (n.IndexOf("Sector", StringComparison.Ordinal) >= 0) PlanetRenderBridge.SetRenderComponentVisible(c, false);
+            }
+            var kids = x.TryGet<HierarchyComponent>()?.Children;
+            if (kids != null && depth < 3) foreach (var k in kids) if (k != null) Visit(k, depth + 1);
+        }
+        Visit(e, 0);
+        if (sb != null) { _sectorVisualsLogged = true; Log.Default?.Info("[ORBIT] sectorless map entity: " + (char)10 + sb); }
+    }
+
+    static int _sceneFailures;
+    static void Recover(ColonizationMapSessionComponent map)
+    {
+        _sceneFailures++;
+        try
+        {
+            var vis = typeof(ColonizationMapSessionComponent).GetProperty("IsVisible", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            vis?.GetSetMethod(true)?.Invoke(map, new object[] { true });
+            map.HideMap();
+        }
+        catch (Exception e) { Log.Default?.Warning("[ORBIT] sectorless map scene: restore failed: " + e.Message); }
+    }
+
     public static void Tick(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera, double t)
     {
         var map = Map(session);
+        FrameHost.Guard("MapView.Sectorless", () => SectorlessScene(session, map));
         Visible = map != null && map.IsVisible;
         if (map == null || !map.IsVisible || !SystemHost.Built) { RendezvousView.Reset(); MapCamera.Release(session); CleanMap.ResetView(); if (map != null) GameMap.RestoreGame(map); MapGlobes.HideAll(); Clear(); Status = map == null ? "no map component" : "map closed"; return; }
         SectorsSessionComponent sectors = null;
         try { sectors = session.SessionComponents.TryGet<SectorsSessionComponent>(); } catch { }
-        if (sectors == null) { Status = "no sectors component"; return; }
+        if (sectors == null) { Status = "no sectors component"; return; }   // (a sectorless world still has the component: its list is empty)
 
         FrameHost.Guard("MapCamera", () => { bool hm = GameMap.TryMouse(map, out var mm); MapCamera.Tick(session, map, hm, mm); if (hm) DebugPanel.Tick(session, mm); });
 

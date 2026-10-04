@@ -64,9 +64,16 @@ public static class EncounterFrames
     // it reads a snapshot, replaced on every change (under FramesLock), never the live dictionary.
     private static Site[] _siteSnap = new Site[0];
     public static IEnumerable<Site> Sites => System.Threading.Volatile.Read(ref _siteSnap);
-    private static void SitesChanged() => System.Threading.Volatile.Write(ref _siteSnap, new List<Site>(_sites.Values).ToArray());
-    public static bool IsSite(ProximityFrame f) => f != null && _sites.ContainsKey(f.Id);
-    public static Site SiteOf(long frameId) => _sites.TryGetValue(frameId, out var s) ? s : null;
+    // (the lookups read a published copy too: the map, HUD and rendezvous tab call them on the client while ring rocks
+    //  come and go on the server - the live dictionary threw or answered wrong)
+    private static Dictionary<long, Site> _siteMap = new Dictionary<long, Site>();
+    private static void SitesChanged()
+    {
+        System.Threading.Volatile.Write(ref _siteSnap, new List<Site>(_sites.Values).ToArray());
+        System.Threading.Volatile.Write(ref _siteMap, new Dictionary<long, Site>(_sites));
+    }
+    public static bool IsSite(ProximityFrame f) => f != null && System.Threading.Volatile.Read(ref _siteMap).ContainsKey(f.Id);
+    public static Site SiteOf(long frameId) => System.Threading.Volatile.Read(ref _siteMap).TryGetValue(frameId, out var s) ? s : null;
 
     private static bool _built;
     private static double _builtAt = -1;
@@ -466,7 +473,10 @@ public static class EncounterFrames
     }
 
     /// <summary>A frame's ride in a Lagrange sector, if it has one.</summary>
-    public static Ride RideOf(long frameId) => _rides.TryGetValue(frameId, out var r) ? r : null;
+    public static Ride RideOf(long frameId) => System.Threading.Volatile.Read(ref _rideMap).TryGetValue(frameId, out var r) ? r : null;
+    // (published copy for the client, as the sites': replaced whenever a ride is added or removed)
+    private static Dictionary<long, Ride> _rideMap = new Dictionary<long, Ride>();
+    private static void RidesChanged() => System.Threading.Volatile.Write(ref _rideMap, new Dictionary<long, Ride>(_rides));
 
     static bool SameElements(KeplerianElements a, KeplerianElements b) =>
         a.SemiMajorAxis == b.SemiMajorAxis && a.Eccentricity == b.Eccentricity && a.TrueAnomaly == b.TrueAnomaly && a.Epoch == b.Epoch
@@ -519,7 +529,7 @@ public static class EncounterFrames
                 Vector3D np = lp + ride.D, nv = lv + ride.V;
                 if (!SectorHomes.InLagrangeRegion(ride.Site.Home, reg, t, np))
                 {
-                    _rides.Remove(f.Id);
+                    _rides.Remove(f.Id); RidesChanged();
                     Event($"LAGRANGE exit: frame #{f.Id} leaves {ride.Site.Sector}");
                 }
                 var np2 = reg.Root.DeepestSoiContaining(np, t) ?? reg.Root;
@@ -534,7 +544,7 @@ public static class EncounterFrames
             {
                 if (!SectorHomes.InLagrangeRegion(s.Home, reg, t, pos)) continue;
                 SectorHomes.LagrangeState(s.Home, reg, t, out var lp, out var lv);
-                _rides[f.Id] = new Ride { Site = s, D = pos - lp, V = vel - lv, T = t, Set = f.Elements };
+                _rides[f.Id] = new Ride { Site = s, D = pos - lp, V = vel - lv, T = t, Set = f.Elements }; RidesChanged();
                 Event($"LAGRANGE entry: frame #{f.Id} enters {s.Sector} ({(pos - lp).Length() / 1000:F0} km from its point, {(vel - lv).Length():F1} m/s)");
                 break;
             }

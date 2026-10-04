@@ -80,6 +80,7 @@ public static class DevHarness
         }
         catch (Exception e) { SpecCam.Status = "error " + e.Message; }
         PlasmaSpike.Tick();   // (DEV spike: the reentry plasma as our own mesh)
+        GridGen.ClientTick(); // (DEV: generated grids - hinge heads spawned and flaps grown, here as spawning works here)
         try { _clientGravityMultiplier = session.Get<Keen.VRage.Physics.IPhysics>().GravityMultiplier; } catch { }
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
         if (now - _lastPoll < PollSeconds * System.Diagnostics.Stopwatch.Frequency) return;

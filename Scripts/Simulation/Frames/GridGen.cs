@@ -55,23 +55,32 @@ public static class GridGen
         return done.Wait(3000) ? result[0] : "timed out waiting for the server thread";
     }
 
-    /// <summary>Server thread (ServerPlanetBeacon's job): queued commands, hinge heads and flaps, hinges held.</summary>
+    /// <summary>Server thread (ServerPlanetBeacon's job): queued hinge/steer commands, the hinges held.</summary>
     public static void ServerTick()
     {
         while (_server.TryDequeue(out var job))
         {
-            try { job.result[0] = job.work(); } catch (Exception e) { job.result[0] = "failed: " + (e.InnerException ?? e).Message; }
+            try { job.result[0] = job.work(); } catch (Exception e) { var x = e.InnerException ?? e; job.result[0] = "failed: " + x.Message + " @ " + string.Join(" < ", (x.StackTrace ?? "").Split((char)10).Take(4).Select(l => l.Trim())); }
             job.done.Set();
         }
-        Tick();
+        Hold();
         HingeRig.Tick();
     }
+
+    /// <summary>Client tick (the harness's thread): hinge heads spawned and flaps grown - as spawning, it works here.</summary>
+    public static void ClientTick() => Tick();
 
     public static string Command(Keen.VRage.Core.Game.Systems.Session client, WorldTransform camera, string[] a)
     {
         IdentityId me = default;
         try { me = client.Get<ClientPlayersSessionComponent>().LocalPlayerIdentity; } catch { }
-        return OnServer(() => CommandOnServer(me, camera, a));
+        // (where each runs, as measured: spawning inside the server's job fails - a new battery's inventory is not readable
+        //  there, "Data not found" - and works from here, the client thread, as DevTestShip always has; a hinge's
+        //  SetVelocity from here raced the server's entity storage and crashed the game - hinge and steering writes,
+        //  and the hold loop, run in the server's job)
+        string sub = a.Length > 1 ? a[1] : "status";
+        if (sub == "hold" || sub == "free" || sub == "steer") return OnServer(() => CommandOnServer(me, camera, a));
+        return CommandOnServer(me, camera, a);
     }
 
     static string CommandOnServer(IdentityId me, WorldTransform camera, string[] a)
@@ -86,6 +95,15 @@ public static class GridGen
                 case "measure": return a.Length > 2 ? Measure(camera, Path.IsPathRooted(a[2]) ? a[2] : Path.Combine(Dir, a[2])) : "gen measure FILE";
                 case "report": return Report();
                 case "probe": return Probe();
+                case "steer":
+                {
+                    // gen steer N PITCH YAW ROLL (rad/s, grid frame: about X, Y, Z): the rotation a pilot asks for, held
+                    var e = Grid(a, 2); if (e == null) return "no grid " + (a.Length > 2 ? a[2] : "");
+                    var w = new Vector3(float.Parse(a[3], CI), float.Parse(a[4], CI), float.Parse(a[5], CI));
+                    e.Data.Set(new Keen.Game2.Simulation.WorldObjects.Movement.AngularControlData { TargetAngularVelocity = w });
+                    return $"steering grid {IdOf(e)}: {V(w)} rad/s";
+                }
+                case "aero": return AeroReadout(Grid(a, 2));
                 case "hinges": return string.Join(" || ", _hinges.Select((h, i) => HingeLine(i)));
                 case "hold":
                 {
@@ -102,7 +120,7 @@ public static class GridGen
                 default: return Status + $" | grids {string.Join(",", _spawned.Select(IdOf))}; hinges " + string.Join(" ", _hinges.Select((h, i) => $"#{i}:{(h.Done ? "flap ok" : h.Spawned ? "head..." : "pending")}{(h.Why != "" ? " " + h.Why : "")}"));
             }
         }
-        catch (Exception e) { return "gen failed: " + (e.InnerException ?? e).Message; }
+        catch (Exception e) { var x = e.InnerException ?? e; return "gen failed: " + x.Message + " @ " + string.Join(" < ", (x.StackTrace ?? "").Split((char)10).Take(4).Select(l => l.Trim())); }
     }
 
     static IntegerOrientation Orient(string f, string u) =>
@@ -165,6 +183,20 @@ public static class GridGen
         return Status;
     }
 
+    /// <summary>Server tick: every held hinge toward its target (P control), error and swing recorded.</summary>
+    static void Hold()
+    {
+        foreach (var h in _hinges)
+        {
+            if (!h.Done || float.IsNaN(h.Target) || h.Entity == null || !HingeAngle(h, out float ang)) continue;
+            float err = h.Target - ang;
+            h.Entity.TryGet<HingeComponent>()?.SetVelocity(h.Gain * err);
+            h.ErrSum += MathF.Abs(err); h.ErrPeak = MathF.Max(h.ErrPeak, MathF.Abs(err));
+            if (!float.IsNaN(h.Last)) h.SwingPeak = MathF.Max(h.SwingPeak, MathF.Abs(ang - h.Last));
+            h.Last = ang; h.Samples++;
+        }
+    }
+
     static bool HingeAngle(Hinge h, out float a)
     {
         a = 0f;
@@ -176,7 +208,8 @@ public static class GridGen
         var h = _hinges[i]; var hc = h.Entity?.TryGet<HingeComponent>();
         string ang = HingeAngle(h, out float a) ? $"{a * 180f / MathF.PI:F2}°" : "?";
         string st = h.Samples > 0 ? $" err mean {h.ErrSum / h.Samples * 180f / MathF.PI:F3}° peak {h.ErrPeak * 180f / MathF.PI:F3}° swing peak {h.SwingPeak * 180f / MathF.PI:F4}° ({h.Samples})" : "";
-        return $"#{i} {(h.Done ? "flap" : "...")}{(h.Why != "" ? " " + h.Why : "")} angle {ang} vel {hc?.Velocity:F3} working {hc?.Entity?.TryGet<FunctionalBlockComponent>()?.Working}{(float.IsNaN(h.Target) ? " free" : $" target {h.Target * 180f / MathF.PI:F1}°")}{st}";
+        string lim = hc != null ? $" limits {hc.LocalMinLimit * 180f / MathF.PI:F0}..{hc.LocalMaxLimit * 180f / MathF.PI:F0}° (def {(hc.MinLimit < -1e6f ? "-inf" : (hc.MinLimit * 180f / MathF.PI).ToString("F0"))}..{(hc.MaxLimit > 1e6f ? "inf" : (hc.MaxLimit * 180f / MathF.PI).ToString("F0"))})" : "";
+        return $"#{i} {(h.Done ? "flap" : "...")}{lim}{(h.Why != "" ? " " + h.Why : "")} angle {ang} vel {hc?.Velocity:F3} working {hc?.Entity?.TryGet<FunctionalBlockComponent>()?.Working}{(float.IsNaN(h.Target) ? " free" : $" target {h.Target * 180f / MathF.PI:F1}°")}{st}";
     }
 
     /// <summary>Server tick: hinge heads spawned one tick after their grid, flaps grown once the head is connected.</summary>
@@ -187,20 +220,14 @@ public static class GridGen
         {
             foreach (var h in _hinges)
             {
-                if (h.Done && !float.IsNaN(h.Target) && h.Entity != null && HingeAngle(h, out float ang))
-                {
-                    float err = h.Target - ang;
-                    h.Entity.TryGet<HingeComponent>()?.SetVelocity(h.Gain * err);
-                    h.ErrSum += MathF.Abs(err); h.ErrPeak = MathF.Max(h.ErrPeak, MathF.Abs(err));
-                    if (!float.IsNaN(h.Last)) h.SwingPeak = MathF.Max(h.SwingPeak, MathF.Abs(ang - h.Last));
-                    h.Last = ang; h.Samples++;
-                }
                 if (h.Done || h.Entity == null) continue;
                 var hc = h.Entity.TryGet<HingeComponent>();
                 if (hc == null) { h.Why = "hinge gone"; h.Done = true; continue; }
                 if (!h.Spawned)
                 {
-                    hc.SetLocalMinLimit(h.Min * MathF.PI / 180f); hc.SetLocalMaxLimit(h.Max * MathF.PI / 180f); hc.SetEnableLocalLimits(true);
+                    // (each limit is clamped by the other: max, min, then max again - whatever the defaults were)
+                    float lo = h.Min * MathF.PI / 180f, hi = h.Max * MathF.PI / 180f;
+                    hc.SetEnableLocalLimits(true); hc.SetLocalMaxLimit(hi); hc.SetLocalMinLimit(lo); hc.SetLocalMaxLimit(hi);
                     hc.RequestSpawnTop(); h.Spawned = true; continue;
                 }
                 var head = hc.ConnectedEntity;
@@ -211,9 +238,43 @@ public static class GridGen
                     if (DefinitionManager.Instance.TryGetDefinition(p, out PrefabDefinition pd) && pd != null)
                         GridBuilder.AddBlockToGrid(grid, at, o, pd.Get());
                 h.Done = true;
+                h.Target = 0.5f * (h.Min + h.Max) * MathF.PI / 180f;   // (held at its neutral, the middle of its limits: a new head hangs at 0)
             }
         }
         catch (Exception e) { Status = "tick: " + e.Message; }
+    }
+
+    /// <summary>Spawned grid number a[i] (0-based, default 0).</summary>
+    static Entity Grid(string[] a, int i)
+    {
+        int n = a.Length > i && int.TryParse(a[i], out int k) ? k : 0;
+        return n >= 0 && n < _spawned.Count ? _spawned[n] : null;
+    }
+
+    static System.Reflection.MethodInfo _flight, _forces, _lift;
+    static bool _apiLooked;
+
+    /// <summary>The grid's aero, from the aerodynamics mod's API (AeroMod.AeroApi, by reflection: the mods compile apart).</summary>
+    static string AeroReadout(Entity e)
+    {
+        if (e == null) return "no grid";
+        if (!_apiLooked)
+        {
+            _apiLooked = true;
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                var t = asm.GetType("AeroMod.AeroApi"); if (t == null) continue;
+                _flight = t.GetMethod("TryGetFlight"); _forces = t.GetMethod("TryGetForces"); _lift = t.GetMethod("TryGetLift"); break;
+            }
+        }
+        if (_flight == null) return "aero mod's API not found";
+        var f = new object[] { e, null, null, null, null, null };
+        if (!(bool)_flight.Invoke(null, f)) return "not flying (no published flow)";
+        var g = new object[] { e, null, null, null, null, null };
+        _forces.Invoke(null, g);
+        var l = new object[] { e, null, null };
+        _lift.Invoke(null, l);
+        return $"M {(float)f[3]:F2} v {(float)f[2]:F0} m/s rho {(float)f[4]:F2} q {(float)f[5]:F0} Pa travel {V((Vector3)f[1])} | force {V((Vector3)g[1])} N torque {V((Vector3)g[2])} N m drag {(float)g[3]:F0} lift {(float)g[4]:F0} frontal {(float)g[5]:F1} m2 | lift dir {V((Vector3)l[1])} CL(frontal) {(float)l[2]:F3}";
     }
 
     /// <summary>The harness id of a grid entity (its OrbitalGridComponent), 0 while not registered.</summary>

@@ -79,7 +79,6 @@ public static class DevHarness
                          FrameHost.PlayerPosition);
         }
         catch (Exception e) { SpecCam.Status = "error " + e.Message; }
-        PlasmaSpike.Tick();   // (DEV spike: the reentry plasma as our own mesh)
         GridGen.ClientTick(); // (DEV: generated grids - hinge heads spawned and flaps grown, here as spawning works here)
         try { _clientGravityMultiplier = session.Get<Keen.VRage.Physics.IPhysics>().GravityMultiplier; } catch { }
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -908,14 +907,6 @@ public static class DevHarness
                 ServerFrames.GridDamp.Enqueue((long.Parse(a[1]), On(a[2])));
                 return "grid dampeners queued (server, next tick)";
 
-            case "plasmaspike":   // plasmaspike <gridId> <nose x y z> <radius> <axis> [emitterGuid] [cells] | off  (DEV spike)
-                return PlasmaSpike.Command(a);
-            case "plasmaset":   // plasmaset <knob> <value>
-                return a.Length > 2 ? PlasmaSpike.Set(a[1], a[2]) : "plasmaset <knob> <value>";
-            case "plasmastatus":
-                return PlasmaSpike.Status;
-            case "plasmadump":   // plasmadump <path>: the spike grid's hull points (for the offline prototype)
-                return a.Length > 1 ? PlasmaSpike.Dump(a[1]) : "plasmadump <path>";
             case "gridup":   // gridup <gridId> <m>: move a grid straight up (against its gravity, from the aero mod) by m
             {
                 var g = GridMembers.Get((long)D(a[1]));

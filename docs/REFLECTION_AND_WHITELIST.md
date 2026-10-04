@@ -53,14 +53,14 @@ Roughly in order of how much reflection each one uses:
 5. **Colonization map takeover.** About 20 private members of `ColonizationMapSessionComponent`, `MapSectorsRenderComponent`, `MapMarkersRenderComponent` and `MapObjectRenderComponent`, plus private nested camera structs (Game2.Client). Shipped.
 6. **Planet terrain, atmosphere and gravity.** Private clipmap internals (internal types), `PlanetEnvironmentEntity`, proxy atmospheres, and the private gravity data struct. Shipped.
 7. **Procedural generator, asteroids and encounters.** Protected or internal generator methods, a private `Density` backing field, the discovery list. Shipped.
-8. **Particle effects.** `TrySpawnEffect`, `ParticleEffectHandle` (`SetParameters` / `FixEffectTime` / `UpdateTransform` / Stop / Dispose) and `ParticleEffectUserParameters` (VRage.Game.Client and VRage.Render). These are **shipped in Aerodynamics (re-entry plasma)** and dev-only in Orbital (PlasmaSpike).
-9. **Spot lights.** `RenderContracts.CreateSpotLightEntity`. Dev only (PlasmaSpike).
+8. **Particle effects.** `TrySpawnEffect`, `ParticleEffectHandle` (`SetParameters` / `FixEffectTime` / `UpdateTransform` / Stop / Dispose) and `ParticleEffectUserParameters` (VRage.Game.Client and VRage.Render). These are **shipped in Aerodynamics (re-entry plasma)**; Orbital no longer uses them (its dev PlasmaSpike was deleted 2026-10-04).
+9. **Spot lights.** `RenderContracts.CreateSpotLightEntity`. No longer used in Orbital (the dev PlasmaSpike was deleted 2026-10-04); Aerodynamics' flight field has its own.
 10. **Game UI.** Notification cards, the HUD speed box, terminal tab injection, top-screen input check (Game2.Client view models over VRage.UI). Shipped. The numeric-input dialog is dev-only.
 11. **Definition and prefab injection at load time.** The **internal** `EntityCompositeDefinition.Assign`, private `PrefabDefinition._entity`, and private-set definition properties. Shipped in both mods.
 12. **Block and component definition access.** Private `_definition` fields on thrusters, gyros, the killing field and the atmosphere generator, plus `Definition.Guid`. Shipped.
 13. **Admin teleport.** `EntityAdmin.TeleportPlayer`, which is public but returns a VRage.Multiplayer type. Shipped core.
 14. **Cross-mod.** Orbital → Aerodynamics: one shipped delegate hook and many dev toggles.
-15. **Dev only.** Render stats, engine screenshot, camera toggle, block power read, PlasmaSpike, PlanetMesh.
+15. **Dev only.** Render stats, engine screenshot, camera toggle, block power read, PlanetMesh.
 
 ### Headline findings
 - **Reflection itself is whitelisted.** The mod whitelist allows every namespace of `System.Private.CoreLib`, including `System.Reflection` and `System.Reflection.Emit` (see §2). What blocks the mods is that **assemblies are missing from the compile references** and that **members are private or internal**. There is no rule against reflection.

@@ -60,6 +60,13 @@ public static class Maneuvers
     }
 
     public static void ClearAll() { lock (Nodes) Nodes.Clear(); Selected = null; }
+    /// <summary>A new world: the last one's nodes (a reload doubled the saved ones), target, Lagrange plan and path cache.</summary>
+    public static void ResetWorld()
+    {
+        ClearAll();
+        Target = null; _lag = null;
+        _cT = double.NaN; _cLegs = null; _cApplied = null; _cOk = false;
+    }
 
     /// <summary>The next burn, one line for the orbit card (null when none).</summary>
     public static string BurnLine;

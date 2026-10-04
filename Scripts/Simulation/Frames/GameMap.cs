@@ -30,6 +30,13 @@ public static class GameMap
     /// <summary>The closest zoom (map units), set by the map for the body it is about.</summary>
     public static double MinZoom = 1e-5;
     private static bool _gameHidden;
+    /// <summary>A new world: nothing of the last one's map (hidden flags, stashed collider, per-object state, zoom range).</summary>
+    public static void ResetWorld()
+    {
+        _gameHidden = false; _stashedCollider = null; _baseMax = _baseMin = -1;
+        lock (_objShown) _objShown.Clear();
+        lock (_names) _names.Clear();
+    }
 
     // Colours: the colonization states, KSP conventions for orbits.
     private static readonly ColorSRGB Locked = new ColorSRGB(0.42f, 0.45f, 0.5f);

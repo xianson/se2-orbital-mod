@@ -320,6 +320,7 @@ public static class SystemHost
         //  before this world's zones are set)
         BerthAllocator.IsForbidden = null; BerthAllocator.IsClear = null;
         EntryHost.ResetWorld();
+        Maneuvers.ResetWorld(); GameMap.ResetWorld(); CleanMap.Reset(); CleanMap.ResetView();
         VoxelBerthRegistry.Clear();
         SystemBuildResult res = SystemRegistry.Build(def);
         if (!res.Ok)

@@ -132,7 +132,9 @@ public static class Maneuvers
     public static bool Trajectory(double t, out List<Leg> legs, out List<Applied> applied)
     {
         long sig = Signature(t);
-        if (t == _cT && sig == _cSig && _cLegs != null) { legs = _cLegs; applied = _cApplied; return _cOk; }
+        // (reused for 0.25 s of sim time while nothing changed - the orbit and the nodes are in the signature: keyed on the
+        //  exact time it never hit, and the whole patched trajectory was re-solved every frame a node existed)
+        if (sig == _cSig && _cLegs != null && t >= _cT && t - _cT < 0.25) { legs = _cLegs; applied = _cApplied; return _cOk; }
         _cOk = TrajectoryUncached(t, out legs, out applied);
         if (_cOk) CutAtImpact(legs, applied);
         _cT = t; _cSig = Signature(t); _cLegs = legs; _cApplied = applied;   // after: re-targeting clears Dirty

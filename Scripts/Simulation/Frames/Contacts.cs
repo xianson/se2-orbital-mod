@@ -120,8 +120,13 @@ public static class Contacts
             }
             catch { }
         }
-        lock (SensorBlocks.Telescopes) foreach (var c in SensorBlocks.Telescopes) AddSensor(c, SensorModel.Kind.Telescope, c.Working, 0);
-        lock (SensorBlocks.Radars) foreach (var c in SensorBlocks.Radars) AddSensor(c, SensorModel.Kind.Radar, c.Working, c.Power);
+        // (copied under their own locks, used outside them: AddSensor takes FramesLock, and the save (server thread) takes
+        //  FramesLock then the Radars lock - holding Radars here while taking FramesLock deadlocked a save with the
+        //  contacts tick)
+        TelescopeComponent[] scopes; lock (SensorBlocks.Telescopes) scopes = SensorBlocks.Telescopes.ToArray();
+        RadarComponent[] radars; lock (SensorBlocks.Radars) radars = SensorBlocks.Radars.ToArray();
+        foreach (var c in scopes) AddSensor(c, SensorModel.Kind.Telescope, c.Working, 0);
+        foreach (var c in radars) AddSensor(c, SensorModel.Kind.Radar, c.Working, c.Power);
         // Harness: a stand-in sensor where you are (tests the physics without building the block).
         if (DevSensor.HasValue) obs.Add(new SensorModel.Looker { At = eye, Kind = DevSensor.Value == Sensor.Radar ? SensorModel.Kind.Radar : SensorModel.Kind.Telescope, Power = 1 });
         Loud = obs.Exists(o => o.Kind == SensorModel.Kind.Radar);

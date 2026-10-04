@@ -71,6 +71,7 @@ public static class EntryHost
                     _aeroRegister = t.GetMethod("RegisterEntrySource", new[] { typeof(string), typeof(Delegate) });
                     _aeroHas = t.GetMethod("HasEntrySource", new[] { typeof(string), typeof(Delegate) });
                     _aeroPredict = t.GetMethod("PredictHullForces");   // (aerobraking: each ship's drag area)
+                    _aeroRequestTable = t.GetMethod("RequestForceTable");   // (a railed grid has none until asked)
                     break;
                 }
                 if (_aeroRegister == null || _aeroHas == null) { GlowWhy = "aero mod not loaded (or older than contract " + AeroEntryContract + ")"; return; }
@@ -106,10 +107,12 @@ public static class EntryHost
     }
 
     // ── aerobraking: each frame's ballistic coefficient ──
-    static System.Reflection.MethodInfo _aeroPredict;
+    static System.Reflection.MethodInfo _aeroPredict, _aeroRequestTable;
     static readonly Dictionary<long, (double beta, double wall)> _beta = new Dictionary<long, (double, double)>();
     /// <summary>Seconds (wall) a frame's ballistic coefficient is kept before it is measured again.</summary>
     public const double BetaRefresh = 10;
+    /// <summary>Diagnostics: whether the last ballistic coefficient came from aero's force table (false: the default).</summary>
+    public static bool LastBetaMeasured;
 
     /// <summary>A frame's ballistic coefficient (kg/m2: its grids' mass over their drag area, Cd x A, for the air
     /// coming from where it is going now - its grids' attitude as they are). The drag area from the aero mod's force
@@ -120,7 +123,7 @@ public static class EntryHost
         if (f == null) return Reentry.DefaultBeta;
         double wall = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
         lock (_beta) if (_beta.TryGetValue(f.Id, out var c) && wall - c.wall < BetaRefresh) return c.beta;
-        double mass = 0, area = 0; bool measured = false;
+        double mass = 0, area = 0; bool measured = false, asked = false;
         double va = airWorld.Length();
         foreach (long id in f.Members)
         {
@@ -134,7 +137,12 @@ public static class EntryHost
                 Vector3D dl = Vector3D.Transform(-airWorld / va, Quaternion.Inverse(q));
                 const float v = 1000f, rho = 1f;
                 var args = new object[] { g.Entity, new Vector3((float)dl.X, (float)dl.Y, (float)dl.Z) * v, rho, 330f, null, null, null };
-                if ((bool)_aeroPredict.Invoke(null, args))
+                if (!(bool)_aeroPredict.Invoke(null, args))
+                {
+                    // (no table yet - a grid on rails in space has had no air to build one: ask, measure again soon)
+                    if (_aeroRequestTable != null) { _aeroRequestTable.Invoke(null, new object[] { g.Entity }); asked = true; }
+                }
+                else
                 {
                     var fl = (Vector3)args[4];
                     double drag = -Vector3.Dot(fl, new Vector3((float)dl.X, (float)dl.Y, (float)dl.Z));   // (along the travel: opposing it)
@@ -144,7 +152,9 @@ public static class EntryHost
             catch { }
         }
         double beta = measured ? Reentry.Beta(mass, area) : Reentry.DefaultBeta;
-        lock (_beta) _beta[f.Id] = (beta, wall);
+        // (a table asked for: the default only for a moment - measured again in ~1 s, not BetaRefresh)
+        lock (_beta) _beta[f.Id] = (beta, asked && !measured ? wall - BetaRefresh + 1 : wall);
+        LastBetaMeasured = measured;
         return beta;
     }
 

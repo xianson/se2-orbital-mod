@@ -559,6 +559,7 @@ public static class Maneuvers
                 }
                 if (ep != null && l.Body.Name == EntryHost.PredictedBody)
                 {
+                    AtmosphereRings(l.Body, l.El, (rel, tk) => Loc(l.Body, rel, tk), W, u, limit, t);
                     double share = SEAerospace.Entry.Reentry.Share(ep.PeakHeat, false);
                     Mark(ep.EnterTime, $"Atmosphere entry  {ep.ArrivalSpeed:N0} m/s · heat {share:P0}{(share > 1 ? " — too hot" : "")}", true);
                     Mark(ep.MaxQTime, $"Max q  {ep.PeakDecel / 9.81:F1} g", false);
@@ -903,6 +904,43 @@ public static class Maneuvers
     static readonly ColorSRGB ImpactColor = new ColorSRGB(1.00f, 0.30f, 0.25f, 1f);
     /// <summary>Reentry's marks (the entry interface, max-q, an airless border): the colour of heat.</summary>
     static readonly ColorSRGB EntryColor = new ColorSRGB(1.00f, 0.62f, 0.20f, 1f);
+
+    /// <summary>The air you are about to dip into, in your orbit's plane: its top (the planet frame's border - physics
+    /// below; "Atmosphere"), solid and faint, and the braking band's top (the entry interface), dotted.</summary>
+    static void AtmosphereRings(GravityBody body, KeplerianElements el, Func<Vector3D, double, Vector3D> Loc, Func<Vector3D, Vector3D> W, float u, double limit, double t)
+    {
+        var b = EntryHost.BandOf(body.Name);
+        if (!b.IsValid) return;
+        var faint = HudPanel.Alpha(EntryColor, 0.35f);
+        void Ring(double radius, bool dotted, string label)
+        {
+            var run = new List<Vector2>();
+            const int m = 96;
+            Vector2? top = null;
+            for (int k = 0; k <= m; k++)
+            {
+                double nu = 2 * Math.PI * k / m;
+                Vector3D dir = OrbitSampler.PositionAtTrueAnomaly(el, nu);
+                double len = dir.Length();
+                if (!(len > 0)) continue;
+                Vector3D loc = Loc(dir * (radius / len), t);
+                if (Math.Sqrt(loc.X * loc.X + loc.Z * loc.Z) > limit * 1.04 || !MapPipeline.ToScreen(W(loc), out var sp) || !InMapArea(sp))
+                { Flush(); continue; }
+                run.Add(sp);
+                if (!top.HasValue || sp.Y < top.Value.Y) top = sp;
+            }
+            Flush();
+            if (label != null && top.HasValue) HudPanel.TagAt(top.Value + new Vector2(6f * u, -10f * u), label, faint, u, diamond: false);
+            void Flush()
+            {
+                if (run.Count > 1) { if (dotted) MapStyle.Plan(run, false, faint, MapStyle.Thin(u), u); else MapPipeline.ScreenPath(run, false, faint, MapStyle.Thin(u)); }
+                run.Clear();
+            }
+        }
+        double R = SystemHost.Registry?.FindDefinition(body.Name)?.RadiusMeters ?? 0;
+        Ring(b.Bottom, false, $"Atmosphere {HudPanel.Km(b.Bottom - R)}");
+        Ring(b.Top, true, null);
+    }
 
     /// <summary>The orbit a predicted aerobraking pass leaves you on: faint, dashed, in the entry colour, from the
     /// exit round (an ellipse: one period; an escape: as far as the view), with its Pe / Ap.</summary>

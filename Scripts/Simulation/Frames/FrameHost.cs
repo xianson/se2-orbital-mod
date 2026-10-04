@@ -189,21 +189,24 @@ public static class FrameHost
         if (MapView.Visible) OrbitDisplay.Clear();
         else if (PlayerFrame != null && Observer.HasValue)
             OrbitDisplay.DrawFrameOrbit(session, camera, Observer.Value, PlayerFrame, reg, t);
-        Guard("MapInput.Poll", () => MapInput.Poll());
-        Guard("DevFlight.ClientTick", () => DevFlight.ClientTick(session));
+        // (state passed in, lambdas capture nothing - cached by the compiler: these allocated a closure and a delegate each,
+        //  every frame)
+        var ta = new TickArgs(session, camera, t);
+        Guard("MapInput.Poll", static a => MapInput.Poll(), ta);
+        Guard("DevFlight.ClientTick", static a => DevFlight.ClientTick(a.Session), ta);
         WarpControl.Session = session;
-        Guard("WarpControl.Tick", () => WarpControl.Tick());
-        Guard("MapView.Tick", () => MapView.Tick(session, camera, t));
-        Guard("FrameMarkers.Tick", () => FrameMarkers.Tick(session, camera, t));
-        Guard("Maneuvers.HudTick", () => Maneuvers.HudTick(session, camera, t));
-        Guard("AutoBurn.Tick", () => AutoBurn.Tick(session, t));
-        Guard("OrbitHud.Draw", () => OrbitHud.Draw(session));
-        Guard("WarpBar", () => WarpBar.DrawHud(session));
+        Guard("WarpControl.Tick", static a => WarpControl.Tick(), ta);
+        Guard("MapView.Tick", static a => MapView.Tick(a.Session, a.Camera, a.T), ta);
+        Guard("FrameMarkers.Tick", static a => FrameMarkers.Tick(a.Session, a.Camera, a.T), ta);
+        Guard("Maneuvers.HudTick", static a => Maneuvers.HudTick(a.Session, a.Camera, a.T), ta);
+        Guard("AutoBurn.Tick", static a => AutoBurn.Tick(a.Session, a.T), ta);
+        Guard("OrbitHud.Draw", static a => OrbitHud.Draw(a.Session), ta);
+        Guard("WarpBar", static a => WarpBar.DrawHud(a.Session), ta);
         // On rails the game's SPD (your velocity in the frame) is 0: show your speed about the body.
-        Guard("HudSpeed", () => { if (PlayerFrame != null && OrbitHud.Current != null) GameUi.SetHudSpeed(session, (float)OrbitHud.Current.Speed); });
-        Guard("SunDriver.Tick", () => SunDriver.Tick(session, camera.Position, t));
-        Guard("StarProxy.Tick", () => StarProxy.Tick(session, camera, t));
-        Guard("EntryHost.ClientTick", () => EntryHost.ClientTick(t));
+        Guard("HudSpeed", static a => { if (PlayerFrame != null && OrbitHud.Current != null) GameUi.SetHudSpeed(a.Session, (float)OrbitHud.Current.Speed); }, ta);
+        Guard("SunDriver.Tick", static a => SunDriver.Tick(a.Session, a.Camera.Position, a.T), ta);
+        Guard("StarProxy.Tick", static a => StarProxy.Tick(a.Session, a.Camera, a.T), ta);
+        Guard("EntryHost.ClientTick", static a => EntryHost.ClientTick(a.T), ta);
     }
 
     // ───────────────────────────── stow (planet cell -> conjunction) ─────────────────────────────
@@ -1011,6 +1014,23 @@ public static class FrameHost
     /// game's job (which would crash the game and send a crash report). Each fault is logged with its
     /// stack the first few times, then counted.
     /// </summary>
+    /// <summary>What the guarded client systems need each frame (passed, not captured).</summary>
+    public readonly struct TickArgs
+    {
+        public readonly Keen.VRage.Core.Game.Systems.Session Session; public readonly WorldTransform Camera; public readonly double T;
+        public TickArgs(Keen.VRage.Core.Game.Systems.Session s, WorldTransform c, double t) { Session = s; Camera = c; T = t; }
+    }
+
+    public static void Guard(string name, Action<TickArgs> a, in TickArgs args)
+    {
+        long m0 = AllocWatch ? GC.GetAllocatedBytesForCurrentThread() : 0;
+        long t0 = ModCost.Start();
+        try { a(args); }
+        catch (Exception ex) { Fault(name, ex); }
+        ModCost.Sec(name).Stop(t0);
+        if (AllocWatch) lock (_allocs) { _allocs.TryGetValue(name, out long b); _allocs[name] = b + GC.GetAllocatedBytesForCurrentThread() - m0; }
+    }
+
     public static void Guard(string name, Action a)
     {
         long m0 = AllocWatch ? GC.GetAllocatedBytesForCurrentThread() : 0;

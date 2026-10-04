@@ -29,7 +29,7 @@ grep -q 'Func<Entity, ValueTuple<Vector3, float>>' Scripts/Simulation/Frames/Ent
 # 2. every AeroMod member named in a GetMethod/GetField string here exists in the aero source (dev code included)
 for f in $(grep -rl '"AeroMod\.' Scripts --include=*.cs); do
   for m in $(grep -o 'GetMethod("[A-Za-z]*"' "$f" | sed 's/GetMethod("//; s/"//' | sort -u); do
-    case "$m" in RegisterEntrySource|HasEntrySource|TryGetFlow|WingTips|EntryStrength|TryGetFlight|TryGetForces|TryGetLift) ;; *) continue ;; esac
+    case "$m" in RegisterEntrySource|HasEntrySource|TryGetFlow|WingTips|EntryStrength|TryGetFlight|TryGetForces|TryGetLift|TryGetGroundHeight|PredictHullForces) ;; *) continue ;; esac
     grep -rq "public static [A-Za-z<>]* $m(" "$AERO" || bad "$f: AeroMod.$m not found (public static)"
   done
 done

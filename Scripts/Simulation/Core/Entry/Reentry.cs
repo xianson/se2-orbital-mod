@@ -22,14 +22,21 @@ namespace SEAerospace.Entry
         public double Shed;                      // J/kg shed in all
         public double PeakHeat;                  // the heat's peak (J/kg)
         public double ArrivalSpeed = double.NaN; // air speed on entering the band
+        public double DragShed;                  // J/kg of Shed from drag (the rest: the cap rule)
+        public double Dv;                        // m/s of air speed taken off in all (drag and the cap rule): the pass's delta-v
+        /// <summary>Predicted: the orbit on leaving the band through its top (HasAfter), or none - the pass reaches the
+        /// border (the world flies it from there: Landing) or the horizon ends inside the band.</summary>
+        public KeplerianElements After;
+        public bool HasAfter, Landing;
+        public double ExitTime = double.NaN;
         public bool Braked => Shed > 0;
     }
 
     /// <summary>
     /// REENTRY, on rails (game-free; tested offline in Tests/EntryTests). Inside a planet's frame the world's speed
     /// cap applies (you are a guest in the planet's frame), so a faster arrival must be slowed BEFORE the border:
-    /// the planet's tenuous outer envelope, a band from the entry interface (<see cref="TopMult"/> atmosphere
-    /// heights up) down to the border, brakes it. A game rule, not real drag:
+    /// the planet's tenuous outer envelope, a band from the entry interface (<see cref="BandMult"/> atmosphere
+    /// heights above the border) down to the border, brakes it. A game rule, not real drag:
     ///  - only speed OVER THE CAP is braked: climbs, ordinary orbits and anything already slow are untouched;
     ///  - the excess (v^2 - cap^2, in the planet's rotating air) decays e-fold by e-fold along the path through a
     ///    density growing toward the border: <see cref="VerticalEFolds"/> for a straight-down pass, more for a
@@ -43,8 +50,10 @@ namespace SEAerospace.Entry
     /// </summary>
     public static class Reentry
     {
-        public const double TopMult = 3.7;            // the entry interface: ~35 km up at Verdure (atmosphere 9.5 km)
-        public const double ScaleMult = 0.53;         // the envelope's scale height (~5 km): max-q ~25 km up
+        /// <summary>The band's thickness above the frame's border, x the atmosphere's height: the "fake" outer atmosphere
+        /// (the user, 2026-10-03: the border at the atmosphere's top, the band ~10 km over it at Verdure).</summary>
+        public const double BandMult = 1.05;          // ~10 km at Verdure (atmosphere 9.5 km): the entry interface ~19.5 km up
+        public const double ScaleMult = 0.53;         // the envelope's scale height (~5 km)
         public const double VerticalEFolds = 8;       // a straight-down pass keeps e^-8 of its excess
         public const double ToleranceJPerKg = 1.15e6; // 1.8 -> 1.0 km/s, or 1.55 -> 0.3 km/s
         public const double ShieldFactor = 2;         // forward heavy armour
@@ -52,11 +61,24 @@ namespace SEAerospace.Entry
         public const double AirlessJoltShare = 0.25;
         public const double MaxStepMetres = 250;      // the braking's path step (any warp)
 
+        /// <summary>AEROBRAKING: the band is also a thin "fake" outer atmosphere with real drag - a = rho v^2 / (2 beta)
+        /// along the air-relative velocity, beta the ship's ballistic coefficient (kg/m2: mass / drag area). Its density
+        /// at the border (kg/m3), falling e-fold per the band's scale height; 0 turns drag off (the cap rule alone).
+        /// 2e-3: a 3 t/m2 ship dipping to the border at 1 km/s feels ~0.3 m/s2 - a few tens of m/s a pass; a fluffy one
+        /// (300 kg/m2) ten times that. Settings: Entry.DragDensity.</summary>
+        public static double DragDensity = 2e-3;
+        /// <summary>The ballistic coefficient assumed without a better one (kg/m2).</summary>
+        public const double DefaultBeta = 3000;
+
+        /// <summary>The fake atmosphere's density at radius r (kg/m3; 0 above the band or with drag off).</summary>
+        public static double Density(Band b, double r)
+            => !b.IsValid || r >= b.Top || !(DragDensity > 0) ? 0 : DragDensity * Math.Exp(-Math.Max(0, r - b.Bottom) / b.Scale);
+
         /// <summary>The band of a body (no atmosphere: none) whose frame's border is at bottomRadius.</summary>
         public static Band For(double radius, double atmosphereHeight, double bottomRadius)
         {
             if (!(atmosphereHeight > 0) || !(radius > 0)) return default;
-            double top = radius + TopMult * atmosphereHeight;
+            double top = bottomRadius + BandMult * atmosphereHeight;   // (on top of the frame's border)
             if (top <= bottomRadius) return default;
             double hs = ScaleMult * atmosphereHeight, d = top - bottomRadius;
             return new Band { Bottom = bottomRadius, Top = top, Scale = hs, Kappa0 = VerticalEFolds / (hs * (1 - Math.Exp(-d / hs))) };
@@ -82,10 +104,11 @@ namespace SEAerospace.Entry
         /// slowed from hyperbolic to elliptic goes through parabolic while nearly radial, where elements made at
         /// every step are singular; they are made once, on leaving the band or at t1.
         /// </summary>
-        public static KeplerianElements Advance(KeplerianElements el, Band b, Vector3D w, double cap, double t0, double t1, ref double heat, Pass log = null)
+        public static KeplerianElements Advance(KeplerianElements el, Band b, Vector3D w, double cap, double t0, double t1, ref double heat, Pass log = null, double beta = 0)
         {
             if (!(t1 > t0)) return el;
-            if (!b.IsValid || !(el.PeriapsisRadius < b.Top) || !CanExceed(el, b, w, cap)) { heat = Cool(heat, t1 - t0); return el; }
+            bool drag = beta > 0 && DragDensity > 0;
+            if (!b.IsValid || !(el.PeriapsisRadius < b.Top) || (!drag && !CanExceed(el, b, w, cap))) { heat = Cool(heat, t1 - t0); return el; }
             double t = t0, mu = el.Mu;
             for (int guard = 0; guard < 1000; guard++)
             {
@@ -111,6 +134,28 @@ namespace SEAerospace.Entry
                     Vector3D air = v - spin;
                     double va = air.Length();
                     double h = atBorder ? 0 : Math.Min(t1 - t, MaxStepMetres / Math.Max(1, va));
+                    if (drag && h > 0 && va > 1)
+                    {
+                        // (drag over the step, dv/dt = -k v^2 with k = rho / (2 beta): exactly v / (1 + k v h))
+                        double k = Density(b, r) / (2 * beta);
+                        double va1 = va / (1 + k * va * h);
+                        double shed = (va * va - va1 * va1) / 2;
+                        if (shed > 0)
+                        {
+                            if (log != null && double.IsNaN(log.EnterTime)) { log.EnterTime = t; log.ArrivalSpeed = va; }
+                            v = spin + air * (va1 / va);
+                            air = v - spin;
+                            heat += shed;
+                            braked = true;
+                            if (log != null)
+                            {
+                                log.Shed += shed; log.DragShed += shed; log.Dv += va - va1;
+                                double decel = k * va * va;
+                                if (decel > log.PeakDecel) { log.PeakDecel = decel; log.MaxQTime = t; log.MaxQRadius = r; }
+                            }
+                            va = va1;
+                        }
+                    }
                     if (va > cap && (atBorder || h > 0))
                     {
                         if (log != null && double.IsNaN(log.EnterTime)) { log.EnterTime = t; log.ArrivalSpeed = va; }
@@ -118,6 +163,7 @@ namespace SEAerospace.Entry
                         double e1 = atBorder ? 0 : e0 * Math.Exp(-k * va * h);   // the border: what is left is taken there
                         double va1 = Math.Sqrt(cap * cap + e1);
                         double shed = (va * va - va1 * va1) / 2;
+                        if (log != null) log.Dv += va - va1;
                         v = spin + air * (va1 / va);
                         va = va1;
                         heat += shed;
@@ -150,6 +196,10 @@ namespace SEAerospace.Entry
             return el;
         }
 
+        /// <summary>A ship's ballistic coefficient (kg/m2) from its mass and drag area (Cd x A, m2); the default when unknown.</summary>
+        public static double Beta(double mass, double dragArea)
+            => mass > 0 && dragArea > 1e-3 ? Math.Clamp(mass / dragArea, 30, 1e6) : DefaultBeta;
+
         /// <summary>Whether an orbit can be over the cap anywhere in the band (its periapsis speed, plus the spin).</summary>
         public static bool CanExceed(KeplerianElements el, Band b, Vector3D w, double cap)
         {
@@ -162,7 +212,7 @@ namespace SEAerospace.Entry
         /// Predicts the next pass (from t, up to horizon seconds): where the band starts braking, max-q, the speed
         /// at the border and the peak heat. Stops at the border, or once out of the band again after braking.
         /// </summary>
-        public static Pass Predict(KeplerianElements el, Band b, Vector3D w, double cap, double t, double horizon, double heat0 = 0)
+        public static Pass Predict(KeplerianElements el, Band b, Vector3D w, double cap, double t, double horizon, double heat0 = 0, double beta = 0)
         {
             var log = new Pass();
             if (!b.IsValid || !(el.PeriapsisRadius < b.Top)) return log;
@@ -170,14 +220,15 @@ namespace SEAerospace.Entry
             while (t < end && double.IsNaN(log.BottomTime))
             {
                 double next = Math.Min(end, t + step);
-                el = Advance(el, b, w, cap, t, next, ref heat, log);
+                el = Advance(el, b, w, cap, t, next, ref heat, log, beta);
                 t = next;
                 var s = OrbitPropagation.StateAt(el, t);
                 double r = s.Position.Length();
-                if (log.Braked && r >= b.Top) break;                       // through and out again (aerobraking)
+                if (log.Braked && r >= b.Top) { log.After = el; log.HasAfter = true; log.ExitTime = t; break; }   // through and out again (aerobraking)
                 // Far outside: jump toward the band (it cannot be reached sooner than (r - top) / |v|).
                 step = r > b.Top ? Math.Max(2.0, (r - b.Top) / Math.Max(1, s.Velocity.Length())) : 2.0;
             }
+            log.Landing = !double.IsNaN(log.BottomTime);
             return log;
         }
 

@@ -1260,8 +1260,8 @@ namespace Orbital.Tests
             // above the air at Verdure, commit 7dae097)
             double eShellExpect = earth.RadiusMeters + PlanetBerths.ShellAtmosphereMult * earth.AtmosphereHeightMeters;   // atmo term wins for Earth
             Near("Earth shell = R + ShellAtmosphereMult x atmo (atmo term dominates)", earthShell, eShellExpect, 1e-6);
-            Ok("Earth shell clears the atmosphere top",
-                earthShell > earth.RadiusMeters + earth.AtmosphereHeightMeters);
+            Ok("Earth shell is the atmosphere top (physics exactly where the air is)",
+                Math.Abs(earthShell - (earth.RadiusMeters + earth.AtmosphereHeightMeters)) < 1e-6 || earth.AtmosphereHeightMeters < PlanetBerths.ShellMinClearanceMeters);
 
             // AIRLESS body (Moon): the 0.12 R hill stand-in now dominates (true-xk R 65.45 km -> 1.12 R =
             // 73.3 km; the old 4 km floor no longer wins now that R is large — regime change, renamed).

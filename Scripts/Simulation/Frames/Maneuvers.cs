@@ -560,8 +560,17 @@ public static class Maneuvers
                 if (ep != null && l.Body.Name == EntryHost.PredictedBody)
                 {
                     double share = SEAerospace.Entry.Reentry.Share(ep.PeakHeat, false);
-                    Mark(ep.EnterTime, $"Entry  {ep.ArrivalSpeed:N0} m/s · heat {share:P0}{(share > 1 ? " — too hot" : "")}", true);
+                    Mark(ep.EnterTime, $"Atmosphere entry  {ep.ArrivalSpeed:N0} m/s · heat {share:P0}{(share > 1 ? " — too hot" : "")}", true);
                     Mark(ep.MaxQTime, $"Max q  {ep.PeakDecel / 9.81:F1} g", false);
+                    // (aerobraking: where the pass leaves the band again, what it took off; the orbit it leaves you on,
+                    //  dashed, with its Pe / Ap - one more pass is one more prediction once you are on it)
+                    if (ep.HasAfter)
+                    {
+                        first = null;   // (the exit is marked even when the pass is short on screen)
+                        Mark(ep.ExitTime, $"Atmosphere exit  −{ep.Dv:N0} m/s", true);
+                        AfterPass(l.Body, ep, (rel, tk) => Loc(l.Body, rel, tk), W, u, limit);
+                    }
+                    else if (ep.Landing) Mark(ep.BottomTime, $"Into the air  {ep.SpeedAtBottom:N0} m/s · −{ep.Dv:N0} m/s", false);
                     break;
                 }
                 if (air.HasValue && l.Body.Name == air.Value.body)
@@ -894,6 +903,35 @@ public static class Maneuvers
     static readonly ColorSRGB ImpactColor = new ColorSRGB(1.00f, 0.30f, 0.25f, 1f);
     /// <summary>Reentry's marks (the entry interface, max-q, an airless border): the colour of heat.</summary>
     static readonly ColorSRGB EntryColor = new ColorSRGB(1.00f, 0.62f, 0.20f, 1f);
+
+    /// <summary>The orbit a predicted aerobraking pass leaves you on: faint, dashed, in the entry colour, from the
+    /// exit round (an ellipse: one period; an escape: as far as the view), with its Pe / Ap.</summary>
+    static void AfterPass(GravityBody body, SEAerospace.Entry.Pass ep, Func<Vector3D, double, Vector3D> Loc, Func<Vector3D, Vector3D> W, float u, double limit)
+    {
+        var el = ep.After;
+        if (!IsFinite(el.SemiMajorAxis)) return;
+        double t0 = ep.ExitTime, span = el.IsElliptic && IsFinite(el.Period) ? el.Period : 6 * 3600;
+        var faintCol = HudPanel.Alpha(EntryColor, 0.5f);
+        var run = new List<Vector2>();
+        const int m = 128;
+        for (int k = 0; k <= m; k++)
+        {
+            double tk = t0 + span * k / m;
+            Vector3D loc = Loc(OrbitPropagation.StateAt(el, tk).Position, t0);
+            if (Math.Sqrt(loc.X * loc.X + loc.Z * loc.Z) > limit * 1.04 || MapPipeline.Occluded(W(loc)) || !MapPipeline.ToScreen(W(loc), out var sp) || !InMapArea(sp))
+            { MapStyle.Plan(run, false, faintCol, MapStyle.Thin(u), u); run.Clear(); continue; }
+            run.Add(sp);
+        }
+        MapStyle.Plan(run, false, faintCol, MapStyle.Thin(u), u);
+        double R = SystemHost.Registry?.FindDefinition(body.Name)?.RadiusMeters ?? 0;
+        void Apsis(double nu, string what, double alt)
+        {
+            Vector3D loc = Loc(OrbitSampler.PositionAtTrueAnomaly(el, nu), t0);
+            if (Math.Sqrt(loc.X * loc.X + loc.Z * loc.Z) > limit * 1.04 || !MapPipeline.ToScreen(W(loc), out var sp) || !InMapArea(sp)) return;
+            HudPanel.TagAt(sp, $"{what} {HudPanel.Km(alt)} (after pass)", EntryColor, u);
+        }
+        if (el.IsElliptic && el.Eccentricity > 0.002) Apsis(Math.PI, "Ap", el.SemiMajorAxis * (1 + el.Eccentricity) - R);
+    }
     static readonly ColorSRGB SectorIn = new ColorSRGB(0.45f, 1.00f, 0.55f, 1f);
     static readonly ColorSRGB SectorOut = new ColorSRGB(0.70f, 0.85f, 0.75f, 0.9f);
 

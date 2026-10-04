@@ -123,10 +123,11 @@ namespace SEAerospace
         /// atmosphere — you fly toward the planet seeing its full-quality proxy almost all the
         /// way in, and the real voxel materializes only when you're about to enter the
         /// atmosphere (in-game retune, 2026-06-11; the old shell was the whole planet envelope).
-        /// 1.6 (2026-10-01): the planet frame's border at ~15 km at Verdure, inside the visible glow, where a
-        /// circular orbit is about the world's speed cap (1000 m/s): inside it everything is physical
-        /// flight, and every orbit is on rails. Reentry's braking band (Reentry) sits just above it.</summary>
-        public const double ShellAtmosphereMult = 1.6;   // the planet frame's border (atmosphere 15% of the radius: ~15 km up at Verdure)
+        /// 1.6 (2026-10-01): the border at ~15 km at Verdure, 5.7 km above the air.
+        /// 1.0 (2026-10-03, the user): the border IS the atmosphere's top - physical flight exactly where the air is;
+        /// every orbit above it on rails. Reentry's braking band (Reentry, a "fake" outer atmosphere ~1x the
+        /// atmosphere's height thick) sits on top of it. (The airless hill clearance still applies when larger.)</summary>
+        public const double ShellAtmosphereMult = 1.0;   // the planet frame's border = the atmosphere's top (9.5 km up at Verdure)
 
         /// <summary>Airless-body shell clearance as a fraction of the radius — a STAND-IN for
         /// ~2× a typical voxel hill height. <see cref="BodyDefinition"/> carries no hill data
@@ -246,9 +247,9 @@ namespace SEAerospace
         /// the old whole-planet-envelope shell materialized far too early; the full-quality
         /// proxy is the view almost all the way in):
         ///   R_c = RadiusMeters + clearance,
-        ///   clearance = max( ShellAtmosphereMult × AtmosphereHeightMeters  [atmospheric bodies],
-        ///                    ShellAirlessClearanceFraction × RadiusMeters  [~2× hill stand-in],
-        ///                    ShellMinClearanceMeters ).
+        ///   clearance = ShellAtmosphereMult × AtmosphereHeightMeters  [atmospheric bodies: the air's top],
+        ///               else ShellAirlessClearanceFraction × RadiusMeters  [airless: ~2× hill stand-in],
+        ///               at least ShellMinClearanceMeters.
         /// Below R_c terrain/atmosphere can be touched → must be a materialized voxel; above
         /// it neither is possible → rails are always safe. NOTE: this is the CONVERSION quantity
         /// only — lattice/berth spacing keys off <see cref="CellIsolationRadius"/>, which
@@ -259,7 +260,8 @@ namespace SEAerospace
         {
             if (def == null || def.RadiusMeters <= 0.0) return 0.0;
             double clearance = ShellAirlessClearanceFraction * def.RadiusMeters;
-            if (def.HasAtmosphere && ShellAtmosphereMult * def.AtmosphereHeightMeters > clearance)
+            // (an atmospheric body: the border is its atmosphere's top exactly - the air covers its terrain)
+            if (def.HasAtmosphere && def.AtmosphereHeightMeters > 0)
                 clearance = ShellAtmosphereMult * def.AtmosphereHeightMeters;
             if (clearance < ShellMinClearanceMeters) clearance = ShellMinClearanceMeters;
             return def.RadiusMeters + clearance;

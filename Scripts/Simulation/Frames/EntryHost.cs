@@ -70,6 +70,7 @@ public static class EntryHost
                     if (t == null) continue;
                     _aeroRegister = t.GetMethod("RegisterEntrySource", new[] { typeof(string), typeof(Delegate) });
                     _aeroHas = t.GetMethod("HasEntrySource", new[] { typeof(string), typeof(Delegate) });
+                    _aeroPredict = t.GetMethod("PredictHullForces");   // (aerobraking: each ship's drag area)
                     break;
                 }
                 if (_aeroRegister == null || _aeroHas == null) { GlowWhy = "aero mod not loaded (or older than contract " + AeroEntryContract + ")"; return; }
@@ -104,6 +105,49 @@ public static class EntryHost
         }
     }
 
+    // ── aerobraking: each frame's ballistic coefficient ──
+    static System.Reflection.MethodInfo _aeroPredict;
+    static readonly Dictionary<long, (double beta, double wall)> _beta = new Dictionary<long, (double, double)>();
+    /// <summary>Seconds (wall) a frame's ballistic coefficient is kept before it is measured again.</summary>
+    public const double BetaRefresh = 10;
+
+    /// <summary>A frame's ballistic coefficient (kg/m2: its grids' mass over their drag area, Cd x A, for the air
+    /// coming from where it is going now - its grids' attitude as they are). The drag area from the aero mod's force
+    /// table (PredictHullForces); without it - no aero mod, or no table yet - Reentry.DefaultBeta. Kept for
+    /// BetaRefresh seconds.</summary>
+    public static double BetaOf(ProximityFrame f, Vector3D airWorld)
+    {
+        if (f == null) return Reentry.DefaultBeta;
+        double wall = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+        lock (_beta) if (_beta.TryGetValue(f.Id, out var c) && wall - c.wall < BetaRefresh) return c.beta;
+        double mass = 0, area = 0; bool measured = false;
+        double va = airWorld.Length();
+        foreach (long id in f.Members)
+        {
+            if (!GridMembers.IsGridId(id) || !(GridMembers.Get(id) is OrbitalGridComponent g) || g.Entity == null) continue;
+            mass += GridMembers.Mass(g);
+            if (_aeroPredict == null || !(va > 1)) continue;
+            try
+            {
+                // (the air in the grid's frame: unit dynamic pressure at Mach ~3 - the band's speeds)
+                var q = g.Entity.Data.GetWorldTransform().Orientation;
+                Vector3D dl = Vector3D.Transform(-airWorld / va, Quaternion.Inverse(q));
+                const float v = 1000f, rho = 1f;
+                var args = new object[] { g.Entity, new Vector3((float)dl.X, (float)dl.Y, (float)dl.Z) * v, rho, 330f, null, null, null };
+                if ((bool)_aeroPredict.Invoke(null, args))
+                {
+                    var fl = (Vector3)args[4];
+                    double drag = -Vector3.Dot(fl, new Vector3((float)dl.X, (float)dl.Y, (float)dl.Z));   // (along the travel: opposing it)
+                    if (drag > 0) { area += drag / (0.5 * rho * v * v); measured = true; }
+                }
+            }
+            catch { }
+        }
+        double beta = measured ? Reentry.Beta(mass, area) : Reentry.DefaultBeta;
+        lock (_beta) _beta[f.Id] = (beta, wall);
+        return beta;
+    }
+
     /// <summary>A body's braking band (invalid: none).</summary>
     public static Band BandOf(string body)
     {
@@ -132,7 +176,7 @@ public static class EntryHost
         }
     }
     /// <summary>A grid frame's heat goes with it when its grids arrive (the damage is applied from it).</summary>
-    public static void Forget(long frameId) { lock (_heat) { _last.Remove(frameId); _heat.Remove(frameId); _braking.Remove(frameId); _inPass.Remove(frameId); } }
+    public static void Forget(long frameId) { lock (_heat) { _last.Remove(frameId); _heat.Remove(frameId); _braking.Remove(frameId); _inPass.Remove(frameId); } lock (_beta) _beta.Remove(frameId); }
 
     /// <summary>Server tick (FramesLock held): brake every railed frame inside a band.</summary>
     public static void ServerTick(List<ProximityFrame> frames, double t)
@@ -161,7 +205,13 @@ public static class EntryHost
                 continue;
             }
             var log = new Pass();
-            var el = Reentry.Advance(f.Elements, b, SpinOf(f.ParentBodyName), Cap, t0, Math.Min(t, t0 + 3600), ref heat, log);
+            double beta = 0;
+            if (Reentry.DragDensity > 0 && f.Elements.PeriapsisRadius < b.Top)
+            {
+                var s0 = OrbitPropagation.StateAt(f.Elements, t0);
+                beta = BetaOf(f, Reentry.AirVelocity(s0.Position, s0.Velocity, SpinOf(f.ParentBodyName)));
+            }
+            var el = Reentry.Advance(f.Elements, b, SpinOf(f.ParentBodyName), Cap, t0, Math.Min(t, t0 + 3600), ref heat, log, beta);
             lock (_heat)
             {
                 _heat[f.Id] = heat;
@@ -289,6 +339,29 @@ public static class EntryHost
     // ── your own frame's next pass (client) ──
     public static Pass Prediction;
     public static string PredictedBody;
+    /// <summary>The orbit the prediction started from, and the ballistic coefficient it used (kg/m2; 0: no drag).</summary>
+    public static KeplerianElements PredictedBefore;
+    public static double PredictedBeta;
+
+    /// <summary>The predicted orbit after the coming pass, as a line: "after pass: Ap 212 km (-338) · Pe 61 km (-4)",
+    /// "into the air" (the pass reaches the frame's border) or "captured" (an escape orbit made bound). Null: none.</summary>
+    public static string AfterLine()
+    {
+        var p = Prediction;
+        if (p == null) return null;
+        if (p.Landing) return "into the air";
+        if (!p.HasAfter) return null;
+        var def = SystemHost.Registry?.FindDefinition(PredictedBody);
+        double R = def?.RadiusMeters ?? 0;
+        var a = p.After; var b0 = PredictedBefore;
+        string pe = $"Pe {(a.PeriapsisRadius - R) / 1000:N0} km";
+        if (a.Eccentricity >= 1) return $"after pass: escaping · {pe}";
+        double ap = a.SemiMajorAxis * (1 + a.Eccentricity);
+        string apS = $"Ap {(ap - R) / 1000:N0} km";
+        if (b0.Eccentricity >= 1) return $"after pass: captured · {apS} · {pe}";
+        double ap0 = b0.SemiMajorAxis * (1 + b0.Eccentricity);
+        return $"after pass: {apS} ({(ap - ap0) / 1000:+0;-0} km) · {pe}";
+    }
     static double _predWall;
 
     public static void ClientTick(double t)
@@ -305,8 +378,16 @@ public static class EntryHost
         {
             KeplerianElements el; lock (ServerFrames.FramesLock) el = f.Elements;
             double horizon = el.Eccentricity < 1 ? Math.Min(el.Period, 6 * 3600) : 6 * 3600;
-            var p = Reentry.Predict(el, b, SpinOf(f.ParentBodyName), Cap, t, horizon, HeatOf(f.Id));
+            double beta = 0;
+            if (Reentry.DragDensity > 0 && el.PeriapsisRadius < b.Top)
+            {
+                var s0 = OrbitPropagation.StateAt(el, t);
+                beta = BetaOf(f, Reentry.AirVelocity(s0.Position, s0.Velocity, SpinOf(f.ParentBodyName)));
+            }
+            var p = Reentry.Predict(el, b, SpinOf(f.ParentBodyName), Cap, t, horizon, HeatOf(f.Id), beta);
             Prediction = p.Braked ? p : null;
+            PredictedBefore = el;
+            PredictedBeta = beta;
             PredictedBody = f.ParentBodyName;
         }
         catch (Exception e) { FrameHost.Fault("entry prediction", e); Prediction = null; }
@@ -363,6 +444,8 @@ public static class EntryHost
         string when = p.EnterTime - now <= 10 ? "now" : "in " + Maneuvers.Clock(p.EnterTime - now);
         string to = double.IsNaN(p.SpeedAtBottom) ? "aerobrake" : $"{p.ArrivalSpeed:N0} → {p.SpeedAtBottom:N0} m/s";
         double share = Reentry.Share(p.PeakHeat, false);
-        return $"Entry {when} · {to} · heat {share:P0}{(share > 1 ? " — too hot" : "")}";
+        string after = AfterLine();
+        if (p.HasAfter && p.DragShed > 0 && p.DragShed >= p.Shed * 0.5) to = "aerobrake";
+        return $"Entry {when} · {to} · heat {share:P0}{(share > 1 ? " — too hot" : "")}{(after != null ? " · " + after : "")}";
     }
 }

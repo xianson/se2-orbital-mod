@@ -18,7 +18,7 @@ namespace EntryTest
         }
 
         const double R = 63000, H = 9450, Mu = 7.785e10, Cap = 1000;
-        static readonly double Border = R + 1.6 * H;
+        static readonly double Border = R + 1.0 * H;   // (the planet frame's border: the atmosphere's top)
         static readonly Band B = Reentry.For(R, H, Border);
         static readonly Vector3D NoSpin = Vector3D.Zero;
 
@@ -34,12 +34,12 @@ namespace EntryTest
         static double Radius(KeplerianElements el, double t) => OrbitPropagation.StateAt(el, t).Position.Length();
 
         /// <summary>Flies el from t0 in steps of dt until the border (or out of the band), as the game's ticks would.</summary>
-        static (KeplerianElements el, double t, double heat, Pass log) Fly(KeplerianElements el, double dt, double cap = Cap, Vector3D? w = null, double maxT = 4000)
+        static (KeplerianElements el, double t, double heat, Pass log) Fly(KeplerianElements el, double dt, double cap = Cap, Vector3D? w = null, double maxT = 4000, double beta = 0)
         {
             double t = 0, heat = 0; var log = new Pass();
             while (t < maxT)
             {
-                el = Reentry.Advance(el, B, w ?? NoSpin, cap, t, t + dt, ref heat, log);
+                el = Reentry.Advance(el, B, w ?? NoSpin, cap, t, t + dt, ref heat, log, beta);
                 t += dt;
                 double r = Radius(el, t);
                 if (!double.IsNaN(log.BottomTime) || r <= B.Bottom) break;
@@ -52,11 +52,11 @@ namespace EntryTest
         {
             Console.WriteLine("Entry (Reentry) offline tests");
 
-            // Geometry: the entry interface ~35 km up, the border ~15 km up, max-q in between.
-            Ok("band: entry interface ~35 km up", Math.Abs(B.Top - R - 35000) < 500, $"{(B.Top - R) / 1000:F1} km");
-            Ok("band: border ~15 km up", Math.Abs(B.Bottom - R - 15100) < 200, $"{(B.Bottom - R) / 1000:F1} km");
+            // Geometry: the border at the atmosphere's top (9.45 km), the band ~10 km over it (the entry interface ~19.4 km).
+            Ok("band: entry interface ~19.4 km up", Math.Abs(B.Top - R - 19370) < 300, $"{(B.Top - R) / 1000:F1} km");
+            Ok("band: border at the atmosphere's top", Math.Abs(B.Bottom - R - H) < 1, $"{(B.Bottom - R) / 1000:F2} km");
             Ok("band: none without an atmosphere", !Reentry.For(R, 0, Border).IsValid);
-            Ok("border: circular orbit there is about the cap", Math.Abs(Math.Sqrt(Mu / B.Bottom) - Cap) < 30, $"{Math.Sqrt(Mu / B.Bottom):F0} m/s");
+            Ok("border: circular orbit there is about the cap", Math.Abs(Math.Sqrt(Mu / B.Bottom) - Cap) < 60, $"{Math.Sqrt(Mu / B.Bottom):F0} m/s");
 
             // Steep (70 deg) at 1600 m/s from just above the band. (A truly vertical entry, every sideways speed
             // cancelled, is both radial and near parabolic, where the core's element propagation loses precision.)
@@ -65,7 +65,7 @@ namespace EntryTest
                 double vb = log.SpeedAtBottom;
                 Ok("steep 1600: at the border at or under the cap", vb <= Cap + 0.5, $"{vb:F1} m/s");
                 double maxq = (log.MaxQRadius - R) / 1000;
-                Ok("steep 1600: max-q 20-30 km up", maxq > 20 && maxq < 30, $"{maxq:F1} km, {log.PeakDecel / 9.81:F1} g");
+                Ok("steep 1600: max-q inside the band", log.MaxQRadius >= B.Bottom && log.MaxQRadius <= B.Top + 1, $"{maxq:F1} km, {log.PeakDecel / 9.81:F1} g");
                 Ok("steep 1600: heat within tolerance", Reentry.Share(log.PeakHeat, false) < 1, $"{Reentry.Share(log.PeakHeat, false):P0}");
             }
 
@@ -89,23 +89,66 @@ namespace EntryTest
 
             // Aerobraking: a grazing pass (periapsis in the band's upper half) loses speed and leaves again.
             {
-                double rp = B.Top - 6000, va = 1500;
+                double rp = B.Top - 0.1 * (B.Top - B.Bottom), va = 1500;
                 double vp = Math.Sqrt(va * va + 2 * Mu / rp - 2 * Mu / (B.Top + 20000)); // speed at periapsis from 1500 at 55 km up
                 var el0 = Reentry.ToElements(new StateVector(new Vector3D(rp, 0, 0), new Vector3D(0, vp, 0)), Mu, 0);
                 el0 = OrbitPropagation.AtTime(el0, 0);
                 var start = OrbitPropagation.StateAt(el0, -200);
                 var e = Reentry.ToElements(start, Mu, 0);
                 var (el, t, heat, log) = Fly(e, 1.0 / 60);
-                Ok("graze: braked and back out of the band", log.Braked && Radius(el, t) > B.Top, $"shed {log.Shed / 1000:F0} kJ/kg");
-                Ok("graze: energy lost (aerobraking)", el.SpecificEnergy < el0.SpecificEnergy, $"{el0.SpecificEnergy / 1e3:F0} -> {el.SpecificEnergy / 1e3:F0} kJ/kg");
-                Ok("graze: never below the border", double.IsNaN(log.BottomTime));
+                // (the border is the atmosphere's top now, where a circular orbit is ~1036 m/s - over the 1000 cap: a pass
+                //  the cap rule slows always falls on into the air, at or under the cap)
+                Ok("graze (cap rule): braked", log.Braked, $"shed {log.Shed / 1000:F0} kJ/kg");
+                Ok("graze (cap rule): energy lost", el.SpecificEnergy < el0.SpecificEnergy, $"{el0.SpecificEnergy / 1e3:F0} -> {el.SpecificEnergy / 1e3:F0} kJ/kg");
+                Ok("graze (cap rule): into the air at or under the cap", !double.IsNaN(log.BottomTime) && log.SpeedAtBottom <= Cap + 0.5, $"{log.SpeedAtBottom:F1} m/s");
+            }
+
+            // AEROBRAKING (drag in the band): an elliptic orbit dipping into the band, under no cap.
+            {
+                const double NoCap = 1e9, Fluffy = 300;
+                double rp = 0.5 * (B.Bottom + B.Top), ra = R + 200000, a = 0.5 * (rp + ra);
+                double vp = Math.Sqrt(Mu * (2 / rp - 1 / a));
+                var atPe = OrbitPropagation.AtTime(Reentry.ToElements(new StateVector(new Vector3D(rp, 0, 0), new Vector3D(0, vp, 0)), Mu, 0), 0);
+                var e0 = Reentry.ToElements(OrbitPropagation.StateAt(atPe, -300), Mu, 0);
+                var (el, t, heat, log) = Fly(e0, 1.0, cap: NoCap, beta: Fluffy);
+                double ap0 = atPe.SemiMajorAxis * (1 + atPe.Eccentricity), ap1 = el.SemiMajorAxis * (1 + el.Eccentricity);
+                Ok("aerobrake: through and out again", log.Braked && Radius(el, t) > B.Top && double.IsNaN(log.BottomTime));
+                Ok("aerobrake: apoapsis lowered", ap1 < ap0 - 1000, $"Ap {(ap0 - R) / 1000:F0} -> {(ap1 - R) / 1000:F0} km, dv {log.Dv:F1} m/s");
+                Ok("aerobrake: all of it drag", Math.Abs(log.DragShed - log.Shed) < 1e-6 * Math.Max(1, log.Shed));
+                // a denser ship (10x the ballistic coefficient) loses about a tenth
+                var (elD, tD, _, logD) = Fly(e0, 1.0, cap: NoCap, beta: Fluffy * 10);
+                Ok("aerobrake: 10x beta, ~1/10 the dv", Math.Abs(logD.Dv / log.Dv - 0.1) < 0.03, $"{logD.Dv:F2} vs {log.Dv:F2} m/s");
+                // the prediction is the flight
+                var pr = Reentry.Predict(e0, B, NoSpin, NoCap, 0, 4000, 0, Fluffy);
+                double apP = pr.After.SemiMajorAxis * (1 + pr.After.Eccentricity);
+                Ok("aerobrake: predicted orbit after the pass", pr.HasAfter && Math.Abs(apP - ap1) < 0.01 * (ap0 - ap1) + 50, $"Ap {(apP - R) / 1000:F1} vs flown {(ap1 - R) / 1000:F1} km");
+                Ok("aerobrake: predicted dv", Math.Abs(pr.Dv - log.Dv) < 0.02 * log.Dv + 0.05, $"{pr.Dv:F2} vs {log.Dv:F2} m/s");
+                // drag off: the same pass untouched
+                double keep = Reentry.DragDensity; Reentry.DragDensity = 0;
+                double h0 = 0; var l0 = new Pass();
+                var same = Reentry.Advance(e0, B, NoSpin, NoCap, 0, 1200, ref h0, l0, Fluffy);
+                Reentry.DragDensity = keep;
+                Ok("aerobrake: drag off, unchanged", !l0.Braked && Math.Abs(same.SemiMajorAxis - e0.SemiMajorAxis) < 1e-6);
+            }
+
+            // Decay: a circular orbit inside the band, under the cap, sinks with drag (and stays put without it).
+            {
+                double rc = 0.5 * (B.Bottom + B.Top);
+                var c0 = At(rc, Math.Sqrt(Mu / rc), 0);
+                double h1 = 0; var l1 = new Pass();
+                var c1 = Reentry.Advance(c0, B, NoSpin, 2000, 0, 600, ref h1, l1, 300);
+                Ok("decay: a low orbit sinks with drag", c1.SemiMajorAxis < c0.SemiMajorAxis - 1, $"{(c0.SemiMajorAxis - c1.SemiMajorAxis):F0} m in 600 s");
+                double h2 = 0; var l2 = new Pass();
+                var above = At(B.Top + 5000, Math.Sqrt(Mu / (B.Top + 5000)), 0);
+                var a2 = Reentry.Advance(above, B, NoSpin, 2000, 0, 600, ref h2, l2, 300);
+                Ok("decay: an orbit above the band is untouched", !l2.Braked && Math.Abs(a2.SemiMajorAxis - above.SemiMajorAxis) < 1e-6);
             }
 
             // Only what is over the cap: an orbit under the cap in the band is untouched.
             {
                 var el0 = At(B.Bottom + 8000, 960, 0);
                 double heat = 0; var log = new Pass();
-                var el = Reentry.Advance(el0, B, NoSpin, Cap, 0, 600, ref heat, log);
+                var el = Reentry.Advance(el0, B, NoSpin, Cap + 150, 0, 600, ref heat, log);   // (the border's circular speed is ~1036 now: a cap over it)
                 Ok("under the cap: unchanged", !log.Braked && Math.Abs(el.SemiMajorAxis - el0.SemiMajorAxis) < 1e-6);
                 var high = At(B.Top + 20000, 1500, 0);
                 double h2 = 0; var l2 = new Pass();
@@ -119,7 +162,8 @@ namespace EntryTest
                 Ok("vanilla cap: at the border at or under 300", log.SpeedAtBottom <= 300.5, $"{log.SpeedAtBottom:F1} m/s");
                 Ok("vanilla cap: 1450 within tolerance", Reentry.Share(log.PeakHeat, false) < 1, $"{Reentry.Share(log.PeakHeat, false):P0}");
                 // a low orbit faster than 300 decays
-                var lo = At(B.Bottom + 12000, Math.Sqrt(Mu / (B.Bottom + 12000)), 0);
+                double rLo = 0.5 * (B.Bottom + B.Top);
+                var lo = At(rLo, Math.Sqrt(Mu / rLo), 0);
                 double h = 0; var l = new Pass();
                 var after = Reentry.Advance(lo, B, NoSpin, 300, 0, 5, ref h, l);
                 Ok("vanilla cap: a low orbit in the band decays", after.SemiMajorAxis < lo.SemiMajorAxis);

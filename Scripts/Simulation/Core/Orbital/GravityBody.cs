@@ -54,6 +54,7 @@ namespace SEAerospace.Orbital
         // main thread (all current callers already are).
         private double _rootStamp = double.NaN;   // t this memo is valid for; NaN == empty (NaN != NaN forces a miss)
         private StateVector _rootState;            // this body's OriginInRoot(t) at _rootStamp
+        private int _memoThread;                   // the thread the memo belongs to (0: none yet)
 
         /// <summary>This body's state in its parent's frame at time t (zero for the root).</summary>
         public StateVector StateInParentAt(double t)
@@ -94,6 +95,18 @@ namespace SEAerospace.Orbital
         /// </summary>
         public StateVector OriginInRoot(double t)
         {
+            // SE2 runs the server scene on its own thread (the SE1 single-thread note above no longer holds): the memo
+            // belongs to the first thread that uses it (the client: the map samples it hundreds of times a frame); any
+            // other thread walks the chain directly - a torn read of the 48-byte state put a planet thousands of km off.
+            int tid = System.Environment.CurrentManagedThreadId;
+            if (_memoThread == 0) System.Threading.Interlocked.CompareExchange(ref _memoThread, tid, 0);
+            if (tid != _memoThread)
+            {
+                StateVector w = StateVector.Zero;
+                var wb = this;
+                while (wb.Parent != null) { w = wb.ToParent(w, t); wb = wb.Parent; }
+                return w;
+            }
             // Exact-equality hit: same body, same snapshot Time within the frame.
             if (t == _rootStamp) return _rootState;
 

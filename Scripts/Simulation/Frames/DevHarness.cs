@@ -816,6 +816,10 @@ public static class DevHarness
                 GameMap.HideGameSectors = On(a[1]);
                 return "hide game sector mesh=" + GameMap.HideGameSectors;
 
+            case "gen":   // gen spawn FILE | status | clear | measure FILE | report  (generated grids: GridGen.cs)
+                return GridGen.Command(session, camera, a);
+            case "hinge":   // hinge list | set N force|tau|damp|limits V | hold N DEG [GAIN] | free N | stats N
+                return HingeRig.Command(a);
             case "fps":   // fps [frames]: the client's frame rate over the last frames (default 300): average, 1% low, worst
             {
                 int n = Math.Min(_frameCount, a.Length > 1 ? Math.Max(10, (int)D(a[1])) : 300);

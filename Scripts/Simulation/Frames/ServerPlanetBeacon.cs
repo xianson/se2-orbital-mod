@@ -187,6 +187,9 @@ public partial class ServerPlanetBeacon
         long c0 = ModCost.Start();
         try { ServerFrames.Tick(beacon.Entity.GetSession()); }
         catch (Exception ex) { FrameHost.Fault("ServerFrames", ex); }
+        if (OrbitalConfig.DevHarness)
+            try { GridGen.ServerTick(); }   // (DEV: generated grids and hinges - on the thread that owns the server's entities)
+            catch (Exception ex) { FrameHost.Fault("GridGen", ex); }
         ModCost.Server.Stop(c0);
         try { ServerGravityMultiplier = beacon.Entity.GetSession().Get<Keen.VRage.Physics.IPhysics>().GravityMultiplier; } catch { }
         ApplyPlayerRequest(beacon);

@@ -584,6 +584,10 @@ public static class DevHarness
             case "burn":
                 return DevFlight.Burn(a.Length > 1 ? D(a[1]) : 60);
 
+            case "turntest":
+                // turntest DEG x|y|z (seated): turn the cockpit's target by DEG about the grid's axis, measure the turn; alone: the last result
+                return a.Length > 2 ? DevTurn.Start(session, D(a[1]), a[2]) : DevTurn.Status;
+
             case "seats":
                 return DevFlight.ListSeats(session, FrameHost.PlayerPosition);
 

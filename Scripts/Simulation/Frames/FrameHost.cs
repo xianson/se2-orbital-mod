@@ -194,6 +194,7 @@ public static class FrameHost
         var ta = new TickArgs(session, camera, t);
         Guard("MapInput.Poll", static a => MapInput.Poll(), ta);
         Guard("DevFlight.ClientTick", static a => DevFlight.ClientTick(a.Session), ta);
+        Guard("DevTurn.ClientTick", static a => DevTurn.ClientTick(a.Session), ta);
         WarpControl.Session = session;
         Guard("WarpControl.Tick", static a => WarpControl.Tick(), ta);
         Guard("MapView.Tick", static a => MapView.Tick(a.Session, a.Camera, a.T), ta);

@@ -79,7 +79,9 @@ public static class GridGen
         //  SetVelocity from here raced the server's entity storage and crashed the game - hinge and steering writes,
         //  and the hold loop, run in the server's job)
         string sub = a.Length > 1 ? a[1] : "status";
-        if (sub == "hold" || sub == "free" || sub == "steer") return OnServer(() => CommandOnServer(me, camera, a));
+        // (clear too: deleting from here raced the server's own access to those grids - "Concurrent access", then a crash;
+        //  the asteroid frames delete from the server's job the same way)
+        if (sub == "hold" || sub == "free" || sub == "steer" || sub == "clear") return OnServer(() => CommandOnServer(me, camera, a));
         return CommandOnServer(me, camera, a);
     }
 
@@ -108,7 +110,10 @@ public static class GridGen
                 case "hinges": return string.Join(" || ", _hinges.Select((h, i) => HingeLine(i)));
                 case "hold":
                 {
-                    // gen hold N|all DEG [GAIN]: P control toward DEG (velocity = gain x error, rad/s), stats reset
+                    // gen hold N|all DEG [GAIN]: P control toward DEG (velocity = gain x error, rad/s), stats reset;
+                    // gen hold DEG: every hinge
+                    if (a.Length == 3) a = new[] { a[0], a[1], "all", a[2] };
+                    if (a.Length < 4) return "gen hold N|all DEG [GAIN]";
                     float deg = float.Parse(a[3], CI), gain = a.Length > 4 ? float.Parse(a[4], CI) : 4f;
                     for (int i = 0; i < _hinges.Count; i++)
                         if (a[2] == "all" || a[2] == i.ToString(CI))

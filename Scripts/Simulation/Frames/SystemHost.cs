@@ -169,64 +169,49 @@ public static class SystemHost
         // Warp policy: the clock never steps past an arrival. Stop exactly at the earliest inbound
         // shell crossing and drop to x1, so the arrival checks (client and server, whatever their
         // tick rate) see the crossing instead of jumping over it.
-        if (Timescale > 1.0 && Built && Frames != null)
-        {
-            double tc = double.NaN;
-            lock (ServerFrames.FramesLock) tc = FrameHost.EarliestArrival(Now, next);
-            if (!double.IsNaN(tc))
-            {
-                next = Math.Max(Now, tc);
-                Log.Default?.Info($"[ORBIT-FRAME] warp x{Timescale} -> x1 at the shell crossing (t={tc:F1})");
-                Timescale = 1.0;
-            }
-        }
-        // Warp also stops a lead time before the next maneuver node.
+        // Warp stops: every candidate in this step, and the EARLIEST wins (checked in turn, the first to fire dropped warp
+        // and gated the rest: at x1000 a shell crossing at +10 s skipped a burn's lead at +5 s).
         if (Timescale > 1.0)
         {
+            double stopAt = double.PositiveInfinity, landAt = double.NaN; string why = null, say = null; bool clearAsked = false;
+            void Cand(double at, double land, string w, string s2, bool asked = false)
+            {
+                if (double.IsNaN(at) || at > next || at >= stopAt) return;
+                stopAt = at; landAt = land; why = w; say = s2; clearAsked = asked;
+            }
+            // the shell crossing: arrival checks must see it
+            if (Built && Frames != null)
+            {
+                double tc = double.NaN;
+                lock (ServerFrames.FramesLock) tc = FrameHost.EarliestArrival(Now, next);
+                Cand(tc, tc, $"at the shell crossing (t={tc:F1})", null);
+            }
+            // a lead time before the next maneuver node
             double tn = Maneuvers.NextBurnStart(Now), lead = Maneuvers.WarpLeadAt(Now);
-            if (!double.IsNaN(tn) && tn - lead <= next)
-            {
-                next = Math.Max(Now, tn - lead);
-                Log.Default?.Info($"[ORBIT-FRAME] warp x{Timescale} -> x1 ahead of a maneuver node (t={tn:F1})");
-                Timescale = 1.0;
-            }
-        }
-        // And ahead of a reentry (the braking band): seen, not skipped.
-        if (Timescale > 1.0)
-        {
+            if (!double.IsNaN(tn)) Cand(tn - lead, tn - lead, $"ahead of a maneuver node (t={tn:F1})", null);
+            // ahead of a reentry
             double te = EntryHost.NextWarpStop(Now);
-            if (!double.IsNaN(te) && te <= next)
+            Cand(te, te, $"ahead of the entry interface (t={te:F1})", "Warp stopped: entry ahead");
+            // a time asked for ('Warp here')
+            if (!double.IsNaN(WarpStopAt)) Cand(WarpStopAt, WarpStopAt, $"at the point asked for (t={WarpStopAt:F1})", "Warp stopped: arrived", true);
+            // a sphere-of-influence change on the path (a flyby seen, not skipped)
+            if (FrameHost.PlayerFrame != null)
             {
-                next = Math.Max(Now, te);
-                Log.Default?.Info($"[ORBIT-FRAME] warp x{Timescale} -> x1 ahead of the entry interface (t={te:F1})");
-                Timescale = 1.0;
-                WarpControl.Say("Warp stopped: entry ahead");
+                double ts = double.NaN;
+                try { ts = Maneuvers.NextSoiChange(Now); }
+                catch (Exception ex) { FrameHost.Fault("warp SOI stop", ex); }
+                if (!double.IsNaN(ts)) Cand(ts, ts + 1.0, $"at a sphere-of-influence change (t={ts:F1})", "Warp stopped: sphere of influence change");
             }
-        }
-        // And at a time asked for ('Warp here' on the map).
-        if (Timescale > 1.0 && !double.IsNaN(WarpStopAt) && WarpStopAt <= next)
-        {
-            next = Math.Max(Now, WarpStopAt);
-            Log.Default?.Info($"[ORBIT-FRAME] warp x{Timescale} -> x1 at the point asked for (t={WarpStopAt:F1})");
-            Timescale = 1.0; WarpStopAt = double.NaN;
-            WarpControl.Say("Warp stopped: arrived");
+            if (why != null)
+            {
+                next = Math.Max(Now, landAt);
+                Log.Default?.Info($"[ORBIT-FRAME] warp x{Timescale} -> x1 {why}");
+                Timescale = 1.0;
+                if (say != null) WarpControl.Say(say);
+                if (clearAsked) WarpStopAt = double.NaN;
+            }
         }
         if (Timescale <= 1.0) WarpStopAt = double.NaN;
-        // And at a sphere-of-influence change on your path (as KSP): a flyby is seen, not skipped
-        // (at x10000 one frame took the whole Palatine pass, periapsis and all).
-        if (Timescale > 1.0 && FrameHost.PlayerFrame != null)
-        {
-            double ts = double.NaN;
-            try { ts = Maneuvers.NextSoiChange(Now); }
-            catch (Exception ex) { FrameHost.Fault("warp SOI stop", ex); }
-            if (!double.IsNaN(ts) && ts <= next)
-            {
-                next = Math.Max(Now, ts + 1.0);
-                Log.Default?.Info($"[ORBIT-FRAME] warp x{Timescale} -> x1 at a sphere-of-influence change (t={ts:F1})");
-                Timescale = 1.0;
-                WarpControl.Say("Warp stopped: sphere of influence change");
-            }
-        }
         Now = next;
         return dt;
     }

@@ -69,9 +69,10 @@ namespace EntryTest
                 Ok("steep 1600: heat within tolerance", Reentry.Share(log.PeakHeat, false) < 1, $"{Reentry.Share(log.PeakHeat, false):P0}");
             }
 
-            // A typical transfer arrival, shallow (5 deg), at 1450 m/s at the entry interface.
+            // A typical transfer arrival, shallow (5 deg), at 1450 m/s at the entry interface: its periapsis is in the band,
+            // so drag (an ordinary ship, the default ballistic coefficient) brakes it, not the cap rule.
             {
-                var (el, t, heat, log) = Fly(At(B.Top + 500, 1450, 5), 1.0 / 60);
+                var (el, t, heat, log) = Fly(At(B.Top + 500, 1450, 5), 1.0 / 60, beta: Reentry.DefaultBeta);
                 Ok("shallow 1450: braked", log.Braked, $"shed {log.Shed / 1000:F0} kJ/kg");
                 Ok("shallow 1450: within tolerance (no damage)", Reentry.Share(log.PeakHeat, false) < 0.6, $"{Reentry.Share(log.PeakHeat, false):P0}");
                 bool atBorder = !double.IsNaN(log.SpeedAtBottom);
@@ -96,11 +97,11 @@ namespace EntryTest
                 var start = OrbitPropagation.StateAt(el0, -200);
                 var e = Reentry.ToElements(start, Mu, 0);
                 var (el, t, heat, log) = Fly(e, 1.0 / 60);
-                // (the border is the atmosphere's top now, where a circular orbit is ~1036 m/s - over the 1000 cap: a pass
-                //  the cap rule slows always falls on into the air, at or under the cap)
-                Ok("graze (cap rule): braked", log.Braked, $"shed {log.Shed / 1000:F0} kJ/kg");
-                Ok("graze (cap rule): energy lost", el.SpecificEnergy < el0.SpecificEnergy, $"{el0.SpecificEnergy / 1e3:F0} -> {el.SpecificEnergy / 1e3:F0} kJ/kg");
-                Ok("graze (cap rule): into the air at or under the cap", !double.IsNaN(log.BottomTime) && log.SpeedAtBottom <= Cap + 0.5, $"{log.SpeedAtBottom:F1} m/s");
+                // (the cap rule is for crossing the border: a graze whose periapsis stays in the band is not capped - with
+                //  no drag it is untouched, and comes back out)
+                Ok("graze (no drag): not capped - its periapsis is above the border", !log.Braked && Radius(el, t) > B.Top, $"shed {log.Shed / 1000:F0} kJ/kg");
+                var (elG, tG, _, logG) = Fly(e, 1.0 / 60, beta: 300);
+                Ok("graze (drag): braked and back out of the band", logG.Braked && Radius(elG, tG) > B.Top && double.IsNaN(logG.BottomTime), $"dv {logG.Dv:F1} m/s");
             }
 
             // AEROBRAKING (drag in the band): an elliptic orbit dipping into the band, under no cap.
@@ -158,15 +159,15 @@ namespace EntryTest
 
             // Vanilla's cap (300): the same arrival sheds far more, still within tolerance at 1.45 km/s.
             {
-                var (el, t, heat, log) = Fly(At(B.Top + 500, 1450, 10), 1.0 / 60, cap: 300);
+                var (el, t, heat, log) = Fly(At(B.Top + 500, 1450, 30), 1.0 / 60, cap: 300);   // (steep enough to reach the border)
                 Ok("vanilla cap: at the border at or under 300", log.SpeedAtBottom <= 300.5, $"{log.SpeedAtBottom:F1} m/s");
                 Ok("vanilla cap: 1450 within tolerance", Reentry.Share(log.PeakHeat, false) < 1, $"{Reentry.Share(log.PeakHeat, false):P0}");
                 // a low orbit faster than 300 decays
                 double rLo = 0.5 * (B.Bottom + B.Top);
                 var lo = At(rLo, Math.Sqrt(Mu / rLo), 0);
                 double h = 0; var l = new Pass();
-                var after = Reentry.Advance(lo, B, NoSpin, 300, 0, 5, ref h, l);
-                Ok("vanilla cap: a low orbit in the band decays", after.SemiMajorAxis < lo.SemiMajorAxis);
+                var after = Reentry.Advance(lo, B, NoSpin, 300, 0, 5, ref h, l, Reentry.DefaultBeta);
+                Ok("vanilla cap: a low orbit in the band decays (drag)", after.SemiMajorAxis < lo.SemiMajorAxis);
             }
 
             // Warp: the same pass at 1/60 s ticks and at 30 s ticks ends the same.

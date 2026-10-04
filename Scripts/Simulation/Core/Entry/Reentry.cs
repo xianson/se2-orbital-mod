@@ -108,7 +108,10 @@ namespace SEAerospace.Entry
         {
             if (!(t1 > t0)) return el;
             bool drag = beta > 0 && DragDensity > 0;
-            if (!b.IsValid || !(el.PeriapsisRadius < b.Top) || (!drag && !CanExceed(el, b, w, cap))) { heat = Cool(heat, t1 - t0); return el; }
+            // (the cap rule only for an orbit that reaches the border - you cross it at or under the cap; a dip that stays
+            //  in the band is drag's alone, and comes back out)
+            bool capped = el.PeriapsisRadius < b.Bottom && CanExceed(el, b, w, cap);
+            if (!b.IsValid || !(el.PeriapsisRadius < b.Top) || (!drag && !capped)) { heat = Cool(heat, t1 - t0); return el; }
             double t = t0, mu = el.Mu;
             for (int guard = 0; guard < 1000; guard++)
             {
@@ -156,7 +159,8 @@ namespace SEAerospace.Entry
                             va = va1;
                         }
                     }
-                    if (va > cap && (atBorder || h > 0))
+                    // (the cap rule once the path reaches the border: its periapsis, from the state now, under it)
+                    if (va > cap && (atBorder || h > 0) && (atBorder || PeriapsisRadius(p, v, mu) < b.Bottom))
                     {
                         if (log != null && double.IsNaN(log.EnterTime)) { log.EnterTime = t; log.ArrivalSpeed = va; }
                         double k = Kappa(b, r), e0 = va * va - cap * cap;
@@ -194,6 +198,15 @@ namespace SEAerospace.Entry
                 if (!braked) { var sx = OrbitPropagation.StateAt(el, t); if (sx.Position.Length() < b.Top) break; }
             }
             return el;
+        }
+
+        /// <summary>The periapsis radius of a state (m): where its conic comes closest.</summary>
+        public static double PeriapsisRadius(Vector3D p, Vector3D v, double mu)
+        {
+            double r = p.Length(), h2 = Vector3D.Cross(p, v).LengthSquared();
+            double energy = v.LengthSquared() / 2 - mu / r;
+            double e = Math.Sqrt(Math.Max(0, 1 + 2 * energy * h2 / (mu * mu)));
+            return h2 / (mu * (1 + e));
         }
 
         /// <summary>A ship's ballistic coefficient (kg/m2) from its mass and drag area (Cd x A, m2); the default when unknown.</summary>

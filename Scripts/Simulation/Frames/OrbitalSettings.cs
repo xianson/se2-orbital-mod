@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
@@ -188,6 +189,9 @@ public static class OrbitalSettings
     {
         if (string.IsNullOrEmpty(text)) return 0;
         int n = 0;
+        // (a value refused against its partner's CURRENT value - Proxy.FrameEnterFactor under FrameExitFactor - is tried again
+        //  others: an edit of 1.0/1.2 to 3/4 refused 3 for good, against the old 1.2)
+        List<(string name, double v, string val)> retry = null;
         foreach (var raw in text.Split('\n'))
         {
             var line = raw.Trim();
@@ -198,8 +202,14 @@ public static class OrbitalSettings
             if (!_by.TryGetValue(name, out var s) || s.Scope != scope) continue;
             if (!Parse(val, out double v)) { Log.Default?.Info($"[ORBIT] setting {name}: '{val}' is not a value"); continue; }
             if (Set(name, v, out string why, true)) n++;
-            else Log.Default?.Info($"[ORBIT] setting {name} = {val} refused: {why}");
+            else (retry ??= new List<(string, double, string)>()).Add((name, v, val));
         }
+        if (retry != null)
+            foreach (var (name, v, val) in retry)
+            {
+                if (Set(name, v, out string why, true)) n++;
+                else Log.Default?.Info($"[ORBIT] setting {name} = {val} refused: {why}");
+            }
         return n;
     }
 
@@ -216,7 +226,9 @@ public static class OrbitalSettings
     /// <summary>Every setting of a scope back to its default (a new world).</summary>
     internal static void ResetScope(string scope)
     {
-        foreach (var s in _all) if (s.Scope == scope && s.Get() != s.Default) Set(s.Name, s.Default, out _, true);
+        // (twice: a default refused against a partner not yet reset - Enter 1.0 over a world's Exit 0.9 - goes in on the second)
+        for (int pass = 0; pass < 2; pass++)
+            foreach (var s in _all) if (s.Scope == scope && s.Get() != s.Default) Set(s.Name, s.Default, out _, true);
     }
 
     // ── the world save (ServerPlanetBeacon's builder) ──

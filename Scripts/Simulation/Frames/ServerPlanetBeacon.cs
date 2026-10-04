@@ -187,12 +187,15 @@ public partial class ServerPlanetBeacon
         long c0 = ModCost.Start();
         try { ServerFrames.Tick(beacon.Entity.GetSession()); }
         catch (Exception ex) { FrameHost.Fault("ServerFrames", ex); }
-        if (OrbitalConfig.DevHarness)
+        // (every planet's beacon runs this job, in parallel: the once-a-frame work - the player's dv and heat, the dev
+        //  generator - is claimed by one; it ran once per planet, concurrently on the same server character)
+        bool mine = ClaimFrame();
+        if (mine && OrbitalConfig.DevHarness)
             try { GridGen.ServerTick(); }   // (DEV: generated grids and hinges - on the thread that owns the server's entities)
             catch (Exception ex) { FrameHost.Fault("GridGen", ex); }
         ModCost.Server.Stop(c0);
         try { ServerGravityMultiplier = beacon.Entity.GetSession().Get<Keen.VRage.Physics.IPhysics>().GravityMultiplier; } catch { }
-        ApplyPlayerRequest(beacon);
+        if (mine) ApplyPlayerRequest(beacon);
         var b = beacon._beacon;
         var req = b?.PendingGravity;
         if (req == null) return;
@@ -239,6 +242,15 @@ public partial class ServerPlanetBeacon
     /// <summary>The player's character on the server (position, velocity), as last seen by a beacon job.</summary>
     private static Vector3D _playerPos, _playerVel; private static bool _playerSeen;
     public static bool PlayerState(out Vector3D pos, out Vector3D vel) { pos = _playerPos; vel = _playerVel; return _playerSeen; }
+
+    private static long _frameStamp;
+    /// <summary>True for the first beacon job of a frame (atomic).</summary>
+    private static bool ClaimFrame()
+    {
+        long now = System.Diagnostics.Stopwatch.GetTimestamp(), last = System.Threading.Interlocked.Read(ref _frameStamp);
+        if (last != 0 && now - last < System.Diagnostics.Stopwatch.Frequency / 250) return false;
+        return System.Threading.Interlocked.CompareExchange(ref _frameStamp, now, last) == last;
+    }
 
     private static void ApplyPlayerRequest(ServerPlanetBeacon beacon)
     {

@@ -198,6 +198,9 @@ public static class Maneuvers
         {
             double Tn = Math.Max(n.T, tc);   // a node already past applies now (burning late)
             StateVector st;
+            // (the coast the burn integrates from: the last arc's, in ITS body's frame - after a sphere-of-influence change
+            //  the old body's elements with the new body's mu made the finite burn garbage)
+            KeplerianElements coastEl = el; double coastT0 = tc;
             if (Tn - tc < 0.5)
                 st = OrbitPropagation.StateAt(el, Tn);   // the node is now: no coast before it
             else
@@ -208,6 +211,7 @@ public static class Maneuvers
                 var last = arcs[arcs.Count - 1];
                 body = last.Body;
                 st = OrbitPropagation.StateAt(last.Elements, Tn);
+                coastEl = last.Elements; coastT0 = last.StartTime;
             }
             KeplerianElements after;
             Vector3D dv;
@@ -231,8 +235,8 @@ public static class Maneuvers
                     Axes(new StateVector(ld, lu), out P, out N, out R);
                 }
                 dv = P * n.Pro + N * n.Nor + R * n.Rad;
-                after = FiniteBurn(body, el, tc, Tn, st, dv);
-                if (!IsFinite(after.SemiMajorAxis)) return true;
+                after = FiniteBurn(body, coastEl, coastT0, Tn, st, dv);
+                if (!IsFinite(after.SemiMajorAxis)) return legs.Count > 0;   // (true with no legs drew nothing and reported a path)
                 n.TAfter = after; n.TBody = body.Name; n.Dirty = false;
             }
             else
@@ -1677,6 +1681,7 @@ public static class Maneuvers
             if (Selected == node) Selected = null;
             return;
         }
+        if (!(left > 1e-9)) { BurnLine = null; return; }   // (a fresh node with no delta-v: no direction - it was NaN)
         Vector3D dirW = rem / left;
         if (FrameHost.PlayerFrame == null && FrameHost.ObserverPlanet != null) dirW = Chart.Of(FrameHost.ObserverPlanet, t).FromInertial(dirW);
         BurnDirWorld = dirW; BurnLeft = left;

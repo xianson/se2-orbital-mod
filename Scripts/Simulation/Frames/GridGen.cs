@@ -96,6 +96,7 @@ public static class GridGen
                 case "clear": return Clear();
                 case "measure": return a.Length > 2 ? Measure(camera, Path.IsPathRooted(a[2]) ? a[2] : Path.Combine(Dir, a[2])) : "gen measure FILE";
                 case "report": return Report();
+                case "mounts": return Mounts();
                 case "probe": return Probe();
                 case "steer":
                 {
@@ -361,6 +362,42 @@ public static class GridGen
         _spawned.Clear(); _hinges.Clear(); _measured.Clear();
         Status = $"cleared {n} grids";
         return Status;
+    }
+
+    /// <summary>gen mounts: every catalogue prefab's MOUNT FACES as the game defines them (CubeBlockDefinition
+    /// .MountPointsGroupsPerDirection - generated from the block's collider: what CanConnectBlock checks), local axes,
+    /// mount cells (0.25 m) per face, into gen/mounts.txt - the generator's mount data, measured instead of assumed.</summary>
+    static string Mounts()
+    {
+        string cat = Path.Combine(Dir, "catalog.txt");
+        if (!File.Exists(cat)) return "no catalog.txt";
+        var sb = new System.Text.StringBuilder("# prefab name: face=mount cells (local axes; identity orientation)" + (char)10);
+        int n = 0, bad = 0;
+        foreach (var raw in File.ReadAllLines(cat))
+        {
+            var line = raw.Trim();
+            if (line.Length == 0 || line[0] == '#') continue;
+            var tok = line.Split(' ');
+            if (!Guid.TryParse(tok[0], out var g)) continue;
+            try
+            {
+                if (!DefinitionManager.Instance.TryGetDefinition(g, out PrefabDefinition pd) || pd == null) { bad++; continue; }
+                var ob = pd.Get();
+                // (the game's own query - the definition's mount groups turned by the builder's transform: identity here)
+                var per = Keen.Game2.Simulation.GameSystems.BlockPlacement.ComplexTopologyAggregator.GetMountPointsGroupsPerDirection(ob);
+                sb.Append(g).Append(' ').Append((pd.ToString() ?? "?").Replace(' ', '_')).Append(':');
+                foreach (var kv in per)
+                {
+                    sb.Append(' ').Append(kv.Key).Append('=').Append(kv.Value.Count);
+                    kv.Value.Dispose();
+                }
+                sb.Append((char)10);
+                n++;
+            }
+            catch (Exception e) { bad++; sb.Append(g).Append(" failed: ").Append(e.Message).Append((char)10); }
+        }
+        File.WriteAllText(Path.Combine(Dir, "mounts.txt"), sb.ToString());
+        return $"mounts: {n} prefabs, {bad} failed -> gen/mounts.txt";
     }
 
     /// <summary>Each prefab Guid in the file (first token of a line) as a lone static block, 30 m apart.</summary>

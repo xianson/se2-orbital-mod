@@ -239,7 +239,7 @@ public static class AsteroidFrames
         if (there != null)
         {
             sid = slot; berth = own;
-            if (!alloc.IsOccupied(slot)) alloc.Reserve(slot);
+            if (!alloc.IsOccupied(slot)) alloc.Reserve(slot);   // (a frame already sits there: kept even if refused - its grids are there)
             site = new EncounterFrames.Site { Sector = label, Host = b.Host, Home = home, World = berth, Label = label, Anchor = true };
             f = EncounterFrames.AdoptAsSite(site, there);
             Event($"ring rock {label}: frame #{there.Id} is on its berth (you loaded there): it is the rock's site again");
@@ -287,7 +287,7 @@ public static class AsteroidFrames
             foreach (var kv in VoxelBerthRegistry.PinnedCells) if ((kv.Value - c).Length() < 2 * alloc.SlotRadius) { clear = false; break; }
             if (clear) foreach (var f in SystemHost.Frames.Frames) if ((f.BerthCenter - c).Length() < alloc.SlotRadius) { clear = false; break; }
             if (!clear) continue;
-            alloc.Reserve(slot);
+            if (!alloc.Reserve(slot)) continue;   // (refused - inside a planet's frame: never a berth, never left unmarked)
             id = slot++; centre = c;
             return true;
         }

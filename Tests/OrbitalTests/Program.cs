@@ -54,6 +54,7 @@ namespace Orbital.Tests
             RendezvousHysteresis();
 
             BerthAllocatorPacking();
+            OrbitalMathEdges();
             BerthAllocatorForbidden();
             VoxelBerthDeterministicGrid();
             BodyWorldPosFrameRelative();
@@ -1018,6 +1019,21 @@ namespace Orbital.Tests
 
         /// <summary>Berths never inside a planet's frame: Allocate skips forbidden slots (whatever IsClear says), Reserve
         /// refuses them.</summary>
+        /// <summary>ToElements edge cases: a circular equatorial retrograde orbit round-trips (it came back mirrored); a
+        /// radial drop has no NaN inclination and a finite a.</summary>
+        private static void OrbitalMathEdges()
+        {
+            const double mu = 3.986e14, r = 7.0e6;
+            double vc = Math.Sqrt(mu / r);
+            var retro = new StateVector(new Vector3D(r * 0.6, r * 0.8, 0), new Vector3D(vc * 0.8, -vc * 0.6, 0));   // clockwise seen from +Z
+            var el = OrbitalMath.ToElements(retro, mu, 0);
+            var back = OrbitalMath.ToState(el);
+            Ok("orbital math: circular equatorial retrograde round-trips", (back.Position - retro.Position).Length() < 1.0 && (back.Velocity - retro.Velocity).Length() < 1e-3);
+            var drop = new StateVector(new Vector3D(r, 0, 0), new Vector3D(-100, 0, 0));
+            var ed = OrbitalMath.ToElements(drop, mu, 0);
+            Ok("orbital math: a radial drop has a finite a and inclination 0", !double.IsNaN(ed.Inclination) && ed.Inclination == 0 && !double.IsInfinity(ed.SemiMajorAxis) && ed.SemiMajorAxis > 0);
+        }
+
         private static void BerthAllocatorForbidden()
         {
             var keepClear = BerthAllocator.IsClear; var keepForbid = BerthAllocator.IsForbidden;

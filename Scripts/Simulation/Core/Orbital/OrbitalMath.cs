@@ -32,9 +32,12 @@ namespace SEAerospace.Orbital
             double e = eVec.Length();
 
             double energy = vMag * vMag / 2.0 - mu / rMag;
-            double a = Math.Abs(e - 1.0) > Eps ? -mu / (2.0 * energy) : double.PositiveInfinity;
+            // (a radial state - a drop from rest - has e = 1 but is no parabola: its a is the energy's, not infinite;
+            //  and no plane: inclination 0, not NaN from h.Z / 0)
+            bool radial = hMag < 1e-9 * Math.Max(1.0, rMag * vMag);
+            double a = radial ? -mu / (2.0 * energy) : Math.Abs(e - 1.0) > Eps ? -mu / (2.0 * energy) : double.PositiveInfinity;
 
-            double i = Math.Acos(Clamp(h.Z / hMag, -1.0, 1.0));
+            double i = radial ? 0.0 : Math.Acos(Clamp(h.Z / hMag, -1.0, 1.0));
 
             double raan;
             if (nMag > Eps) { raan = Math.Atan2(nVec.Y, nVec.X); if (raan < 0) raan += TwoPi; }
@@ -68,8 +71,10 @@ namespace SEAerospace.Orbital
             }
             else
             {
-                // circular equatorial: true longitude
+                // circular equatorial: true longitude (retrograde - i = pi - measured the other way round, as argp above:
+                //  it came back mirrored)
                 nu = Math.Atan2(r.Y, r.X); if (nu < 0) nu += TwoPi;
+                if (h.Z < 0) nu = TwoPi - nu;
             }
 
             return new KeplerianElements

@@ -519,7 +519,12 @@ public static class ServerFrames
         // A fresh frame that finds a rock (or a static grid it does not own) in its space landed in a dirty
         // slot (the world only streams content near someone, so nothing could see it when the slot was
         // handed out): it moves to a fresh slot, you and its ships with it; the dirty slot stays used.
-        if (!_born.ContainsKey(f.Id)) _born[f.Id] = Wall();
+        if (!_born.ContainsKey(f.Id))
+        {
+            _born[f.Id] = Wall();
+            // (one entry per frame id, for good: dissolved frames' entries dropped now and then)
+            if (_born.Count > 256) { var gone = new List<long>(); foreach (long k in _born.Keys) if (SystemHost.Frames.Get(k) == null) gone.Add(k); foreach (long k in gone) { _born.Remove(k); _dirtySince.Remove(k); } }
+        }
         // (Not an encounter's rock: an encounter spawns its rock with its grids, wherever you are; only a rock
         // seen for 5 s with no encounter grid near it is taken as left in the slot.)
         bool dirty = false;
@@ -864,7 +869,9 @@ public static class ServerFrames
     /// <summary>A grid left the scene: its per-grid state goes with it.</summary>
     internal static void Forget(long gridId)
     {
-        lock (FramesLock) { Holding.Remove(gridId); _gridHighSpeed.Remove(gridId); }
+        // (all per-grid state: _gridN, _trueRel and _settle outlived their grid - a stale _gridN rescaled a later joiner)
+        lock (FramesLock) { Holding.Remove(gridId); _gridHighSpeed.Remove(gridId); _gridN.Remove(gridId); _trueRel.Remove(gridId); _settle.Remove(gridId); }
+        lock (GridPositions) GridPositions.Remove(gridId);
         EncounterFrames.ForgetKind(gridId);
     }
 

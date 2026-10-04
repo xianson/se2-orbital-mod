@@ -96,7 +96,8 @@ public static class FrameHost
     public static string LastEvent = "";
     public static string Debug = "";
 
-    private static readonly Dictionary<Entity, long> _ids = new Dictionary<Entity, long>();
+    // (weak: a dead character - every respawn makes a new one - is not kept alive by its id)
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Entity, System.Runtime.CompilerServices.StrongBox<long>> _ids = new System.Runtime.CompilerServices.ConditionalWeakTable<Entity, System.Runtime.CompilerServices.StrongBox<long>>();
     private static long _nextId = 1;
     private static bool _wasInKeep;
 
@@ -985,7 +986,9 @@ public static class FrameHost
 
     private static long IdOf(Entity e)
     {
-        if (!_ids.TryGetValue(e, out long id)) { id = _nextId++; _ids[e] = id; }
+        if (_ids.TryGetValue(e, out var box)) return box.Value;
+        long id = _nextId++;
+        _ids.Add(e, new System.Runtime.CompilerServices.StrongBox<long>(id));
         return id;
     }
 

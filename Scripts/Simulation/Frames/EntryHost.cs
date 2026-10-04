@@ -110,44 +110,55 @@ public static class EntryHost
     static System.Reflection.MethodInfo _aeroPredict, _aeroRequestTable;
     static readonly Dictionary<long, (double beta, double wall)> _beta = new Dictionary<long, (double, double)>();
     /// <summary>Seconds (wall) a frame's ballistic coefficient is kept before it is measured again.</summary>
-    public const double BetaRefresh = 10;
+    public const double BetaRefresh = 30;
     /// <summary>Diagnostics: whether the last ballistic coefficient came from aero's force table (false: the default).</summary>
     public static bool LastBetaMeasured;
 
-    /// <summary>A frame's ballistic coefficient (kg/m2: its grids' mass over their drag area, Cd x A, for the air
-    /// coming from where it is going now - its grids' attitude as they are). The drag area from the aero mod's force
-    /// table (PredictHullForces); without it - no aero mod, or no table yet - Reentry.DefaultBeta. Kept for
-    /// BetaRefresh seconds.</summary>
+    /// <summary>The directions (grid frame) the drag area is averaged over: the 6 axes and the 8 diagonals.</summary>
+    static readonly Vector3[] BetaDirs = BuildBetaDirs();
+    static Vector3[] BuildBetaDirs()
+    {
+        var d = new List<Vector3> { Vector3.UnitX, -Vector3.UnitX, Vector3.UnitY, -Vector3.UnitY, Vector3.UnitZ, -Vector3.UnitZ };
+        for (int x = -1; x <= 1; x += 2) for (int y = -1; y <= 1; y += 2) for (int z = -1; z <= 1; z += 2) d.Add(Vector3.Normalize(new Vector3(x, y, z)));
+        return d.ToArray();
+    }
+
+    /// <summary>A frame's ballistic coefficient (kg/m2: its grids' mass over their drag area, Cd x A). ORIENTATION-FREE:
+    /// the drag area is the mean over 14 directions (axes and diagonals) of the aero mod's force table
+    /// (PredictHullForces) - a railed ship has no attitude the braking should depend on, and a prediction must not change
+    /// when the player turns (or be gamed by pointing the slim end forward). It changes only with the ship's shape and
+    /// mass. Without aero, or no table yet: Reentry.DefaultBeta (a table is asked for and it is measured again in ~1 s).
+    /// Kept for BetaRefresh seconds. (airWorld: unused - kept for the callers.)</summary>
     public static double BetaOf(ProximityFrame f, Vector3D airWorld)
     {
         if (f == null) return Reentry.DefaultBeta;
         double wall = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
         lock (_beta) if (_beta.TryGetValue(f.Id, out var c) && wall - c.wall < BetaRefresh) return c.beta;
         double mass = 0, area = 0; bool measured = false, asked = false;
-        double va = airWorld.Length();
         foreach (long id in f.Members)
         {
             if (!GridMembers.IsGridId(id) || !(GridMembers.Get(id) is OrbitalGridComponent g) || g.Entity == null) continue;
             mass += GridMembers.Mass(g);
-            if (_aeroPredict == null || !(va > 1)) continue;
+            if (_aeroPredict == null) continue;
             try
             {
-                // (the air in the grid's frame: unit dynamic pressure at Mach ~3 - the band's speeds)
-                var q = g.Entity.Data.GetWorldTransform().Orientation;
-                Vector3D dl = Vector3D.Transform(-airWorld / va, Quaternion.Inverse(q));
+                // (unit dynamic pressure at Mach ~3 - the band's speeds - from each direction, in the grid's own frame)
                 const float v = 1000f, rho = 1f;
-                var args = new object[] { g.Entity, new Vector3((float)dl.X, (float)dl.Y, (float)dl.Z) * v, rho, 330f, null, null, null };
-                if (!(bool)_aeroPredict.Invoke(null, args))
+                double sum = 0; int n = 0;
+                foreach (var dir in BetaDirs)
                 {
-                    // (no table yet - a grid on rails in space has had no air to build one: ask, measure again soon)
-                    if (_aeroRequestTable != null) { _aeroRequestTable.Invoke(null, new object[] { g.Entity }); asked = true; }
+                    var args = new object[] { g.Entity, dir * v, rho, 330f, null, null, null };
+                    if (!(bool)_aeroPredict.Invoke(null, args))
+                    {
+                        // (no table yet - a grid on rails in space has had no air to build one: ask, measure again soon)
+                        if (_aeroRequestTable != null) { _aeroRequestTable.Invoke(null, new object[] { g.Entity }); asked = true; }
+                        break;
+                    }
+                    double drag = -Vector3.Dot((Vector3)args[4], dir);   // (along the travel: opposing it)
+                    if (drag > 0) sum += drag / (0.5 * rho * v * v);
+                    n++;
                 }
-                else
-                {
-                    var fl = (Vector3)args[4];
-                    double drag = -Vector3.Dot(fl, new Vector3((float)dl.X, (float)dl.Y, (float)dl.Z));   // (along the travel: opposing it)
-                    if (drag > 0) { area += drag / (0.5 * rho * v * v); measured = true; }
-                }
+                if (n == BetaDirs.Length) { area += sum / n; measured = true; }
             }
             catch { }
         }

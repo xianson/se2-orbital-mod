@@ -185,13 +185,32 @@ namespace SEAerospace.Orbital
             if (double.IsNaN(M) || double.IsInfinity(M)) return double.NaN;
             M = Wrap2PiSigned(M);
             double E = M + e * Math.Sin(M); // good initial guess
+            bool done = false;
             for (int k = 0; k < NewtonMax; k++)
             {
                 double f = E - e * Math.Sin(E) - M;
                 double fp = 1.0 - e * Math.Cos(E);
                 double dE = f / fp;
                 E -= dE;
-                if (Math.Abs(dE) < NewtonTol) break;
+                if (Math.Abs(dE) < NewtonTol) { done = true; break; }
+            }
+            if (done && Math.Abs(E) <= Math.PI + 1e-9) return E;
+            // NEAR-RADIAL FIX: from that seed Newton diverges for e >~ 0.995 near periapsis (fp ~ 1 - e) and ended on a
+            // finite garbage E (~1e8) - a wrong point on the ellipse no NaN guard caught. Seeded at +-pi Newton converges
+            // for every e < 1 (Danby); bisection on [-pi, pi] (f increasing in E) if even that fails. Converging cases
+            // above are unchanged.
+            E = M >= 0 ? Math.PI : -Math.PI;
+            for (int k = 0; k < NewtonMax; k++)
+            {
+                double dE = (E - e * Math.Sin(E) - M) / (1.0 - e * Math.Cos(E));
+                E -= dE;
+                if (Math.Abs(dE) < NewtonTol) return E;
+            }
+            double lo = -Math.PI, hi = Math.PI;
+            for (int k = 0; k < 200; k++)
+            {
+                E = 0.5 * (lo + hi);
+                if (E - e * Math.Sin(E) - M > 0) hi = E; else lo = E;
             }
             return E;
         }
@@ -242,8 +261,9 @@ namespace SEAerospace.Orbital
                 // Safeguard: a Newton step outside the live bracket (the near-parabolic flat
                 // region around H=0 has fp -> e-1 -> 0) bisects instead.
                 if (!(Hn > lo && Hn < hi)) { Hn = 0.5 * (lo + hi); dH = Hn - H; }
+                // (a step below one rounding unit - |M| beyond ~1e8 - stalls at H: done, not a bisection to garbage)
+                if (Math.Abs(dH) < NewtonTol || Hn == H) { H = Hn; break; }
                 H = Hn;
-                if (Math.Abs(dH) < NewtonTol) break;
             }
             return sgn * H;
         }

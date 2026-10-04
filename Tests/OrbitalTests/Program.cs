@@ -1031,6 +1031,17 @@ namespace Orbital.Tests
             Ok("orbital math: circular equatorial retrograde round-trips", (back.Position - retro.Position).Length() < 1.0 && (back.Velocity - retro.Velocity).Length() < 1e-3);
             var drop = new StateVector(new Vector3D(r, 0, 0), new Vector3D(-100, 0, 0));
             var ed = OrbitalMath.ToElements(drop, mu, 0);
+            int bad = 0;
+            foreach (double ecc in new[] { 0.9, 0.99, 0.995, 0.999, 1 - 1e-6, 1 - 1e-9 })
+                for (int k = -2000; k <= 2000; k++)
+                {
+                    double M = k * Math.PI / 2000;
+                    double E = OrbitalMath.SolveKeplerElliptic(M, ecc);
+                    if (!(Math.Abs(E - ecc * Math.Sin(E) - M) < 1e-9) || Math.Abs(E) > Math.PI + 1e-9) bad++;
+                }
+            Ok($"orbital math: Kepler converges near-radial (e to 1-1e-9; {bad} bad)", bad == 0);
+            double Hb = OrbitalMath.SolveKeplerHyperbolic(1e10, 1.5);
+            Ok("orbital math: hyperbolic Kepler at huge M", Math.Abs((1.5 * Math.Sinh(Hb) - Hb - 1e10) / 1e10) < 1e-9);
             Ok("orbital math: a radial drop has a finite a and inclination 0", !double.IsNaN(ed.Inclination) && ed.Inclination == 0 && !double.IsInfinity(ed.SemiMajorAxis) && ed.SemiMajorAxis > 0);
         }
 

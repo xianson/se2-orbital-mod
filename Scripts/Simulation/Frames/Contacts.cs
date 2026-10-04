@@ -20,6 +20,7 @@ namespace OrbitalMod;
 /// </summary>
 public static class Contacts
 {
+    private static double _lastWatchT = double.NaN;
     public static bool Enabled = true;
     public static string Status = "";
     /// <summary>Your own eyes (and the cockpit's): everything within this, in line of sight (m).</summary>
@@ -143,6 +144,10 @@ public static class Contacts
         // Watching: what is seen and not yet tracked is watched (the telescope's lidar on your target speeds it).
         string target = Maneuvers.Target;
         bool lidar = false;
+        // (watching time is the sim's: none while paused, faster under warp - it was a fixed 0.5 s of wall time per tick;
+        //  capped so one clock jump does not track everything at once)
+        double simNow = SystemHost.Now, watchDt = double.IsNaN(_lastWatchT) ? TickSeconds : Math.Max(0, Math.Min(60, simNow - _lastWatchT));
+        _lastWatchT = simNow;
         var newlyTracked = new List<string>();
         void Watch(string key, string name, SensorModel.Kind k)
         {
@@ -152,7 +157,7 @@ public static class Contacts
             {
                 _dwell.TryGetValue(key, out double d0);
                 if (d0 >= Tracking.PassiveSeconds) return;
-                double d1 = Tracking.Watch(d0, k, targeted, TickSeconds);
+                double d1 = Tracking.Watch(d0, k, targeted, watchDt);
                 _dwell[key] = d1;
                 if (d1 >= Tracking.PassiveSeconds) { newlyTracked.Add(name); Version++; }
             }

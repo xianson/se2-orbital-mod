@@ -136,9 +136,12 @@ public static class ServerFrames
     public static void Tick(Keen.VRage.Core.Game.Systems.Session session)
     {
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
-        double dt = (now - _lastTickStamp) / (double)System.Diagnostics.Stopwatch.Frequency;
-        if (_lastTickStamp != 0 && dt < 0.004) return; // once per frame
-        _lastTickStamp = now;
+        // once per frame - claimed atomically: the planet beacons' jobs call this in parallel, and two could both pass a
+        // plain check and run the whole frame step twice
+        long last = System.Threading.Interlocked.Read(ref _lastTickStamp);
+        double dt = (now - last) / (double)System.Diagnostics.Stopwatch.Frequency;
+        if (last != 0 && dt < 0.004) return;
+        if (System.Threading.Interlocked.CompareExchange(ref _lastTickStamp, now, last) != last) return;
         TickRate.Server.Count();
         if (!OrbitalSettings.SawServer) OrbitalSettings.SawServer = true;
         OrbitalSettings.Poll();   // (the settings files, every ~2 s)

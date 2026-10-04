@@ -25,11 +25,16 @@ public static class DelfosHeat
     public static string Status = "-";
     private static KillingFieldComponentDefinition _def;
     private static bool _tried;
+    private static long _nextLook;
 
     /// <summary>The game's field definition, cloned with our radii (found on the game's own field entity).</summary>
     static KillingFieldComponentDefinition Def(Keen.VRage.Core.Game.Systems.Session session)
     {
         if (_def != null || session == null) return _def;
+        // (no killing field in this world: looked for again every 5 s, not every frame on two threads)
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        if (now < _nextLook) return null;
+        _nextLook = now + 5 * System.Diagnostics.Stopwatch.Frequency;
         try
         {
             foreach (var e in session.GetEntitiesOfType<KillingFieldComponent>())
@@ -48,7 +53,9 @@ public static class DelfosHeat
                 // inside. Ours ramps: ~1/s at the damage edge (a couple of minutes), ~90/s at full (a second).
                 SetF(clone, "MinDamage", MinDamage);
                 SetF(clone, "MaxDamage", MaxDamage);
-                _def = clone;
+                // (the client and server threads both get here: the first clone wins for both - a second replacing it made
+                //  Remove's "only ours" check fail, and the heat stayed on the character)
+                System.Threading.Interlocked.CompareExchange(ref _def, clone, null);
                 Status = $"heat: field from the game's ({baseDef.Radius / 1000:F0} km) -> ours warn {clone.Radius / 1000:F0} km, damage {clone.DamageRadius / 1000:F0} km, full {clone.MaxDamageRadius / 1000:F0} km (from Delfos's centre)";
                 return _def;
             }

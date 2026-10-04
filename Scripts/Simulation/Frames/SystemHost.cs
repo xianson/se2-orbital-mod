@@ -165,13 +165,16 @@ public static class SystemHost
             ClockSource = "wall";
         }
         if (dt > 0.25) dt = 0.25; // a stall must not throw rails forward
-        double next = Now + dt * Timescale;
+        // (read once: the server's LimitWarp writes it in parallel - dropped to x1 between two reads, a 2,500 s step
+        //  went unchecked)
+        double scale = Timescale;
+        double next = Now + dt * scale;
         // Warp policy: the clock never steps past an arrival. Stop exactly at the earliest inbound
         // shell crossing and drop to x1, so the arrival checks (client and server, whatever their
         // tick rate) see the crossing instead of jumping over it.
         // Warp stops: every candidate in this step, and the EARLIEST wins (checked in turn, the first to fire dropped warp
         // and gated the rest: at x1000 a shell crossing at +10 s skipped a burn's lead at +5 s).
-        if (Timescale > 1.0)
+        if (scale > 1.0)
         {
             double stopAt = double.PositiveInfinity, landAt = double.NaN; string why = null, say = null; bool clearAsked = false;
             void Cand(double at, double land, string w, string s2, bool asked = false)
@@ -200,12 +203,27 @@ public static class SystemHost
                 double ts = double.NaN;
                 try { ts = Maneuvers.NextSoiChange(Now); }
                 catch (Exception ex) { FrameHost.Fault("warp SOI stop", ex); }
-                if (!double.IsNaN(ts)) Cand(ts, ts + 1.0, $"at a sphere-of-influence change (t={ts:F1})", "Warp stopped: sphere of influence change");
+                if (!double.IsNaN(ts)) Cand(ts, Math.Min(ts + 1.0, next), $"at a sphere-of-influence change (t={ts:F1})", "Warp stopped: sphere of influence change");
+            }
+            // the star: an orbit about it reaching its heat (a step at x10000 crossed its whole body)
+            var pf = FrameHost.PlayerFrame;
+            KeplerianElements sel = default; bool aboutStar = false;
+            if (pf != null && Registry?.Root != null)
+                lock (ServerFrames.FramesLock) { aboutStar = pf.ParentBodyName == Registry.Root.Name; sel = pf.Elements; }
+            if (aboutStar && sel.PeriapsisRadius < StarRadius + DelfosHeat.WarnAbove)
+            {
+                var cur = OrbitPropagation.StateAt(sel, Now);
+                if (cur.Position.Length() > StarRadius + DelfosHeat.WarnAbove
+                    && OrbitPropagation.TryTimeToRadius(sel, StarRadius + DelfosHeat.WarnAbove, out _, out double tInRel))
+                {
+                    double tc = FrameHost.NextInboundCrossingPublic(sel, tInRel, Now);
+                    if (tc > Now) Cand(tc, tc, $"ahead of {CleanMap.StarName}'s heat (t={tc:F1})", $"Warp stopped: {CleanMap.StarName} ahead");
+                }
             }
             if (why != null)
             {
                 next = Math.Max(Now, landAt);
-                Log.Default?.Info($"[ORBIT-FRAME] warp x{Timescale} -> x1 {why}");
+                Log.Default?.Info($"[ORBIT-FRAME] warp x{scale} -> x1 {why}");
                 Timescale = 1.0;
                 if (say != null) WarpControl.Say(say);
                 if (clearAsked) WarpStopAt = double.NaN;

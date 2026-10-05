@@ -256,6 +256,8 @@ public static class OrbitHud
             if (tgt != null) sb.Append((sb.Length > 0 ? "\n" : "") + tgt);
             string ring = Maneuvers.RingLine(SystemHost.Now);
             if (ring != null) sb.Append((sb.Length > 0 ? "\n" : "") + ring);
+            string hold = AttitudeHold.HudLine();   // (the attitude hold, while on)
+            if (hold != null) sb.Append((sb.Length > 0 ? "\n" : "") + hold);
             string entry = EntryHost.CardLine(SystemHost.Now);   // (reentry: the next pass, or the braking now)
             if (entry != null) sb.Append((sb.Length > 0 ? "\n" : "") + entry);
             string loud = Contacts.LoudLine();   // (transmitting gives you away: say so, and how far)

@@ -109,7 +109,7 @@ public static class MapView
     {
         if (map == null) return;
         // (a new session: the last one's failures and pending toggle do not count)
-        if (!ReferenceEquals(session, _sceneSession)) { _sceneSession = session; _sceneFailures = 0; _togglePending = false; _hidVisuals = false; _noticeBlanked = false; _blankTries = 0; }
+        if (!ReferenceEquals(session, _sceneSession)) { _sceneSession = session; _sceneFailures = 0; _togglePending = false; _hidVisuals = false; _noticeBlanked = false; _blankTries = 0; _backdropHold = null; _backdropRect = null; _backdropWarned = false; }
         // (a posted toggle that never ran must not block the next for good)
         if (_togglePending && System.Diagnostics.Stopwatch.GetTimestamp() - _toggleAt > 3 * System.Diagnostics.Stopwatch.Frequency) _togglePending = false;
         SectorsSessionComponent sec = null;
@@ -183,6 +183,7 @@ public static class MapView
                     map.ToggleMap();
                 }
                 _sceneOurs = show;
+                Backdrop(show);
             }
             catch (Exception e)
             {
@@ -192,11 +193,84 @@ public static class MapView
                 //  map mode with the game thinking the map closed. Mark it visible and hide it - its own restore path)
                 if (show) Recover(map);
                 _sceneOurs = false;
+                Backdrop(false);
             }
             finally { _togglePending = false; }
         });
         try { _uiPost.Invoke(_uiDispatcher, args); }
         catch (Exception e) { _togglePending = false; _uiPost = null; Status = "map scene post failed: " + e.Message; }
+    }
+
+    // ── the terminal's backdrop ──
+    // The terminal draws a full-screen dark rectangle (TerminalScreen.PART_ItemDropArea, the UI background opacity) and
+    // hides it only on the Map tab WITH a colonization map (IsVisible = !IsMapTabSelected || !ColonizationMapAvailable).
+    // A sectorless world has none, so it stayed over this map and greyed it all out. Hidden while the map is ours at
+    // Avalonia's Animation priority - above the game's binding, which stays and takes over again when the handle is
+    // disposed (map closed, tab left). VRage.UI and Avalonia by reflection (scripts cannot reference them); UI thread.
+    static IDisposable _backdropHold;
+    static object _backdropRect, _isVisibleProp, _animPriority; static System.Reflection.MethodInfo _setValue;
+    static bool _backdropWarned;
+    static void Backdrop(bool hide)
+    {
+        try
+        {
+            if (!hide) { _backdropHold?.Dispose(); _backdropHold = null; return; }
+            if (_backdropHold != null) return;
+            var rect = FindBackdrop();
+            if (rect == null) return;
+            if (_setValue == null)
+            {
+                Type visual = null, prio = null;
+                foreach (var a in AppDomain.CurrentDomain.GetAssemblies())
+                    if (a.GetName().Name == "Avalonia.Base") { visual = a.GetType("Avalonia.Visual"); prio = a.GetType("Avalonia.Data.BindingPriority"); break; }
+                _isVisibleProp = visual?.GetField("IsVisibleProperty", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)?.GetValue(null);
+                _animPriority = prio != null ? Enum.Parse(prio, "Animation") : null;
+                for (var t = rect.GetType(); t != null && _setValue == null; t = t.BaseType)
+                    foreach (var m in t.GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.DeclaredOnly))
+                    {
+                        var ps = m.GetParameters();
+                        if (m.Name == "SetValue" && !m.IsGenericMethod && ps.Length == 3 && ps[2].ParameterType == prio && ps[1].ParameterType == typeof(object)) { _setValue = m; break; }
+                    }
+                if (_isVisibleProp == null || _animPriority == null || _setValue == null) { WarnBackdrop("Avalonia's SetValue/IsVisibleProperty/BindingPriority not found"); return; }
+            }
+            _backdropHold = _setValue.Invoke(rect, new[] { _isVisibleProp, (object)false, _animPriority }) as IDisposable;
+        }
+        catch (Exception e) { WarnBackdrop((e.InnerException ?? e).Message); }
+    }
+
+    /// <summary>The live terminal's backdrop rectangle: UIEngineComponent -> ScreenManager -> its cached / loaded screens ->
+    /// the TerminalScreen -> PART_ItemDropArea. Null (warned once) when the path is not there.</summary>
+    static object FindBackdrop()
+    {
+        if (_backdropRect != null) return _backdropRect;
+        var session = _sceneSession;
+        if (session == null) return null;
+        Type ui = null;
+        foreach (var a in AppDomain.CurrentDomain.GetAssemblies()) { ui = a.GetType("Keen.VRage.UI.EngineComponents.UIEngineComponent"); if (ui != null) break; }
+        if (ui == null) { WarnBackdrop("no UIEngineComponent"); return null; }
+        System.Reflection.MethodInfo get = null;
+        foreach (var m in session.GetType().GetMethods())
+            if (m.Name == "Get" && m.IsGenericMethodDefinition && m.GetParameters().Length == 0 && m.GetGenericArguments().Length == 1) { get = m; break; }
+        var engine = get?.MakeGenericMethod(ui).Invoke(session, null);
+        var sm = engine?.GetType().GetProperty("ScreenManager")?.GetValue(engine);
+        if (sm == null) { WarnBackdrop("no ScreenManager"); return null; }
+        const System.Reflection.BindingFlags F = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        object terminal = null;
+        if (sm.GetType().GetField("_cachedScreens", F)?.GetValue(sm) is System.Collections.IDictionary cached)
+            foreach (var v in cached.Values) if (v?.GetType().Name == "TerminalScreen") { terminal = v; break; }
+        if (terminal == null && sm.GetType().GetField("_loadedScreens", F)?.GetValue(sm) is System.Collections.IEnumerable loaded)
+            foreach (var v in loaded) if (v?.GetType().Name == "TerminalScreen") { terminal = v; break; }
+        if (terminal == null) { WarnBackdrop("no TerminalScreen among the screens"); return null; }
+        _backdropRect = terminal.GetType().GetField("PART_ItemDropArea", F | System.Reflection.BindingFlags.Public)?.GetValue(terminal);
+        if (_backdropRect == null) WarnBackdrop("TerminalScreen has no PART_ItemDropArea");
+        return _backdropRect;
+    }
+
+    static void WarnBackdrop(string why)
+    {
+        if (_backdropWarned) return;
+        _backdropWarned = true;
+        Log.Default?.Warning("[ORBIT] sectorless map: the terminal's backdrop not hidden (the map stays dimmed): " + why);
     }
 
     static System.Reflection.FieldInfo _discField;

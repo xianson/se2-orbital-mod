@@ -174,6 +174,8 @@ public static class FrameHost
             Vector3D pos = ch.Data.GetWorldTransform().Position;
             _lastPos = pos; _lastVel = OrbitDisplay.MeasuredVelocity;
             lock (ServerFrames.FramesLock) PlayerFrame = SeatedFrame(pos);
+            // (seated, the grid carries the player: a frame's arrival request for the player is not for a seated one)
+            if (_pendingArrival != null) { _pendingArrival = null; Event("player arrival request dropped: seated (the ship carries you)"); }
         }
 
         PublishObserver(camera.Position, reg, t);
@@ -194,7 +196,9 @@ public static class FrameHost
         var ta = new TickArgs(session, camera, t);
         Guard("MapInput.Poll", static a => MapInput.Poll(), ta);
         Guard("DevFlight.ClientTick", static a => DevFlight.ClientTick(a.Session), ta);
+        Guard("ApplyTargetTurns", static a => ApplyTargetTurns(a.Session), ta);
         Guard("DevTurn.ClientTick", static a => DevTurn.ClientTick(a.Session), ta);
+        Guard("AttitudeHold.ClientTick", static a => AttitudeHold.ClientTick(a.Session), ta);
         WarpControl.Session = session;
         Guard("WarpControl.Tick", static a => WarpControl.Tick(), ta);
         Guard("MapView.Tick", static a => MapView.Tick(a.Session, a.Camera, a.T), ta);
@@ -281,6 +285,7 @@ public static class FrameHost
         _wasInKeep = false;
         ServerFrames.Attach.Enqueue(new ServerFrames.AttachRequest { FrameId = frame.Id, RefPos = pos, RefVel = vel, Berth = frame.BerthCenter, Body = legacy ? null : body, Time = t });
         StartTeleport(session, frame.BerthCenter, Vector3D.Zero, t);
+        // (the ships the server turns with the chart: their pilots' targets turn with them - ServerFrames.TargetTurns)
         Event($"STOW -> frame #{frame.Id} orbiting {parent.Name}: r={(cel - porg.Position).Length() / 1000:F1} km " +
               $"|v|={vel.Length():F1} m/s a={el.SemiMajorAxis / 1000:F1} km e={el.Eccentricity:F3} slot={frame.BerthSlotId} berth={ServerPlanetBeacon.Fmt(frame.BerthCenter)}");
     }
@@ -820,6 +825,7 @@ public static class FrameHost
     private sealed class ArrivalRequest
     {
         public string Body; public Vector3D Target; public Vector3D AnchorPos; public Vector3D CelPos; public Vector3D CelVel; public double Epoch;
+        public long Wall;   // (when it was made: requests over 3 s old are dropped)
     }
     private static ArrivalRequest _pendingArrival;
 
@@ -849,7 +855,8 @@ public static class FrameHost
     {
         var f = SystemHost.Frames?.FindByMember(_playerId);
         if (f == null || f.Id != frameId) return;
-        _pendingArrival = new ArrivalRequest { Body = body, Target = target, AnchorPos = anchorPos, CelPos = celPos, CelVel = celVel, Epoch = epoch };
+        _pendingArrival = new ArrivalRequest { Body = body, Target = target, AnchorPos = anchorPos, CelPos = celPos, CelVel = celVel, Epoch = epoch,
+                                               Wall = System.Diagnostics.Stopwatch.GetTimestamp() };
     }
 
     /// <summary>Returns true when this tick was consumed by a server-requested move.</summary>
@@ -859,6 +866,10 @@ public static class FrameHost
         {
             var a = _pendingArrival;
             _pendingArrival = null;
+            // (stale: applied only on foot, a request made while seated waited - the ship carried the player down - and fired
+            //  minutes later when the cockpit was destroyed, teleporting the player to where the frame had arrived)
+            if ((System.Diagnostics.Stopwatch.GetTimestamp() - a.Wall) > 3 * System.Diagnostics.Stopwatch.Frequency)
+            { Event("player arrival request dropped: stale"); return false; }
             _pendingShift = Vector3D.Zero;
             Vector3D off = pos - a.AnchorPos;              // berth offset (inertial window axes)
             Vector3D relPos = a.CelPos + off;
@@ -875,6 +886,7 @@ public static class FrameHost
             PlayerFrame = null;
             _wasInKeep = true;
             StartTeleport(session, arriveAt, hs ? Vector3D.Zero : chartVel, t);
+            // (the grids the server turned into the chart: their cockpits' targets with them - ServerFrames.TargetTurns)
             Event($"player arrives with its grid frame at {a.Body}{(hs ? " (HighSpeed)" : "")}");
             return true;
         }
@@ -982,6 +994,36 @@ public static class FrameHost
 
     /// <summary>True when the local character sits in a seat.</summary>
     public static bool Seated;
+
+    /// <summary>A crossing between a planet's rotating chart and the inertial frames turns the grids (ServerFrames.MoveGrid);
+    /// the cockpit's target orientation - what the pilot steers to, held on the client's copy - must turn with them, or
+    /// the gyros swing the ship back toward the old one and the controls fight it. Every piloted grid within 300 m.</summary>
+    /// <summary>Client: the turns the server gave piloted grids (ServerFrames.TargetTurns) - each one's cockpit target turned
+    /// with it, once: the piloted client grid nearest where that grid was or now is (within 300 m).</summary>
+    private static void ApplyTargetTurns(Keen.VRage.Core.Game.Systems.Session session)
+    {
+        while (ServerFrames.TargetTurns.TryDequeue(out var turn))
+        {
+            if (turn.rot == Quaternion.Identity) continue;
+            try
+            {
+                Entity best = null; double bd = 300;
+                foreach (var e in session.GetEntitiesOfType<Keen.Game2.Simulation.WorldObjects.CubeGrids.CubeGridComponent>())
+                {
+                    if (!e.Data.Has<Keen.Game2.Simulation.WorldObjects.Movement.TargetControlData>()) continue;
+                    var p = e.Data.GetWorldTransform().Position;
+                    double d = Math.Min((p - turn.from).Length(), (p - turn.to).Length());
+                    if (d < bd) { bd = d; best = e; }
+                }
+                if (best == null) { Event("cockpit target turn: no piloted grid near (client)"); continue; }
+                var tcd = best.Data.Get<Keen.Game2.Simulation.WorldObjects.Movement.TargetControlData>();
+                tcd.TargetOrientation = Quaternion.Normalize(turn.rot * tcd.TargetOrientation);
+                best.Data.Set(tcd);
+                Event($"cockpit target turned with its grid ({2 * Math.Acos(Math.Min(1.0, Math.Abs((double)turn.rot.W))) * 180 / Math.PI:F1} deg)");
+            }
+            catch (Exception ex) { Event("cockpit target turn failed: " + ex.Message); }
+        }
+    }
 
     private static bool IsSeated(Entity ch) => ch.Data.TryGet<Keen.VRage.Core.Game.Components.EntityParentData>(out _);
 

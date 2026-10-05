@@ -150,8 +150,20 @@ public static partial class CleanMap
                                               : new MapMenu.Item("Set as target", () => Maneuvers.Target = sec));
             if (hasNodes) items.Add(new MapMenu.Item("Remove all maneuvers", Maneuvers.ClearAll));
         }
-        else if (hasNodes)
-            items.Add(new MapMenu.Item("Remove all maneuvers", Maneuvers.ClearAll));
+        else
+        {
+            // Empty space: the attitude hold (as KSP's SAS buttons), while seated
+            if (FrameHost.Seated)
+            {
+                title = "Attitude hold";
+                foreach (AttitudeHold.Mode m in Enum.GetValues(typeof(AttitudeHold.Mode)))
+                {
+                    var mm = m;
+                    items.Add(new MapMenu.Item((AttitudeHold.Current == mm ? "• " : "") + (mm == AttitudeHold.Mode.Off ? "Hold off" : "Hold " + AttitudeHold.Label(mm)), () => AttitudeHold.Set(mm)));
+                }
+            }
+            if (hasNodes) items.Add(new MapMenu.Item("Remove all maneuvers", Maneuvers.ClearAll));
+        }
         if (items.Count > 0) { MapMenu.Show(Mouse + new Vector2(4f * u, 4f * u), title, items); Maneuvers.ClaimsMouse = true; }
     }
     /// <summary>The mouse (screen px) for this frame's editors.</summary>

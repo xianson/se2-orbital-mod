@@ -283,7 +283,7 @@ public static class GridGen
     static bool _apiLooked;
 
     /// <summary>The grid's aero, from the aerodynamics mod's API (AeroMod.AeroApi, by reflection: the mods compile apart).</summary>
-    static string AeroReadout(Entity e)
+    internal static string AeroReadout(Entity e)
     {
         if (e == null) return "no grid";
         if (!_apiLooked)

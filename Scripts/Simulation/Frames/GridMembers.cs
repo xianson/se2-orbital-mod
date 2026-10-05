@@ -216,6 +216,20 @@ public static class GridMembers
     /// <summary>Writes refused for a non-finite value (a sign of bad orbital state upstream).</summary>
     public static int NaNRefused;
 
+    /// <summary>Turns an entity in place by a rotation: its orientation and its spin.</summary>
+    public static void Rotate(Entity e, Quaternion rot)
+    {
+        if (e == null) return;
+        try
+        {
+            var wt = e.Data.GetWorldTransform();
+            e.Data.SetWorldTransform(new WorldTransform(wt.Position, Quaternion.Normalize(rot * wt.Orientation)));
+            ref var rb = ref e.Data.TryGetWritePtr<Keen.VRage.Physics.Data.RigidBodyData>();
+            if (!System.Runtime.CompilerServices.Unsafe.IsNullRef(in rb)) rb.AngularVelocity = Vector3.Transform(rb.AngularVelocity, rot);
+        }
+        catch { }
+    }
+
     public static bool SetPosition(OrbitalGridComponent g, Vector3D p)
     {
         if (!Finite(p)) { NaNRefused++; return false; }

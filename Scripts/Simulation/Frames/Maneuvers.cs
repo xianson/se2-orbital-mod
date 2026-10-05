@@ -99,7 +99,7 @@ public static class Maneuvers
 
     // ───────────────────────────── trajectory ─────────────────────────────
 
-    public struct Leg { public GravityBody Body; public KeplerianElements El; public double T0, T1; public bool Planned; }
+    public struct Leg { public GravityBody Body; public KeplerianElements El; public double T0, T1; public bool Planned; public bool Impact; }   // (Impact: T1 is where it meets the surface - CutAtImpact)
     public struct Applied { public Node Node; public GravityBody Body; public StateVector Before; public Vector3D Dv; public KeplerianElements After; }
 
     /// <summary>The player's orbit now: the rails frame's, or the local orbit in a planet cell.</summary>
@@ -169,7 +169,7 @@ public static class Maneuvers
                 prev = tk;
             }
             if (double.IsNaN(hit)) continue;
-            l.T1 = hit; legs[i] = l;
+            l.T1 = hit; l.Impact = true; legs[i] = l;
             legs.RemoveRange(i + 1, legs.Count - i - 1);
             applied?.RemoveAll(a => a.Node != null && a.Node.T > hit);   // nothing is flown after the impact
             return;
@@ -527,23 +527,12 @@ public static class Maneuvers
 
         // Impact: where a leg dips inside its body (KSP marks it). A red cross and 'Impact', on the
         // first such point of the whole path.
+        // (the impact CutAtImpact found and cut the leg at: re-searching the cut leg found its own end point, exactly on
+        //  the surface, below it or not by rounding - the tag flashed on and off every frame)
         foreach (var l in legs)
         {
-            double R = SystemHost.Registry?.FindDefinition(l.Body.Name)?.RadiusMeters ?? 0;
-            if (!(R > 0) || !(l.El.PeriapsisRadius < R) || !(l.T1 > l.T0)) continue;
-            double span = l.T1 - l.T0, prev = l.T0, hitT = double.NaN;
-            for (int k = 1; k <= 240; k++)
-            {
-                double tk = l.T0 + span * k / 240;
-                if (OrbitPropagation.StateAt(l.El, tk).Position.Length() < R)
-                {
-                    double a = prev, b = tk;
-                    for (int q = 0; q < 30; q++) { double m = 0.5 * (a + b); if (OrbitPropagation.StateAt(l.El, m).Position.Length() < R) b = m; else a = m; }
-                    hitT = 0.5 * (a + b); break;
-                }
-                prev = tk;
-            }
-            if (double.IsNaN(hitT)) continue;
+            if (!l.Impact || !(l.T1 > l.T0)) continue;
+            double hitT = l.T1;
             if (Live(l.Body) && MapPipeline.ToScreen(W(LegLoc(l, hitT)), out var hs) && InMapArea(hs))
             {
                 float r = 6f * u;

@@ -370,6 +370,40 @@ public static class DevHarness
             case "gridspin":   // gridspin <id> <wx> <wy> <wz>: set a grid's angular velocity (rad/s, world)
                 return DevStress.Spin((long)D(a[1]), new Vector3((float)D(a[2]), (float)D(a[3]), (float)D(a[4])));
 
+            case "flightdump":   // flightdump <id> <name>: the grid as the aero mod's thruster steering sees it (AeroMod.FlightFixture),
+            {                    // one line, ' ;; ' between fixture lines (tools: Tests/data/<name>.flight from the log)
+                var gi = GridMembers.Get((long)D(a[1]));
+                if (gi?.Entity == null || !gi.IsServer) return "no server grid " + a[1];
+                Type ft = null;
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies()) { ft = asm.GetType("AeroMod.FlightFixture"); if (ft != null) break; }
+                if (ft == null) return "aero mod's FlightFixture not found";
+                var text = ft.GetMethod("Build")?.Invoke(null, new object[] { gi.Entity, a.Length > 2 ? a[2] : "grid" }) as string;
+                return text == null ? "no aero component on " + a[1] : "FIXTURE " + text.TrimEnd('\n').Replace("\n", " ;; ") + " ;; END";
+            }
+            case "reentrytest":   // reentrytest <id>: arm the top-to-bottom reentry check on a grid (DevReentry); alone: the report
+                return a.Length > 1 ? DevReentry.Arm((long)D(a[1])) : DevReentry.Report();
+
+            case "gridinfo":   // gridinfo <id>: where a grid is (nearest planet, height), its frame, motion and aero
+            {
+                var gi = GridMembers.Get((long)D(a[1]));
+                if (gi?.Entity == null) return "no grid " + a[1];
+                Vector3D gp = GridMembers.Position(gi), gv = GridMembers.Velocity(gi);
+                var sb = new System.Text.StringBuilder($"grid {gi.Id} '{gi.DisplayName}' {(gi.IsServer ? "server" : "client")} pos ({gp.X / 1000:F1}, {gp.Y / 1000:F1}, {gp.Z / 1000:F1}) km |v| {gv.Length():F1} m/s dyn {GridMembers.IsDynamic(gi)}");
+                PlanetBeacon nb = null; double nd = double.MaxValue;
+                foreach (var pb in Planets()) { double dd = (pb.Center - gp).Length(); if (dd < nd) { nd = dd; nb = pb; } }
+                if (nb != null)
+                {
+                    string bn = SystemHost.BodyNameOf(nb);
+                    double rad = SystemHost.Registry?.FindDefinition(bn)?.RadiusMeters ?? 0;
+                    sb.Append($" | nearest {bn ?? PlanetName(nb)}: {nd / 1000:F1} km from centre, {(nd - rad) / 1000:F1} km above its radius {rad / 1000:F1} km");
+                }
+                SEAerospace.Frames.ProximityFrame gf; lock (ServerFrames.FramesLock) gf = SystemHost.Frames?.FindByMember(gi.Id);
+                sb.Append(gf == null ? " | no frame" : $" | frame #{gf.Id} about {gf.ParentBodyName}, anchor {gf.AnchorEntityId}{(gf.AnchorEntityId == gi.Id ? " (this)" : "")}, {gf.Members.Count} members, a {gf.Elements.SemiMajorAxis / 1000:F1} km e {gf.Elements.Eccentricity:F3}");
+                try { var we = gi.Entity.Data.Get<Keen.VRage.Physics.Data.RigidBodyData>(); sb.Append($" | w {((Vector3D)we.AngularVelocity).Length():F3} rad/s"); } catch { }
+                sb.Append(" | aero: " + GridGen.AeroReadout(gi.Entity));
+                return sb.ToString();
+            }
+
             case "gridatt":   // gridatt <id>: a grid's orientation and spin
                 return DevStress.Attitude((long)D(a[1]));
 
@@ -583,6 +617,10 @@ public static class DevHarness
 
             case "burn":
                 return DevFlight.Burn(a.Length > 1 ? D(a[1]) : 60);
+
+            case "hold":   // hold off|prograde|retrograde|normal|antinormal|radialout|radialin: the attitude hold; alone: its status
+                if (a.Length > 1 && Enum.TryParse<AttitudeHold.Mode>(a[1], true, out var hm)) AttitudeHold.Set(hm);
+                return AttitudeHold.Status;
 
             case "turntest":
                 // turntest DEG x|y|z (seated): turn the cockpit's target by DEG about the grid's axis, measure the turn; alone: the last result
@@ -903,9 +941,13 @@ public static class DevHarness
                 if (On(a[1])) RendezvousView.Open(session); else RendezvousView.Close();
                 return "rendezvous tab " + (RendezvousView.Active ? "open" : "closed") + " | " + RendezvousView.TabStatus + " | top " + (GameUi.TopScreenObject(session)?.GetType().FullName ?? "none") + " | " + RendezvousView.Status;
 
-            case "gridlaunch":   // gridlaunch <gridId> <altKm> (DEV: a circular orbit over the planet it is at, joined group and all)
-                ServerFrames.GridLaunch.Enqueue((long.Parse(a[1]), D(a[2])));
+            case "gridlaunch":   // gridlaunch <gridId> <altKm> [planet] [speed m/s] (DEV: over that planet - or the one it is at - joined group and all; no speed: a circular orbit)
+            {
+                string lb = null;
+                if (a.Length > 3) { var lp = FindPlanet(a[3]); lb = lp != null ? SystemHost.BodyNameOf(lp) : null; if (lb == null) return "no such planet"; }
+                ServerFrames.GridLaunch.Enqueue((long.Parse(a[1]), D(a[2]), lb, a.Length > 4 ? D(a[4]) : double.NaN));
                 return "grid launch queued (server, next tick)";
+            }
 
             case "griddamp":   // griddamp <gridId> on|off (DEV: the grid's dampeners, as the game toggles them)
                 ServerFrames.GridDamp.Enqueue((long.Parse(a[1]), On(a[2])));
@@ -1202,7 +1244,7 @@ public static class DevHarness
         return law.At((pos - p.Center).Length());
     }
 
-    private static List<PlanetBeacon> Planets()
+    internal static List<PlanetBeacon> Planets()
     {
         var list = new List<PlanetBeacon>();
         foreach (var b in PlanetBeacons.All()) list.Add(b);

@@ -57,6 +57,22 @@ public struct Chart
     public Vector3D VelToInertial(Vector3D r, Vector3D v) => Spin ? ToInertial(v + Vector3D.Cross(W, r)) : v;
     /// <summary>Inertial state -> chart velocity at the matching chart position.</summary>
     public Vector3D VelFromInertial(Vector3D p, Vector3D vi) => Spin ? FromInertial(vi) - Vector3D.Cross(W, FromInertial(p)) : vi;
+
+    /// <summary>FromInertial as a rotation (for orientations: a ship crossing into the chart turns with it). Its sign is
+    /// checked against FromInertial itself, so it cannot come out mirrored. Identity without spin.</summary>
+    public Quaternion FromInertialRotation()
+    {
+        if (!Spin || Axis.LengthSquared() < 1e-12) return Quaternion.Identity;
+        var ax = (Vector3)Vector3D.Normalize(Axis);
+        var q = Quaternion.CreateFromAxisAngle(ax, (float)-Theta);
+        // a vector off the axis, mapped both ways: the other sign if they disagree
+        Vector3D probe = Math.Abs(ax.X) < 0.9f ? Vector3D.UnitX : Vector3D.UnitY;
+        if ((Vector3D.Transform(probe, q) - FromInertial(probe)).LengthSquared() > 1e-6) q = Quaternion.CreateFromAxisAngle(ax, (float)Theta);
+        return q;
+    }
+
+    /// <summary>ToInertial as a rotation.</summary>
+    public Quaternion ToInertialRotation() => Quaternion.Inverse(FromInertialRotation());
     /// <summary>Fictitious acceleration in the chart: Coriolis + centrifugal.</summary>
     public Vector3D Fictitious(Vector3D r, Vector3D v)
     {

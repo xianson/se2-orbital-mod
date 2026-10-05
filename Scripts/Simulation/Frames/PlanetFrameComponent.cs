@@ -270,6 +270,7 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
                 }
                 PlanetRenderBridge.UpdateProxy(_handles, _proxy, renderCenter, renderRadius);
                 PlanetRenderBridge.SetProxyVisible(_proxy, true);
+                NoteProxy(_beacon != null ? SystemHost.BodyNameOf(_beacon) : _name, renderCenter - camera.Position, renderRadius, _handles.SurfaceRadius > 0 ? _handles.SurfaceRadius : _handles.Radius, "legacy");
                 if (!OrbitalConfig.DebugProxyInFront) RingProxy(renderCenter, renderRadius, _handles.SurfaceRadius > 0 ? _handles.SurfaceRadius : _handles.Radius);
             }
             else
@@ -334,9 +335,25 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
         }
         PlanetRenderBridge.UpdateProxy(_handles, _proxy, pp.RenderPos, pp.RenderRadius);
         PlanetRenderBridge.SetProxyVisible(_proxy, true);
+        NoteProxy(body, pp.RenderPos - camera.Position, pp.RenderRadius, radius, "frames");
         RingProxy(pp.RenderPos, pp.RenderRadius, radius);
         _lastProxyTrueDistance = pp.TrueDistance;
         return true;
+    }
+
+    /// <summary>DEV (DevReentry): where the last proxy was drawn, from the camera (world), which body, when (Stopwatch).</summary>
+    /// <summary>DEV (DevReentry): per body, where its proxy was last drawn from the camera (world), its drawn radius, the
+    /// body radius it stands for, which path drew it, when (Stopwatch).</summary>
+    internal sealed class DrawnProxy { public Vector3D Dir; public double Radius, BodyRadius; public string Path; public long Wall; }
+    internal static readonly Dictionary<string, DrawnProxy> Drawn = new Dictionary<string, DrawnProxy>();
+    static void NoteProxy(string body, Vector3D dir, double radius, double bodyRadius, string path)
+    {
+        if (body == null) return;
+        lock (Drawn)
+        {
+            if (!Drawn.TryGetValue(body, out var d)) Drawn[body] = d = new DrawnProxy();
+            d.Dir = dir; d.Radius = radius; d.BodyRadius = bodyRadius; d.Path = path; d.Wall = System.Diagnostics.Stopwatch.GetTimestamp();
+        }
     }
 
     /// <summary>Last frames-mode proxy distance (m), for the harness status.</summary>

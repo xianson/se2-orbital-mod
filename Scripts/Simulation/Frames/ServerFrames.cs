@@ -826,8 +826,14 @@ public static class ServerFrames
     /// from / to: the grid's position before and after (the client's copy is near one of them).</summary>
     public static readonly System.Collections.Concurrent.ConcurrentQueue<(Vector3D from, Vector3D to, Quaternion rot)> TargetTurns = new System.Collections.Concurrent.ConcurrentQueue<(Vector3D, Vector3D, Quaternion)>();
 
+    /// <summary>Grids moved across a planet's chart border (rails <-> the planet's frame), counted: on rails a grid sits
+    /// still in its berth while its frame carries the orbit, so a crossing steps its speed (0 <-> ~1 km/s) in one tick -
+    /// the client quiets the game's acceleration camera shake for it (FrameHost; it shook the cockpit 19 deg).</summary>
+    public static int ChartCrossings;
+
     static void NoteTargetTurn(Entity e, Vector3D from, Vector3D to, Quaternion rot)
     {
+        System.Threading.Interlocked.Increment(ref ChartCrossings);
         try { if (e.Data.Has<Keen.Game2.Simulation.WorldObjects.Movement.TargetControlData>()) TargetTurns.Enqueue((from, to, rot)); } catch { }
     }
 

@@ -197,7 +197,9 @@ public static class FrameHost
         Guard("MapInput.Poll", static a => MapInput.Poll(), ta);
         Guard("DevFlight.ClientTick", static a => DevFlight.ClientTick(a.Session), ta);
         Guard("ApplyTargetTurns", static a => ApplyTargetTurns(a.Session), ta);
+        Guard("QuietCrossingShake", static a => QuietCrossingShake(a.Session), ta);
         Guard("DevTurn.ClientTick", static a => DevTurn.ClientTick(a.Session), ta);
+        Guard("DevReentry.ClientTick", static a => DevReentry.ClientTick(a.Session, a.Camera), ta);
         Guard("AttitudeHold.ClientTick", static a => AttitudeHold.ClientTick(a.Session), ta);
         WarpControl.Session = session;
         Guard("WarpControl.Tick", static a => WarpControl.Tick(), ta);
@@ -998,6 +1000,54 @@ public static class FrameHost
     /// <summary>A crossing between a planet's rotating chart and the inertial frames turns the grids (ServerFrames.MoveGrid);
     /// the cockpit's target orientation - what the pilot steers to, held on the client's copy - must turn with them, or
     /// the gyros swing the ship back toward the old one and the controls fight it. Every piloted grid within 300 m.</summary>
+    // ── the game's acceleration camera shake across a chart crossing ──
+    // (AccelerationCameraShakeComponent: the observed grid's speed, averaged over 0.16 s, compared tick to tick - a change
+    //  over 0.9 m/s shakes the camera. A crossing steps the speed 0 <-> ~1 km/s in one tick: a full shake, 19 deg and 13 m
+    //  in one frame, 0.4 s after the handover - DevReentry. Its samples are emptied with no previous average (null: the
+    //  first full window compares with itself) for half a second, so the step never registers; real acceleration still
+    //  shakes. ClearSamples alone leaves the previous average at 0: a full shake again at speed. REFLECTION: the private
+    //  _previousSpeedAverage - docs/REFLECTION_AND_WHITELIST.md.)
+    static int _crossingsSeen;
+    static long _quietUntil, _quietMax;   // (Stopwatch: quiet until the client's speed has settled for 0.5 s, at most 5 s)
+    static float _quietLastSpeed = -1f;
+    static System.Reflection.FieldInfo _shakePrev;
+    static bool _shakeLooked;
+
+    private static void QuietCrossingShake(Keen.VRage.Core.Game.Systems.Session session)
+    {
+        int c = System.Threading.Volatile.Read(ref ServerFrames.ChartCrossings);
+        long now = System.Diagnostics.Stopwatch.GetTimestamp(), f = System.Diagnostics.Stopwatch.Frequency;
+        if (c != _crossingsSeen) { _crossingsSeen = c; _quietUntil = now + f / 2; _quietMax = now + 5 * f; _quietLastSpeed = -1f; }
+        if (now > _quietUntil || now > _quietMax) return;
+        if (!_shakeLooked)
+        {
+            _shakeLooked = true;
+            _shakePrev = typeof(Keen.Game2.Client.GameSystems.CameraSystems.Shake.AccelerationCameraShakeComponent)
+                .GetField("_previousSpeedAverage", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            if (_shakePrev == null) Event("camera shake: _previousSpeedAverage not found (the game changed) - crossings may shake the camera");
+        }
+        foreach (var e in session.GetEntitiesOfType<Keen.Game2.Client.GameSystems.CameraSystems.Shake.AccelerationCameraShakeComponent>())
+        {
+            var s = e.TryGet<Keen.Game2.Client.GameSystems.CameraSystems.Shake.AccelerationCameraShakeComponent>();
+            if (s == null) continue;
+            s.ClearSamples();
+            _shakePrev?.SetValue(s, null);
+        }
+        // (the client's copy gets the new speed by replication - up to a second after the server's move: quiet until the
+        //  speed the camera's grid shows has stopped stepping)
+        float sp = -1f;
+        foreach (var e in session.GetEntitiesOfType<Keen.Game2.Simulation.WorldObjects.CubeGrids.CubeGridComponent>())
+        {
+            if (!e.Data.Has<Keen.Game2.Simulation.WorldObjects.Movement.TargetControlData>()) continue;
+            if (e.Data.TryGet<RigidBodyData>(out var rb)) { sp = rb.LinearVelocity.Length(); break; }
+        }
+        if (sp >= 0f)
+        {
+            if (_quietLastSpeed >= 0f && Math.Abs(sp - _quietLastSpeed) > 5f) _quietUntil = now + f / 2;
+            _quietLastSpeed = sp;
+        }
+    }
+
     /// <summary>Client: the turns the server gave piloted grids (ServerFrames.TargetTurns) - each one's cockpit target turned
     /// with it, once: the piloted client grid nearest where that grid was or now is (within 300 m).</summary>
     private static void ApplyTargetTurns(Keen.VRage.Core.Game.Systems.Session session)

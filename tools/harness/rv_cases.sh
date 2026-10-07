@@ -42,7 +42,7 @@ fi
 echo "target site: ${site:-none}${FAR:+ (not round Verdure)}"
 q "unseat" >/dev/null; sleep 4
 echo "to it: $(q "tpgrid $bf 30")"; sleep 4
-echo "seat: $(q "seatid $bf")"; sleep 5
+echo "seat: $(q "tpgrid $bf 15" >/dev/null; sleep 4; q "seatid $bf")"; sleep 5
 echo "orbit: $(q "gridorbit $bf Verdure 300 300")"; sleep 8
 q "target off" >/dev/null; sleep 2
 check "R1 the anchor's pilot, no target" R1
@@ -54,7 +54,7 @@ echo "clone: $(q "gridclone $bf 1 3000")"; sleep 10
 scan; cl=$(comm -13 <(echo "$before") <(ids) | head -1); echo "clone: $cl"
 q "unseat" >/dev/null; sleep 4
 echo "to it: $(q "tpgrid $cl 30")"; sleep 4
-echo "seat: $(q "seatid $cl")"; sleep 6
+echo "seat: $(q "tpgrid $cl 15" >/dev/null; sleep 4; q "seatid $cl")"; sleep 6
 check "R4 the clone's pilot 3 km off, no target" R4
 if [ -n "$site" ]; then
   echo "target: $(q "target $site")"; sleep 3; check "R5 the clone's pilot, a site targeted" R5

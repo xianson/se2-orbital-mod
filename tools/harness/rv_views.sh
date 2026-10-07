@@ -45,7 +45,7 @@ scan; before=$(ids); bf=$(echo "$before" | head -1); echo "anchor: Blue Fighter 
 q "shotui on" >/dev/null
 q "unseat" >/dev/null; sleep 4
 echo "to it: $(q "tpgrid $bf 30")"; sleep 4
-echo "seat: $(q "seatid $bf")"; sleep 5
+echo "seat: $(q "tpgrid $bf 15" >/dev/null; sleep 4; q "seatid $bf")"; sleep 5
 echo "orbit: $(q "gridorbit $bf Verdure 300 300 0 0")"; sleep 8
 echo "target: $(q "devtarget TestStation Verdure 300 30")"; sleep 6
 echo "sites: $(q "sites")"
@@ -54,12 +54,12 @@ echo "clone: $(q "gridclone $bf 1 3000")"; sleep 10
 scan; cl=$(comm -13 <(echo "$before") <(ids) | head -1); echo "clone: $cl"
 q "unseat" >/dev/null; sleep 4
 echo "to it: $(q "tpgrid $cl 30")"; sleep 4
-echo "seat: $(q "seatid $cl")"; sleep 6
+echo "seat: $(q "tpgrid $cl 15" >/dev/null; sleep 4; q "seatid $cl")"; sleep 6
 case_set B "the clone's pilot 3 km off"
 q "unseat" >/dev/null; sleep 5
 case_set C "on foot by the clone"
 # elliptic: 300 x 600 km (the frame's orbit; the clone and you ride it)
-echo "seat: $(q "seatid $cl")"; sleep 5
+echo "seat: $(q "tpgrid $cl 15" >/dev/null; sleep 4; q "seatid $cl")"; sleep 5
 echo "orbit: $(q "gridorbit $bf Verdure 600 300 0 0")"; sleep 8
 q "target off" >/dev/null; sleep 3; check "E1 elliptic, the clone's pilot, no target"
 timeout 90 "$E" "rvv_E_none_1third" 2 "shotui on" >/dev/null 2>&1

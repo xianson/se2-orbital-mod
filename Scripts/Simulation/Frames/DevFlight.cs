@@ -62,6 +62,10 @@ public static class DevFlight
             if (d < bd) { bd = d; best = e; }
         }
         if (best == null || bd > 60) return $"no seat within 60 m of grid {id}";
+        // (as a player walks up to it: seated from afar, the game keeps the character's place against the seat and puts it
+        //  back there on the way out - 6,000 km off, the berth lattice to the planet)
+        double far = (best.Data.GetWorldTransform().Position - ch.Data.GetWorldTransform().Position).Length();
+        if (far > 40) return $"the seat is {far:F0} m from you: go to it first (tpgrid {id} 15)";
         var seat = best.TryGet<SeatComponent>() as ISeat;
         if (seat == null) return "no ISeat";
         _seatGrid = id;
@@ -159,8 +163,18 @@ public static class DevFlight
     /// <summary>Degrees between the nearest ship's main thrust axis and the next burn (NaN: none).</summary>
     public static double OffBurnDeg = double.NaN;
 
+    /// <summary>The grid the last command was written to (server): switched off if its pilot gets out mid-command.</summary>
+    private static Entity _cmdGrid;
     public static void ServerCommandTick()
     {
+        // Out of the seat with a command on (an auto-burn, a turn): the ship's thrust override switched off, once - it
+        // returned here and the last one written stayed on the ship, burning with nobody aboard.
+        if (!FrameHost.Seated && _cmdGrid != null)
+        {
+            _move = Vector3.Zero; Write(_cmdGrid, false); _cmdGrid = null;
+            _cmdWasOn = false; Aligned = false; Attitude = ""; _steer = false;
+            return;
+        }
         if (!FrameHost.Seated || (!_cmdOn && !_cmdWasOn) || Busy) return;
         // the ship you fly (your seat's grid) - not the nearest heavy grid: docked to a carrier, the carrier turned and burned
         OrbitalGridComponent best = FrameHost.SeatGridServerId != 0 && GridMembers.Get(FrameHost.SeatGridServerId) is OrbitalGridComponent sg && sg.IsServer ? sg : null;
@@ -175,6 +189,7 @@ public static class DevFlight
         _cmdWasOn = _cmdOn;
         if (best == null) return;
         var e = best.Entity;
+        _cmdGrid = e;
         _serverPos = GridMembers.Position(best);
         // How far the ship's main thrust is off the next burn, even while nothing flies it (warp uses it).
         {

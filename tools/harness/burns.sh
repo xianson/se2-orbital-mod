@@ -23,7 +23,7 @@ scan; bf=$(ids | head -1); echo "ship: Blue Fighter $bf"
 q "encon off" >/dev/null
 q "unseat" >/dev/null; sleep 3
 echo "orbit: $(q "gridorbit $bf Verdure 300 300 0 0")"; sleep 8
-echo "seat: $(q "seatid $bf")"; sleep 6
+echo "seat: $(q "tpgrid $bf 15" >/dev/null; sleep 4; q "seatid $bf")"; sleep 6
 q "node clear" >/dev/null
 
 # B1

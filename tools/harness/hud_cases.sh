@@ -17,14 +17,14 @@ sleep 15; echo "log $(LOG)"
 scan; before=$(ids); bf=$(echo "$before" | head -1); echo "anchor: Blue Fighter $bf"
 q "unseat" >/dev/null; sleep 4
 echo "to it: $(q "tpgrid $bf 30")"; sleep 4
-echo "seat: $(q "seatid $bf")"; sleep 5
+echo "seat: $(q "tpgrid $bf 15" >/dev/null; sleep 4; q "seatid $bf")"; sleep 5
 echo "orbit: $(q "gridorbit $bf Verdure 300 300")"; sleep 8
 check "A seated in the anchor"
 echo "clone near: $(q "gridclone $bf 1 150")"; sleep 10
 scan; near=$(comm -13 <(echo "$before") <(ids) | head -1); echo "near clone: $near"; before=$(ids)
 q "unseat" >/dev/null; sleep 4
 echo "to it: $(q "tpgrid $near 30")"; sleep 4
-echo "seat: $(q "seatid $near")"; sleep 6
+echo "seat: $(q "tpgrid $near 15" >/dev/null; sleep 4; q "seatid $near")"; sleep 6
 check "B seated in a clone, not the anchor"
 echo "drift: $(q "gridhold $near 20")"; sleep 6
 check "C the clone drifting at 20 m/s"
@@ -34,13 +34,13 @@ check "D warp x10 in the clone"
 q "warp 1" >/dev/null; sleep 3
 echo "unseat: $(q "unseat")"; sleep 5
 check "E1 on foot by the clone"
-echo "seat: $(q "seatid $near")"; sleep 6
+echo "seat: $(q "tpgrid $near 15" >/dev/null; sleep 4; q "seatid $near")"; sleep 6
 check "E2 seated again, after the walk"
 echo "clone far: $(q "gridclone $bf 1 2000")"; sleep 10
 scan; far=$(comm -13 <(echo "$before") <(ids) | head -1); echo "far clone: $far"
 q "unseat" >/dev/null; sleep 4
 echo "to it: $(q "tpgrid $far 30")"; sleep 4
-echo "seat: $(q "seatid $far")"; sleep 3
+echo "seat: $(q "tpgrid $far 15" >/dev/null; sleep 4; q "seatid $far")"; sleep 3
 check "F1 seated in a clone pasted 2 km off, at once"
 sleep 12
 check "F2 the same, 12 s later"

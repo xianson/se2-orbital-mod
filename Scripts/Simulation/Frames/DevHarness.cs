@@ -571,6 +571,17 @@ public static class DevHarness
                 return FrameHost.SetOrbitTo(fb, el, $"flyby: Pe {D(a[2])} km, v-inf {vinf} m/s") + $" | at its border {vb:F0} m/s";
             }
 
+            case "exitcheck":   // exitcheck <gridId>: you against that ship - distance and relative speed (server and client), frames, warp
+            {
+                var eg = GridMembers.Get((long)D(a[1]));
+                if (eg == null || !eg.IsServer) return "no server grid " + a[1];
+                Vector3D gp = GridMembers.Position(eg), gv = GridMembers.Velocity(eg);
+                string srv = ServerPlanetBeacon.PlayerState(out Vector3D sp, out Vector3D sv) ? $"server d {(sp - gp).Length():F1} m dv {(sv - gv).Length():F2} m/s" : "server -";
+                string cli = FrameHost.FootState(out Vector3D cp, out Vector3D cv) ? $"client d {(cp - gp).Length():F1} m dv {(cv - gv).Length():F2} m/s" : $"client (seated) d {(FrameHost.PlayerPosition - gp).Length():F1} m";
+                SEAerospace.Frames.ProximityFrame pf2, gf2; lock (ServerFrames.FramesLock) { pf2 = SystemHost.Frames?.FindByMember(FrameHost.PlayerId); gf2 = SystemHost.Frames?.FindByMember(eg.Id); }
+                return $"exitcheck seated {FrameHost.Seated} | {srv} | {cli} | you #{pf2?.Id.ToString() ?? "none"} (hud #{FrameHost.PlayerFrame?.Id.ToString() ?? "none"}) ship #{gf2?.Id.ToString() ?? "none"} | warp x{SystemHost.Timescale:F0} | ship |v| {gv.Length():F1}";
+            }
+
             case "hitchms":   // hitchms <ms>: log every server tick gap over this (default 150)
                 if (a.Length > 1) TickRate.HitchLogMs = D(a[1]);
                 return $"hitch log over {TickRate.HitchLogMs:F0} ms";

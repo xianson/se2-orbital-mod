@@ -70,7 +70,7 @@ ok "S4 encounters off: a pasted grid joins the frame" $(q "frameof $c4" | grep -
 q "encon on" >/dev/null
 
 # S5 - warp into a rendezvous
-q "seatid $cl" >/dev/null; sleep 4
+q "tpgrid $cl 15" >/dev/null; sleep 4; q "seatid $cl" >/dev/null; sleep 4
 c5=$(newclone $cl 4000); echo "clone5: $c5"
 q "encon off" >/dev/null   # (no encounter spawned beside the new frames: it anchored one and capped the warp)
 for g in $c2 $c3 $c4; do q "griddel $g" >/dev/null; done; sleep 3   # (the earlier scenarios' ships: their drift capped the warp)

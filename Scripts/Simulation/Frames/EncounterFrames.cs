@@ -73,9 +73,33 @@ public static class EncounterFrames
         System.Threading.Volatile.Write(ref _siteMap, new Dictionary<long, Site>(_sites));
     }
     public static bool IsSite(ProximityFrame f) => f != null && System.Threading.Volatile.Read(ref _siteMap).ContainsKey(f.Id);
+
+    /// <summary>A target by its sector name: its live site (the anchor's when several), else a ring rock left behind - its
+    /// site is gone but its orbit is not (the target string was kept, and the planner said "no rendezvous" while the map drew
+    /// its orbit). Null: unknown.</summary>
+    public static Site TargetSite(string name)
+    {
+        if (name == null) return null;
+        Site site = null;
+        foreach (var st in Sites) if (st.Sector == name && (site == null || st.Anchor)) site = st;
+        if (site == null) site = AsteroidFrames.LeftSite(name);
+        if (site == null) foreach (var vs in VirtualLagrange()) if (vs.Sector == name) { site = vs; break; }   // ("Kemik L4": a zone, no frame)
+        return site;
+    }
+    /// <summary>A Lagrange point's site: its own dynamics (PlanLagrange, LagrangeDynamics) - not a Kepler frame you ride.</summary>
+    public static bool IsLagrangeSite(ProximityFrame f) => f != null && System.Threading.Volatile.Read(ref _siteMap).TryGetValue(f.Id, out var s) && s.Home?.Kind == SectorHomes.Kind.Lagrange;
     public static Site SiteOf(long frameId) => System.Threading.Volatile.Read(ref _siteMap).TryGetValue(frameId, out var s) ? s : null;
 
     private static bool _built;
+
+    /// <summary>A new system (another world): the sites built afresh from it.</summary>
+    public static void ResetWorld()
+    {
+        _built = false; _builtAt = -1;
+        _sites.Clear(); SitesChanged();
+        _rides.Clear(); System.Threading.Volatile.Write(ref _rideMap, new Dictionary<long, Ride>());
+        _virtual = null; _virtualKey = -1;
+    }
     private static double _builtAt = -1;
     public static string Status = "not built";
 
@@ -135,6 +159,7 @@ public static class EncounterFrames
         AsteroidFrames.ServerTick(session, t, tick);   // the belts' asteroid frames (sites of their own) and their rocks
         while (_devSites.TryDequeue(out var ds)) DevMakeSite(session, ds.grid, ds.sector, t);
         while (_devFar.TryDequeue(out long fg)) DevFar(fg, t);
+        while (_devTargets.TryDequeue(out var dt)) DevMakeTarget(dt.name, dt.host, dt.altKm, dt.aheadKm, t);
         RefreshSites(t);
         RefreshRides(t);
         if (tick % 20 == 0) AdoptIntoSites();
@@ -150,7 +175,7 @@ public static class EncounterFrames
         var reg = SystemHost.Registry;
         SectorsSessionComponent sectors = null;
         try { sectors = session.SessionComponents.TryGet<SectorsSessionComponent>(); } catch { }
-        var homes = sectors != null ? GameMap.HomesBySector(sectors, reg) : new Dictionary<string, SectorHomes.Home>();
+        var homes = GameMap.HomesBySector(sectors, reg);   // (no sectors: the virtual ones)
 
         // Candidates: unframed encounter / NPC grids outside every planet cell.
         var cand = new List<OrbitalGridComponent>();
@@ -256,9 +281,23 @@ public static class EncounterFrames
             double best = double.MaxValue;
             foreach (var s in sectors.Sectors) { double d = (s.Area.Center - cp).Length(); if (d < best) { best = d; sc = s; } }
         }
-        if (sc == null || !homes.TryGetValue(sc.Name, out var home) || reg.Find(home.Host) == null) return null;
+        // No sector there (a world without them): the space of the planet nearest on the chart (a virtual zone) - stations
+        // placed in such a world got no site, no orbit, no target.
+        string zone = sc?.Name;
+        if (sc == null)
+        {
+            string nearest = null; double bestP = double.MaxValue;
+            foreach (var p in reg.Root.Children)
+            {
+                if (!SystemHost.BeaconOf.TryGetValue(p.Name, out var pb)) continue;
+                double d = (new Vector3D(cp.X, pb.Center.Y, cp.Z) - pb.Center).Length();
+                if (d < bestP) { bestP = d; nearest = p.Name; }
+            }
+            if (nearest != null) zone = $"{SystemHost.DisplayName(nearest)} space";
+        }
+        if (zone == null || !homes.TryGetValue(zone, out var home) || reg.Find(home.Host) == null) return null;
 
-        var site = new Site { Sector = sc.Name, Host = home.Host, Home = home, World = world, Label = label };
+        var site = new Site { Sector = zone, Host = home.Host, Home = home, World = world, Label = label };
         if (home.Kind == SectorHomes.Kind.Body && !home.Future && reg.Find(home.Host) is GravityBody sb && sb.IsRoot)
         {
             // The star's own space: a circular orbit inside its zone.
@@ -280,7 +319,7 @@ public static class EncounterFrames
         else
         {
             // The site's place within its sector, scaled like the orbits, held in the home's co-moving axes.
-            Vector3D dw = (cp - sc.Area.Center) * SystemHost.SectorOrbitScale;
+            Vector3D dw = sc != null ? (cp - sc.Area.Center) * SystemHost.SectorOrbitScale : Vector3D.Zero;
             Vector3D dm = new Vector3D(dw.X, dw.Z, dw.Y);   // map/world XZ is the ecliptic (model XY)
             Basis(site, t, out Vector3D R, out Vector3D T, out Vector3D N);
             site.Rtn = new Vector3D(Vector3D.Dot(dm, R), Vector3D.Dot(dm, T), Vector3D.Dot(dm, N));
@@ -292,7 +331,7 @@ public static class EncounterFrames
         f.IsEncounter = true;
         site.FrameId = f.Id;
         _sites[f.Id] = site; SitesChanged();
-        Event($"SITE #{f.Id} '{label}' in {sc.Name} ({home.Kind} of {home.Host}) at {ServerPlanetBeacon.Fmt(world)}: " +
+        Event($"SITE #{f.Id} '{label}' in {zone}{(sc == null ? " (virtual)" : "")} ({home.Kind} of {home.Host}) at {ServerPlanetBeacon.Fmt(world)}: " +
               $"orbits {parent.Name} r={rel.Position.Length() / 1000:F0} km");
         return f;
     }
@@ -773,6 +812,32 @@ public static class EncounterFrames
     /// <summary>DEV: move a grid to a sector's charted centre and make it an authored site there.</summary>
     public static void RequestDevSite(long gridId, string sector) => _devSites.Enqueue((gridId, sector));
 
+    private static readonly ConcurrentQueue<(string name, string host, double altKm, double aheadKm)> _devTargets = new ConcurrentQueue<(string, string, double, double)>();
+    /// <summary>DEV: a target site of a body's own (no sector needed): a circular equatorial orbit about it at altKm, aheadKm
+    /// along it from the player's frame now (its own phase when the player is not round that body).</summary>
+    public static void RequestDevTarget(string name, string host, double altKm, double aheadKm) => _devTargets.Enqueue((name, host, altKm, aheadKm));
+
+    private static void DevMakeTarget(string name, string host, double altKm, double aheadKm, double t)
+    {
+        var reg = SystemHost.Registry;
+        var body = reg?.Find(host);
+        double R = reg?.FindDefinition(host)?.RadiusMeters ?? 0;
+        if (body == null || !(R > 0)) { Event($"devtarget: no body {host}"); return; }
+        double r = R + altKm * 1000, n = Math.Sqrt(body.Mu / (r * r * r)), theta0 = 0;
+        var pf = FrameHost.PlayerFrame;
+        if (pf != null && pf.ParentBodyName == host) { var p = OrbitPropagation.StateAt(pf.Elements, t).Position; theta0 = Math.Atan2(p.Y, p.X); }
+        int slot = 0;
+        if (!AsteroidFrames.ReserveBerth(SystemHost.Frames.Allocator, reg, ref slot, out int sid, out Vector3D berth)) { Event("devtarget: no free berth"); return; }
+        var site = new Site
+        {
+            Sector = name, Host = host, Label = name, Anchor = true, World = berth, OwnR = r, OwnTheta = theta0 + aheadKm * 1000 / r - n * t,
+            Home = new SectorHomes.Home { Sector = name, Kind = SectorHomes.Kind.Body, Host = host },
+        };
+        var f = AddSite(site, t);
+        if (f == null) { SystemHost.Frames.Allocator.Free(sid); Event($"devtarget: {name} has no orbit"); return; }
+        Event($"devtarget: {name} round {host} at {altKm:F0} km, {aheadKm:F0} km ahead - frame #{f.Id}");
+    }
+
     private static readonly ConcurrentQueue<long> _devFar = new ConcurrentQueue<long>();
     /// <summary>DEV: treat a grid as a far spawn from its frame (0 = the first dynamic encounter grid in a frame).</summary>
     public static void RequestDevFar(long gridId) => _devFar.Enqueue(gridId);
@@ -879,7 +944,10 @@ public static class EncounterFrames
     }
 
     /// <summary>Merge host priority: a site never moves; then the frame with players; then an NPC-only frame.</summary>
-    public static int HostPriority(ProximityFrame f) => IsSite(f) ? 3 : HasNonNpc(f) ? 2 : 1;
+    /// <summary>Which frame hosts a merge: a site, then a frame anchored by something static (a station, an asteroid - it
+    /// cannot be moved: as the incomer it was teleported, or left behind in the old berth when held by a joint), then a
+    /// player's, then an NPC's.</summary>
+    public static int HostPriority(ProximityFrame f) => IsSite(f) ? 4 : ServerFrames.StaticAnchorOf(f, out _) ? 3 : HasNonNpc(f) ? 2 : 1;
 
     /// <summary>Saving: site frames are rebuilt from the world on load (their members are re-adopted).</summary>
     public static bool IsTransient(long frameId) => _sites.ContainsKey(frameId);

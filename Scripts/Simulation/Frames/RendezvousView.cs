@@ -64,7 +64,7 @@ public static class RendezvousView
                 return;
             }
         }
-        if (_injectFailed || term == null) DrawnTab(session, mouse);
+        if (_injectFailed) DrawnTab(session, mouse);
     }
 
     static object Prop(object o, string name)
@@ -102,10 +102,13 @@ public static class RendezvousView
             object loc = ps[2].ParameterType.GetMethod("FromString", BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(string) }, null)?.Invoke(null, new object[] { "Rendezvous" });
             if (loc == null) { Fail("no LocKey.FromString"); return; }
             object colContent = Prop(col, "Content");   // the Colonization tab's content (created as the game would)
-            Func<object, object> factory = _ => colContent ?? Prop(col, "Content");
+            // A sectorless world has no colonization view model (the game makes it only with sectors): its content is null,
+            // and a null content hid every panel - the GPS list went with it. The GPS tab's content then (its left panel, and
+            // the map's own enter / leave through the map tab).
+            Func<object, object> factory = _ => colContent ?? Prop(col, "Content") ?? Prop(gps, "Content");
             object ours = ctor.Invoke(new object[] { Prop(col, "Category"), idV, loc, true, null, factory });
             // the Colonization tab's control hints (zoom, move)
-            try { subType.GetProperty("ControlHints")?.SetValue(ours, Prop(col, "ControlHints")); } catch { }
+            try { subType.GetProperty("ControlHints")?.SetValue(ours, Prop(col, "ControlHints") ?? Prop(gps, "ControlHints")); } catch { }
             var arr = Array.CreateInstance(subType, subs.Count + 1);
             int i = 0;
             foreach (var sub in subs) arr.SetValue(sub, i++);
@@ -209,17 +212,20 @@ public static class RendezvousView
         var body = reg?.Find(target);
         if (body != null && body.Parent != null) { parent = body.Parent; rel = body.StateInParentAt(tk); return true; }
         EncounterFrames.Site site = null;
-        foreach (var st in EncounterFrames.Sites) if (st.Sector == target && (site == null || st.Anchor)) site = st;
+        site = EncounterFrames.TargetSite(target);
         return site != null && EncounterFrames.Ephemeris(site, tk, out parent, out rel);
     }
 
     /// <summary>The lowest body both go round.</summary>
-    static GravityBody Common(GravityBody a, GravityBody b)
+    static GravityBody Common(GravityBody a, GravityBody b) => SEAerospace.Frames.RendezvousPlot.Common(a, b) ?? SystemHost.Registry?.Root;
+
+    /// <summary>The target is the frame you are in (its site's): you are there - no plot about it, no rendezvous.</summary>
+    public static bool TargetIsOwnFrame(string target)
     {
-        var up = new HashSet<GravityBody>();
-        for (var x = a; x != null; x = x.Parent) up.Add(x);
-        for (var y = b; y != null; y = y.Parent) if (up.Contains(y)) return y;
-        return SystemHost.Registry?.Root;
+        var f = FrameHost.PlayerFrame;
+        if (f == null || target == null) return false;
+        foreach (var st in EncounterFrames.Sites) if (st.Sector == target && st.FrameId == f.Id) return true;
+        return false;
     }
 
     /// <summary>A sun-centred position at tk in the target's curvilinear frame about the common body: (along, radial, cross) in metres.</summary>
@@ -229,19 +235,9 @@ public static class RendezvousView
         if (!TargetAt(target, tk, out var tp, out var trel)) return false;
         var cs = c.OriginInRoot(tk);
         var ps = tp.OriginInRoot(tk);
-        Vector3D rt = ps.Position + trel.Position - cs.Position;
-        Vector3D vt = ps.Velocity + trel.Velocity - cs.Velocity;
-        Vector3D ry = rootPos - cs.Position;
-        double rtl = rt.Length();
-        Vector3D n = Vector3D.Cross(rt, vt);
-        if (rtl <= 0 || n.LengthSquared() <= 0) return false;
-        Vector3D R = rt / rtl, N = Vector3D.Normalize(n), T = Vector3D.Cross(N, R);
-        double cross = Vector3D.Dot(ry, N);
-        Vector3D inPlane = ry - N * cross;
-        double along = rtl * Math.Atan2(Vector3D.Dot(inPlane, T), Vector3D.Dot(inPlane, R));
-        double radial = inPlane.Length() - rtl;
-        q = new Vector3D(along, radial, cross);
-        return true;
+        var ts = new StateVector(ps.Position + trel.Position - cs.Position, ps.Velocity + trel.Velocity - cs.Velocity);
+        q = SEAerospace.Frames.RendezvousPlot.Curvilinear(ts, new StateVector(rootPos - cs.Position, Vector3D.Zero));
+        return IsFinite(q.X) && IsFinite(q.Y) && IsFinite(q.Z);
     }
 
     /// <summary>
@@ -269,7 +265,7 @@ public static class RendezvousView
         var reg = SystemHost.Registry;
         if (r == null || target == null || reg == null) return false;
         var tb = reg.Find(target);
-        if (tb != null) return false;
+        if (tb != null || TargetIsOwnFrame(target)) return false;
         if (!Maneuvers.Trajectory(t, out var legs, out _) || legs.Count == 0 || !TargetAt(target, t, out var tp, out var trel)) return false;
         var c = Common(legs[0].Body, tp);
         if (c == null || c.IsRoot) return false;
@@ -278,9 +274,13 @@ public static class RendezvousView
         {
             _hudFor = target; _hudAt = wall;
             // one revolution of the target about the common body
-            var ts = TargetAt(target, t, out var p0, out var r0) ? p0.OriginInRoot(t).Position + r0.Position - c.OriginInRoot(t).Position : Vector3D.Zero;
-            double rr = ts.Length();
-            double period = rr > 0 ? 2 * Math.PI * Math.Sqrt(rr * rr * rr / c.Mu) : 3600;
+            StateVector ts = default;
+            if (TargetAt(target, t, out var p0, out var r0))
+            {
+                var po = p0.OriginInRoot(t); var co = c.OriginInRoot(t);
+                ts = new StateVector(po.Position + r0.Position - co.Position, po.Velocity + r0.Velocity - co.Velocity);
+            }
+            double period = SEAerospace.Frames.RendezvousPlot.PeriodAbout(ts, c.Mu, 3600);   // (its real period: an ellipse's, not a circle's at its radius now)
             const int n = 160;
             var path = new List<(double, double)>(n + 1);
             var cross = new List<double>(n + 1);
@@ -307,6 +307,8 @@ public static class RendezvousView
         r.AnchorName = target;
         r.Holding = false;
         r.RelLeaves = false;
+        r.RelIsTarget = true;
+        r.RelBoundary = ServerFrames.Rendezvous.EnterRangeMeters;   // (the ring: where you merge with it)
         return true;
     }
 
@@ -361,7 +363,7 @@ public static class RendezvousView
             break;
         }
         if (double.IsNaN(dep)) note = "Your plan: no burn yet (add a maneuver on the map)";
-        Porkchop.Draw(new Vector2(scr.X * 0.27f, scr.Y * 0.22f), new Vector2(scr.X * 0.765f, scr.Y * 0.72f), c, from, to, tn,
+        Porkchop.Draw(MapLayout.P(0.27f, 0.22f), MapLayout.P(0.765f, 0.72f), c, from, to, tn,
                       dep, arr, dv, note, t, mouse, u);
         MapPipeline.ClipRect = null;
         MapPipeline.ScreenText(head, $"Rendezvous · {tn}", white, 1.05f);
@@ -373,21 +375,23 @@ public static class RendezvousView
     {
         var scr = MapPipeline.ScreenSize;
         float u = Math.Max(1f, scr.Y / 1080f);
-        MapPipeline.ClipRect = new BoundingBox2(new Vector2(scr.X * 0.255f, scr.Y * 0.1f), new Vector2(scr.X * 0.775f, scr.Y * 0.84f));
-        var head = new Vector2(scr.X * 0.265f, scr.Y * 0.158f);
+        MapPipeline.ClipRect = MapLayout.OpenArea;
+        var head = MapLayout.P(0.265f, 0.158f);
         string target = Maneuvers.Target;
         if (target == null)
         {
             MapPipeline.ScreenText(head, "No target", new ColorSRGB(1f, 1f, 1f, 1f), 1.05f);
-            MapPipeline.ScreenText(head + new Vector2(0, 34f * u), "Right-click a sector on the map: Set as target", Dim, 0.8f);
+            MapPipeline.ScreenText(head + new Vector2(0, 34f * u), "Right-click a sector, a Lagrange point or a body on the map: Set as target", Dim, 0.8f);
             Status = "no target";
             return;
         }
-        if (!Maneuvers.Trajectory(t, out var legs, out var applied) || legs.Count == 0 || !TargetAt(target, t, out var tpar, out _))
+        bool targetKnown = TargetAt(target, t, out var tpar, out _);
+        if (!Maneuvers.Trajectory(t, out var legs, out var applied) || legs.Count == 0 || !targetKnown)
         {
-            MapPipeline.ScreenText(head, $"Rendezvous · {target}", new ColorSRGB(1f, 1f, 1f, 1f), 1.05f);
-            MapPipeline.ScreenText(head + new Vector2(0, 34f * u), "No path to compare yet", Dim, 0.8f);
-            Status = "no path";
+            MapPipeline.ScreenText(head, $"Rendezvous · {SystemHost.DisplayName(target)}", new ColorSRGB(1f, 1f, 1f, 1f), 1.05f);
+            // (a target that is not there any more - a site dissolved, a rock you left: say so, not "no path" forever)
+            MapPipeline.ScreenText(head + new Vector2(0, 34f * u), targetKnown ? "No path to compare yet" : "Target lost  ·  right-click the map to set another, or clear it", Dim, 0.8f);
+            Status = targetKnown ? "no path" : "target lost";
             return;
         }
         // A planet or a moon: its transfer windows (the porkchop) with your plan on them, instead of the plot.
@@ -428,7 +432,7 @@ public static class RendezvousView
             // (a small step: a whole map unit can be far off the screen)
             double step = Math.Max(1e-9, MapCamera.Distance * 0.05), px = 0;
             if (MapPipeline.ToScreen(W(_origin), out var s0) && MapPipeline.ToScreen(W(_origin + _right * step), out var s1)) px = (s1 - s0).Length() / step;
-            _k = px > 0 ? scr.Y * 0.33 / (ext * px) : 1e-9;
+            _k = px > 0 ? MapLayout.LenY(0.33f) / (ext * px) : 1e-9;
         }
         else
         {
@@ -451,7 +455,7 @@ public static class RendezvousView
             MapPipeline.ScreenText(new Vector2(clip.Max.X - 70f * u, os.Y - 22f * u), "behind", Dim, 0.6f);
             MapPipeline.ScreenText(new Vector2(os.X + 8f * u, clip.Min.Y + 6f * u), $"away from {SystemHost.DisplayName(c.Name)}", Dim, 0.6f);
             MapPipeline.ScreenText(new Vector2(os.X + 8f * u, clip.Max.Y - 24f * u), $"toward {SystemHost.DisplayName(c.Name)}", Dim, 0.6f);
-            foreach (var (rz, name) in new[] { (ServerFrames.CaptureEnterRadius, "arrive"), ((double)ServerFrames.SlotRadius, "leave") })
+            foreach (var (rz, name) in new[] { (ServerFrames.Rendezvous.EnterRangeMeters, "arrive"), ((double)ServerFrames.SlotRadius, "leave") })
                 if (MapPipeline.ToScreen(W(P(rz, 0)), out var rs))
                 {
                     float rpx = Math.Abs(rs.X - os.X);
@@ -466,10 +470,10 @@ public static class RendezvousView
         Maneuvers.MapDraw(toMap, W, double.PositiveInfinity, t, mouse, null, c.Name, allLive: true);
 
         MapPipeline.ClipRect = null;
-        MapPipeline.ScreenText(head, $"Rendezvous · {target} · about {SystemHost.DisplayName(c.Name)}", new ColorSRGB(1f, 1f, 1f, 1f), 1.05f);
+        MapPipeline.ScreenText(head, $"Rendezvous · {SystemHost.DisplayName(target)} · about {SystemHost.DisplayName(c.Name)}", new ColorSRGB(1f, 1f, 1f, 1f), 1.05f);
         string line = Maneuvers.TargetLine(t);
         if (line != null) MapPipeline.ScreenText(head + new Vector2(0, 34f * u), line, Dim, 0.8f);
-        MapPipeline.ScreenText(new Vector2(scr.X * 0.265f, scr.Y * 0.9f), "Click the path: add a maneuver   ·   Drag a handle: change the burn   ·   Right-click: options   ·   Wheel: zoom   ·   Drag: pan", Dim, 0.74f);
+        CleanMap.DrawWrapped(MapLayout.P(0.265f, 0.9f), "Click the path: add a maneuver   ·   Drag a handle: the burn   ·   Right-click: options   ·   Wheel: zoom", MapLayout.X(0.775f) - MapLayout.X(0.265f), 0.74f, Dim);   // (wrapped to the map: cut, it lost its last hints)
         Status = $"target {target} about {c.Name}, k {_k:G3}";
     }
 }

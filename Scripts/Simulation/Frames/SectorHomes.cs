@@ -95,6 +95,80 @@ public static class SectorHomes
         return h;
     }
 
+    /// <summary>A zone of the system: a sector's home, or a virtual one (no sector behind it).</summary>
+    public sealed class Zone { public string Name; public Home Home; }
+
+    static List<Zone> _virtual; static string _virtualKey;
+
+    /// <summary>
+    /// VIRTUAL SECTORS: a world without colonization sectors (Creative) gets the zones the campaign's sectors give, from
+    /// the system itself - each planet's own space ("Verdure space"), the belts (Zarkon, Pyrethra: the same homes the
+    /// belt rocks were built from), each planet's ring from the game's own torus ("Verdure ring"), and every planet's and
+    /// moon's Lagrange points L1-L5 ("Kemik L4": the zones EncounterFrames.VirtualLagrange gives their dynamics). The map
+    /// draws them as sectors (bands, the list, hover, targets) and sites are made in them. Rebuilt when the bodies or the
+    /// rings change.
+    /// </summary>
+    public static List<Zone> Virtual(SystemRegistry reg)
+    {
+        if (reg?.Root == null) return new List<Zone>();
+        // (the rings as the ring rocks know them: the server's tori, else the client's ring entities - a world like Concordia
+        //  has no server-side rings, and its ring got no zone)
+        var rings = new List<(string body, double inner, double outer)>();
+        var known = PlanetRings.Known();
+        foreach (var kv in SystemHost.BeaconOf)
+            foreach (var (c, inn, outr, _) in known)
+                if ((c - kv.Value.Center).Length() < Math.Max(5000.0, 0.05 * outr) && outr > inn) { rings.Add((kv.Key, inn, outr)); break; }
+        rings.Sort((a, b) => string.CompareOrdinal(a.body, b.body));
+        var key = new System.Text.StringBuilder().Append(SystemHost.BeaconOf.Count).Append('|').Append(reg.Bodies.Count);
+        foreach (var r in rings) key.Append('|').Append(r.body).Append(':').Append(Math.Round(r.inner)).Append(':').Append(Math.Round(r.outer));
+        string k = key.ToString();
+        if (_virtual != null && k == _virtualKey) return _virtual;
+        var list = new List<Zone>();
+        string root = reg.Root.Name;
+        // the star's own space (the campaign's Delfos Sector)
+        {
+            string name = $"{SystemHost.DisplayName(root)} space";
+            var h = For(StarSector, null, 0, 0, reg); h.Sector = name;
+            list.Add(new Zone { Name = name, Home = h });
+        }
+        // each planet's own space
+        foreach (var p in reg.Root.Children)
+        {
+            if (!SystemHost.BeaconOf.ContainsKey(p.Name)) continue;
+            string name = $"{SystemHost.DisplayName(p.Name)} space";
+            list.Add(new Zone { Name = name, Home = For(name, p.Name, 0, 0, reg) });   // (the default: its nearest planet's space)
+        }
+        // the belts about the star (as the belt rocks have them)
+        foreach (var b in new[] { "Zarkon", "Pyrethra" }) list.Add(new Zone { Name = b, Home = For(b, null, 0, 0, reg) });
+        // each planet's ring: the game's torus
+        foreach (var (body, ri, ro) in rings)
+        {
+            if (reg.Find(body) == null) continue;
+            string name = $"{SystemHost.DisplayName(body)} ring";
+            list.Add(new Zone { Name = name, Home = new Home { Sector = name, Kind = Kind.Ring, Host = body, Inner = ri, Outer = ro } });
+        }
+        // every planet's and moon's Lagrange points
+        foreach (var b in reg.Bodies)
+        {
+            if (b.IsRoot || b.Parent == null || !SystemHost.BeaconOf.ContainsKey(b.Name)) continue;
+            for (int p = 1; p <= 5; p++)
+            {
+                string name = $"{SystemHost.DisplayName(b.Name)} L{p}";
+                list.Add(new Zone { Name = name, Home = new Home { Sector = name, Kind = Kind.Lagrange, Host = b.Name, Point = p } });
+            }
+        }
+        _virtual = list; _virtualKey = k;
+        return list;
+    }
+
+    /// <summary>The planet a body belongs to (itself for a planet; a moon's planet), for lists and grouping.</summary>
+    public static string PlanetOf(string body, SystemRegistry reg)
+    {
+        var b = reg?.Find(body);
+        while (b != null && b.Parent != null && !b.Parent.IsRoot) b = b.Parent;
+        return b?.Name ?? body;
+    }
+
     /// <summary>Hill radius: the L1/L2 distance from the planet.</summary>
     public static double HillRadius(GravityBody planet) => planet.Parent == null ? double.PositiveInfinity :
         planet.StateInParentAt(0).Position.Length() * Math.Pow(planet.Mu / (3 * planet.Parent.Mu), 1.0 / 3.0);

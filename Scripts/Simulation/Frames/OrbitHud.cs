@@ -190,6 +190,8 @@ public static class OrbitHud
         public List<double> RelCross;   // out of the anchor's plane along the prediction (m, + along its normal)
         public double RelNowCross;
         public bool RelLeaves;   // the prediction leaves the frame (cut at its boundary)
+        public bool RelIsTarget; // the plot is about your target (RendezvousView.HudRelative), not the anchor you ride
+        public double RelBoundary = ServerFrames.CaptureRadius;   // the ring: where you leave the frame (riding) / merge with the target
         /// <summary>The rendezvous with your target on your path (offsets from the body): you then, the target then.</summary>
         public Vector3D? RvRel, RvTargetRel;
         public string RvLabel;
@@ -199,6 +201,9 @@ public static class OrbitHud
     }
 
     public static Readout Current;
+    /// <summary>The plot drawn last (harness: hudcheck) and when (wall seconds).</summary>
+    public static SEAerospace.Frames.RendezvousPlot.Plot LastPlot;
+    public static double LastPlotWall;
 
     /// <summary>Under this speed (m/s) and low (under the atmosphere's top) you are walking or flying about, not orbiting.</summary>
     public const double WalkSpeed = 200;
@@ -217,6 +222,23 @@ public static class OrbitHud
     static readonly ColorSRGB Orbit = new ColorSRGB(0.35f, 0.88f, 1.00f, 1f);   // your orbit: cyan, as on the map
 
     private static GameUi.Card _card;
+    private static double _refusedUntil;
+    private static string _lastTitle, _lastContent;
+    private static (string title, string content)? _fallback;
+
+    /// <summary>The card's readout drawn by the mod where the card would be (the game refused the card).</summary>
+    static void DrawFallback(float u)
+    {
+        if (_fallback == null) return;
+        var (title, content) = _fallback.Value;
+        var rows = new List<HudPanel.Row>();
+        foreach (var line in content.Split('\n')) rows.Add(new HudPanel.Row(line, ""));
+        float w = 430f * u;
+        HudPanel.Draw(new Vector2(MapPipeline.ScreenSize.X - w - 24f * u, 24f * u), w, title, null, rows, null, u);
+    }
+    /// <summary>The card is up on screen (harness: hudcheck), and why not when it is not.</summary>
+    public static bool CardOpen => _card != null && GameUi.IsOpen(_card);
+    public static string CardWhy = "-";
     private static double _nextUpdate, _nextCheck;
 
     /// <summary>
@@ -230,9 +252,13 @@ public static class OrbitHud
         string burn = Maneuvers.BurnLine;
         // Not over the map: the card would sit on the terminal's close button, and the map's own title
         // says the same (orbit and next burn).
-        bool show = OrbitalConfig.ShowOrbit && (r != null || burn != null) && !MapView.Visible;
+        // (nor over another screen: the terminal's other tabs, a dialog - it sat on the terminal's close button)
+        bool covered = !MapView.Visible && GameUi.TopScreenNeedingInput(session) != null;
+        bool show = OrbitalConfig.ShowOrbit && (r != null || burn != null) && !MapView.Visible && !covered;
+        _fallback = null;
         if (!show)
         {
+            CardWhy = !OrbitalConfig.ShowOrbit ? "orbit display off" : MapView.Visible ? "map open" : covered ? "a screen is open" : Walking ? "walking" : "no orbit";
             if (_card != null) { GameUi.CloseCard(_card); _card = null; }
             return;
         }
@@ -263,19 +289,30 @@ public static class OrbitHud
             string loud = Contacts.LoudLine();   // (transmitting gives you away: say so, and how far)
             if (loud != null) sb.Append((sb.Length > 0 ? "\n" : "") + loud);
             string content = sb.ToString().TrimEnd('\n').Replace("\n\n", "\n");   // no blank lines
-            if (_card == null || (now >= _nextCheck && !GameUi.IsOpen(_card)))
+            _lastTitle = title; _lastContent = content;
+            if ((_card == null && now >= _refusedUntil) || (_card != null && now >= _nextCheck && !GameUi.IsOpen(_card)))
             {
                 _nextCheck = now + 2;
                 if (_card != null) GameUi.CloseCard(_card);
                 _card = GameUi.ShowCard(session, title, content);
+                CardWhy = _card != null ? "shown" : "refused: " + GameUi.LastError;
+                // (refused - the game's toast notifications off, a menu: asked again in 5 s, not every half second, and drawn
+                //  here meanwhile: with toasts off there was no orbit readout at all)
+                if (_card == null) _refusedUntil = now + 5;
             }
-            else GameUi.UpdateCard(_card, title, content);
+            else if (_card != null) GameUi.UpdateCard(_card, title, content);
         }
+        if (_card == null && _lastTitle != null) _fallback = (_lastTitle, _lastContent);
         // Pe / Ap tags on the drawn orbit (world HUD annotations, like the game's markers).
-        if (r == null || MapView.Visible) return;
+        if (r == null || MapView.Visible)
+        {
+            if (_fallback != null && FrameMarkers.BeginHud(session)) { try { DrawFallback(Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f)); } finally { MapPipeline.UiEnd(); } }
+            return;
+        }
         if (!FrameMarkers.BeginHud(session)) return;
         try
         {
+            DrawFallback(Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f));
             HudPanel.BeginLabels();
             HudPanel.ReserveGameHud();
             float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
@@ -285,7 +322,14 @@ public static class OrbitHud
             if (FrameHost.Seated || JetpackOn(session))
             {
                 DrawMarkers(r, u);
-                if (r.Relative != null) { if (!FrameHost.AtAnchor) DrawRelative(r, u); }   // riding: your motion about its anchor (not at it)
+                // your motion about your target, or about the anchor you ride away from; else the disc (RendezvousPlot.Choose)
+                var plot = SEAerospace.Frames.RendezvousPlot.Choose(new SEAerospace.Frames.RendezvousPlot.Who
+                {
+                    Flying = true, HasTarget = r.Relative != null && r.RelIsTarget, TargetSharesBody = true,
+                    Riding = r.Relative != null && !r.RelIsTarget, AtAnchor = FrameHost.AtAnchor,
+                });
+                LastPlot = plot; LastPlotWall = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+                if (plot == SEAerospace.Frames.RendezvousPlot.Plot.Target || plot == SEAerospace.Frames.RendezvousPlot.Plot.Anchor) DrawRelative(r, u);
                 else DrawDisc(r, u);
             }
         }
@@ -499,7 +543,7 @@ public static class OrbitHud
         // The frame's boundary round the anchor (past it you leave on your own orbit).
         {
             var arc = new List<Vector2>();
-            double rb = ServerFrames.CaptureRadius;
+            double rb = r.RelBoundary;
             for (int i = 0; i <= 96; i++)
             {
                 double a = 2 * Math.PI * i / 96;

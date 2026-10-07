@@ -56,18 +56,34 @@ public static class Contacts
     static double _next;
 
     public static bool KnownRock(string label) { if (!Enabled || label == null) return true; lock (_rocks) return _rocks.Contains(label); }
-    public static bool KnownGrid(long id) { if (!Enabled) return true; lock (_grids) if (_grids.Contains(id)) return true; return !IsContact(GridMembers.Get(id)); }
+    public static bool KnownGrid(long id) { if (!Enabled) return true; lock (_grids) if (_grids.Contains(id)) return true; return !IsContactId(id); }
     /// <summary>A frame is shown when any of its grids is known (seeing one part of a station shows it).</summary>
     public static bool KnownFrame(ProximityFrame f)
     {
         if (!Enabled || f == null) return true;
         var site = EncounterFrames.SiteOf(f.Id);
-        foreach (long id in f.Members) if (GridMembers.IsGridId(id) && KnownGrid(id) && IsContact(GridMembers.Get(id))) return true;
+        foreach (long id in f.Members) if (GridMembers.IsGridId(id) && KnownGrid(id) && IsContactId(id)) return true;
         // a ring rock's own site (no grids yet): its rock
         return site != null && site.Label != null && KnownRock(site.Label);
     }
 
     /// <summary>Not yours: an NPC's or an encounter's, or owned by someone else (or no one).</summary>
+    /// <summary>Not yours (an encounter's, or someone else's), from the server's snapshot (ServerFrames.View): the client
+    /// read the server's grid entities for this.</summary>
+    public static bool IsContactId(long id) => ServerFrames.View(id, out var v) && IsContact(v);
+    public static bool IsContact(ServerFrames.GridView v)
+    {
+        if (v == null) return false;
+        if (v.Encounter) return true;
+        try
+        {
+            var players = _session?.Get<ClientPlayersSessionComponent>();
+            if (!v.HasOwner || players == null) return false;
+            return !v.Owner.Equals(players.LocalPlayerIdentity);
+        }
+        catch { return false; }
+    }
+
     public static bool IsContact(OrbitalGridComponent g)
     {
         if (g == null || g.Entity == null) return false;
@@ -106,28 +122,18 @@ public static class Contacts
         Vector3D sun = reg.Root?.OriginInRoot(t).Position ?? Vector3D.Zero;
 
         // Who is looking: your eyes (where the camera is), and every working sensor on your grids.
-        var yours = new Dictionary<Entity, bool>();
-        foreach (var g in GridMembers.All()) if (g.IsServer && g.Entity != null) yours[g.Entity] = !IsContact(g);
+        // (the server's snapshot - its grids and its sensor blocks - not its entities: ServerFrames.View / SensorViews)
+        var views = ServerFrames.AllViews();
+        var yours = new Dictionary<long, bool>();
+        foreach (var v in views) yours[v.Id] = !IsContact(v);
         var obs = new List<SensorModel.Looker> { new SensorModel.Looker { At = eye, Kind = SensorModel.Kind.Eyes } };
-        void AddSensor(Component c, SensorModel.Kind kind, bool working, double power)
+        foreach (var sv in ServerFrames.SensorViews)
         {
-            try
-            {
-                var top = c.Entity?.GetTopLevelParent();
-                if (top == null || !yours.TryGetValue(top, out bool mine) || !mine || !working) return;
-                Vector3D m; bool ok;
-                lock (ServerFrames.FramesLock) ok = FrameMarkers.ModelOf(c.Entity.Data.GetWorldTransform().Position, t, out m, out _, out _);
-                if (ok) obs.Add(new SensorModel.Looker { At = m, Kind = kind, Power = power });
-            }
-            catch { }
+            if (!sv.Working || !yours.TryGetValue(sv.Grid, out bool mine) || !mine) continue;
+            Vector3D m; bool ok;
+            lock (ServerFrames.FramesLock) ok = FrameMarkers.ModelOf(sv.Position, t, out m, out _, out _);
+            if (ok) obs.Add(new SensorModel.Looker { At = m, Kind = sv.Radar ? SensorModel.Kind.Radar : SensorModel.Kind.Telescope, Power = sv.Radar ? sv.Power : 0 });
         }
-        // (copied under their own locks, used outside them: AddSensor takes FramesLock, and the save (server thread) takes
-        //  FramesLock then the Radars lock - holding Radars here while taking FramesLock deadlocked a save with the
-        //  contacts tick)
-        TelescopeComponent[] scopes; lock (SensorBlocks.Telescopes) scopes = SensorBlocks.Telescopes.ToArray();
-        RadarComponent[] radars; lock (SensorBlocks.Radars) radars = SensorBlocks.Radars.ToArray();
-        foreach (var c in scopes) AddSensor(c, SensorModel.Kind.Telescope, c.Working, 0);
-        foreach (var c in radars) AddSensor(c, SensorModel.Kind.Radar, c.Working, c.Power);
         // Harness: a stand-in sensor where you are (tests the physics without building the block).
         if (DevSensor.HasValue) obs.Add(new SensorModel.Looker { At = eye, Kind = DevSensor.Value == Sensor.Radar ? SensorModel.Kind.Radar : SensorModel.Kind.Telescope, Power = 1 });
         Loud = obs.Exists(o => o.Kind == SensorModel.Kind.Radar);
@@ -167,21 +173,20 @@ public static class Contacts
         var newGrids = new List<(string name, double dist, string by)>();
         var newRocks = new Dictionary<string, int>();
         // Grids that are not yours.
-        foreach (var g in GridMembers.All())
+        foreach (var g in views)
         {
-            if (!g.IsServer) continue;
             bool known; lock (_grids) known = _grids.Contains(g.Id);
             if (known && TrackedGrid(g.Id)) continue;
             if (!IsContact(g)) continue;
             Vector3D m; bool ok;
-            lock (ServerFrames.FramesLock) ok = FrameMarkers.ModelOf(GridMembers.Position(g), t, out m, out _, out _);
+            lock (ServerFrames.FramesLock) ok = FrameMarkers.ModelOf(g.Position, t, out m, out _, out _);
             if (!ok) continue;
             var k = SeenKind(m, GridSize, GridAlbedo, GridTempK);
             if (k == null) continue;
             Watch("g:" + g.Id, GroupName(g), k.Value);
             if (known) continue;
             lock (_grids) _grids.Add(g.Id);
-            newGrids.Add((g.DisplayName, (m - eye).Length(), Name(k.Value)));
+            newGrids.Add((g.Name, (m - eye).Length(), Name(k.Value)));
         }
         // Planet ring rocks (seeded) and belt asteroids.
         foreach (var b in RingRocks.Belts())
@@ -246,7 +251,7 @@ public static class Contacts
     public static bool Lidar;
     static double DwellOf(string key) { if (!Enabled) return Tracking.PassiveSeconds; lock (_dwell) return _dwell.TryGetValue(key, out double d) ? d : 0; }
     public static bool TrackedRock(string label) => !Enabled || label == null || DwellOf("r:" + label) >= Tracking.PassiveSeconds;
-    public static bool TrackedGrid(long id) => !Enabled || DwellOf("g:" + id) >= Tracking.PassiveSeconds || !IsContact(GridMembers.Get(id));
+    public static bool TrackedGrid(long id) => !Enabled || DwellOf("g:" + id) >= Tracking.PassiveSeconds || !IsContactId(id);
     /// <summary>A rock target's tracking: null when it is not a rock contact (a sector, a body) or tracking is off.</summary>
     public static double? RockProgress(string label)
     {
@@ -257,7 +262,7 @@ public static class Contacts
         return isRock ? Tracking.Progress(DwellOf("r:" + label)) : (double?)null;
     }
     /// <summary>The name a grid is targeted and marked by: its site's label, else its own.</summary>
-    static string GroupName(OrbitalGridComponent g)
+    static string GroupName(ServerFrames.GridView g)
     {
         lock (ServerFrames.FramesLock)
         {
@@ -265,7 +270,7 @@ public static class Contacts
             var site = f != null ? EncounterFrames.SiteOf(f.Id) : null;
             if (site?.Label != null) return site.Label;
         }
-        return g.DisplayName;
+        return g.Name;
     }
 
     /// <summary>The grids you know of (ids), for the flight HUD's contact markers.</summary>

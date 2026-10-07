@@ -115,7 +115,14 @@ public static class MapView
         SectorsSessionComponent sec = null;
         try { sec = session.SessionComponents.TryGet<SectorsSessionComponent>(); } catch { }
         Sectorless = sec == null || sec.Sectors.Count == 0;
-        if (Sectorless && !_noticeBlanked && _blankTries++ < 20) _noticeBlanked = BlankText("MapDataUnavailable");
+        // (the game's "Map Data Unavailable" over the map, blanked - retried once a second for a minute: its text tables can
+        //  come later than the first 20 frames after load, and it showed)
+        long nowBlank = System.Diagnostics.Stopwatch.GetTimestamp();
+        if (Sectorless && !_noticeBlanked && _blankTries < 60 && nowBlank - _blankAt > System.Diagnostics.Stopwatch.Frequency)
+        {
+            _blankAt = nowBlank; _blankTries++; _noticeBlanked = BlankText("MapDataUnavailable");
+            if (_noticeBlanked) Log.Default?.Info($"[ORBIT] sectorless map: 'Map Data Unavailable' blanked (try {_blankTries})");
+        }
         bool want = false;
         if (Sectorless)
         {
@@ -129,15 +136,30 @@ public static class MapView
                 want = _mapTabSel?.GetValue(vm) is bool b && b;
             }
         }
+        // (each opening blanks the notice again - once, as the map opens: the game reloads its text tables, it showed again)
+        if (want && !_wantedLast && _noticeBlanked) { _noticeBlanked = false; _blankTries = 0; _blankAt = 0; }
+        _wantedLast = want;
         if (_togglePending) return;
         if (want && !map.IsVisible && _sceneFailures < 3) Toggle(map, true);   // (three failures: given up this session)
         else if (!want && _sceneOurs) { if (map.IsVisible) Toggle(map, false); else _sceneOurs = false; }
         // (the placeholder sector ring hidden once per opening)
         if (want && map.IsVisible && _sceneOurs) { if (!_hidVisuals) { HideSectorVisuals(map); _hidVisuals = true; } }
         else _hidVisuals = false;
+        // (the terminal's dark backdrop: kept hidden while the map is ours - re-checked each second, on the UI thread: a
+        //  hold applied once from the toggle was lost when its lookup failed, and the map stayed dimmed for good)
+        long nowTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+        bool ours = want && map.IsVisible && _sceneOurs;
+        if ((ours != (_backdropHold != null) || (ours && _noticeHold == null)) && nowTicks - _backdropTry > System.Diagnostics.Stopwatch.Frequency && _uiPost != null)
+        {
+            _backdropTry = nowTicks;
+            var args = (object[])_uiPostDefaults.Clone();
+            args[0] = (Action)(() => Backdrop(ours));
+            try { _uiPost.Invoke(_uiDispatcher, args); } catch { }
+        }
     }
 
     static volatile bool _togglePending;
+    static long _backdropTry;
     static long _toggleAt; static object _sceneSession; static bool _hidVisuals; static int _blankTries;
     static object _uiDispatcher; static System.Reflection.MethodInfo _uiPost; static object[] _uiPostDefaults; static bool _uiLooked;
 
@@ -207,17 +229,50 @@ public static class MapView
     // A sectorless world has none, so it stayed over this map and greyed it all out. Hidden while the map is ours at
     // Avalonia's Animation priority - above the game's binding, which stays and takes over again when the handle is
     // disposed (map closed, tab left). VRage.UI and Avalonia by reflection (scripts cannot reference them); UI thread.
-    static IDisposable _backdropHold;
+    static IDisposable _backdropHold, _noticeHold; static object _backdropHeldRect;
+    static System.Reflection.MethodInfo _descendants;
+
+    static void HideNotice()
+    {
+        var notice = FindNamed(_backdropTerminal, "NoMapDataNotice");
+        if (notice != null && _setValue != null) _noticeHold = _setValue.Invoke(notice, new[] { _isVisibleProp, (object)false, _animPriority }) as IDisposable;
+        if (_noticeHold != null) Log.Default?.Info("[ORBIT] sectorless map: the 'Map Data Unavailable' notice hidden");
+    }
+
+    /// <summary>A control named so among a visual's descendants (Avalonia's VisualExtensions.GetVisualDescendants, by
+    /// reflection), or null.</summary>
+    static object FindNamed(object root, string name)
+    {
+        if (root == null) return null;
+        try
+        {
+            if (_descendants == null)
+                foreach (var a in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    if (a.GetName().Name != "Avalonia.Base") continue;
+                    var ve = a.GetType("Avalonia.VisualTree.VisualExtensions");
+                    foreach (var m in ve?.GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static) ?? Array.Empty<System.Reflection.MethodInfo>())
+                        if (m.Name == "GetVisualDescendants" && m.GetParameters().Length == 1) { _descendants = m; break; }
+                    break;
+                }
+            if (!(_descendants?.Invoke(null, new[] { root }) is System.Collections.IEnumerable all)) return null;
+            foreach (var v in all)
+                if (v != null && v.GetType().GetProperty("Name")?.GetValue(v) as string == name) return v;
+        }
+        catch { }
+        return null;
+    }
     static object _backdropRect, _isVisibleProp, _animPriority; static System.Reflection.MethodInfo _setValue;
     static bool _backdropWarned;
     static void Backdrop(bool hide)
     {
         try
         {
-            if (!hide) { _backdropHold?.Dispose(); _backdropHold = null; return; }
-            if (_backdropHold != null) return;
+            if (!hide) { _backdropHold?.Dispose(); _backdropHold = null; _noticeHold?.Dispose(); _noticeHold = null; return; }
             var rect = FindBackdrop();
             if (rect == null) return;
+            if (_backdropHold != null && ReferenceEquals(rect, _backdropHeldRect)) { if (_noticeHold == null) HideNotice(); return; }   // (held already: the notice, once it exists)
+            _backdropHold?.Dispose(); _backdropHold = null;
             if (_setValue == null)
             {
                 Type visual = null, prio = null;
@@ -234,6 +289,12 @@ public static class MapView
                 if (_isVisibleProp == null || _animPriority == null || _setValue == null) { WarnBackdrop("Avalonia's SetValue/IsVisibleProperty/BindingPriority not found"); return; }
             }
             _backdropHold = _setValue.Invoke(rect, new[] { _isVisibleProp, (object)false, _animPriority }) as IDisposable;
+            _backdropHeldRect = rect;
+            // the overlay's "Map Data Unavailable" (MapOverlayView's NoMapDataNotice, shown when there is no colonization map):
+            // hidden the same way - blanking its text came too late on the first opening (the label had its text already)
+            _noticeHold?.Dispose(); _noticeHold = null;
+            HideNotice();
+            Log.Default?.Info("[ORBIT] sectorless map: the terminal's backdrop hidden" + (_backdropHold == null ? " (no handle back: it stays hidden until the next terminal)" : ""));
         }
         catch (Exception e) { WarnBackdrop((e.InnerException ?? e).Message); }
     }
@@ -242,28 +303,58 @@ public static class MapView
     /// the TerminalScreen -> PART_ItemDropArea. Null (warned once) when the path is not there.</summary>
     static object FindBackdrop()
     {
-        if (_backdropRect != null) return _backdropRect;
-        var session = _sceneSession;
+        var session = _sceneSession as Keen.VRage.Core.Game.Systems.Session;
         if (session == null) return null;
-        Type ui = null;
-        foreach (var a in AppDomain.CurrentDomain.GetAssemblies()) { ui = a.GetType("Keen.VRage.UI.EngineComponents.UIEngineComponent"); if (ui != null) break; }
-        if (ui == null) { WarnBackdrop("no UIEngineComponent"); return null; }
-        System.Reflection.MethodInfo get = null;
-        foreach (var m in session.GetType().GetMethods())
-            if (m.Name == "Get" && m.IsGenericMethodDefinition && m.GetParameters().Length == 0 && m.GetGenericArguments().Length == 1) { get = m; break; }
-        var engine = get?.MakeGenericMethod(ui).Invoke(session, null);
-        var sm = engine?.GetType().GetProperty("ScreenManager")?.GetValue(engine);
-        if (sm == null) { WarnBackdrop("no ScreenManager"); return null; }
         const System.Reflection.BindingFlags F = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        // The UI engine is not a session component (asking the session for it found nothing: "no ScreenManager"): the game's
+        // own SharedUIComponent holds it (_ui), as the terminal's opener reaches it (SessionInGameUISessionComponent).
+        var shared = GameUi.SharedUi(session);
+        var engine = shared?.GetType().GetField("_ui", F)?.GetValue(shared);
+        var sm = engine?.GetType().GetProperty("ScreenManager")?.GetValue(engine);
+        if (sm == null) { WarnBackdrop(shared == null ? "no SharedUIComponent" : engine == null ? "SharedUIComponent has no _ui" : "no ScreenManager"); return null; }
         object terminal = null;
-        if (sm.GetType().GetField("_cachedScreens", F)?.GetValue(sm) is System.Collections.IDictionary cached)
-            foreach (var v in cached.Values) if (v?.GetType().Name == "TerminalScreen") { terminal = v; break; }
-        if (terminal == null && sm.GetType().GetField("_loadedScreens", F)?.GetValue(sm) is System.Collections.IEnumerable loaded)
-            foreach (var v in loaded) if (v?.GetType().Name == "TerminalScreen") { terminal = v; break; }
-        if (terminal == null) { WarnBackdrop("no TerminalScreen among the screens"); return null; }
+        // the terminal is a cached screen (the game reopens it: ScreenManager.TryGetCachedScreen<TerminalScreen>())
+        _termType ??= FindTypeNamed("Keen.Game2.Client.UI.TerminalScreen.TerminalScreen");
+        if (_termType != null)
+            foreach (var m in sm.GetType().GetMethods())
+                if (m.Name == "TryGetCachedScreen" && m.IsGenericMethodDefinition && m.GetParameters().Length == 0)
+                { try { terminal = m.MakeGenericMethod(_termType).Invoke(sm, null); } catch { } break; }
+        // open, it is out of the cache: the screen manager's own collections (its screens, their handles), searched by type -
+        // its source is not in the decompile, so no field names are assumed
+        var seen = new System.Text.StringBuilder();
+        if (terminal == null) terminal = FindTerminal(sm, 3, seen, new HashSet<object>(ReferenceEqualityComparer.Instance));
+        if (terminal == null) { WarnBackdrop("no TerminalScreen in the screen manager (searched: " + seen + ")"); return null; }
+        if (ReferenceEquals(terminal, _backdropTerminal) && _backdropRect != null) return _backdropRect;   // (the same terminal: its rectangle)
+        _backdropTerminal = terminal;
         _backdropRect = terminal.GetType().GetField("PART_ItemDropArea", F | System.Reflection.BindingFlags.Public)?.GetValue(terminal);
         if (_backdropRect == null) WarnBackdrop("TerminalScreen has no PART_ItemDropArea");
         return _backdropRect;
+    }
+    static object _backdropTerminal; static Type _termType;
+
+    /// <summary>A TerminalScreen reachable from o through fields and collections, depth levels deep (null: none).</summary>
+    static object FindTerminal(object o, int depth, System.Text.StringBuilder seen, HashSet<object> visited)
+    {
+        if (o == null || depth < 0 || o is string || o.GetType().IsPrimitive || !visited.Add(o)) return null;
+        if (o.GetType().Name == "TerminalScreen") return o;
+        if (o is System.Collections.IDictionary d) { foreach (var v in d.Values) { var r = FindTerminal(v, depth - 1, seen, visited); if (r != null) return r; } return null; }
+        if (o is System.Collections.IEnumerable e) { int n = 0; foreach (var v in e) { if (n++ > 256) break; var r = FindTerminal(v, depth - 1, seen, visited); if (r != null) return r; } return null; }
+        if (depth == 0) return null;
+        for (var t = o.GetType(); t != null && t != typeof(object); t = t.BaseType)
+            foreach (var f in t.GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.DeclaredOnly))
+            {
+                if (f.FieldType.IsPrimitive || f.FieldType == typeof(string) || f.FieldType.IsEnum) continue;
+                if (depth == 3 && seen.Length < 400) seen.Append(f.Name).Append(' ');
+                object v; try { v = f.GetValue(o); } catch { continue; }
+                var r = FindTerminal(v, depth - 1, seen, visited);
+                if (r != null) return r;
+            }
+        return null;
+    }
+    static Type FindTypeNamed(string name)
+    {
+        foreach (var a in AppDomain.CurrentDomain.GetAssemblies()) { var t = a.GetType(name); if (t != null) return t; }
+        return null;
     }
 
     static void WarnBackdrop(string why)
@@ -285,7 +376,7 @@ public static class MapView
             _discField.SetValue(map, new Keen.Game2.Simulation.GameSystems.Discoveries.DiscoveriesPlayerData());
     }
 
-    static bool _noticeBlanked;
+    static bool _noticeBlanked, _wantedLast; static long _blankAt;
     /// <summary>The game's GPS page says "Map Data Unavailable" across the map in a world without sectors - where this map
     /// now is. Its localized text (LocalizationPackage's string tables, by reflection, as the aero mod's Mach readout
     /// does) blanked; true once done.</summary>
@@ -349,8 +440,12 @@ public static class MapView
         catch (Exception e) { Log.Default?.Warning("[ORBIT] sectorless map scene: restore failed: " + e.Message); }
     }
 
+    /// <summary>The client session (MapLayout reads the game's UI design scale through it).</summary>
+    public static Keen.VRage.Core.Game.Systems.Session SessionForLayout;
+
     public static void Tick(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera, double t)
     {
+        SessionForLayout = session;
         var map = Map(session);
         FrameHost.Guard("MapView.Sectorless", () => SectorlessScene(session, map));
         Visible = map != null && map.IsVisible;
@@ -521,7 +616,7 @@ public static class MapView
             {
                 if (f.ParentBodyName != body.Name) continue;
                 bool mine = FrameHost.PlayerFrame != null && FrameHost.PlayerFrame.Id == f.Id;
-                DrawConic(f.Elements, body.SoiRadius, t, ToMap, mine ? PlayerColor : GridColor, R,
+                DrawConic(mine ? YourOrbit(f, t) : f.Elements, body.SoiRadius, t, ToMap, mine ? PlayerColor : GridColor, R,
                           mine ? "You" : $"#{f.Id} ({f.Members.Count})");
             }
             // The player materialized near this planet: the osculating orbit (HighSpeed: its conic).
@@ -572,9 +667,13 @@ public static class MapView
         {
             if (f.ParentBodyName != root.Name) continue;
             bool mine = FrameHost.PlayerFrame != null && FrameHost.PlayerFrame.Id == f.Id;
-            DrawConic(f.Elements, double.PositiveInfinity, t, ToMap, mine ? PlayerColor : GridColor, 0, mine ? "You" : $"#{f.Id}");
+            DrawConic(mine ? YourOrbit(f, t) : f.Elements, double.PositiveInfinity, t, ToMap, mine ? PlayerColor : GridColor, 0, mine ? "You" : $"#{f.Id}");
         }
     }
+
+    /// <summary>Your orbit in your frame: the frame's, or your own in it while you ride (Maneuvers.Base).</summary>
+    static KeplerianElements YourOrbit(SEAerospace.Frames.ProximityFrame f, double t)
+        => Maneuvers.Base(t, out var b, out var el) && b?.Name == f.ParentBodyName ? el : f.Elements;
 
     // ───────────────────────────── drawing helpers ─────────────────────────────
 

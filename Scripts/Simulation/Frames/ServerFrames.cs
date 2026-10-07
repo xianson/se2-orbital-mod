@@ -31,6 +31,7 @@ namespace OrbitalMod;
 public static class ServerFrames
 {
     public const double AttachRadius = 5000.0;   // m: grids this close to a stowing player join its frame
+    public const double AttachRelSpeed = 100.0;  // m/s: and moving with it (not landed below it)
     public const double PinTolerance = 200.0;    // m: re-pin the anchor grid (and shift the frame) past this
     public const double SlotRadius = 20000.0;    // m: SE1 FrameManager.SlotRadius (split threshold)
     /// <summary>A static grid or asteroid captures a frame within CaptureEnterRadius of it, and a rider leaves
@@ -49,8 +50,22 @@ public static class ServerFrames
         return true;
     }
 
+    /// <summary>An anchor's joined entities, and when they were looked up (wall seconds).</summary>
+    private static readonly Dictionary<long, (HashSet<Keen.VRage.DCS.Components.Entity> set, double at)> _joinedOf = new Dictionary<long, (HashSet<Keen.VRage.DCS.Components.Entity>, double)>();
+
     /// <summary>The warp each member's velocity was last scaled for.</summary>
     private static readonly Dictionary<long, double> _gridN = new Dictionary<long, double>();
+
+    /// <summary>A new system (another world): nothing of the last one's frames - trackers, warp scales, conics, holds, notices.</summary>
+    public static void ResetWorld()
+    {
+        _joinedOf.Clear(); _gridN.Clear(); _born.Clear(); _dirtySince.Clear(); _trueRel.Clear(); _settle.Clear();
+        lock (AnchorAccel) AnchorAccel.Clear();
+        lock (GridPositions) GridPositions.Clear();
+        _gridHighSpeed.Clear(); _trackers.Clear(); Holding.Clear(); _arrivalNoticed.Clear();
+        System.Threading.Volatile.Write(ref _views, new Dictionary<long, GridView>());
+        System.Threading.Volatile.Write(ref _mergeAhead, double.NaN);
+    }
 
     /// <summary>When each frame was first seen (wall seconds): a fresh frame may still move off a dirty slot.</summary>
     private static readonly Dictionary<long, double> _born = new Dictionary<long, double>(), _dirtySince = new Dictionary<long, double>();
@@ -74,11 +89,40 @@ public static class ServerFrames
             // Only where the frame is: a static member elsewhere (listed by an older rule) anchors nothing.
             double reach = f.AnchorEntityId == m ? CaptureRadius : CaptureEnterRadius;   // hysteresis: in at 8 km, out at 10
             if (g != null && g.IsServer && !GridMembers.IsDynamic(g) && (GridMembers.Position(g) - f.BerthCenter).Length() <= reach)
-            { id = m; pos = GridMembers.Position(g); return true; }
+            {
+                // An encounter's static grid (a wreck, a derelict station) in a frame of yours anchors it only with a reason,
+                // as a rock: one of your grids or you at it (RockReach), or it anchors already. One spawned beside the frame
+                // took it over, re-centred its orbit on itself and split your ship off at the static radius.
+                if (!f.IsEncounter && f.AnchorEntityId != m && EncounterFrames.IsEncounterGrid(g) && !OwnNear(f, GridMembers.Position(g))) continue;
+                id = m; pos = GridMembers.Position(g); return true;
+            }
         }
-        if (AsteroidBridge.NearestAsteroid(f.BerthCenter, f.AnchorEntityId == AsteroidAnchorId ? CaptureRadius : CaptureEnterRadius, out pos)) { id = AsteroidAnchorId; return true; }
+        // A rock anchors the frame only with a reason: it persists (placed, the mod's, player-edited), or one of the frame's
+        // grids is at it (within RockReach: parked on it, mining it). An encounter's rock that spawned 5-8 km from a new frame
+        // took it over, re-centred its orbit on it, then the frame was moved off and it began again (every ~2 s).
+        if (AsteroidBridge.NearestAsteroid(f.BerthCenter, f.AnchorEntityId == AsteroidAnchorId ? CaptureRadius : CaptureEnterRadius, out pos, out bool persistent))
+        {
+            bool atIt = persistent || f.AnchorEntityId == AsteroidAnchorId || OwnNear(f, pos);
+            if (atIt) { id = AsteroidAnchorId; return true; }
+        }
+        pos = default;
         return false;
     }
+
+    /// <summary>One of the frame's own (not an encounter's) grids, or the player riding it, within RockReach of a point.</summary>
+    static bool OwnNear(ProximityFrame f, Vector3D at)
+    {
+        foreach (long m in f.Members)
+        {
+            if (!GridMembers.IsGridId(m)) continue;
+            if (GridMembers.Get(m) is OrbitalGridComponent o && o.IsServer && !EncounterFrames.IsEncounterGrid(o) && (GridMembers.Position(o) - at).Length() <= RockReach) return true;
+        }
+        var pf = FrameHost.PlayerFrame;
+        return pf != null && pf.Id == f.Id && ServerPlanetBeacon.PlayerState(out Vector3D pp, out _) && (pp - at).Length() <= RockReach;
+    }
+
+    /// <summary>A rock that does not persist anchors a frame only when one of its grids is this close to it (m).</summary>
+    public const double RockReach = 2000.0;
 
     /// <summary>Guards the frame registry and frame state across the client and server threads.</summary>
     public static readonly object FramesLock = new object();
@@ -92,12 +136,13 @@ public static class ServerFrames
     private const double WarpMemberSpeed = 800;
 
     /// <summary>Warp down to the highest level that carries a member moving at trueSpeed relative to you.</summary>
+    private static string _fastestName = "?";
     private static void LimitWarp(double trueSpeed)
     {
         double was = SystemHost.Timescale, to = 1;
         foreach (double l in WarpControl.Levels) if (l * trueSpeed <= WarpMemberSpeed * 0.75 && l < was) to = l;
         SystemHost.Timescale = to;
-        Event($"warp x{was:F0} -> x{to:F0}: a member moves {trueSpeed:F2} m/s relative to its frame (x{was:F0} would need {was * trueSpeed:F0} m/s)");
+        Event($"warp x{was:F0} -> x{to:F0}: a member moves {trueSpeed:F2} m/s relative to its frame (x{was:F0} would need {was * trueSpeed:F0} m/s) - {_fastestName}");
         WarpControl.PendingSay = $"Warp limited to ×{to:N0}: a ship moving nearby";
     }
     public static readonly Dictionary<long, Vector3D> AnchorAccel = new Dictionary<long, Vector3D>();
@@ -128,6 +173,8 @@ public static class ServerFrames
     /// <summary>DEV: put a grid on its own orbit (a frame with the grid as anchor).</summary>
     public sealed class GridOrbitRequest { public long GridId; public string Body; public KeplerianElements El; }
     public static readonly ConcurrentQueue<GridOrbitRequest> GridOrbit = new ConcurrentQueue<GridOrbitRequest>();
+    /// <summary>DEV: grids to close on the server's next tick (an anchor destroyed, for the scenario tests).</summary>
+    public static readonly ConcurrentQueue<long> GridDelete = new ConcurrentQueue<long>();
 
     /// <summary>Grid HighSpeed (analytic, like the player's): grid id -> (body, elements).</summary>
     private static readonly Dictionary<long, (string body, KeplerianElements el)> _gridHighSpeed =
@@ -143,10 +190,13 @@ public static class ServerFrames
         if (last != 0 && dt < 0.004) return;
         if (System.Threading.Interlocked.CompareExchange(ref _lastTickStamp, now, last) != last) return;
         TickRate.Server.Count();
+        if (!ReferenceEquals(session, _noticeSession)) { _noticeSession = session; _arrivalNoticed.Clear(); }   // (frame ids restart in a new world)
         if (!OrbitalSettings.SawServer) OrbitalSettings.SawServer = true;
         OrbitalSettings.Poll();   // (the settings files, every ~2 s)
         SavedState.ApplyRadarSettings();
         lock (FramesLock) SpawnGuard.Tick(AsteroidBridge.Generator(session));
+        StationKeepCharge.Sweep();   // (thrusters of grids no longer holding station ask nothing more)
+        WarmBerths.Tick(session);   // (berths kept warm: no engine stall when a frame takes one)
    // no encounters on a planet's border (before they materialize); reads frames
         AsteroidBridge.Tick(session);   // no procedural asteroids, ever (encounters and our own system place them)
         // Physics runs on game time (it slows and pauses with the game), so the tidal velocity
@@ -187,6 +237,13 @@ public static class ServerFrames
                 while (GridOrbit.TryDequeue(out var go)) DoGridOrbit(go);
                 while (GridDamp.TryDequeue(out var gd)) DoGridDamp(gd.id, gd.on);
                 while (GridLaunch.TryDequeue(out var gl)) DoGridLaunch(gl.id, gl.altKm, gl.body, gl.speed);
+                while (GridDelete.TryDequeue(out long gd))
+                {
+                    var g = GridMembers.Get(gd);
+                    if (g?.Entity == null || !g.IsServer) { Event($"griddel: no server grid {gd}"); continue; }
+                    try { g.Session.MarkEntityForClose(g.Entity); Event($"griddel: grid {gd} '{g.DisplayName}' closed (DEV)"); }
+                    catch (Exception e) { Event($"griddel: {gd}: {e.Message}"); }
+                }
                 while (GridMove.TryDequeue(out var gm))
                 {
                     var g = GridMembers.Get(gm.id);
@@ -230,7 +287,9 @@ public static class ServerFrames
             }
         }
 
-        if (_tick % 30 == 0) BuildSnapshot();
+        if (_tick % 30 == 0) { BuildSnapshot(); AdoptLooseGrids(); }
+        if (_tick % 5 == 0) BuildViews();
+        else RefreshGridPositions();   // (every tick: a seated player's grid is matched against them - PlayerOrbit)
         DevStress.Tick();
         if (DevFreeGrids)
         {
@@ -261,6 +320,9 @@ public static class ServerFrames
             Vector3D p = GridMembers.Position(g);
             if ((p - req.RefPos).Length() > AttachRadius) continue;
             if (EncounterFrames.IsNpc(g)) continue;   // NPCs keep their own world
+            // only what flies with you: a ship landed on the ground below (a small moon's stow altitude is a few km) was taken
+            // into orbit with a stowing walker. A grid on its conic (HighSpeed) has no physical velocity: not judged by it.
+            if (!_gridHighSpeed.ContainsKey(g.Id) && (GridMembers.Velocity(g) - req.RefVel).Length() > AttachRelSpeed) continue;
             if (!SystemHost.Frames.AddMember(frame, g.Id)) continue;
             // A grid riding its conic (HighSpeed) has zero physical velocity: its true velocity is the
             // conic's. Leave HighSpeed first, or StepGridHighSpeed keeps dragging it off the berth.
@@ -366,7 +428,9 @@ public static class ServerFrames
             var frame = SystemHost.Frames.CreateFrame(parent.Name, el, g.Id);
             if (frame == null) continue;
             _gridHighSpeed.Remove(g.Id);
-            if (!MoveGrid(g, frame.BerthCenter, Vector3D.Zero, out var withS)) { SystemHost.Frames.Dissolve(frame.Id); continue; }
+            // (turned out of the planet's rotating chart, as attached grids and arrivals are: unturned, the ship a seated player
+            //  flies left every spinning planet facing off by the chart's angle - planet and sky jumped)
+            if (!MoveGrid(g, frame.BerthCenter, Vector3D.Zero, out var withS, default, legacy ? (Quaternion?)null : chart.ToInertialRotation())) { SystemHost.Frames.Dissolve(frame.Id); continue; }
             foreach (var o in withS) { _gridHighSpeed.Remove(o.Id); if (SystemHost.Frames.FindByMember(o.Id) == null) SystemHost.Frames.AddMember(frame, o.Id); }
             Event($"STOW grid {g.Id} '{g.DisplayName}' -> frame #{frame.Id} orbiting {parent.Name}: r={(cel - porg.Position).Length() / 1000:F1} km " +
                   $"|v|={vel.Length():F0} m/s a={el.SemiMajorAxis / 1000:F1} km e={el.Eccentricity:F3} slot={frame.BerthSlotId}");
@@ -435,6 +499,9 @@ public static class ServerFrames
                 double rel = ok ? ev.RelativeSpeed : double.PositiveInfinity;
                 var key = fa.Id < fb.Id ? (fa.Id, fb.Id) : (fb.Id, fa.Id);
                 if (!_trackers.TryGetValue(key, out var tr)) { tr = new RendezvousTracker(); _trackers[key] = tr; }
+                if (miss < er && rel < Rendezvous.EnterRelSpeedMps && ev.Time > t && FrameHost.PlayerFrame != null
+                    && (FrameHost.PlayerFrame.Id == fa.Id || FrameHost.PlayerFrame.Id == fb.Id))
+                    NoteMergeAhead(ev.Time);
                 bool merged = miss < er && rel < Rendezvous.EnterRelSpeedMps
                     ? tr.Update(miss, rel, dt, Rendezvous)
                     : tr.Update(double.PositiveInfinity, double.PositiveInfinity, dt, Rendezvous);
@@ -468,21 +535,47 @@ public static class ServerFrames
         Vector3D dVel = sInc.Velocity - sHost.Velocity;
         Vector3D translation = host.BerthCenter + dPos - inc.BerthCenter;
         if (!IsFinite(translation) || !IsFinite(dVel)) return;
+        // (in warp a member's physical velocity is N x its true one - the gridN rescale: the true relative velocity added
+        //  unscaled was cut by N at the merge, a free braking)
+        Vector3D dVelPhys = dVel * Math.Max(1.0, SystemHost.Timescale);
         int n = 0;
+        var went = new HashSet<long>();   // (moved with an earlier member's joined set: not moved twice)
         foreach (long id in new List<long>(inc.Members))
         {
-            if (!GridMembers.IsGridId(id)) continue;
+            if (!GridMembers.IsGridId(id) || went.Contains(id)) continue;
             var g = GridMembers.Get(id);
             if (g == null || !g.IsServer) continue;
-            MoveGrid(g, GridMembers.Position(g) + translation, null, dVel);
+            // Its true relative velocity in the host, kept for the warp steering (as every member's in warp): in physics it is
+            // N x that, and the game caps physical speed near 1000 m/s - a merge at x1000 with 8.5 m/s between the frames
+            // asked 8500 m/s and got ~980, a ship cut to a ninth of its speed, 2.7 km off its orbit after.
+            double nm = Math.Max(1.0, SystemHost.Timescale);
+            Vector3D trueOld = _trueRel.TryGetValue(g.Id, out var kt) ? kt : GridMembers.Velocity(g) / nm;
+            MoveGrid(g, GridMembers.Position(g) + translation, null, out var withM, dVelPhys);
+            foreach (var w in withM) went.Add(w.Id);
+            // (its velocity is in this warp's scale now: recorded so, for the rescale when the warp changes)
+            _gridN[g.Id] = nm; _settle.Remove(g.Id);
+            if (nm > 1.0) _trueRel[g.Id] = trueOld + dVel; else _trueRel.Remove(g.Id);
+            foreach (var w in withM) { _gridN[w.Id] = nm; _trueRel.Remove(w.Id); _settle.Remove(w.Id); }
             n++;
         }
-        FrameHost.RequestMerge(inc.Id, translation, dVel);   // the player, if a member of the incomer
+        FrameHost.RequestMerge(inc.Id, translation, dVelPhys);   // the player, if a member of the incomer
         long hostId = host.Id, incId = inc.Id;
         SystemHost.Frames.MergeInto(host, inc);
         AnchorAccel.Remove(incId);
         Event($"MERGE frame #{incId} -> #{hostId}: {n} grid(s) moved, sep {dPos.Length() / 1000:F2} km, |dv| {dVel.Length():F1} m/s (host now {host.Members.Count} members)");
     }
+
+    /// <summary>When the player's frame next meets another closely enough to merge (NaN: none seen): warp stops a minute
+    /// before it (SystemHost.AdvanceClock), so the pass is screened at x1 - in warp the screens are hundreds of game seconds
+    /// apart and a merge went by between two of them.</summary>
+    public static double MergeAhead => System.Threading.Volatile.Read(ref _mergeAhead);
+    private static double _mergeAhead = double.NaN;
+    private static void NoteMergeAhead(double tca)
+    {
+        double cur = System.Threading.Volatile.Read(ref _mergeAhead);
+        if (double.IsNaN(cur) || cur < SystemHost.Now || tca < cur) System.Threading.Volatile.Write(ref _mergeAhead, tca);
+    }
+    public const double MergeWarpLead = 60.0;
 
     private static double FrameMass(ProximityFrame f)
     {
@@ -542,14 +635,16 @@ public static class ServerFrames
         // seen for 5 s with no encounter grid near it is taken as left in the slot.)
         bool dirty = false;
         long dsid = 0; Vector3D dpos = default;
-        if (!f.IsEncounter && f.BerthSlotId >= 0 && Wall() - _born[f.Id] < 30 && StaticAnchor(f, out dsid, out dpos) && !f.HasMember(dsid))
+        bool rockPersists = false;
+        if (!f.IsEncounter && f.BerthSlotId >= 0 && Wall() - _born[f.Id] < 30 && StaticAnchor(f, out dsid, out dpos) && !f.HasMember(dsid)
+            && (dsid != AsteroidAnchorId || (AsteroidBridge.NearestAsteroid(dpos, 1.0, out _, out rockPersists) && rockPersists)))
         {
             bool encounterNear = false;
             // (A fresh encounter's grids join a frame within seconds (spawns settle 2 s); grids next to the rock
             // in no frame at all are leftovers from a save, as the rock is.)
             foreach (var o in GridMembers.All())
                 if (o.IsServer && EncounterFrames.IsEncounterGrid(o) && (GridMembers.Position(o) - dpos).Length() < 3000
-                    && SystemHost.Frames.FindByMember(o.Id) != null && !f.HasMember(o.Id)) { encounterNear = true; break; }
+                    && SystemHost.Frames.FindByMember(o.Id) != null) { encounterNear = true; break; }   // (in this frame too: its rock)
             if (!encounterNear)
             {
                 if (!_dirtySince.ContainsKey(f.Id)) _dirtySince[f.Id] = Wall();
@@ -564,9 +659,10 @@ public static class ServerFrames
             var alloc = SystemHost.Frames.Allocator;
             int slot = alloc.Allocate(out Vector3D fresh);
             Vector3D shift = fresh - f.BerthCenter;
+            var went = new HashSet<long>();
             foreach (long m in f.Members)
-                if (GridMembers.IsGridId(m) && GridMembers.Get(m) is OrbitalGridComponent mg && mg.IsServer && GridMembers.IsDynamic(mg))
-                    MoveGrid(mg, GridMembers.Position(mg) + shift, null);
+                if (!went.Contains(m) && GridMembers.IsGridId(m) && GridMembers.Get(m) is OrbitalGridComponent mg && mg.IsServer && GridMembers.IsDynamic(mg))
+                { MoveGrid(mg, GridMembers.Position(mg) + shift, null, out var withD); foreach (var w in withD) went.Add(w.Id); }
             FrameHost.RequestShift(f.Id, shift);
             Event($"frame #{f.Id}: its slot {f.BerthSlotId} holds {(dsid == AsteroidAnchorId ? "a rock" : $"grid {dsid}")}: moved to clear slot {slot} (the old one stays used)");
             f.BerthSlotId = slot; f.BerthCenter = fresh;
@@ -625,6 +721,7 @@ public static class ServerFrames
         // NPC grids never anchor, and an encounter frame has no anchor at all: its origin is the berth
         // (the site, pinned) and its orbit is its own (a site's ephemeris, a procedural spawn's conic).
         OrbitalGridComponent anchor = null;
+        bool elected = false;
         if (!f.IsEncounter && !isStatic)
         {
             foreach (var g in grids) if (g.Id == f.AnchorEntityId && !EncounterFrames.IsNpc(g)) anchor = g;
@@ -640,6 +737,7 @@ public static class ServerFrames
                 {
                     Event($"frame #{f.Id}: anchor -> grid {anchor.Id} '{anchor.DisplayName}' ({best:F0} kg)");
                     f.AnchorEntityId = anchor.Id;
+                    elected = true;
                 }
             }
         }
@@ -649,16 +747,32 @@ public static class ServerFrames
         Vector3D A = Vector3D.Zero;
         Vector3D anchorPos = isStatic ? staticPos : f.BerthCenter;
 
+        // An anchor moved out of its berth by something else (the game's fast travel, an admin move): not this frame's any
+        // more - out of it quietly (pinned back, it was dragged home; split, it got an orbit made of a berth-to-berth offset)
+        if (anchor != null && SEAerospace.Frames.PlayerOrbit.MovedOut(f, GridMembers.Position(anchor)))
+        {
+            SystemHost.Frames.RemoveMember(anchor.Id);
+            Event($"frame #{f.Id}: anchor grid {anchor.Id} '{anchor.DisplayName}' left - {(GridMembers.Position(anchor) - f.BerthCenter).Length() / 1000:F0} km from the berth (moved by something else)");
+            anchor = null;
+        }
         if (anchor != null)
         {
             // Anchor owner = server: pin + drain + fold.
             anchorPos = GridMembers.Position(anchor);
             if ((anchorPos - f.BerthCenter).Length() > PinTolerance)
             {
+                // A NEW anchor (the old one destroyed, undocked, a handover from the player): the frame's orbit moves onto it
+                // first - the re-pin below shifts every member by its offset, and without this the whole frame jumped that far
+                // in space (up to 20 km: the map, a plan, an arrival point all off by it). A drifting anchor's re-pin keeps the
+                // rails: its motion is already folded in.
+                if (elected && !FrameRails.TryRebaseShift(f, t, anchorPos - f.BerthCenter))
+                    Event($"frame #{f.Id}: the new anchor's offset not folded into the orbit (rebase refused)");
                 // Re-pin by shifting the WHOLE frame back (members keep their offsets; no rails change).
                 Vector3D shift = f.BerthCenter - anchorPos;
                 // (MoveGrid: a jointed grid's wheels, rotor parts and docked ships must come too, before the physics step)
-                foreach (var g in grids) MoveGrid(g, GridMembers.Position(g) + shift, null);
+                var went = new HashSet<long>();   // (a member moved with another's joined set is not moved twice)
+                foreach (var g in grids)
+                    if (!went.Contains(g.Id)) { MoveGrid(g, GridMembers.Position(g) + shift, null, out var withP); foreach (var w in withP) went.Add(w.Id); }
                 FrameHost.RequestShift(f.Id, shift);
                 anchorPos = f.BerthCenter;
             }
@@ -687,9 +801,27 @@ public static class ServerFrames
         // steered along its own Kepler orbit (see below); at x1 the differential gravity is integrated as ever.
         double N = Math.Max(1.0, SystemHost.Timescale);
         double fastest = 0;   // the largest physical speed a member needs this tick (N x its true relative speed)
+        // what is joined to the anchor (docked, on its rotors and hinges): one body with it - never station-keeping on its
+        // own (a docked ship with dampeners on skipped the relative pull while the joint dragged it: the anchor's thrust,
+        // drained over the anchor's mass alone, counted double for a tug pushing a ship of its own mass)
+        HashSet<Keen.VRage.DCS.Components.Entity> joined = null;
+        if (anchor != null && GridMembers.IsConstrained(anchor))
+        {
+            // (the joint search once a second per anchor, not every tick)
+            double wj = Wall();
+            if (_joinedOf.TryGetValue(anchor.Id, out var cj) && wj - cj.at < 1.0) joined = cj.set;
+            else
+            {
+                var set = new List<Keen.VRage.DCS.Components.Entity>();
+                if (GridMembers.MoveSet(anchor, set, out _)) joined = new HashSet<Keen.VRage.DCS.Components.Entity>(set);
+                _joinedOf[anchor.Id] = (joined, wj);
+            }
+        }
         foreach (var g in grids)
         {
-            if (g == anchor) continue;
+            // (an anchor keeps no member's warp state: one left from before it anchored - its scale at x1 - multiplied the
+            //  velocity a merge gave it at x1000 by 1000 again, once it was a member of the host)
+            if (g == anchor) { _gridN.Remove(g.Id); _trueRel.Remove(g.Id); _settle.Remove(g.Id); continue; }
             if (EncounterFrames.IsNpc(g) && !DevNpcRelative) continue;
             Vector3D rRel = GridMembers.Position(g) - anchorPos;
             if (_gridN.TryGetValue(g.Id, out double n0) && Math.Abs(n0 - N) > 1e-9)
@@ -698,7 +830,15 @@ public static class ServerFrames
                 if (N <= 1.0 && n0 > 1.0) _settle[g.Id] = SettleTicks;   // (warp over: steer a moment longer)
             }
             _gridN[g.Id] = N;
-            if (rRel.Length() > (isStatic ? CaptureRadius : SlotRadius))
+            if (SEAerospace.Frames.PlayerOrbit.MovedOut(f, GridMembers.Position(g)))
+            {
+                // moved out by something else (fast travel): out of the frame quietly, framed again where it now is
+                _gridN.Remove(g.Id); _trueRel.Remove(g.Id); _settle.Remove(g.Id);
+                SystemHost.Frames.RemoveMember(g.Id);
+                Event($"grid {g.Id} '{g.DisplayName}' left frame #{f.Id}: {(GridMembers.Position(g) - f.BerthCenter).Length() / 1000:F0} km from its berth (moved by something else)");
+                continue;
+            }
+            if (rRel.Length() > LeaveRadius(isStatic))
             {
                 _gridN.Remove(g.Id); _trueRel.Remove(g.Id); _settle.Remove(g.Id);
                 SplitGrid(f, g, cur, rRel, GridMembers.Velocity(g) / N, t);
@@ -707,7 +847,7 @@ public static class ServerFrames
             Vector3D accel = lag != null ? lag(rRel, GridMembers.Velocity(g) / N) : (Grav(rA + rRel, mu) - gA) - A;
             // Station-keeping (dampeners on, and thrust on the side that cancels the pull): no relative force, as
             // SE1 and as a rider with dampeners on. Its dampeners only null its own motion: it holds exactly.
-            if (StationKeeping(g, accel * (N * N))) { _trueRel.Remove(g.Id); continue; }
+            if ((joined == null || !joined.Contains(g.Entity)) && StationKeeping(g, accel * (N * N), N)) { _trueRel.Remove(g.Id); continue; }
             // In warp: along its own orbit, exactly. Integrating the N^2 forces in N*dt steps blew up near a low
             // periapsis (x1000: 16.7 s steps against ~30 s relative dynamics flung members at hundreds of m/s);
             // instead its true state (the frame's + its offset) goes N*dt along its own Kepler orbit, and it gets
@@ -727,9 +867,19 @@ public static class ServerFrames
                 if (IsFinite(relNext))
                 {
                     Vector3D vPhys = (relNext - rRel) / dt;
-                    GridMembers.SetVelocity(g, vPhys);
                     _trueRel[g.Id] = mineNext.Velocity - frameNext.Velocity;
-                    fastest = Math.Max(fastest, N * _trueRel[g.Id].Length());   // (its own orbit's speed, not a catch-up)
+                    // A frame you are not in (nobody to see it): a member too fast to carry in this warp is PLACED on its own
+                    // orbit each tick, not pushed there - so a cluster drifting far away (the world's own ships, merged into
+                    // one frame) no longer holds everyone's warp at x10. Yours keeps the physics' limit (you see its ships).
+                    bool unseen = FrameHost.PlayerFrame == null || FrameHost.PlayerFrame.Id != f.Id;
+                    if (unseen && vPhys.Length() > WarpMemberSpeed && GridMembers.SetPosition(g, f.BerthCenter + relNext))
+                    {
+                        GridMembers.SetVelocity(g, Vector3D.Zero);
+                        if (settle > 0) { if (--settle == 0) { _settle.Remove(g.Id); _trueRel.Remove(g.Id); } else _settle[g.Id] = settle; }
+                        continue;
+                    }
+                    GridMembers.SetVelocity(g, vPhys);
+                    if (N * _trueRel[g.Id].Length() > fastest) { fastest = N * _trueRel[g.Id].Length(); _fastestName = $"grid {g.Id} '{g.DisplayName}' in frame #{f.Id}"; }   // (its own orbit's speed, not a catch-up)
                     if (settle > 0) { if (--settle == 0) { _settle.Remove(g.Id); _trueRel.Remove(g.Id); } else _settle[g.Id] = settle; }
                     continue;
                 }
@@ -773,10 +923,47 @@ public static class ServerFrames
     /// <summary>rotate: turns the grid (its orientation and spin; a joined set rigidly, about this grid) - crossing between
     /// a planet's rotating chart and the inertial frames, positions and velocities were turned and orientations not: the
     /// ship arrived rotated against its own motion (and its cockpit's target, FrameHost, with it).</summary>
+    /// <summary>
+    /// A second move of a jointed group in the same tick (a re-pin, then an arrival, a merge or a split): added to the one
+    /// already queued for the whole group - it returned "moved" and did nothing (the group stayed in the empty berth while
+    /// the frame arrived, or landed 400 km off the host and split off on a wrong orbit). A second turn is not composed.
+    /// </summary>
+    static bool AddToQueuedMove(OrbitalGridComponent g, (Vector3D p, Vector3D v) queued, Vector3D target, Vector3D? setVel, Vector3D addVel,
+                                Quaternion? rotate, List<OrbitalGridComponent> with)
+    {
+        if (!GridMembers.Finite(target) || !GridMembers.Finite(addVel)) return false;
+        var set = new List<Entity>();
+        if (!GridMembers.MoveSet(g, set, out string why)) { Event($"grid {g.Id} '{g.DisplayName}' second move refused: {why}"); return false; }
+        var inSet = new HashSet<Entity>(set);
+        Vector3D delta = target - queued.p;
+        var byEntity = new Dictionary<Entity, OrbitalGridComponent>();
+        foreach (var o in GridMembers.All()) if (o.IsServer && o.Entity != null) byEntity[o.Entity] = o;
+        lock (_deferred)
+            for (int i = 0; i < _deferred.Count; i++)
+            {
+                var d = _deferred[i];
+                if (!inSet.Contains(d.Item1)) continue;
+                var np = d.Item2 + delta; var nv = setVel ?? d.Item3 + addVel;
+                if (!GridMembers.Finite(np) || !GridMembers.Finite(nv)) continue;
+                _deferred[i] = (d.Item1, np, nv);
+                if (byEntity.TryGetValue(d.Item1, out var og))
+                {
+                    lock (GridMembers.Pending) GridMembers.Pending[og.Id] = (np, nv);
+                    if (og != g) with.Add(og);
+                }
+            }
+        if (rotate.HasValue) Event($"grid {g.Id} '{g.DisplayName}': a second move this tick turned nothing (only the first move's turn is applied)");
+        Event($"grid {g.Id} '{g.DisplayName}': a second move this tick, {delta.Length() / 1000:F1} km more, added to the queued one");
+        return true;
+    }
+
     public static bool MoveGrid(OrbitalGridComponent g, Vector3D target, Vector3D? setVel, out List<OrbitalGridComponent> with, Vector3D addVel = default, Quaternion? rotate = null)
     {
         with = new List<OrbitalGridComponent>();
-        lock (GridMembers.Pending) if (GridMembers.Pending.ContainsKey(g.Id)) return true;   // (with its group, this tick)
+        (Vector3D p, Vector3D v) queued;
+        bool isQueued;
+        lock (GridMembers.Pending) isQueued = GridMembers.Pending.TryGetValue(g.Id, out queued);
+        if (isQueued) return AddToQueuedMove(g, queued, target, setVel, addVel, rotate, with);
         if (!GridMembers.Finite(target) || !GridMembers.Finite(addVel) || (setVel.HasValue && !GridMembers.Finite(setVel.Value)))
         { GridMembers.NaNRefused++; Event($"grid {g.Id} '{g.DisplayName}' not moved: non-finite target"); return false; }
         if (!GridMembers.IsConstrained(g))
@@ -830,6 +1017,7 @@ public static class ServerFrames
     /// still in its berth while its frame carries the orbit, so a crossing steps its speed (0 <-> ~1 km/s) in one tick -
     /// the client quiets the game's acceleration camera shake for it (FrameHost; it shook the cockpit 19 deg).</summary>
     public static int ChartCrossings;
+
 
     static void NoteTargetTurn(Entity e, Vector3D from, Vector3D to, Quaternion rot)
     {
@@ -931,7 +1119,7 @@ public static class ServerFrames
     /// Positive = the push along each +axis, Negative = along each −axis (Thrust6Directions.Clamp).
     /// A ship turned so it cannot push against the pull drifts until it can.
     /// </summary>
-    static bool StationKeeping(OrbitalGridComponent g, Vector3D accel)
+    static bool StationKeeping(OrbitalGridComponent g, Vector3D accel, double N = 1.0)
     {
         bool on = false;
         try
@@ -946,6 +1134,8 @@ public static class ServerFrames
                 var P = mt.Regular.Positive; var Ng = mt.Regular.Negative;
                 bool Ok(double c, float pos, float neg) => Math.Abs(c) < 1e-6 || (c > 0 ? pos >= c : neg >= -c);   // (no pull along an axis needs no thrust there)
                 on = Ok(l.X, P.X, Ng.X) && Ok(l.Y, P.Y, Ng.Y) && Ok(l.Z, P.Z, Ng.Z);
+                // (not free: what making the true force would cost, charged to its thrusters - accel is x N^2 in warp)
+                if (on) StationKeepCharge.ChargeGrid(e, l / (N * N), mt, N);
             }
         }
         catch { }
@@ -960,19 +1150,39 @@ public static class ServerFrames
     /// <summary>SE1 ExecuteSplits: the member becomes its own frame from its celestial state.</summary>
     private static void SplitGrid(ProximityFrame f, OrbitalGridComponent g, StateVector cur, Vector3D rRel, Vector3D vRel, double t)
     {
+        long s0 = System.Diagnostics.Stopwatch.GetTimestamp();
         var el = CaptureMath.CaptureElements(new StateVector(cur.Position + rRel, cur.Velocity + vRel), f.Elements.Mu, t);
         if (!IsFinite(el.SemiMajorAxis) || !IsFinite(el.MeanMotion)) return;
         var nf = SystemHost.Frames.SplitOff(f, g.Id, f.ParentBodyName, el);
         if (nf == null) return;
+        long s1 = System.Diagnostics.Stopwatch.GetTimestamp();
         Vector3D p = GridMembers.Position(g);
         if (!MoveGrid(g, nf.BerthCenter, Vector3D.Zero, out var withG)) { SystemHost.Frames.Dissolve(nf.Id); SystemHost.Frames.AddMember(f, g.Id); return; }
+        long s2 = System.Diagnostics.Stopwatch.GetTimestamp();
         // Joined to others (docked, wheels on a sub-grid): they go with it, into its new frame.
         foreach (var o in withG)
             if (SystemHost.Frames.FindByMember(o.Id) == f) { SystemHost.Frames.RemoveMember(o.Id); SystemHost.Frames.AddMember(nf, o.Id); }
         Event($"SPLIT grid {g.Id} '{g.DisplayName}' from frame #{f.Id} at {rRel.Length() / 1000:F1} km -> frame #{nf.Id} (slot {nf.BerthSlotId})");
+        SpawnGuard.Refresh();   // (its new berth closed to encounters now if nobody is in it: one spawned there in the next tick)
+        long s3 = System.Diagnostics.Stopwatch.GetTimestamp(); double ms(long a, long b) => (b - a) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+        if (ms(s0, s3) > 30) Event($"split of grid {g.Id} took {ms(s0, s3):F0} ms (frame {ms(s0, s1):F0}, move {ms(s1, s2):F0}, members and guard {ms(s2, s3):F0})");
     }
 
     // ───────────────────────────── arrival (grid-anchored frame) ─────────────────────────────
+
+    /// <summary>How far ahead (real seconds) a piloted grid's arrival is announced to its client (TryMaterializeGrids):
+    /// its fade (CrossingFade.OutSeconds) is black before the move.</summary>
+    public const double NoticeSeconds = SEAerospace.Frames.ArrivalNotice.NoticeSeconds;
+    public static int ArrivalNotices;
+    /// <summary>The frame the last arrival notice is for (the client fades only for its own: CrossingFade).</summary>
+    public static long ArrivalNoticeFrame = -1;
+
+    /// <summary>Past this from its anchor (static: a station, an asteroid) or its berth's centre (a ship) a member leaves its
+    /// frame on its own orbit - the split (FrameHost.UpdateRider, the grid loop here) and the HUD's boundary alike.</summary>
+    public static double LeaveRadius(bool staticAnchor) => staticAnchor ? CaptureRadius : SlotRadius;
+    /// <summary>Frame id -> the real time of its last arrival notice (ArrivalNotice.Due re-arms a stale one).</summary>
+    static readonly Dictionary<long, double> _arrivalNoticed = new Dictionary<long, double>();
+    static object _noticeSession;
 
     private static void TryMaterializeGrids(ProximityFrame f, List<OrbitalGridComponent> grids, Vector3D anchorPos, double t)
     {
@@ -988,6 +1198,25 @@ public static class ServerFrames
         if (!act && OrbitPropagation.TryTimeToRadius(f.Elements, shell, out _, out double tInRel))
         {
             double tCross = FrameHost.NextInboundCrossingPublic(f.Elements, tInRel, t);
+            // A piloted grid's arrival announced NoticeSeconds (real time) ahead: its client fades the view out
+            // (CrossingFade) so that the frame the turned ship arrives in - drawn before any mod code can turn the chase
+            // camera - and the engine's ~1 s stall after a crossing are black. The move itself keeps its time.
+            double wallNow = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+            if (SEAerospace.Frames.ArrivalNotice.Due(tCross, t, SystemHost.Timescale, _arrivalNoticed.TryGetValue(f.Id, out double lastWall) ? lastWall : double.NaN, wallNow))
+            {
+                // (a piloted grid aboard - or the player riding it on foot: moved as far, through the same stall)
+                string who = null;
+                foreach (var g in grids)
+                    if (g.Entity != null && g.Entity.Data.Has<Keen.Game2.Simulation.WorldObjects.Movement.TargetControlData>()) { who = "a piloted grid aboard"; break; }
+                if (who == null && FrameHost.PlayerId != 0 && f.HasMember(FrameHost.PlayerId)) who = "the player riding it";
+                if (who != null)
+                {
+                    _arrivalNoticed[f.Id] = wallNow;
+                    System.Threading.Interlocked.Exchange(ref ArrivalNoticeFrame, f.Id);
+                    System.Threading.Interlocked.Increment(ref ArrivalNotices);
+                    Event($"arrival of frame #{f.Id} announced {tCross - t:F2} s ahead ({who})");
+                }
+            }
             if (!double.IsNaN(tCross) && tCross >= t && tCross - t <= Math.Max(0.1, SystemHost.Timescale * 0.05))
             {
                 act = true;
@@ -1001,11 +1230,15 @@ public static class ServerFrames
         Chart chart = Chart.Of(node.Name, t);
         Vector3D target = cell + chart.FromInertial(cel.Position);
         double speed = chart.VelFromInertial(cel.Position, cel.Velocity).Length();
+        _arrivalNoticed.Remove(f.Id);
+        EntryHost.ForgetGlow(f);   // (its plasma's air direction was in the rails' axes: off by the chart's angle after the move)
         // At or under the cap (reentry's band or an airless border's clamp makes sure); if not, capped here.
         bool capped = speed > FrameHost.SpeedCap;
         double k = capped ? FrameHost.SpeedCap / speed : 1.0;
+        var went = new HashSet<long>();   // (moved with an earlier member's joined set: its queued position is already its arrival)
         foreach (var g in grids)
         {
+            if (went.Contains(g.Id)) continue;
             Vector3D off = GridMembers.Position(g) - anchorPos;
             Vector3D vRel = GridMembers.Velocity(g);
             Vector3D dest = cell + chart.FromInertial(cel.Position + off);   // berth offsets are inertial
@@ -1029,7 +1262,8 @@ public static class ServerFrames
             }
             var arrV = chart.VelFromInertial(cel.Position + off, cel.Velocity + vRel) * k;
             DevReentry.Expect(g.Id, dest, arrV, chart.FromInertialRotation(), g.Entity);   // (DEV: the reentry test checks the handover)
-            MoveGrid(g, dest, arrV, default, chart.FromInertialRotation());
+            MoveGrid(g, dest, arrV, out var withArr, default, chart.FromInertialRotation());
+            foreach (var w in withArr) went.Add(w.Id);
         }
         // The player, if a member, arrives with the same offset from the anchor.
         long fid = f.Id;
@@ -1084,10 +1318,11 @@ public static class ServerFrames
             Vector3D vChart = chart.VelFromInertial(st.Position, st.Velocity);
             double speed = vChart.Length();
             double floor = (def?.RadiusMeters ?? 0) + FrameHost.SurfaceGuard;
-            if (speed < FrameHost.SpeedCap * FrameHost.HighSpeedExitFraction || st.Position.Length() < floor)
+            bool dynamic = GridMembers.IsDynamic(g);
+            if ((dynamic && speed < FrameHost.SpeedCap * FrameHost.HighSpeedExitFraction) || st.Position.Length() < floor)
             {
                 Vector3D v = speed > FrameHost.SpeedCap ? vChart * (FrameHost.SpeedCap / speed) : vChart;
-                GridMembers.SetVelocity(g, v);
+                if (dynamic) GridMembers.SetVelocity(g, v);
                 done.Add(kv.Key);
                 Event($"grid {g.Id} HighSpeed off ({speed:F0} m/s, alt {(st.Position.Length() - (def?.RadiusMeters ?? 0)) / 1000:F1} km)");
                 continue;
@@ -1104,6 +1339,119 @@ public static class ServerFrames
     {
         double d = r.Length();
         return d > 1 ? r * (-mu / (d * d * d)) : Vector3D.Zero;
+    }
+
+    /// <summary>
+    /// A new player grid in a frame's space - a piece broken off, a cockpit section after a hit, a rotor head built, a paste -
+    /// joins the nearest frame within its split radius. The encounter system did this only while encounters are on (a world
+    /// setting): off, a ship that broke up left its pieces, and a player seated in one, in no frame for good (no orbit, warp
+    /// refused, left behind at the next arrival). Encounters on: theirs (EncounterFrames.ProcessNewGrids), not raced here.
+    /// </summary>
+    private static void AdoptLooseGrids()
+    {
+        if (EncounterFrames.Enabled || SystemHost.Frames == null || SystemHost.Registry == null) return;
+        lock (FramesLock)
+            foreach (var g in GridMembers.All())
+            {
+                if (!g.IsServer || SystemHost.Frames.FindByMember(g.Id) != null || EncounterFrames.IsNpc(g)) continue;
+                lock (GridMembers.Pending) if (GridMembers.Pending.ContainsKey(g.Id)) continue;
+                Vector3D pos = GridMembers.Position(g);
+                if (VoxelBerthRegistry.TryCellContaining(pos, SystemHost.Registry, out _, out _)) continue;   // (a planet's: its own stow)
+                ProximityFrame near = null; double d = SlotRadius;
+                foreach (var f in SystemHost.Frames.Frames)
+                {
+                    double dd = (pos - f.BerthCenter).Length();
+                    if (dd < d) { d = dd; near = f; }
+                }
+                if (near != null && SystemHost.Frames.AddMember(near, g.Id))
+                    Event($"loose grid {g.Id} '{g.DisplayName}' joins frame #{near.Id} ({d / 1000:F1} km from its centre)");
+            }
+    }
+
+    /// <summary>What the client may know of a server grid (ServerFrames.View): read from this snapshot, never from the server's
+    /// entities (the client read them directly - a static check, a box, a name, a mass - and one path asked Aero to build a
+    /// table on the server's entity from the client).</summary>
+    public sealed class GridView
+    {
+        public long Id; public Vector3D Position; public BoundingBoxD Box; public bool HasBox, Dynamic; public string Name; public double Mass;
+        /// <summary>Its owner's identity (the server's ownership), and whether it is an encounter's (NPC or procedural).</summary>
+        public Keen.Game2.Simulation.GameSystems.Ownership.IdentityId Owner; public bool HasOwner, Encounter;
+        /// <summary>Holding station in its frame (dampeners, thrust to cancel the pull): no relative force on it (StationKeeping).</summary>
+        public bool Holding;
+    }
+
+    /// <summary>A sensor block as the client may know it: on which grid, where, what, working, how strong.</summary>
+    public struct SensorView { public long Grid; public Vector3D Position; public bool Radar, Working; public double Power; }
+    private static List<SensorView> _sensorViews = new List<SensorView>();
+    public static List<SensorView> SensorViews => System.Threading.Volatile.Read(ref _sensorViews);
+    public static List<GridView> AllViews() => new List<GridView>(System.Threading.Volatile.Read(ref _views).Values);
+    private static Dictionary<long, GridView> _views = new Dictionary<long, GridView>();
+
+    /// <summary>A server grid as of the last snapshot (every 5 server ticks).</summary>
+    public static bool View(long id, out GridView v) { v = null; return System.Threading.Volatile.Read(ref _views).TryGetValue(id, out v); }
+
+    private static void BuildViews()
+    {
+        var next = new Dictionary<long, GridView>();
+        var byEntity = new Dictionary<Entity, long>();
+        foreach (var g in GridMembers.All())
+        {
+            if (!g.IsServer || g.Entity == null) continue;
+            var v = new GridView { Id = g.Id, Position = GridMembers.Position(g), Dynamic = GridMembers.IsDynamic(g), Name = g.DisplayName, Mass = GridMembers.Mass(g), Holding = Holding.ContainsKey(g.Id) };
+            try { v.Box = Keen.VRage.Core.Game.Data.BoundingBoxData.GetWorldAABB(g.Entity); v.HasBox = true; } catch { }
+            try
+            {
+                var own = g.Session?.SessionComponents.TryGet<Keen.Game2.Simulation.GameSystems.Ownership.OwnershipSessionComponent>();
+                if (own != null) { v.Owner = own.TryGetOwnerOf(g.Entity); v.HasOwner = true; }
+                v.Encounter = EncounterFrames.IsEncounterGrid(g);
+            }
+            catch { }
+            next[g.Id] = v;
+            byEntity[g.Entity] = g.Id;
+        }
+        System.Threading.Volatile.Write(ref _views, next);
+        // the sensor blocks (their grid by its top entity)
+        var sens = new List<SensorView>();
+        try
+        {
+            TelescopeComponent[] scopes; lock (SensorBlocks.Telescopes) scopes = SensorBlocks.Telescopes.ToArray();
+            RadarComponent[] radars; lock (SensorBlocks.Radars) radars = SensorBlocks.Radars.ToArray();
+            foreach (var c in scopes)
+            {
+                var top = c.Entity?.GetTopLevelParent();
+                if (top != null && byEntity.TryGetValue(top, out long gid))
+                    sens.Add(new SensorView { Grid = gid, Position = c.Entity.Data.GetWorldTransform().Position, Radar = false, Working = c.Working });
+            }
+            foreach (var c in radars)
+            {
+                var top = c.Entity?.GetTopLevelParent();
+                if (top != null && byEntity.TryGetValue(top, out long gid))
+                    sens.Add(new SensorView { Grid = gid, Position = c.Entity.Data.GetWorldTransform().Position, Radar = true, Working = c.Working, Power = c.Power });
+            }
+        }
+        catch { }
+        System.Threading.Volatile.Write(ref _sensorViews, sens);
+    }
+
+    /// <summary>The client's StaticAnchorOf: from the snapshot (StaticAnchorOf itself reads the server's entities).</summary>
+    public static bool StaticAnchorView(ProximityFrame f, out Vector3D pos)
+    {
+        pos = f.BerthCenter;
+        if (f.AnchorEntityId == AsteroidAnchorId) return true;
+        if (!GridMembers.IsGridId(f.AnchorEntityId) || !View(f.AnchorEntityId, out var v) || v.Dynamic) return false;
+        pos = v.Position;
+        return true;
+    }
+
+    /// <summary>The server grids' positions, every tick (the client reads them: never the server entities).</summary>
+    private static void RefreshGridPositions()
+    {
+        try
+        {
+            var grids = GridMembers.All();
+            lock (GridPositions) foreach (var gg in grids) if (gg.IsServer) GridPositions[gg.Id] = GridMembers.Position(gg);
+        }
+        catch { }
     }
 
     private static void BuildSnapshot()

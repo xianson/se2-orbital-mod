@@ -63,7 +63,9 @@ public static class AttitudeHold
 
         var ch = FrameHost.PlayerCharacter(session);
         if (ch == null) return;
-        if (_grid == null || !_grid.Data.Has<TargetControlData>() || (_grid.Data.GetWorldTransform().Position - ch.Data.GetWorldTransform().Position).Length() > 200)
+        var seat = FrameHost.SeatGrid;
+        if (seat != null && seat.Data.Has<TargetControlData>()) _grid = seat;   // (the ship you fly - not the nearest piloted grid next to it)
+        else if (_grid == null || !_grid.Data.Has<TargetControlData>() || (_grid.Data.GetWorldTransform().Position - ch.Data.GetWorldTransform().Position).Length() > 200)
         {
             _grid = null; double bd = 200;
             foreach (var e in session.GetEntitiesOfType<Keen.Game2.Simulation.WorldObjects.CubeGrids.CubeGridComponent>())

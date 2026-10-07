@@ -25,9 +25,20 @@ public static class MapGlobes
     public static PlanetRenderBridge.PlanetHandles HandlesFor(string body)
     {
         if (_handles.TryGetValue(body, out var h)) return h;
+        // (the latest registered first: after a second world loads in the same process the first world's entries for the same
+        //  cell came first and won)
         if (VoxelBerthRegistry.TryGetCell(body, SystemHost.Registry, out Vector3D cell))
-            foreach (var ph in _pendingHandles) if ((ph.center - cell).Length() < 1000) { _handles[body] = ph.h; return ph.h; }
+            for (int i = _pendingHandles.Count - 1; i >= 0; i--) { var ph = _pendingHandles[i]; if ((ph.center - cell).Length() < 1000) { _handles[body] = ph.h; return ph.h; } }
         return null;
+    }
+
+    /// <summary>A new world: no body's handles or globes from the last one (the registrations keep coming from the new
+    /// world's planets: the pending list is kept, its latest entries win).</summary>
+    public static void ResetWorld()
+    {
+        try { HideAll(); } catch { }
+        _globes.Clear();
+        _handles.Clear();
     }
 
 
@@ -46,7 +57,8 @@ public static class MapGlobes
             float rpx = 0;
             var q = (QuaternionD)MapPipeline.CameraOrientation;
             if (MapPipeline.ToScreen(center + q * Vector3D.Right * radius, out var es)) rpx = (es - cs).Length();
-            if (cs.X + rpx < scr.X * 0.255f || cs.X - rpx > scr.X * 0.775f || cs.Y + rpx < scr.Y * 0.1f || cs.Y - rpx > scr.Y * 0.84f) { if (_globes.TryGetValue(body, out var off)) PlanetRenderBridge.SetProxyVisible(off, false); return; }
+            var oa = MapLayout.OpenArea;   // (globes cannot be clipped: off when wholly outside the open area - below the tab row)
+            if (cs.X + rpx < oa.Min.X || cs.X - rpx > oa.Max.X || cs.Y + rpx < oa.Min.Y || cs.Y - rpx > oa.Max.Y) { if (_globes.TryGetValue(body, out var off)) PlanetRenderBridge.SetProxyVisible(off, false); return; }
         }
         if (!_globes.TryGetValue(body, out var g)) { g = PlanetRenderBridge.CreateProxy(h, center, mapOnly: true); if (g == null) return; _globes[body] = g; }
         PlanetRenderBridge.UpdateProxy(h, g, center, radius);

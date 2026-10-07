@@ -56,6 +56,13 @@ namespace EntryTest
             Ok("band: entry interface ~19.4 km up", Math.Abs(B.Top - R - 19370) < 300, $"{(B.Top - R) / 1000:F1} km");
             Ok("band: border at the atmosphere's top", Math.Abs(B.Bottom - R - H) < 1, $"{(B.Bottom - R) / 1000:F2} km");
             Ok("band: none without an atmosphere", !Reentry.For(R, 0, Border).IsValid);
+            {
+                // the border's density: the body's own (aero's air there) when known, else the setting - no step at the handover
+                var bb = B; bb.Rho0 = 6e-3;
+                Ok("drag density at the border = the body's (aero's) when known", Math.Abs(Reentry.Density(bb, bb.Bottom) - 6e-3) < 1e-12, $"{Reentry.Density(bb, bb.Bottom):E2}");
+                Ok("drag density at the border = the setting when not", Math.Abs(Reentry.Density(B, B.Bottom) - Reentry.DragDensity) < 1e-12);
+                Ok("drag density falls off with height the same either way", Math.Abs(Reentry.Density(bb, bb.Bottom + bb.Scale) / Reentry.Density(bb, bb.Bottom) - Math.Exp(-1)) < 1e-9);
+            }
             Ok("border: circular orbit there is about the cap", Math.Abs(Math.Sqrt(Mu / B.Bottom) - Cap) < 60, $"{Math.Sqrt(Mu / B.Bottom):F0} m/s");
 
             // Steep (70 deg) at 1600 m/s from just above the band. (A truly vertical entry, every sideways speed

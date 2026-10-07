@@ -24,12 +24,34 @@ public static class PlayerCache
         {
             if (!_by.TryGetValue(session, out var e)) _by[session] = e = new Entry();
             if (e.E != null && now - e.At < System.Diagnostics.Stopwatch.Frequency / 2 && Alive(e.E)) return e.E;
-            _buf.Clear();
-            e.E = session.TryFillAliveCharacters(_buf) && _buf.Count > 0 ? _buf[0] : null;
+            // the LOCAL player's own character where there is one (the client: its player controller's possession stack - the
+            //  character at the bottom, a seat above it): the first alive character was any player's on a listen server
+            e.E = LocalCharacter(session);
+            if (e.E == null)
+            {
+                _buf.Clear();
+                e.E = session.TryFillAliveCharacters(_buf) && _buf.Count > 0 ? _buf[0] : null;
+                _buf.Clear();
+            }
             e.At = now;
-            _buf.Clear();
             return e.E;
         }
+    }
+
+    static Entity LocalCharacter(Keen.VRage.Core.Game.Systems.Session session)
+    {
+        try
+        {
+            var pc = session.SessionComponents.TryGet<Keen.Game2.Client.GameSystems.PlayerControl.ClientPlayersSessionComponent>()?.LocalPlayerController;
+            if (pc == null) return null;
+            foreach (var (c, _) in pc.ControlledEntities)
+            {
+                var ent = c?.Entity;
+                if (ent != null && ent.TryGet<Keen.Game2.Simulation.WorldObjects.Characters.CharacterComponent>() != null && Alive(ent)) return ent;
+            }
+        }
+        catch { }
+        return null;
     }
 
     static bool Alive(Entity e)

@@ -15,6 +15,8 @@ public static partial class CleanMap
         public string Name, Host;
         public SectorHomes.Home Home;
         public bool Selected;
+        /// <summary>No game sector behind it (a world without sectors: SectorHomes.Virtual).</summary>
+        public bool Virtual;
         public int Number;
         public Keen.Game2.Simulation.GameSystems.Colonization.SectorColonizationState State;
     }
@@ -193,7 +195,7 @@ public static partial class CleanMap
             case SectorHomes.Kind.Ring:
                 return h.Host == SystemHost.Registry?.Root?.Name ? $"{h.Inner / SystemHost.AU:0.##}-{h.Outer / SystemHost.AU:0.##} AU"
                                                                  : $"{HudPanel.Km(h.Inner)}-{HudPanel.Km(h.Outer)}";
-            default: return $"L{h.Point}";
+            default: return b.Virtual ? $"with {SystemHost.DisplayName(SystemHost.Registry?.Find(h.Host)?.Parent?.Name ?? h.Host)}" : $"L{h.Point}";   // (a virtual one is named by its point already)
         }
     }
 
@@ -256,7 +258,7 @@ public static partial class CleanMap
                 {
                     // You are in it: only its dotted boundary (the preview draws it, as a planet's SOI), no fill.
                     var pf = FrameHost.PlayerFrame;
-                    bool inIt = pf != null && EncounterFrames.SiteOf(pf.Id)?.Sector == b0.Name;
+                    bool inIt = pf != null && (EncounterFrames.SiteOf(pf.Id)?.Sector == b0.Name || EncounterFrames.RideOf(pf.Id)?.Site?.Sector == b0.Name);
                     if (!inIt) SectorArea(W0, q => { var p = SectorHomes.Where(h, reg, t + P * q, out var cq); return p - cq; }, v => toLocal(centre + v), b0, SectorSpan, 0.035, taper: true);   // a thin lens
                     // Hovered or selected: the triangle (or line) it makes with Delfos and its planet.
                     if (b0.Selected || b0.Name == Hovered)

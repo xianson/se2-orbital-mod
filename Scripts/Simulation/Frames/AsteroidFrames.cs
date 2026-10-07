@@ -109,6 +109,9 @@ public static class AsteroidFrames
     private static readonly object _gate = new object();
     private static readonly List<Roid> _roids = new List<Roid>();
     private static readonly Dictionary<string, Roid> _byName = new Dictionary<string, Roid>();
+    /// <summary>Ring rocks left behind (site gone): label -> their site's description, its orbit still known.</summary>
+    private static readonly Dictionary<string, EncounterFrames.Site> _left = new Dictionary<string, EncounterFrames.Site>();
+    public static EncounterFrames.Site LeftSite(string label) { lock (_left) return label != null && _left.TryGetValue(label, out var s) ? s : null; }
     private static bool _built;
 
     /// <summary>Every volume of ours in the world (live or saved), refreshed each AsteroidBridge pass.</summary>
@@ -275,7 +278,7 @@ public static class AsteroidFrames
     /// The next lattice slot from <paramref name="slot"/> that no frame holds and no planet cell is near, reserved
     /// on the allocator (so no frame is ever given it). The same slot every load: frames take the lowest free ids.
     /// </summary>
-    static bool ReserveBerth(BerthAllocator alloc, SystemRegistry reg, ref int slot, out int id, out Vector3D centre)
+    internal static bool ReserveBerth(BerthAllocator alloc, SystemRegistry reg, ref int slot, out int id, out Vector3D centre)
     {
         id = -1; centre = default;
         for (int tries = 0; tries < 4096; tries++, slot++)
@@ -401,6 +404,7 @@ public static class AsteroidFrames
             {
                 SystemHost.Frames?.Allocator?.Free(r.Slot);
                 lock (_gate) { _roids.Remove(r); _byName.Remove(r.Name); for (int k = 0; k < _roids.Count; k++) _roids[k].Index = k; }   // (indices stay list positions)
+                if (r.Site != null) lock (_left) _left[r.Label] = r.Site;   // (still a target: its orbit is known - EncounterFrames.TargetSite)
                 Event($"ring rock {r.Label} left behind: its site is gone (slot {r.Slot} free)");
             }
         }
@@ -674,6 +678,7 @@ public static class AsteroidFrames
     {
         Restore();
         lock (_gate) { _roids.Clear(); _byName.Clear(); }
+        lock (_left) _left.Clear();
         _built = false; Status = "not built";
     }
 

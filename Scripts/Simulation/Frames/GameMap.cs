@@ -34,6 +34,7 @@ public static class GameMap
     public static void ResetWorld()
     {
         _gameHidden = false; _stashedCollider = null; _baseMax = _baseMin = -1;
+        _starModelTried = false;   // (the new world's star model looked for again)
         lock (_objShown) _objShown.Clear();
         lock (_names) _names.Clear();
     }
@@ -108,6 +109,15 @@ public static class GameMap
                     Selected = selected.HasValue && selected.Value == Keen.VRage.Library.Utils.StringId.Get(si.Sector.Name),
                 });
             }
+            // No colonization sectors (Creative): the virtual ones, drawn and listed as sectors (no game state; the selected
+            // one is your target; listed under their planet - a moon's points with its planet)
+            if (infos.Count == 0)
+                foreach (var z in SectorHomes.Virtual(reg))
+                    bands.Add(new CleanMap.Band
+                    {
+                        Name = z.Name, Host = SectorHomes.PlanetOf(z.Home.Host, reg), Home = z.Home, Virtual = true,
+                        State = SectorColonizationState.Unlocked, Selected = Maneuvers.Target == z.Name,
+                    });
             string youPlanet = null; Vector3D youRel = default; KeplerianElements? youOrbit = null;
             if (SunDriver.TryObserverCelestial(FrameHost.PlayerPosition, t, out Vector3D ycel))
             {
@@ -133,7 +143,8 @@ public static class GameMap
                 {
                     youRel = ycel - reg.Find(youPlanet).OriginInRoot(t).Position;
                     var f = FrameHost.PlayerFrame;
-                    if (f != null && f.ParentBodyName == youPlanet) youOrbit = f.Elements;
+                    if (f != null && f.ParentBodyName == youPlanet)
+                        youOrbit = Maneuvers.Base(t, out var yb, out var yel) && yb?.Name == youPlanet ? yel : f.Elements;   // (riding: yours, not the frame's)
                     else if (f == null && FrameHost.TryGetLocalOrbit(youPlanet, t, out var le)) youOrbit = le;
                 }
             }
@@ -168,6 +179,13 @@ public static class GameMap
     /// <summary>Every sector's home (its place in the solar system), by sector name.</summary>
     internal static Dictionary<string, SectorHomes.Home> HomesBySector(SectorsSessionComponent sectors, SystemRegistry reg)
     {
+        if (sectors == null || sectors.Sectors.Count == 0)
+        {
+            // (no colonization sectors: the virtual ones - SectorHomes.Virtual)
+            var v = new Dictionary<string, SectorHomes.Home>();
+            foreach (var z in SectorHomes.Virtual(reg)) v[z.Name] = z.Home;
+            return v;
+        }
         var planets = new List<GravityBody>();
         foreach (var body in reg.Root.Children) if (SystemHost.BeaconOf.ContainsKey(body.Name)) planets.Add(body);
         var d = new Dictionary<string, SectorHomes.Home>();
@@ -406,7 +424,7 @@ public static class GameMap
             Vector3D? at = CleanMap.StarWorld;
             var scr = MapPipeline.ScreenSize;
             bool show = at.HasValue && MapPipeline.ToScreen(at.Value, out var s)
-                && s.X > scr.X * 0.255f && s.X < scr.X * 0.775f && s.Y > scr.Y * 0.1f && s.Y < scr.Y * 0.84f;
+                && MapLayout.InOpenArea(s);
             if (show)
             {
                 var q = (QuaternionD)orient;

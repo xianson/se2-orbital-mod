@@ -19,6 +19,8 @@ namespace OrbitalMod;
 /// </summary>
 public static partial class CleanMap
 {
+    /// <summary>The terminal's tab row ends here (a fraction of its design cell's height): the map is clipped below it.</summary>
+    public const float TabRowBottom = MapLayout.TabRowBottom;
     public static bool Enabled = true;
     public static string Focus = "auto";   // map units (fills most of the view at the map's default zoom)
     public const double SolarRadius = 1.90;
@@ -44,7 +46,7 @@ public static partial class CleanMap
     static readonly ColorSRGB RowHover = new ColorSRGB(0.30f, 0.55f, 0.65f, 0.22f);
 
     /// <summary>The text, cut with an ellipsis to fit a width (px) at a scale.</summary>
-    static string Fit(string text, float width, float scale)
+    internal static string Fit(string text, float width, float scale)
     {
         if (string.IsNullOrEmpty(text)) return text;
         // (remembered: a list row's text is cut to its column every frame - a substring and a measure per character
@@ -158,25 +160,26 @@ public static partial class CleanMap
             {
                 // The Rendezvous tab has the view: the relative plot instead of the map's contents.
                 RendezvousView.Draw(session, reg, t, W, Mouse);
-                if (ManeuverEditor) ContextMenu(bands, t);
+                if (ManeuverEditor && ui) ContextMenu(bands, t);
                 WarpBar.DrawMap(Mouse);
             }
             else
             {
             // The game's own panels (left column, tab bar, bottom hints): map labels keep off them.
             var scrR = MapPipeline.ScreenSize;
-            MapPipeline.Reserve(Vector2.Zero, new Vector2(scrR.X * 0.255f, scrR.Y));
-            MapPipeline.Reserve(Vector2.Zero, new Vector2(scrR.X, scrR.Y * 0.1f));
-            MapPipeline.Reserve(new Vector2(0, scrR.Y * 0.93f), scrR);
+            // (places in the terminal's design cell, MapLayout: right at every screen shape, not only 16:9)
+            MapPipeline.Reserve(Vector2.Zero, new Vector2(MapLayout.X(0.255f), scrR.Y));
+            MapPipeline.Reserve(Vector2.Zero, new Vector2(scrR.X, MapLayout.Y(TabRowBottom)));
+            MapPipeline.Reserve(new Vector2(0, MapLayout.Y(0.93f)), scrR);
             // The system level lists every sector (the star's opened); a planet's level only that planet's.
             long s0 = ModCost.Start();
             DrawList(ordered, b => sys ? b.Home.Host == root.Name || b.Selected : b.Host == focus,
                 b => sys || b.Host == focus);
             ModCost.Sec("list").Stop(s0); s0 = ModCost.Start();
             // The title's area is kept free of map labels now; the title itself is drawn after the map, over its lines.
-            MapPipeline.Reserve(new Vector2(scrR.X * 0.26f, scrR.Y * 0.151f), new Vector2(scrR.X * 0.56f, scrR.Y * 0.151f + TitleHeight(scrR)));
+            MapPipeline.Reserve(MapLayout.P(0.26f, 0.151f), new Vector2(MapLayout.X(0.56f), MapLayout.Y(0.151f) + TitleHeight(scrR)));
             // The map itself (orbits, sectors, the plan) is clipped to the open area between the panels.
-            MapPipeline.ClipRect = new BoundingBox2(new Vector2(scrR.X * 0.255f, scrR.Y * 0.1f), new Vector2(scrR.X * 0.775f, scrR.Y * 0.84f));
+            MapPipeline.ClipRect = MapLayout.OpenArea;   // (below the terminal's tab row: a label drawn under it read as part of the tabs)
 
             // Every globe hides the lines behind it.
             foreach (var body in reg.Bodies)
@@ -227,13 +230,15 @@ public static partial class CleanMap
             long u0 = ModCost.Start();
             Title(anchor.IsRoot ? null : anchor, playerPlanet, playerOrbit);
             ModCost.Sec("ui.title").Stop(u0); u0 = ModCost.Start();
-            if (ManeuverEditor) ContextMenu(bands, t);
+            // (no UI batch: nothing is drawn - nor any click taken: an invisible menu swallowed the game's clicks and its items
+            //  could be hit blind)
+            if (ManeuverEditor && ui) ContextMenu(bands, t);
             _lastW = W; _lastSolar = false;
             ModCost.Sec("ui.menu").Stop(u0); u0 = ModCost.Start();
-            FocusInput(reg, t, W, false);
+            if (ui) FocusInput(reg, t, W, false);
             BodyTooltip(reg, playerPlanet, playerOrbit);
             ModCost.Sec("ui.focus+tip").Stop(u0); u0 = ModCost.Start();
-            ListInput(W);
+            if (ui) ListInput(W);
             Hints();
             ModCost.Sec("ui.list+hints").Stop(u0); u0 = ModCost.Start();
             WarpBar.DrawMap(Mouse);
@@ -249,7 +254,7 @@ public static partial class CleanMap
         var have = new HashSet<string>();
         foreach (var pt in parts) have.Add(pt.Name);
         foreach (var bd in bands)
-            if (!have.Contains(bd.Name))
+            if (!bd.Virtual && !have.Contains(bd.Name))   // (a virtual one: no game sector to colour)
             {
                 var ph = new MapPipeline.Part { Name = bd.Name };
                 // A tiny but proper hexagon under the map's centre. (A 1e-6 triangle is degenerate in
@@ -325,7 +330,7 @@ public static partial class CleanMap
         double frame = SectorHomes.HillRadius(b) * 0.2;
         if (!IsFinite(frame)) frame = 0;
         foreach (var bd in bands)   // its own space, its rings, its L1 / L2
-            if (bd.Host == b.Name)
+            if (bd.Home.Host == b.Name)
                 frame = Math.Max(frame, bd.Home.Kind == SectorHomes.Kind.Ring ? bd.Home.Outer : bd.Home.Kind == SectorHomes.Kind.Body ? bd.Home.Outer
                                         : bd.Home.Point <= 2 ? SectorHomes.HillRadius(b) * 1.15 : 0);
         frame = Math.Max(frame, 8 * (reg.FindDefinition(b.Name)?.RadiusMeters ?? 0));

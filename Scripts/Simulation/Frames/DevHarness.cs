@@ -166,6 +166,9 @@ public static class DevHarness
             case "tpgrid":
             {
                 // tpgrid <gridId> [offsetM]: stand next to a grid (server snapshot position), facing it.
+                // (never seated: a character held in a seat is a jointed body - teleported, Havok failed to migrate the joint
+                //  and asserted: the game crashed, 2026-10-05. `unseat` first)
+                if (FrameHost.Seated) return "seated: not teleporting (the seat's joint cannot be migrated) - unseat first";
                 Vector3D gp = default; bool found = false;
                 if (long.TryParse(a[1], out long gid)) lock (ServerFrames.GridPositions) found = ServerFrames.GridPositions.TryGetValue(gid, out gp);
                 if (!found) return "unknown grid (see status)";
@@ -532,6 +535,115 @@ public static class DevHarness
                 else SystemHost.DevAdvanceClock(D(a[1]) * 3600);
                 return $"universe clock t={SystemHost.Now / 3600:F1} h";
 
+            case "gridnudge":   // gridnudge <id> <dx> <dy> <dz> (m): move a grid by an offset from where it is (world axes)
+            {
+                var ng = GridMembers.Get((long)D(a[1]));
+                if (ng == null || !ng.IsServer) return "no server grid " + a[1];
+                ServerFrames.GridMove.Enqueue((ng.Id, new Vector3D(D(a[2]), D(a[3]), D(a[4])), true));   // (GridMove takes the offset)
+                return $"grid {ng.Id} nudged by ({D(a[2]):F0}, {D(a[3]):F0}, {D(a[4]):F0}) m (server, next tick)";
+            }
+
+            case "noderound":   // noderound: the nodes written as a save writes them, cleared, read back as a load reads them
+            {
+                string Sig() { var l = new List<string>(); lock (Maneuvers.Nodes) foreach (var n in Maneuvers.Nodes) l.Add($"{n.T:F3}/{n.Pro:F3}/{n.Nor:F3}/{n.Rad:F3}/{(n.Auto ? "auto" : "manual")}/{(n.TBody != null && !n.Dirty ? "target" : "-")}"); l.Sort(); return string.Join(" ", l); }
+                string before = Sig();
+                var lines = Maneuvers.SaveLines();
+                lock (Maneuvers.Nodes) Maneuvers.Nodes.Clear();
+                Maneuvers.Selected = null;
+                foreach (var ln in lines) SavedState.RestoreNode(ln.Split(' '));
+                string after = Sig();
+                return $"noderound {(before == after ? "SAME" : "DIFFERENT")} | before {before} | after {after} | {lines.Count} line(s)";
+            }
+
+            case "flyby":   // flyby <body> <periAltKm> <vInf m/s>: you on a hyperbolic pass, inbound at 0.9 of its SOI (an arrival from outside)
+            {
+                var fp = FindPlanet(a[1]); string fb = fp != null ? SystemHost.BodyNameOf(fp) : null;
+                var node = fb != null ? SystemHost.Registry?.Find(fb) : null;
+                var fdef = fb != null ? SystemHost.Registry?.FindDefinition(fb) : null;
+                if (node == null || fdef == null || !(node.SoiRadius > 0) || double.IsInfinity(node.SoiRadius)) return "no such body (or no SOI)";
+                double mu = node.Mu, rp = fdef.RadiusMeters + D(a[2]) * 1000, vinf = D(a[3]), r0 = 0.9 * node.SoiRadius;
+                if (!(rp < r0) || !(vinf > 0)) return "periapsis outside the SOI, or no speed";
+                double v0 = Math.Sqrt(vinf * vinf + 2 * mu / r0), vp = Math.Sqrt(vinf * vinf + 2 * mu / rp);
+                double vt = rp * vp / r0, vr = -Math.Sqrt(Math.Max(0, v0 * v0 - vt * vt));   // (inbound: radial speed negative)
+                var st = new SEAerospace.Orbital.StateVector(new Vector3D(r0, 0, 0), new Vector3D(vr, 0, -vt));
+                var el = CaptureMath.CaptureElements(st, mu, SystemHost.Now);
+                double vb = Math.Sqrt(vinf * vinf + 2 * mu / SEAerospace.PlanetBerths.ShellRadius(fdef));
+                return FrameHost.SetOrbitTo(fb, el, $"flyby: Pe {D(a[2])} km, v-inf {vinf} m/s") + $" | at its border {vb:F0} m/s";
+            }
+
+            case "hitchms":   // hitchms <ms>: log every server tick gap over this (default 150)
+                if (a.Length > 1) TickRate.HitchLogMs = D(a[1]);
+                return $"hitch log over {TickRate.HitchLogMs:F0} ms";
+
+            case "warm":   // warm [on|off|clear]: the warm berths (no engine stall when a frame takes a berth)
+                if (a.Length > 1 && a[1] == "clear") return WarmBerths.Clear();
+                if (a.Length > 1) WarmBerths.Enabled = On(a[1]);
+                return WarmBerths.Status;
+
+            case "orbitnow":   // orbitnow: the orbit readout, one line (what the card is built from)
+                return "orbitnow " + (OrbitDisplay.LastReadout ?? "none").Replace("\n", " | ");
+
+            case "skcharge":   // skcharge <gridId>: holding station's charge - its thrusters' asks, held or not, and the suit's bill
+            {
+                var kg = GridMembers.Get((long)D(a[1]));
+                if (kg == null || !kg.IsServer) return "no server grid " + a[1];
+                bool held; lock (ServerFrames.FramesLock) held = ServerFrames.Holding.ContainsKey(kg.Id);
+                return $"skcharge {kg.Id}: {(held ? "holding" : "free")}, {StationKeepCharge.Describe(kg.Entity)} | last: {StationKeepCharge.Status} | {ServerPlanetBeacon.SuitBill} | holdingStation(you) {FrameHost.HoldingStation} card {(OrbitHud.Current != null ? "shown" : "none")}";
+            }
+
+            case "griddel":   // griddel <id>: close a grid on the server (DEV: its frame elects another anchor)
+                ServerFrames.GridDelete.Enqueue((long)D(a[1]));
+                return "grid delete queued (server, next tick)";
+
+            case "encon":   // encon on|off: the encounter system (sites, its adoption of new grids)
+                EncounterFrames.Enabled = On(a[1]);
+                return "encounters " + (EncounterFrames.Enabled ? "on" : "off");
+
+            case "frameof":   // frameof <id>: the frame a grid (or the player: 'player') is a member of
+            {
+                long fid = a[1] == "player" ? FrameHost.PlayerId : (long)D(a[1]);
+                SEAerospace.Frames.ProximityFrame ff; lock (ServerFrames.FramesLock) ff = SystemHost.Frames?.FindByMember(fid);
+                return ff == null ? $"frameof {a[1]}: none" : $"frameof {a[1]}: #{ff.Id} anchor {ff.AnchorEntityId} members {ff.Members.Count}";
+            }
+
+            case "celmark":   // celmark <id>: remember where a grid is in space (its frame's state + its offset), and its orbit
+            case "celcheck":  // celcheck <id>: how far it is now from where that orbit has it (a jump of the frame shows here)
+            {
+                long cid = (long)D(a[1]);
+                var cg = GridMembers.Get(cid);
+                if (cg == null || !cg.IsServer) return "no server grid " + cid;
+                SEAerospace.Frames.ProximityFrame cf; lock (ServerFrames.FramesLock) cf = SystemHost.Frames?.FindByMember(cid);
+                if (cf == null) return $"grid {cid}: in no frame";
+                double ct = SystemHost.Now, cn = Math.Max(1.0, SystemHost.Timescale);
+                SEAerospace.Orbital.StateVector fc; Vector3D off; lock (ServerFrames.FramesLock) { fc = SEAerospace.Orbital.OrbitPropagation.StateAt(cf.Elements, ct); off = GridMembers.Position(cg) - cf.BerthCenter; }
+                var cs = new SEAerospace.Orbital.StateVector(fc.Position + off, fc.Velocity + GridMembers.Velocity(cg) / cn);
+                var cb = SystemHost.Registry?.Find(cf.ParentBodyName);
+                if (cb == null) return "no body";
+                if (a[0] == "celmark")
+                {
+                    _celMark[cid] = (cf.ParentBodyName, SEAerospace.Orbital.OrbitalMath.ToElements(cs, cb.Mu, ct));
+                    return $"celmark {cid}: frame #{cf.Id} about {cf.ParentBodyName} at r={cs.Position.Length() / 1000:F3} km";
+                }
+                if (!_celMark.TryGetValue(cid, out var mk)) return "celcheck: no mark";
+                if (mk.body != cf.ParentBodyName) return $"celcheck {cid}: about {cf.ParentBodyName} now, marked about {mk.body}";
+                var exp = SEAerospace.Orbital.OrbitPropagation.StateAt(mk.el, ct);
+                return $"celcheck {cid}: {(exp.Position - cs.Position).Length():F1} m from its orbit (frame #{cf.Id}, anchor {cf.AnchorEntityId})";
+            }
+
+            case "sites":   // sites: every sector site (sector@host#frame), ';'-separated | sites homes: every sector's home (sector@host:kind)
+            {
+                var l = new List<string>();
+                if (a.Length > 1 && a[1] == "homes")
+                {
+                    var sectors = session.SessionComponents.TryGet<Keen.Game2.Simulation.GameSystems.Colonization.SectorsSessionComponent>();
+                    if (sectors == null) return "no sectors";
+                    foreach (var kv in GameMap.HomesBySector(sectors, SystemHost.Registry)) l.Add($"{kv.Key}@{kv.Value.Host}:{kv.Value.Kind}");
+                    return "homes " + l.Count + ": " + string.Join(";", l);
+                }
+                foreach (var st in EncounterFrames.Sites) l.Add($"{st.Sector}@{st.Host}#{st.FrameId}");
+                return "sites " + l.Count + ": " + string.Join(";", l);
+            }
+
             case "encounters":
                 Log.Default?.Info("[ORBIT-DEV] " + EncounterFrames.Describe());
                 return EncounterFrames.Describe().Replace((char)10, '|');
@@ -610,6 +722,19 @@ public static class DevHarness
                         return Maneuvers.Describe(tn) + " | " + Maneuvers.Status;
                 }
             }
+
+            case "crossfade":   // crossfade on|off: the fade across an arrival into a planet's frame; alone: its state
+                if (a.Length > 1) CrossingFade.Enabled = On(a[1]);
+                return $"crossing fade {(CrossingFade.Enabled ? "on" : "off")}: {CrossingFade.Status}";
+
+            case "seatid":   // seatid <gridId>: the character into that grid's cockpit
+                return DevFlight.SeatId(session, (long)D(a[1])) + " | " + DevFlight.Status;
+
+            case "hudcheck":   // hudcheck: the orbit card against the truth (DevHudCheck)
+                return DevHudCheck.Check(session);
+
+            case "unseat":   // unseat: the character out of its seat
+                return DevFlight.Unseat(session);
 
             case "seat":
                 // seat <grid name>: the local character into that grid's nearest cockpit
@@ -714,6 +839,10 @@ public static class DevHarness
             case "devfar":
                 EncounterFrames.RequestDevFar(a.Length > 1 ? (long)D(a[1]) : 0);
                 return "devfar queued";
+
+            case "devtarget":   // devtarget <name> <body> <altKm> <aheadKm>: a target site on its own circular orbit (no sector needed)
+                EncounterFrames.RequestDevTarget(a[1], a[2], D(a[3]), D(a[4]));
+                return "devtarget queued";
 
             case "devsite":
                 // devsite <gridId> <sector name...>: make a test site of a grid at that sector's centre (0 = pick one).
@@ -967,7 +1096,7 @@ public static class DevHarness
                 ServerFrames.GridMove.Enqueue((g.Id, d, false));
                 return $"grid {g.Id} up by {D(a[2])} m (gravity {down})";
             }
-            case "gridmove":   // gridmove <gridId> <x> <y> <z> [group] (m, world; DEV: refuses jointed grids unless 'group' moves all joined together)
+            case "gridmove":   // gridmove <gridId> <dx> <dy> <dz> [group] (m: BY this offset, world axes; DEV: refuses jointed grids unless 'group' moves all joined together)
                 ServerFrames.GridMove.Enqueue((long.Parse(a[1]), new Vector3D(D(a[2]), D(a[3]), D(a[4])), a.Length > 5 && a[5] == "group"));
                 return "grid move queued (server, next tick)";
 
@@ -1281,6 +1410,7 @@ public static class DevHarness
     private static double PlanetRadius(PlanetBeacon p) => p.Gravity.R0 > 0 ? p.Gravity.R0 : 0;
 
     private static Keen.VRage.Core.Game.Systems.Session _statusSession;
+    static readonly Dictionary<long, (string body, SEAerospace.Orbital.KeplerianElements el)> _celMark = new Dictionary<long, (string, SEAerospace.Orbital.KeplerianElements)>();
     private static void WriteStatus(WorldTransform camera)
     {
         var sb = new System.Text.StringBuilder();

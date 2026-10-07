@@ -64,7 +64,7 @@ public static class DevReentry
         _followTicks = -1;
         _expect = false; _handPosErr = _handVelErr = _handAngErr = _handSpeed = double.NaN;
         _atmoMoving = 0; _airFrom = double.NaN; _haveAcc = false; _decelChecks = _decelBad = 0; _decelWorst = ""; _timeline.Clear();
-        _cFrames = 0; _cHitches = 0; _cCamAng = _cCamPos = _cShipJump = _cPlanetJump = _cPlasma = 0; _cHaveLast = false; _cWorst = ""; _cEvents = 0; _cSpeed = -1f; _cRailLog = 0; _cRailErrMax = 0; _cRailSamples = 0; _contacts = 0; _contactMax = 0; _contactLogs = 0; _airWall0 = double.NaN; _lagS = double.NaN; _restSince = double.NaN; _railWall = Wall();
+        _cFrames = 0; _cHitches = 0; _cCamAng = _cCamPos = _cShipJump = _cPlanetJump = _cPlasma = 0; _cHaveLast = false; _cWorst = ""; _cEvents = 0; _cSpeed = -1f; _cRailLog = 0; _cRailErrMax = 0; _cRailSamples = 0; _cLookLog = 0; _cAfter = 0; _shotBand = _shot15 = _shot3 = false; _contacts = 0; _contactMax = 0; _contactLogs = 0; _contactTried = false; _airWall0 = double.NaN; _lagS = double.NaN; _restSince = double.NaN; _railWall = Wall();
         _haveLast = false; _airTicks = _maxJump = _maxJumpAt = _flowTicks = _atmoTicks = _maxMach = _plasmaTicks = _maxPlasma = 0; _minAlt = double.MaxValue; _touchdownSpeed = double.NaN;
         _armWall = Wall(); _t0 = SystemHost.Now; _lastWall = _armWall;
         _expWall = double.NaN; _cLastWall = _armWall;
@@ -250,7 +250,7 @@ public static class DevReentry
 
     // ── the view: the client, every frame ──
     static int _cFrames, _cHitches; static double _cCamAng, _cCamPos, _cShipJump, _cPlanetJump, _cPlasma, _cLastWall; static string _cWorst = "";
-    static bool _cHaveLast, _cHave2, _cProxyWas; static int _cEvents; static float _cSpeed = -1f; static double _cRailLog, _cRailErrMax; static int _cRailSamples; static Quaternion _cRelQ; static Vector3D _cRelP, _cP1, _cP2, _cPlanetDir;
+    static bool _cHaveLast, _cHave2, _cProxyWas; static int _cEvents; static float _cSpeed = -1f; static double _cRailLog, _cRailErrMax, _cLookLog; static bool _shotBand, _shot15, _shot3; static int _cRailSamples, _cAfter; static Quaternion _cRelQ; static Vector3D _cRelP, _cP1, _cP2, _cPlanetDir;
 
     /// <summary>Client, every frame while armed: what the seated player sees - the camera against the ship (a cockpit view
     /// does not move), the ship as drawn (its motion smooth: the change of its per-frame step), the planet's direction in
@@ -258,7 +258,7 @@ public static class DevReentry
     // contacts the game reports for the ship and its sub-grids (the game shakes the camera on them too)
     static readonly List<Entity> _contactSubs = new List<Entity>();
     static Keen.Game2.Simulation.WorldObjects.CubeGrids.Physicss.GridImpactDamageReceiverComponent.OnContactSignal.ExternalApi _onContact;
-    static int _contacts; static float _contactMax; static int _contactLogs;
+    static int _contacts; static float _contactMax; static int _contactLogs; static bool _contactTried;
 
     static void OnContact(Entity grid, Keen.Game2.Simulation.WorldObjects.CubeGrids.Physicss.GridContactInfo c)
     {
@@ -274,6 +274,8 @@ public static class DevReentry
             _contactSubs.Clear();
         }
         if (!_armed || _body == null) return;
+        // (the render camera as it is now - after this frame's snap - not the transform the tick began with)
+        try { var rc = SpecCam.CameraOf(session)?.Entity; if (rc != null) camera = rc.Data.GetWorldTransform(); } catch { }
         double wall = Wall(), fdt = wall - _cLastWall; _cLastWall = wall;
         Entity ship = null; double bd = 100;
         try
@@ -288,8 +290,9 @@ public static class DevReentry
         catch { return; }
         if (ship == null) { _cHaveLast = false; return; }
         var sw = ship.Data.GetWorldTransform();
-        if (_contactSubs.Count == 0)
+        if (_contactSubs.Count == 0 && !_contactTried)
         {
+            _contactTried = true;
             _onContact ??= OnContact;
             foreach (var e in session.GetEntitiesOfType<Keen.Game2.Simulation.WorldObjects.CubeGrids.CubeGridComponent>())
                 if ((e.Data.GetWorldTransform().Position - sw.Position).Length() < 150)
@@ -305,7 +308,9 @@ public static class DevReentry
         // the planet as DRAWN: its proxy (where the renderer put it this frame), else the real planet
         PlanetFrameComponent.DrawnProxy dp = null;
         lock (PlanetFrameComponent.Drawn) if (PlanetFrameComponent.Drawn.TryGetValue(_body, out var dpx)) dp = new PlanetFrameComponent.DrawnProxy { Dir = dpx.Dir, Radius = dpx.Radius, BodyRadius = dpx.BodyRadius, Path = dpx.Path, Wall = dpx.Wall };
-        bool proxy = dp != null && (System.Diagnostics.Stopwatch.GetTimestamp() - dp.Wall) < System.Diagnostics.Stopwatch.Frequency / 5;
+        // (drawn within 0.2 s - or within this frame, if it was longer: after a stall the proxy's stamp is from before it, as it
+        //  draws later in the frame than this - a stall read as the proxy giving way, and its 86 deg as a jump)
+        bool proxy = dp != null && (System.Diagnostics.Stopwatch.GetTimestamp() - dp.Wall) < System.Diagnostics.Stopwatch.Frequency * Math.Max(0.2, fdt + 0.05);
         if (proxy) dir = dp.Dir;
         else
         {
@@ -316,7 +321,7 @@ public static class DevReentry
         // on rails, the planet as drawn against the orbit: the ship's frame orbits the planet, so the true direction to it is
         // -r (the frame's state, inertial axes - the world's on rails); the observer's spin state, the apparent sizes
         if (f != null && !proxy && wall - _cRailLog > 10) { _cRailLog = wall; Log($"view on rails: no proxy of {_body} drawn in the last 0.2 s ({(dp == null ? "never drawn" : $"last by the {dp.Path} path {(System.Diagnostics.Stopwatch.GetTimestamp() - dp.Wall) / (double)System.Diagnostics.Stopwatch.Frequency:F1} s ago")}) - the real planet shown, or nothing"); }
-        if (proxy && f != null && wall - _cRailLog > 2)
+        if (proxy && f != null && wall - _cRailLog > 30)
         {
             _cRailLog = wall;
             var st = OrbitPropagation.StateAt(f.Elements, SystemHost.Now);
@@ -331,8 +336,32 @@ public static class DevReentry
         if (_cProxyWas && !proxy && _cHaveLast && dp != null) Log($"view: the proxy gave way to the real planet {(double.IsNaN(_expWall) ? "before" : ((wall - _expWall) * 1000).ToString("F0") + " ms from")} the handover; the last proxy's apparent radius {Math.Asin(Math.Min(1, dp.Radius / Math.Max(1, dp.Dir.Length()))) * 180 / Math.PI:F2} deg (radius {dp.BodyRadius / 1000:F1} km), the real planet's {Math.Asin(Math.Min(1, (SystemHost.Registry?.FindDefinition(_body)?.RadiusMeters ?? 0) / Math.Max(1, dir.Length()))) * 180 / Math.PI:F2} deg (radius {(SystemHost.Registry?.FindDefinition(_body)?.RadiusMeters ?? 0) / 1000:F1} km)");
         Vector3D planetInView = dir.LengthSquared() > 1 ? Vector3D.Transform(Vector3D.Normalize(dir), (QuaternionD)Quaternion.Inverse(camera.Orientation)) : Vector3D.Zero;
         bool hitch = fdt > 0.1;
+        // engine screenshots: once in the band on rails, frames 1-3 after the handover, then 1.5 s and 3 s after it
+        {
+            double sinceS = double.IsNaN(_expWall) ? double.NaN : wall - _expWall;
+            string shot = null;
+            if (double.IsNaN(sinceS)) { if (!_shotBand && f != null && _bandTicks > 0) { _shotBand = true; shot = "reentry-0-band"; } }
+            else if (_cAfter >= 0 && _cAfter < 3) shot = $"reentry-1-frame{_cAfter + 1}";
+            else if (!_shot15 && sinceS > 1.5) { _shot15 = true; shot = "reentry-2-after1.5s"; }
+            else if (!_shot3 && sinceS > 3) { _shot3 = true; shot = "reentry-3-after3s"; }
+            if (shot != null) { var path = PlanetRenderBridge.EngineScreenshot(shot + ".png"); Log($"view: screenshot {shot} -> {path ?? "FAILED"}"); }
+        }
+        // the view inside the cockpit: where the camera looks and sits in the ship's own frame - before the handover
+        // (every 5 s) and after it (frames 1, 2, 3, 5, 10, 30, 60, 180)
+        {
+            double sinceH = double.IsNaN(_expWall) ? double.NaN : wall - _expWall;
+            Vector3D look = Vector3D.Transform(Vector3D.Forward, (QuaternionD)relQ);
+            bool log = double.IsNaN(sinceH) ? wall - _cLookLog > 5 : (++_cAfter is 1 or 2 or 3 or 5 or 10 or 30 or 60 or 180);
+            if (double.IsNaN(sinceH)) _cAfter = 0;
+            if (log)
+            {
+                _cLookLog = wall;
+                Log($"view: in the cockpit the camera looks ({look.X:F2} {look.Y:F2} {look.Z:F2}) at ({relP.X:F1} {relP.Y:F1} {relP.Z:F1}) m{(double.IsNaN(sinceH) ? " (before the handover)" : $" - frame {_cAfter} after the handover, {sinceH * 1000:F0} ms")}");
+            }
+        }
         bool nearHandover = !double.IsNaN(_expWall) && Math.Abs(wall - _expWall) < 0.5;
-        if (_cHaveLast && !hitch)
+        // (a frame under the crossing's black is not seen: the fade holds black until the frames are steady - judged after)
+        if (_cHaveLast && !hitch && CrossingFade.Alpha < 0.98)
         {
             _cFrames++;
             double ang = Angle(_cRelQ, relQ) * 180 / Math.PI, pos = (relP - _cRelP).Length();

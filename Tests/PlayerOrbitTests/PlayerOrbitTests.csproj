@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="$(Core)\Orbital\*.cs" />
+    <Compile Include="$(Core)\Frames\ProximityFrame.cs" />
+    <Compile Include="$(Core)\Frames\PlayerOrbit.cs" />
+    <Compile Include="$(Core)\Frames\CrossingFadeMachine.cs" />
+    <Compile Include="$(Core)\Frames\RendezvousPlot.cs" />
+    <Compile Include="$(Core)\Frames\FrameRails.cs" />
+    <Compile Include="$(Core)\Frames\TerminalLayout.cs" />
+    <Compile Include="$(Core)\Frames\ZoneLevel.cs" />
+  </ItemGroup>
+</Project>

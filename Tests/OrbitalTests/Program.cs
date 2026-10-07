@@ -56,6 +56,7 @@ namespace Orbital.Tests
             BerthAllocatorPacking();
             OrbitalMathEdges();
             BerthAllocatorForbidden();
+            BerthAllocatorWarm();
             VoxelBerthDeterministicGrid();
             BodyWorldPosFrameRelative();
             LatticeSeparation();
@@ -1043,6 +1044,45 @@ namespace Orbital.Tests
             double Hb = OrbitalMath.SolveKeplerHyperbolic(1e10, 1.5);
             Ok("orbital math: hyperbolic Kepler at huge M", Math.Abs((1.5 * Math.Sinh(Hb) - Hb - 1e10) / 1e10) < 1e-9);
             Ok("orbital math: a radial drop has a finite a and inclination 0", !double.IsNaN(ed.Inclination) && ed.Inclination == 0 && !double.IsInfinity(ed.SemiMajorAxis) && ed.SemiMajorAxis > 0);
+        }
+
+        private static void BerthAllocatorWarm()
+        {
+            var keepClear = BerthAllocator.IsClear; var keepForbid = BerthAllocator.IsForbidden;
+            try
+            {
+                BerthAllocator.IsClear = null; BerthAllocator.IsForbidden = null;
+                var a = new BerthAllocator(2000.0, 20000.0);
+                // the pool warms the slots Allocate would hand out next, and they are handed out first
+                int w1 = a.NextColdFree(); a.SetWarm(w1, true);
+                int w2 = a.NextColdFree(); a.SetWarm(w2, true);
+                int w3 = a.NextColdFree(); a.SetWarm(w3, true);
+                Ok("warm berths: the next cold slots are distinct", w1 != w2 && w2 != w3 && w1 != w3);
+                Ok("warm berths: three ready", a.FreeWarmCount == 3);
+                int got = a.Allocate(out _);
+                Ok("warm berths: a frame gets a warm slot", got == w1 || got == w2 || got == w3);
+                Ok("warm berths: two left ready", a.FreeWarmCount == 2);
+                // a warm slot far out is still preferred to a nearer cold one
+                var b = new BerthAllocator(2000.0, 20000.0);
+                b.SetWarm(40, true);
+                Ok("warm berths: a warm slot first, even farther out", b.Allocate(out _) == 40);
+                Ok("warm berths: then the nearest cold one", b.Allocate(out _) == 0);
+                // a freed warm slot comes back to the pool (still marked warm)
+                b.Free(40);
+                Ok("warm berths: freed, it is ready again", b.FreeWarmCount == 1 && b.Allocate(out _) == 40);
+                // unmarked: an ordinary slot again
+                var c = new BerthAllocator(2000.0, 20000.0);
+                c.SetWarm(5, true); c.SetWarm(5, false);
+                Ok("warm berths: unmarked, not preferred", c.Allocate(out _) == 0 && c.FreeWarmCount == 0);
+                // never a warm slot inside a planet's frame
+                var d = new BerthAllocator(2000.0, 20000.0);
+                Vector3D planet = d.SlotCenter(3);
+                BerthAllocator.IsForbidden = (cc, r) => (cc - planet).Length() < r;
+                d.SetWarm(3, true);
+                Ok("warm berths: a forbidden warm slot is never handed out", d.Allocate(out _) != 3);
+                Ok("warm berths: nor warmed next", d.NextColdFree() != 3);
+            }
+            finally { BerthAllocator.IsClear = keepClear; BerthAllocator.IsForbidden = keepForbid; }
         }
 
         private static void BerthAllocatorForbidden()

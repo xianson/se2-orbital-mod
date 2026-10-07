@@ -10,6 +10,9 @@ namespace SEAerospace.Entry
         public double Bottom, Top;
         /// <summary>The envelope's scale height (m) and its braking strength at the border (e-folds per metre).</summary>
         public double Scale, Kappa0;
+        /// <summary>The fake atmosphere's density at the border (kg/m3) for this body - what the physics side (Aero's air,
+        /// with its upper tail) has there, so drag does not step at the handover (it stepped ~3x); 0: DragDensity.</summary>
+        public double Rho0;
         public bool IsValid => Top > Bottom && Kappa0 > 0;
     }
 
@@ -72,7 +75,7 @@ namespace SEAerospace.Entry
 
         /// <summary>The fake atmosphere's density at radius r (kg/m3; 0 above the band or with drag off).</summary>
         public static double Density(Band b, double r)
-            => !b.IsValid || r >= b.Top || !(DragDensity > 0) ? 0 : DragDensity * Math.Exp(-Math.Max(0, r - b.Bottom) / b.Scale);
+            => !b.IsValid || r >= b.Top || !(DragDensity > 0) ? 0 : (b.Rho0 > 0 ? b.Rho0 : DragDensity) * Math.Exp(-Math.Max(0, r - b.Bottom) / b.Scale);
 
         /// <summary>The band of a body (no atmosphere: none) whose frame's border is at bottomRadius.</summary>
         public static Band For(double radius, double atmosphereHeight, double bottomRadius)

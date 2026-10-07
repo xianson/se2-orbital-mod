@@ -505,9 +505,19 @@ public static class MapPipeline
         return true;
     }
 
+    /// <summary>Text drawing off until this wall time after a failure (an exception costs ~200 ms in SE2: one per label per
+    /// frame, swallowed, was a stall that never stopped).</summary>
+    static double _textOffUntil;
+    static void TextFailed(Exception e)
+    {
+        _textOffUntil = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency + 2;
+        VectorStatus = "text draw failed (off 2 s): " + (e.InnerException ?? e).Message;
+    }
+    static bool TextOff => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency < _textOffUntil;
+
     public static void Text(Vector3D at, string text, ColorSRGB color, float scale)
     {
-        if (_batch == null || _drawString == null || _font == null || !Screen(at, out var s)) return;
+        if (TextOff || _batch == null || _drawString == null || _font == null || !Screen(at, out var s)) return;
         if (ClipRect.HasValue && ClipRect.Value.Contains(s) != ContainmentType.Contains) return;   // not outside the map's area
         scale *= TextScale;
         try
@@ -524,7 +534,7 @@ public static class MapPipeline
             DrawStringArgs(s - size * 0.5f + new Vector2(1.5f, 1.5f), shadow, text, scale);
             DrawStringArgs(s - size * 0.5f, color, text, scale);
         }
-        catch { }
+        catch (Exception e) { TextFailed(e); }
     }
 
     /// <summary>A fixed-size ring on screen around a world point (a marker for bodies too small to see at true size).</summary>
@@ -656,12 +666,15 @@ public static class MapPipeline
 
     static void CallFill<T>(Delegate d, QuadraticBezier2[] a, int n, ColorSRGB c) => ((FillFn<T>)d)(new ReadOnlySpan<QuadraticBezier2>(a, 0, n), c, default(T), false);
 
+    static double _iconRetryAt;
     static void BindVector()
     {
         _path = null; _fill = null;
         try
         {
-            if (_drawPathM == null)
+            double nowB = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+            bool relook = _drawImageM == null && nowB >= _iconRetryAt;   // (icons back after a failure, not gone for good)
+            if (_drawPathM == null || relook)
                 foreach (var m in _batch.GetType().GetMethods())
                 {
                     if (m.Name == "DrawPath" && m.GetParameters().Length == 4) _drawPathM = m;
@@ -804,7 +817,12 @@ public static class MapPipeline
             _drawImageM.Invoke(_batch, _imgArgs);
             return true;
         }
-        catch (Exception e) { VectorStatus = "icon draw: " + (e.InnerException ?? e).Message; _drawImageM = null; return false; }
+        catch (Exception e)
+        {
+            VectorStatus = "icon draw: " + (e.InnerException ?? e).Message;
+            _drawImageM = null; _iconRetryAt = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency + 5;
+            return false;
+        }
     }
 
     public static bool CanFill => _fill != null;
@@ -880,14 +898,14 @@ public static class MapPipeline
     {
         scale *= TextScale;
         if (PickName != null && !string.IsNullOrEmpty(text)) { float h = 22f * scale; AddPick(at + new Vector2(0, h * 0.5f), at + new Vector2(text.Length * 15f * scale, h * 0.5f)); }
-        if (_batch == null || _drawString == null || _font == null) return;
+        if (TextOff || _batch == null || _drawString == null || _font == null) return;
         try
         {
             var shadow = new ColorSRGB(0f, 0f, 0f, 0.8f);
             DrawStringArgs(at + new Vector2(1.5f, 1.5f), shadow, text, scale);
             DrawStringArgs(at, color, text, scale);
         }
-        catch { }
+        catch (Exception e) { TextFailed(e); }
     }
 
     /// <summary>A small filled dot on screen (concentric rings).</summary>

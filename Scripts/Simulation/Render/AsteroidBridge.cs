@@ -40,6 +40,8 @@ public static class AsteroidBridge
     public static readonly List<Vector3D> Asteroids = new List<Vector3D>();
     /// <summary>Their world bounding boxes (same order as found; for 'am I at it').</summary>
     public static readonly List<BoundingBoxD> AsteroidBoxes = new List<BoundingBoxD>();
+    /// <summary>Per Asteroids entry: it persists (manual, the mod's own, player-edited) - not an encounter's or a prefab's.</summary>
+    public static readonly List<bool> AsteroidPersistent = new List<bool>();
 
     /// <summary>Distance from a world point to the nearest asteroid's bounding box (0 inside), or +inf.</summary>
     public static double DistanceToAsteroid(Vector3D p)
@@ -62,6 +64,20 @@ public static class AsteroidBridge
     {
         pos = default; double best = reach;
         lock (Asteroids) foreach (var a in Asteroids) { double d = (a - at).Length(); if (d <= best) { best = d; pos = a; } }
+        return best < reach;
+    }
+
+    /// <summary>The nearest rock within reach, and whether it persists - placed on purpose, the mod's own, player-edited -
+    /// rather than an encounter's or a prefab's, which come and go with whoever is near.</summary>
+    public static bool NearestAsteroid(Vector3D at, double reach, out Vector3D pos, out bool persistent)
+    {
+        pos = default; persistent = false; double best = reach;
+        lock (Asteroids)
+            for (int i = 0; i < Asteroids.Count; i++)
+            {
+                double d = (Asteroids[i] - at).Length();
+                if (d <= best) { best = d; pos = Asteroids[i]; persistent = i < AsteroidPersistent.Count && AsteroidPersistent[i]; }
+            }
         return best < reach;
     }
 
@@ -157,6 +173,7 @@ public static class AsteroidBridge
             var ids = new List<Keen.VRage.Core.Game.GameSystems.ProceduralGeneration.SpaceEntityId>();
             var kept = new List<Vector3D>();
             var boxes = new List<BoundingBoxD>();
+            var doomed = new List<Vector3D>();   // generator rocks deleted this pass: never offered as anchors (they were, for a pass)
             foreach (var kv in gen.Entities)
             {
                 // A rock of an asteroid frame's volume (AsteroidFrames): placed on purpose, an anchor like a manual one.
@@ -164,9 +181,10 @@ public static class AsteroidBridge
                 bool manual = false;
                 try { manual = AsteroidFrames.Protects(Keen.VRage.Core.Game.Data.BoundingBoxData.GetWorldAABB(kv.Value).Center); } catch { }
                 if (!manual) try { manual = IsManual(kv.Value); } catch { }
-                if (!manual) ids.Add(kv.Key);
+                if (!manual) { ids.Add(kv.Key); try { doomed.Add(kv.Value.Data.GetWorldTransform().Position); } catch { } }
                 else try { kept.Add(kv.Value.Data.GetWorldTransform().Position); boxes.Add(Keen.VRage.Core.Game.Data.BoundingBoxData.GetWorldAABB(kv.Value)); } catch { }   // an asteroid placed on purpose: a frame anchor
             }
+            int persistentCount = kept.Count;   // (those so far: placed on purpose, ours, player-edited)
             // Every other voxel body that is not a planet (an encounter's rock, one spawned with a prefab,
             // not through the generator): planets are the voxel bodies at a planet's centre.
             try
@@ -186,6 +204,7 @@ public static class AsteroidBridge
                     Vector3D vp = ve.Data.GetWorldTransform().Position;
                     bool planet = false;
                     foreach (var b in SystemHost.BeaconOf.Values) if ((b.Center - vp).Length() < 5000) { planet = true; break; }
+                    if (doomed.Exists(k => (k - vp).Length() < 1.0)) continue;
                     if (!planet && !kept.Exists(k => (k - vp).Length() < 1.0))
                     {
                         kept.Add(vp);
@@ -194,7 +213,11 @@ public static class AsteroidBridge
                 }
             }
             catch { }
-            lock (Asteroids) { Asteroids.Clear(); Asteroids.AddRange(kept); AsteroidBoxes.Clear(); AsteroidBoxes.AddRange(boxes); }
+            lock (Asteroids)
+            {
+                Asteroids.Clear(); Asteroids.AddRange(kept); AsteroidBoxes.Clear(); AsteroidBoxes.AddRange(boxes);
+                AsteroidPersistent.Clear(); for (int i = 0; i < kept.Count; i++) AsteroidPersistent.Add(i < persistentCount);
+            }
             foreach (var id in ids) { try { gen.DeleteEntity(id); _deleted++; } catch { } }
             Status = $"asteroids blocked: {_orig.Count} volume definition(s) at no density, {_deleted} deleted, {RingInfo.Count} ring(s), {Asteroids.Count} asteroid(s) as anchors";
         }

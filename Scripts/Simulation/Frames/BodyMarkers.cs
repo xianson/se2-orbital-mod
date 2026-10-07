@@ -19,6 +19,8 @@ namespace OrbitalMod;
 /// CONTACTS too (what Contacts knows: a station, a ship, a wreck): one marker per group (a frame), named by
 /// its site or its grid, in amber with a diamond; these keep the game's edge arrow (a few at most, and
 /// where a station lies off the screen is the point); none within 1 km (you see it) nor for your own grids.
+///
+/// Riding a frame, its ORIGIN as well (CollectOrigin): where the relative pull is nothing.
 /// </summary>
 public static class BodyMarkers
 {
@@ -60,8 +62,35 @@ public static class BodyMarkers
         }
         int bodies = _items.Count;
         CollectContacts(camera, camModel, camChart, t, FrameMarkers.GameMarked(_session));
-        Status = $"bodies: {bodies} marked, {hidden} too close to need one; contacts: {_items.Count - bodies} marked";
+        bool origin = CollectOrigin(camera);
+        Status = $"bodies: {bodies} marked, {hidden} too close to need one; contacts: {_items.Count - bodies - (origin ? 1 : 0)} marked{(origin ? "; frame origin marked" : "")}";
     }
+
+    /// <summary>
+    /// FRAME ORIGIN: riding a frame (not its anchor), where its centre is - the point that goes round on the frame's own
+    /// orbit, where the relative pull is nothing. It grows with your distance from it, and holding station against it
+    /// costs fuel or power with it (StationKeepCharge): the marker shows where holding is free. Kept, like a contact,
+    /// at the screen's edge when off it; none within 50 m.
+    /// </summary>
+    static bool CollectOrigin(WorldTransform camera)
+    {
+        var f = FrameHost.PlayerFrame;
+        if (!ShowOrigin || f == null || FrameHost.RiderFrame != f.Id) return false;
+        Vector3D at; lock (ServerFrames.FramesLock) at = f.BerthCenter;   // (the frame's centre in this world: the berth)
+        double dist = (at - camera.Position).Length();
+        if (!(dist > 50)) return false;
+        if (_origin == null)
+        {
+            object h = MapIcons.Handle("ring");
+            if (h == null) return false;
+            _origin = new GPSMarker(null, "Frame origin", "", Vector3D.Zero, (ResourceHandle<Keen.VRage.Core.Render.TextureAsset>)(ResourceHandle)h, OriginColor, true, false);
+        }
+        _items.Add(new Item { M = _origin, World = at, Surface = dist, Contact = true });
+        return true;
+    }
+    public static bool ShowOrigin = true;
+    static GPSMarker _origin;
+    static readonly ColorSRGB OriginColor = new ColorSRGB(0.55f, 0.95f, 0.75f, 1f);
 
     /// <summary>The contacts you know of, one per group (frame), where they truly are.</summary>
     static void CollectContacts(WorldTransform camera, Vector3D camModel, Chart camChart, double t, List<Vector3D> gameMarked)
@@ -70,9 +99,8 @@ public static class BodyMarkers
         var pf = FrameHost.PlayerFrame;
         foreach (long id in Contacts.KnownGrids())
         {
-            var g = GridMembers.Get(id);
-            if (g == null || !g.IsServer || g.Entity == null) continue;
-            string name = g.DisplayName; long group = id;
+            if (!ServerFrames.View(id, out var g)) continue;   // (the server's snapshot, not its entity)
+            string name = g.Name; long group = id;
             lock (ServerFrames.FramesLock)
             {
                 var f = SystemHost.Frames?.FindByMember(id);
@@ -85,11 +113,11 @@ public static class BodyMarkers
             }
             if (!seen.Add(group)) continue;
             // the game marks it already (a contract's station, an antenna's broadcast): not twice
-            Vector3D wpos = GridMembers.Position(g); bool marked = false;
+            Vector3D wpos = g.Position; bool marked = false;
             foreach (var gm in gameMarked) if ((gm - wpos).LengthSquared() < GameMarkRadius * GameMarkRadius) { marked = true; break; }
             if (marked) continue;
             Vector3D m; bool ok;
-            lock (ServerFrames.FramesLock) ok = FrameMarkers.ModelOf(GridMembers.Position(g), t, out m, out _, out _);
+            lock (ServerFrames.FramesLock) ok = FrameMarkers.ModelOf(g.Position, t, out m, out _, out _);
             if (!ok) continue;
             Vector3D d = m - camModel; double dist = d.Length();
             if (!(dist > ContactMinDistance)) continue;

@@ -207,6 +207,9 @@ public static class GameUi
     /// <summary>The top screen's view model itself (the terminal's, while the map is open), or null.</summary>
     public static object TopScreenObject(Keen.VRage.Core.Game.Systems.Session session) { TopScreenNeedingInput(session); return _topObj; }
 
+    /// <summary>The game's SharedUIComponent (the screens' owner), or null.</summary>
+    public static object SharedUi(Keen.VRage.Core.Game.Systems.Session session) { TopScreenNeedingInput(session); return _shared; }
+
     public static string TopScreenNeedingInput(Keen.VRage.Core.Game.Systems.Session session)
     {
         double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;

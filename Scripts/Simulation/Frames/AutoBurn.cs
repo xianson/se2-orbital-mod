@@ -47,7 +47,10 @@ public static class AutoBurn
     private static Maneuvers.Node NextArmed()
     {
         Maneuvers.Node best = null;
-        lock (Maneuvers.Nodes) foreach (var n in Maneuvers.Nodes) if (best == null || n.T < best.T) best = n;
+        // (the earliest node whose burn is not over: a past manual node left in the list hid every later armed one - warp
+        //  still stopped for them and nothing fired)
+        double t = SystemHost.Now;
+        lock (Maneuvers.Nodes) foreach (var n in Maneuvers.Nodes) if (!Maneuvers.BurnOver(n, t) && (best == null || n.T < best.T)) best = n;
         return best != null && best.Auto ? best : null;
     }
 }

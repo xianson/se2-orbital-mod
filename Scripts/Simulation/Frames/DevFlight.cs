@@ -45,6 +45,51 @@ public static class DevFlight
         return $"seating in the seat {bd:F0} m from '{gridName}'";
     }
 
+    /// <summary>Client: seat the character in the cockpit nearest grid `id` (server position).</summary>
+    public static string SeatId(Keen.VRage.Core.Game.Systems.Session session, long id)
+    {
+        var ch = FrameHost.PlayerCharacter(session);
+        if (ch == null) return "no character";
+        // (never seat to seat: the game's seat recharge (CharacterChargeStatFromSeatResourceComponent) links a second
+        // sink without dropping the first, and the server crashes on the orphan at the next unseat - the game never does it)
+        if (FrameHost.Seated) return "already seated: unseat first";
+        Vector3D target;
+        lock (ServerFrames.GridPositions) if (!ServerFrames.GridPositions.TryGetValue(id, out target)) return $"no grid {id}";
+        Entity best = null; double bd = double.MaxValue;
+        foreach (var e in session.GetEntitiesOfType<SeatComponent>())
+        {
+            double d = (e.Data.GetWorldTransform().Position - target).Length();
+            if (d < bd) { bd = d; best = e; }
+        }
+        if (best == null || bd > 60) return $"no seat within 60 m of grid {id}";
+        var seat = best.TryGet<SeatComponent>() as ISeat;
+        if (seat == null) return "no ISeat";
+        _seatGrid = id;
+        SeatAsync(seat, ch);
+        return $"seating in the seat {bd:F0} m from grid {id}";
+    }
+
+    /// <summary>Client: the character out of whatever seat it is in (the seat's own TryClearPilotAsync).</summary>
+    public static string Unseat(Keen.VRage.Core.Game.Systems.Session session)
+    {
+        var ch = FrameHost.PlayerCharacter(session);
+        if (ch == null) return "no character";
+        foreach (var e in session.GetEntitiesOfType<SeatComponent>())
+        {
+            var seat = e.TryGet<SeatComponent>() as ISeat;
+            if (seat?.Pilot != ch) continue;
+            UnseatAsync(seat);
+            return "leaving the seat";
+        }
+        return "not seated";
+    }
+
+    private static async void UnseatAsync(ISeat seat)
+    {
+        try { bool ok = await seat.TryClearPilotAsync(); Status = "unseat -> " + ok; }
+        catch (Exception e) { Status = "unseat failed: " + e.Message; }
+    }
+
     /// <summary>DEV: every seat in the client and server sessions, with its distance from a point.</summary>
     public static string ListSeats(Keen.VRage.Core.Game.Systems.Session client, Vector3D at)
     {
@@ -117,13 +162,16 @@ public static class DevFlight
     public static void ServerCommandTick()
     {
         if (!FrameHost.Seated || (!_cmdOn && !_cmdWasOn) || Busy) return;
-        OrbitalGridComponent best = null; double bd = 100;
-        foreach (var g in GridMembers.All())
-        {
-            if (!g.IsServer) continue;
-            double d = (GridMembers.Position(g) - FrameHost.PlayerPosition).Length();
-            if (d < bd && GridMembers.Mass(g) > 500) { bd = d; best = g; }
-        }
+        // the ship you fly (your seat's grid) - not the nearest heavy grid: docked to a carrier, the carrier turned and burned
+        OrbitalGridComponent best = FrameHost.SeatGridServerId != 0 && GridMembers.Get(FrameHost.SeatGridServerId) is OrbitalGridComponent sg && sg.IsServer ? sg : null;
+        double bd = 100;
+        if (best == null)
+            foreach (var g in GridMembers.All())
+            {
+                if (!g.IsServer) continue;
+                double d = (GridMembers.Position(g) - FrameHost.PlayerPosition).Length();
+                if (d < bd && GridMembers.Mass(g) > 500) { bd = d; best = g; }
+            }
         _cmdWasOn = _cmdOn;
         if (best == null) return;
         var e = best.Entity;
@@ -251,7 +299,9 @@ public static class DevFlight
     {
         if (_cmdOn && FrameHost.Seated && !Busy)
         {
-            if (_client == null || (_client.Data.GetWorldTransform().Position - _serverPos).Length() > 50)
+            var seat = FrameHost.SeatGrid;
+            if (seat != null && seat.Data.Has<Keen.Game2.Simulation.WorldObjects.Shared.Movement.MaxThrustData>()) _client = seat;   // (the ship you fly)
+            else if (_client == null || (_client.Data.GetWorldTransform().Position - _serverPos).Length() > 50)
             {
                 _client = null; double bd = 50;
                 foreach (var ce in session.GetEntitiesOfType<Keen.Game2.Simulation.WorldObjects.CubeGrids.CubeGridComponent>())

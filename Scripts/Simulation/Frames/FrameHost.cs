@@ -70,13 +70,16 @@ public static class FrameHost
         if (!VoxelBerthRegistry.TryCellContaining(_lastPos, reg, out string b, out _) || b != body) return false;
         var ch = Chart.Of(body, t);
         Vector3D lr = _lastPos - cell;
-        el = CaptureMath.CaptureElements(new StateVector(ch.ToInertial(lr), ch.VelToInertial(lr, _lastVel)), node.Mu, t);
+        lock (_localOwn) el = _localOwn.GetState(body.GetHashCode(), new StateVector(ch.ToInertial(lr), ch.VelToInertial(lr, _lastVel)), node.Mu, t);
         if (!IsFinite(el.SemiMajorAxis) || !IsFinite(el.MeanMotion)) return false;
         // On the ground, or a hop that never climbs well clear of it, is not an orbit: no orbit is
         // drawn and there is nothing to plan from (standing still, it is a fall to the planet's centre).
         Grounded = IsGrounded(body, el);
         return !Grounded;
     }
+
+    /// <summary>The local orbit, kept while it still says where you are (not re-solved for every frame's noise).</summary>
+    static readonly RendezvousPlot.OwnOrbit _localOwn = new RendezvousPlot.OwnOrbit();
 
     /// <summary>The last local trajectory asked for was ground-bound (see TryGetLocalOrbit).</summary>
     public static bool Grounded;
@@ -90,7 +93,14 @@ public static class FrameHost
         return el.PeriapsisRadius < r && ap < r + Math.Max(15000, 0.2 * r);
     }
     /// <summary>The local player's conjunction frame, if framed.</summary>
-    public static ProximityFrame PlayerFrame;
+    public static ProximityFrame PlayerFrame => _pub.Frame;
+
+    // The player as of one tick (Core/Frames/PlayerState): built fresh each tick from its defaults (_cur, FrameHost's own),
+    // published whole at PublishObserver (_pub, everyone else's). The names here read the published one.
+    private static PlayerState _cur = new PlayerState();
+    private static volatile PlayerState _pub = PlayerState.None;
+    /// <summary>The player's state as of the last whole tick.</summary>
+    public static PlayerState State => _pub;
     /// <summary>Harness: capture on the next tick regardless of the keep gate.</summary>
     public static bool ForceStow;
     public static string LastEvent = "";
@@ -100,6 +110,20 @@ public static class FrameHost
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Entity, System.Runtime.CompilerServices.StrongBox<long>> _ids = new System.Runtime.CompilerServices.ConditionalWeakTable<Entity, System.Runtime.CompilerServices.StrongBox<long>>();
     private static long _nextId = 1;
     private static bool _wasInKeep;
+    private static object _session;
+
+    /// <summary>A new session (another world loaded in the same process, should statics outlive it): nothing of the last
+    /// one's player - its frame, ride, seat, pending teleport / arrival / merge, warp scale, observer - and its game clock.</summary>
+    private static void NewSession()
+    {
+        _cur = new PlayerState(); _pub = PlayerState.None;
+        SeatGrid = null; _seatChar = null; _lastChar = null; _seatVelOk = false;
+        _tpPending = false; _riderN = 0; _riderFrame = -1; _wasInKeep = false; _hsActive = false;
+        DropPending(); _pendingOrbit = null; ForceStow = false;
+        Observer = null; ObserverPlanet = null;
+        Maneuvers.ResetOwnOrbit();
+        SystemHost.ResetClock();
+    }
 
     // A teleport in flight: its target, and the velocity to apply once it lands.
     private static bool _tpPending;
@@ -110,6 +134,7 @@ public static class FrameHost
     public static void Tick(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera, double gravityMultiplier)
     {
         TickRate.Client.Count();
+        if (!ReferenceEquals(session, _session)) { _session = session; NewSession(); }
         if (!OrbitalSettings.SawClient) OrbitalSettings.SawClient = true;
         OrbitalSettings.Poll();   // (the settings files, every ~2 s)
         _mult = gravityMultiplier > 0 ? gravityMultiplier : 1.0;
@@ -132,10 +157,18 @@ public static class FrameHost
         double t = SystemHost.Now;
 
         Entity ch = PlayerCharacter(session);
-        Seated = ch != null && IsSeated(ch);
-        Debug = ch == null ? "no character" : Seated ? "seated" : $"eva tpPending={_tpPending} wasInKeep={_wasInKeep}";
+        if (!ReferenceEquals(ch, _lastChar))
+        {
+            // a new character (a respawn, a death): nothing pending from the last one (a teleport re-sent every 3 s, a stow
+            // blocked behind it, a warp scale of its walk)
+            if (_lastChar != null) { _tpPending = false; _riderN = 0; DropPending(); Event("a new character: pending teleport, requests and rider scale cleared"); }
+            _lastChar = ch;
+        }
+        _cur = new PlayerState();   // (this tick's, from its defaults: nothing carried from the last)
+        _cur.Seated = ch != null && IsSeated(ch);
+        Debug = ch == null ? "no character" : _cur.Seated ? "seated" : $"eva tpPending={_tpPending} wasInKeep={_wasInKeep}";
         // (the save is applied seated too: loading in a seat restored no frame, and standing up later teleported the ship)
-        if (ch != null && Seated && !SavedState.Idle) lock (ServerFrames.FramesLock) SavedState.TryApply(IdOf(ch));
+        if (ch != null && _cur.Seated && !SavedState.Idle) lock (ServerFrames.FramesLock) SavedState.TryApply(IdOf(ch));
         if (ch != null && !IsSeated(ch))
         {
             long id = IdOf(ch);
@@ -153,15 +186,44 @@ public static class FrameHost
             lock (ServerFrames.FramesLock)
             {
                 SavedState.TryApply(id);
-                if (ApplyServerRequests(session, ch, pos, t)) { PublishObserver(camera.Position, reg, t); return; }
+                if (ApplyServerRequests(session, ch, pos, t)) { _cur.Frame = frames.FindByMember(id); PublishObserver(camera.Position, reg, t); return; }
                 var frame = frames.FindByMember(id);
-                PlayerFrame = frame;
+                // Far from your frame's berth (the game's fast travel, a respawn elsewhere): you are not in it any more - left
+                // quietly (no split onto an orbit made of a berth-to-berth offset; no pin back as its anchor). PlayerOrbit.MovedOut.
+                if (frame != null && !_tpPending && !_hsActive && PlayerOrbit.MovedOut(frame, pos))
+                {
+                    frames.RemoveMember(id);
+                    Event($"player left frame #{frame.Id}: {(pos - frame.BerthCenter).Length() / 1000:F0} km from its berth (moved by something else)");
+                    frame = null;
+                }
+                // Stood up in a ship that was stowed with you seated in it: a seated character is no grid, so it was never
+                // made a member - you walked off into no frame (no orbit; left behind when the frame moved). Out in the
+                // rails' space, beside a framed ship: its frame (PlayerOrbit.FrameToJoin; tested offline).
+                if (frame == null && !_tpPending && !_hsActive && !ForceStow && !_pendingOrbit.HasValue && !VoxelBerthRegistry.TryCellContaining(pos, reg, out _, out _))
+                {
+                    _joinGrids.Clear();
+                    // (with their boxes, from the server's snapshot: measured to a ship's hull, not its origin)
+                    lock (ServerFrames.GridPositions)
+                        foreach (var kv in ServerFrames.GridPositions)
+                            _joinGrids.Add(ServerFrames.View(kv.Key, out var gv) && gv.HasBox
+                                ? new PlayerOrbit.GridState(kv.Key, kv.Value, Vector3D.Zero, gv.Box.Min, gv.Box.Max)
+                                : new PlayerOrbit.GridState(kv.Key, kv.Value, Vector3D.Zero));
+                    var join = PlayerOrbit.FrameToJoin(pos, _joinGrids, gid => frames.FindByMember(gid));
+                    if (join != null && frames.AddMember(join, id))
+                    {
+                        frame = join;
+                        Event($"player joins frame #{join.Id} (stood up beside its ship: {(pos - join.BerthCenter).Length():F0} m from its centre)");
+                    }
+                }
+                _cur.Frame = frame;
+                SeatGrid = null; SeatGridServerId = 0;
+                if (frame == null) _riderN = 0;   // (no frame: the state's defaults - not riding, not at an anchor; no walk's warp scale)
                 if (frame != null) { _hsActive = false; UpdatePlayerFrame(session, ch, frame, pos, vel, t, dt); }
                 else if (!_tpPending)
                 {
                     if (_hsActive && !landed) vel = StepHighSpeed(ch, pos, vel, dt);
                     else if (!landed) vel = ApplyFictitious(ch, pos, vel, dt);
-                    if (!_hsActive && !ForceStow && EncounterFrames.TryAdoptPlayer(id, pos)) { PublishObserver(camera.Position, reg, t); return; }
+                    if (!_hsActive && !ForceStow && EncounterFrames.TryAdoptPlayer(id, pos)) { _cur.Frame = frames.FindByMember(id); PublishObserver(camera.Position, reg, t); return; }
                     TryStow(session, ch, id, pos, _hsActive ? _hsVel : vel, t);
                 }
             }
@@ -172,10 +234,32 @@ public static class FrameHost
             // Seated: the grid you sit in carries you. Its frame is yours (observer, warp, planning),
             // and your state is the camera's (the seat moves with the grid).
             Vector3D pos = ch.Data.GetWorldTransform().Position;
-            _lastPos = pos; _lastVel = OrbitDisplay.MeasuredVelocity;
-            lock (ServerFrames.FramesLock) PlayerFrame = SeatedFrame(pos);
-            // (seated, the grid carries the player: a frame's arrival request for the player is not for a seated one)
-            if (_pendingArrival != null) { _pendingArrival = null; Event("player arrival request dropped: seated (the ship carries you)"); }
+            _lastPos = pos;
+            // whose orbit: the grid you sit in, its frame (or the frame it sits in, pasted and not yet framed), its own
+            // offset and velocity - every tick, nothing left from a walk (PlayerOrbit; tested offline)
+            _seatChar = ch;
+            var so = SeatedOrbit(session, pos);
+            // the seat grid's own velocity (not the camera's motion over wall-clock time: slow sim speed, a swinging
+            // chase camera and a burn's lag all showed in the local orbit planned from it)
+            _lastVel = _seatVelOk ? _seatVel : OrbitDisplay.MeasuredVelocity;
+            _riderN = 0;   // (the seat carries you: no walk's warp scale left for when you stand up)
+            if (so.Frame != null && !so.InAnchor) so.AtAnchor = AnchorDistance(so.Frame, pos) <= 100.0;   // (the same test as on foot: its box)
+            lock (ServerFrames.FramesLock) _cur.Frame = so.Frame;
+            // (the anchor's pilot rides nothing: the frame's orbit is theirs - the orbit disc, no plot about themselves)
+            _cur.RiderFrame = so.Frame == null || so.InAnchor ? -1 : so.Frame.Id; _cur.RiderOffset = so.Offset; _cur.RiderVelocity = so.Velocity; _cur.AtAnchor = so.AtAnchor;
+            SeatedWhy = so.Why;
+            long cid = IdOf(ch);
+            _playerId = cid;   // (kept current seated too: loaded in a seat, it stayed 0 - the save lost your membership)
+            lock (ServerFrames.FramesLock)
+            {
+                // a membership from walking or a stow that is not the seat's frame (the ship split off or arrived with you in
+                // it): left - standing up in the old frame threw you 100+ km onto a nonsense orbit (PlayerOrbit.KeepMembershipSeated)
+                var memberOf = frames.FindByMember(cid);
+                if (!PlayerOrbit.KeepMembershipSeated(memberOf, so.Frame)) { frames.RemoveMember(cid); Event($"seated: left frame #{memberOf.Id} (your ship is in {(so.Frame != null ? "#" + so.Frame.Id : "no frame")})"); }
+            }
+            // (seated, the grid carries the player: a frame's arrival, merge or shift request is for a walker - kept, it was
+            //  replayed when you stood up: thrown by the move a second time, 100+ km)
+            if (_pendingArrival != null || _pendingMerge || _pendingShift.LengthSquared() > 0) { DropPending(); Event("player requests dropped: seated (the ship carries you)"); }
         }
 
         PublishObserver(camera.Position, reg, t);
@@ -183,14 +267,14 @@ public static class FrameHost
 
         // Warp lock (SE1 WarpPolicy, simplified): warp only advances the rails, so it is allowed only
         // while the player coasts in a conjunction. Materialized (in a planet cell or legacy space) = x1.
-        if (PlayerFrame == null && SystemHost.Timescale != 1.0)
+        if (_cur.Frame == null && SystemHost.Timescale != 1.0)
         {
             Event($"warp x{SystemHost.Timescale} -> x1 (player is materialized; warp is rails-only)");
             SystemHost.Timescale = 1.0;
         }
         if (MapView.Visible) OrbitDisplay.Clear();
-        else if (PlayerFrame != null && Observer.HasValue)
-            OrbitDisplay.DrawFrameOrbit(session, camera, Observer.Value, PlayerFrame, reg, t);
+        else if (_cur.Frame != null && Observer.HasValue)
+            OrbitDisplay.DrawFrameOrbit(session, camera, Observer.Value, _cur.Frame, reg, t);
         // (state passed in, lambdas capture nothing - cached by the compiler: these allocated a closure and a delegate each,
         //  every frame)
         var ta = new TickArgs(session, camera, t);
@@ -198,6 +282,8 @@ public static class FrameHost
         Guard("DevFlight.ClientTick", static a => DevFlight.ClientTick(a.Session), ta);
         Guard("ApplyTargetTurns", static a => ApplyTargetTurns(a.Session), ta);
         Guard("QuietCrossingShake", static a => QuietCrossingShake(a.Session), ta);
+        Guard("SnapCameraToGridTurn", static a => SnapCameraToGridTurn(a.Session, a.Camera), ta);
+        Guard("CrossingFade", static a => CrossingFade.Tick(a.Session), ta);
         Guard("DevTurn.ClientTick", static a => DevTurn.ClientTick(a.Session), ta);
         Guard("DevReentry.ClientTick", static a => DevReentry.ClientTick(a.Session, a.Camera), ta);
         Guard("AttitudeHold.ClientTick", static a => AttitudeHold.ClientTick(a.Session), ta);
@@ -210,7 +296,7 @@ public static class FrameHost
         Guard("OrbitHud.Draw", static a => OrbitHud.Draw(a.Session), ta);
         Guard("WarpBar", static a => WarpBar.DrawHud(a.Session), ta);
         // On rails the game's SPD (your velocity in the frame) is 0: show your speed about the body.
-        Guard("HudSpeed", static a => { if (PlayerFrame != null && OrbitHud.Current != null) GameUi.SetHudSpeed(a.Session, (float)OrbitHud.Current.Speed); }, ta);
+        Guard("HudSpeed", static a => { if (_cur.Frame != null && OrbitHud.Current != null) GameUi.SetHudSpeed(a.Session, (float)OrbitHud.Current.Speed); }, ta);
         Guard("SunDriver.Tick", static a => SunDriver.Tick(a.Session, a.Camera.Position, a.T), ta);
         Guard("StarProxy.Tick", static a => StarProxy.Tick(a.Session, a.Camera, a.T), ta);
         Guard("EntryHost.ClientTick", static a => EntryHost.ClientTick(a.T), ta);
@@ -286,7 +372,7 @@ public static class FrameHost
         ForceStow = false;
         _wasInKeep = false;
         ServerFrames.Attach.Enqueue(new ServerFrames.AttachRequest { FrameId = frame.Id, RefPos = pos, RefVel = vel, Berth = frame.BerthCenter, Body = legacy ? null : body, Time = t });
-        StartTeleport(session, frame.BerthCenter, Vector3D.Zero, t);
+        StartTeleport(session, frame.BerthCenter, Vector3D.Zero, t, legacy ? (Quaternion?)null : chart.ToInertialRotation());   // (out of the spinning chart: facing turned with it)
         // (the ships the server turns with the chart: their pilots' targets turn with them - ServerFrames.TargetTurns)
         Event($"STOW -> frame #{frame.Id} orbiting {parent.Name}: r={(cel - porg.Position).Length() / 1000:F1} km " +
               $"|v|={vel.Length():F1} m/s a={el.SemiMajorAxis / 1000:F1} km e={el.Eccentricity:F3} slot={frame.BerthSlotId} berth={ServerPlanetBeacon.Fmt(frame.BerthCenter)}");
@@ -302,6 +388,8 @@ public static class FrameHost
             UpdateRider(session, ch, f, pos, vel, t, dt);
             return;
         }
+        // You anchor this frame: its orbit is yours (no rider state left from riding it a moment ago)
+        _cur.AtAnchor = true; _riderN = 0;   // (not riding, no hold: the state's defaults)
         if (!_tpPending)
         {
             // Hard pin: the anchor never translates in world space.
@@ -344,7 +432,7 @@ public static class FrameHost
         // Physics warp limit (as KSP's): relative motion in warp needs N times the true speed, which must stay
         // under the world's speed cap (1000 m/s): riding free (dampeners off), warp is held to N x |v_rel| <= 900
         // m/s and x25 at most. (x10 is exact: 2 m off over 30 s; past the cap the motion was lost.)
-        if (SystemHost.Timescale > 1.0 && !Dampeners && _riderN > 0)
+        if (SystemHost.Timescale > 1.0 && !_cur.Dampeners && _riderN > 0)
         {
             double vTrue = vel.Length() / _riderN;
             double nMax = Math.Min(MaxRiderWarp, RiderWarpSpeed / Math.Max(1.0, vTrue));
@@ -362,29 +450,21 @@ public static class FrameHost
             ServerPlanetBeacon.SetRiderVelocity(vel);
         }
         _riderN = N; _riderFrame = f.Id;
-        RiderFrame = f.Id; RiderOffset = pos - f.BerthCenter; RiderVelocity = vel / N;
+        _cur.RiderFrame = f.Id; _cur.RiderOffset = pos - f.BerthCenter; _cur.RiderVelocity = vel / N;
         // At the anchor (inside its bounding box, touching it, or within 100 m of it): no rendezvous plot.
-        try
-        {
-            double dAnchor = double.PositiveInfinity;
-            if (f.AnchorEntityId == ServerFrames.AsteroidAnchorId) dAnchor = AsteroidBridge.DistanceToAsteroid(pos);
-            else if (GridMembers.IsGridId(f.AnchorEntityId) && GridMembers.Get(f.AnchorEntityId) is OrbitalGridComponent ag)
-                dAnchor = AsteroidBridge.BoxDistance(Keen.VRage.Core.Game.Data.BoundingBoxData.GetWorldAABB(ag.Entity), pos);
-            AtAnchor = dAnchor <= 100.0;
-        }
-        catch { AtAnchor = false; }
+        _cur.AtAnchor = AnchorDistance(f, pos) <= 100.0;
         // Dampeners: station-keeping. As SE1 (a station-keeping member holds its offset with the relative force
         // nulled): with them on no relative force is applied at all, so they only null your own motion and you
         // hold EXACTLY (the anchor is pinned at the berth). Fighting the force each tick left a lag, a drift.
-        try { Dampeners = ch.Data.Has<Keen.Game2.Simulation.WorldObjects.Movement.DampeningData>(); } catch { }
+        try { _cur.Dampeners = ch.Data.Has<Keen.Game2.Simulation.WorldObjects.Movement.DampeningData>(); } catch { }
         Vector3D A = !DevRider && ServerFrames.AnchorAccel.TryGetValue(f.Id, out var a) ? a : Vector3D.Zero;
         StateVector cur = OrbitPropagation.StateAt(f.Elements, t);
         Vector3D rRel = pos - f.BerthCenter;   // the anchor is pinned at the berth
         double mu = f.Elements.Mu;
         bool isLag = EncounterFrames.LagrangeDynamics(f.Id, t, out var lag);
         // A static anchor (a station, an asteroid): you leave it past the capture radius, measured from it.
-        bool isStatic = ServerFrames.StaticAnchorOf(f, out Vector3D anchorAt);
-        double leave = isStatic ? ServerFrames.CaptureRadius : ServerFrames.SlotRadius;
+        bool isStatic = ServerFrames.StaticAnchorView(f, out Vector3D anchorAt);
+        double leave = ServerFrames.LeaveRadius(isStatic);
         double away = isStatic ? (pos - anchorAt).Length() : rRel.Length();
         // The relative force (true acceleration at the true velocity), applied as a force: x N^2 in warp.
         Vector3D acc = isLag ? lag(rRel, vel / N)   // a Lagrange site's own dynamics
@@ -392,7 +472,7 @@ public static class FrameHost
         // DEV check (dampeners off, not thrusting): the measured relative acceleration against the model's.
         {
             double wall = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
-            if (_diagWall > 0 && wall - _diagWall >= 1.0 && !Dampeners)
+            if (_diagWall > 0 && wall - _diagWall >= 1.0 && !_cur.Dampeners)
             {
                 Vector3D meas = (vel / N - _diagVel) / ((t - _diagT) > 0 ? (t - _diagT) : 1);
                 Vector3D model = 0.5 * (acc + _diagAcc);
@@ -403,11 +483,32 @@ public static class FrameHost
             _diagTicks++;
             if (_diagWall <= 0 || wall - _diagWall >= 1.0) { _diagWall = wall; _diagVel = vel / N; _diagT = t; _diagAcc = acc; }
         }
-        if (!Dampeners && IsFinite(acc) && acc.LengthSquared() > 1e-12)
+        if (!_cur.Dampeners && IsFinite(acc) && acc.LengthSquared() > 1e-12)
         {
             Vector3D dv = acc * (dt * N * N);
             SetVelocity(ch, vel + dv);
             ServerPlanetBeacon.AddRiderDv(dv);   // the server's copy too (it would overwrite the client's)
+        }
+        else if (_cur.Dampeners && IsFinite(acc) && acc.LengthSquared() > 1e-12)
+        {
+            // Holding station is not free: the jetpack is charged for the force it would make against the pull - the
+            // fraction of its thrust that face needs, for this tick's game time (x N in warp; the server bills the suit).
+            try
+            {
+                var q = (QuaternionD)ch.Data.GetWorldTransform().Orientation;
+                Vector3D need = QuaternionD.Inverse(q) * (-acc);   // (per kg, the character's axes)
+                double m = ch.Data.TryGet<Keen.VRage.Physics.Data.RigidBodyMassProperties>(out var mp) && mp.InvMass > 0 ? 1.0 / mp.InvMass : 0;
+                if (m > 0 && ch.Data.TryGet<Keen.Game2.Simulation.WorldObjects.Shared.Movement.MaxThrustData>(out var mt))
+                {
+                    var P = mt.Regular.Positive; var Ng = mt.Regular.Negative;
+                    double Face(double c, float pos, float neg) => c > 0 ? pos : -neg;   // (the face that pushes along +c or -c)
+                    double frac = 0;
+                    double F(double c, float pos, float neg) { double fm = Math.Abs(Face(c, pos, neg)); return Math.Abs(c) < 1e-12 ? 0 : fm > 0 ? Math.Abs(c) * m / fm : 1; }
+                    frac = Math.Min(1.0, Math.Max(F(need.X, P.X, Ng.X), Math.Max(F(need.Y, P.Y, Ng.Y), F(need.Z, P.Z, Ng.Z))));
+                    ServerPlanetBeacon.AddRiderHold(frac * dt * N);
+                }
+            }
+            catch { }
         }
         if (away > leave)
         {
@@ -433,10 +534,14 @@ public static class FrameHost
     public static bool DevRider;
 
     /// <summary>Riding, at the anchor itself (within 100 m of its bounding box): no rendezvous plot.</summary>
-    public static bool AtAnchor;
+    public static bool AtAnchor => _pub.AtAnchor;
+
+    /// <summary>Riding a frame (not its anchor) and holding station: no relative force on you - on foot your jetpack's
+    /// dampeners, seated the ship's (the server holds it when its thrust can cancel the pull: StationKeeping).</summary>
+    public static bool HoldingStation => _pub.RiderFrame >= 0 && (_pub.Seated ? ServerFrames.View(SeatGridServerId, out var sv) && sv.Holding : _pub.Dampeners);
 
     /// <summary>Your jetpack's dampeners (riding: on = station-keeping with the anchor).</summary>
-    public static bool Dampeners;
+    public static bool Dampeners => _pub.Dampeners;
 
     /// <summary>The warp the rider's velocity was last scaled for (and in which frame).</summary>
     private static double _riderN;
@@ -514,9 +619,9 @@ public static class FrameHost
         foreach (long mid in f.Members) if (GridMembers.IsGridId(mid)) return;
         long fid = f.Id;
         SystemHost.Frames.Dissolve(fid);
-        PlayerFrame = null;
+        _cur.Frame = null;
         _wasInKeep = true;
-        StartTeleport(session, worldPos, applied, t);
+        StartTeleport(session, worldPos, applied, t, chart.FromInertialRotation());
         Event($"ARRIVE frame #{fid} -> {node.Name} cell: r={cel.Position.Length() / 1000:F1} km (shell {shell / 1000:F1}) " +
               $"|v|={speed:F0} m/s{(capped ? $" -> capped to {SpeedCap:F0} ({alt / 1000:F1} km up)" : "")}");
     }
@@ -534,8 +639,9 @@ public static class FrameHost
     public static long PlayerId => _playerId;
     public static Vector3D PlayerPosition => _lastPos;
     /// <summary>The player riding a frame: its id, offset from the frame's centre and velocity relative to it (last tick).</summary>
-    public static long RiderFrame = -1;
-    public static Vector3D RiderOffset, RiderVelocity;
+    public static long RiderFrame => _pub.RiderFrame;
+    public static Vector3D RiderOffset => _pub.RiderOffset;
+    public static Vector3D RiderVelocity => _pub.RiderVelocity;
 
     /// <summary>Save: the player's HighSpeed conic, if riding one.</summary>
     public static bool TryGetHighSpeed(out string body, out KeplerianElements el)
@@ -790,7 +896,8 @@ public static class FrameHost
 
     private static void PublishObserver(Vector3D cam, SystemRegistry reg, double t)
     {
-        var f = PlayerFrame;
+        _pub = _cur;   // (the player's state, whole: everything after this in the tick, and the server, read it)
+        var f = _cur.Frame;
         // (the frame's elements, body and berth are the server's, written each tick: copied under its lock - a torn read
         //  jittered the observer for a frame)
         KeplerianElements fel = default; string fbody = null; Vector3D fberth = default;
@@ -816,9 +923,12 @@ public static class FrameHost
             ObserverPlanet = body;
             return;
         }
+        // (DEV log, rate-limited: a frame that drops for a tick hides the planet proxies - say why)
+        if (Observer.HasValue && _obsLostLogs < 20) { _obsLostLogs++; Log.Default?.Info($"[ORBIT] observer lost: no frame (seated {_cur.Seated}, seat grid {SeatGridServerId}, why '{SeatedWhy}')"); }
         Observer = null;
         ObserverPlanet = null;
     }
+    private static int _obsLostLogs;
 
     // ───────────────────────────── requests from the server half ─────────────────────────────
 
@@ -840,6 +950,12 @@ public static class FrameHost
 
     private static Vector3D _pendingMergeMove, _pendingMergeDv;
     private static bool _pendingMerge;
+
+    /// <summary>No arrival, merge or shift waiting for the walking player (seated, a new character, a new session).</summary>
+    private static void DropPending()
+    {
+        _pendingArrival = null; _pendingMerge = false; _pendingMergeMove = _pendingMergeDv = Vector3D.Zero; _pendingShift = Vector3D.Zero;
+    }
 
     /// <summary>Server merged the player's frame into another: move into the host berth at the relative state.</summary>
     public static void RequestMerge(long incomerId, Vector3D translation, Vector3D dVel)
@@ -876,7 +992,10 @@ public static class FrameHost
             Vector3D off = pos - a.AnchorPos;              // berth offset (inertial window axes)
             Vector3D relPos = a.CelPos + off;
             Chart achart = Chart.Of(a.Body, t);
-            Vector3D chartVel = achart.VelFromInertial(relPos, a.CelVel);
+            // (your own motion in the frame too, true - not warped: the grids arrive with theirs; a rider drifting off the
+            //  ship lost it, and left the ship at a different speed than they had)
+            Vector3D vRel = ReadVelocity(ch) / Math.Max(1.0, SystemHost.Timescale);
+            Vector3D chartVel = achart.VelFromInertial(relPos, a.CelVel + (IsFinite(vRel) ? vRel : Vector3D.Zero));
             Vector3D arriveAt = VoxelBerthRegistry.TryGetCell(a.Body, SystemHost.Registry, out Vector3D acell)
                 ? acell + achart.FromInertial(relPos) : a.Target + off;
             double speed = chartVel.Length();
@@ -885,9 +1004,9 @@ public static class FrameHost
             //  whole frame arrived a second time)
             if (speed > SpeedCap) { chartVel *= SpeedCap / speed; speed = SpeedCap; }
             bool hs = false;
-            PlayerFrame = null;
+            _cur.Frame = null;
             _wasInKeep = true;
-            StartTeleport(session, arriveAt, hs ? Vector3D.Zero : chartVel, t);
+            StartTeleport(session, arriveAt, hs ? Vector3D.Zero : chartVel, t, achart.FromInertialRotation());
             // (the grids the server turned into the chart: their cockpits' targets with them - ServerFrames.TargetTurns)
             Event($"player arrives with its grid frame at {a.Body}{(hs ? " (HighSpeed)" : "")}");
             return true;
@@ -945,20 +1064,42 @@ public static class FrameHost
 
     // ───────────────────────────── helpers ─────────────────────────────
 
-    private static void StartTeleport(Keen.VRage.Core.Game.Systems.Session session, Vector3D target, Vector3D velocity, double t)
+    /// <summary>The player moved: keeps their facing (turned with the chart when they cross between a spinning planet's
+    /// frame and the rails) - every move snapped the view to one fixed world direction.</summary>
+    private static void StartTeleport(Keen.VRage.Core.Game.Systems.Session session, Vector3D target, Vector3D velocity, double t, Quaternion? turn = null)
     {
+        // (moving with something - an arrival with its ship at up to the speed cap: aimed where it will be when the teleport
+        //  lands, by the measured landing delay - aimed where it was, the player trailed the ship by delay x speed, ~100 m)
+        if (velocity.LengthSquared() > 1 && IsFinite(velocity)) target += velocity * Math.Min(_tpLatency, 0.5);
         _tpPending = true;
         _tpTarget = target;
         _tpVelocity = velocity;
         _tpStarted = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
-        PlanetRenderBridge.TeleportPlayer(session, new WorldTransform(target, Quaternion.Identity), clearMotion: true);
+        _tpRetried = false;
+        Quaternion q = Quaternion.Identity;
+        try
+        {
+            var ch = PlayerCharacter(session);
+            if (ch != null) q = ch.Data.GetWorldTransform().Orientation;
+            if (turn.HasValue) q = Quaternion.Normalize(turn.Value * q);
+            if (!q.IsValidAndRotationIsNormalized()) q = Quaternion.Identity;
+        }
+        catch { q = Quaternion.Identity; }
+        _tpOrient = q;
+        PlanetRenderBridge.TeleportPlayer(session, new WorldTransform(target, q), clearMotion: true);
     }
+    private static Quaternion _tpOrient = Quaternion.Identity;
+    /// <summary>How long a teleport takes to land (s, learned); the first guess a few frames.</summary>
+    private static double _tpLatency = 0.08;
+    private static bool _tpRetried;
 
     private static void SettleTeleport(Keen.VRage.Core.Game.Systems.Session session, Entity ch, Vector3D pos, double t)
     {
         double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
         if ((pos - _tpTarget).Length() < 200.0)
         {
+            // the landing delay, learned (not from a retried teleport: that one restarted the clock)
+            if (!_tpRetried) _tpLatency += (Math.Clamp(now - _tpStarted, 0, 1) - _tpLatency) * 0.3;
             SetVelocity(ch, _tpVelocity);
             ServerPlanetBeacon.PendingPlayer = new PlayerRequest { Velocity = _tpVelocity };
             _tpPending = false;
@@ -966,8 +1107,8 @@ public static class FrameHost
         else if (now - _tpStarted > TeleportSettle)
         {
             Event($"teleport did not land within {TeleportSettle:F0} s (at {ServerPlanetBeacon.Fmt(pos)}); retrying");
-            PlanetRenderBridge.TeleportPlayer(session, new WorldTransform(_tpTarget, Quaternion.Identity), clearMotion: true);
-            _tpStarted = now;
+            PlanetRenderBridge.TeleportPlayer(session, new WorldTransform(_tpTarget, _tpOrient), clearMotion: true);
+            _tpStarted = now; _tpRetried = true;
         }
     }
 
@@ -980,26 +1121,130 @@ public static class FrameHost
     }
 
     /// <summary>The frame of the grid a seated player sits in (a member grid within 300 m). Caller holds FramesLock.</summary>
-    private static ProximityFrame SeatedFrame(Vector3D pos)
+    /// <summary>Why the seated player's frame is what it is (harness diagnostics).</summary>
+    public static string SeatedWhy = "-";
+    static readonly List<PlayerOrbit.GridState> _seatGrids = new List<PlayerOrbit.GridState>();
+    static Entity _seatChar, _lastChar, _lastSeatEntity;
+    static long _lastSeatSid; static double _lastSeatAt;
+    static readonly List<PlayerOrbit.GridState> _joinGrids = new List<PlayerOrbit.GridState>();
+    /// <summary>The client's copy of the grid the player's seat is on (null: not seated, or none found).</summary>
+    public static Entity SeatGrid;
+    /// <summary>The server's id of that grid (0: not matched) - for server-side code acting on the ship you fly.</summary>
+    public static long SeatGridServerId;
+    static Vector3D _seatVel; static bool _seatVelOk;
+
+    /// <summary>How far a point is from the frame's anchor: its bounding box (a station you are parked in: 0), an asteroid's
+    /// surface; +inf when unknown. On foot and seated alike.</summary>
+    private static double AnchorDistance(ProximityFrame f, Vector3D pos)
     {
-        ProximityFrame best = null; double bd = 300;
+        try
+        {
+            if (f.AnchorEntityId == ServerFrames.AsteroidAnchorId) return AsteroidBridge.DistanceToAsteroid(pos);
+            if (GridMembers.IsGridId(f.AnchorEntityId) && ServerFrames.View(f.AnchorEntityId, out var av))
+                return av.HasBox ? AsteroidBridge.BoxDistance(av.Box, pos) : (av.Position - pos).Length();   // (the server's snapshot, not its entity)
+        }
+        catch { }
+        return double.PositiveInfinity;
+    }
+
+    /// <summary>The seated player's orbit (PlayerOrbit.Seated): the client's copy of the grid they sit in (the piloted grid
+    /// nearest them, else the nearest grid) for its position and velocity, the server's grid positions for frames.</summary>
+    private static PlayerOrbit.Result SeatedOrbit(Keen.VRage.Core.Game.Systems.Session session, Vector3D pos)
+    {
+        // the grid of the seat you are in (its pilot is you) - not the nearest grid: a big ship's origin is far from its
+        // cockpit, a docked fighter's is near it
+        Entity seat = null;
+        foreach (var e in session.GetEntitiesOfType<Keen.Game2.Simulation.WorldObjects.CubeBlocks.Pilotable.SeatComponent>())
+        {
+            var s = e.TryGet<Keen.Game2.Simulation.WorldObjects.CubeBlocks.Pilotable.SeatComponent>() as Keen.Game2.Simulation.WorldObjects.CubeBlocks.Pilotable.ISeat;
+            if (s?.Pilot != _seatChar) continue;
+            seat = e.TryGet<Keen.Game2.Simulation.WorldObjects.CubeBlocks.CubeBlockComponent>()?.Grid?.Entity;
+            break;
+        }
+        _seatVelOk = false;
+        SeatGrid = seat; SeatGridServerId = 0;
+        if (seat == null) return new PlayerOrbit.Result { Why = "seated, no grid near" };
+        Vector3D sp = seat.Data.GetWorldTransform().Position;
+        bool hasRb = seat.Data.TryGet<RigidBodyData>(out var rb);
+        Vector3D sv = hasRb ? (Vector3D)rb.LinearVelocity : Vector3D.Zero;
+        _seatVel = sv; _seatVelOk = hasRb && IsFinite(sv);
+        long sid = 0; double sd = 30;
+        _seatGrids.Clear();
         lock (ServerFrames.GridPositions)
             foreach (var kv in ServerFrames.GridPositions)
             {
-                double d = (kv.Value - pos).Length();
-                if (d >= bd) continue;
-                var f = SystemHost.Frames.FindByMember(kv.Key);
-                if (f != null) { bd = d; best = f; }
+                _seatGrids.Add(new PlayerOrbit.GridState(kv.Key, kv.Value, Vector3D.Zero));
+                double d = (kv.Value - sp).Length();
+                if (d < sd) { sd = d; sid = kv.Key; }
             }
-        return best;
+        // (no server grid within 30 m: the same seat grid as a moment ago, just moved - its client copy follows a big move
+        //  (an arrival, a merge, a re-orbit) a moment late, and the seated player read as in no frame for it: warp dropped
+        //  to x1, the HUD flickered. Its last id kept for 3 s.)
+        double wallS = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+        if (sid != 0) { _lastSeatSid = sid; _lastSeatEntity = seat; _lastSeatAt = wallS; }
+        else if (ReferenceEquals(seat, _lastSeatEntity) && wallS - _lastSeatAt < 3 && ServerFrames.View(_lastSeatSid, out var sv0))
+        { sid = _lastSeatSid; sp = sv0.Position; }   // (and where the server has it: the client copy is still at the old place)
+        SeatGridServerId = sid;
+        lock (ServerFrames.FramesLock)
+            return PlayerOrbit.Seated(new PlayerOrbit.GridState(sid, sp, sv), _seatGrids, id => SystemHost.Frames?.FindByMember(id), SystemHost.Timescale);
     }
 
     /// <summary>True when the local character sits in a seat.</summary>
-    public static bool Seated;
+    public static bool Seated => _pub.Seated;
 
     /// <summary>A crossing between a planet's rotating chart and the inertial frames turns the grids (ServerFrames.MoveGrid);
     /// the cockpit's target orientation - what the pilot steers to, held on the client's copy - must turn with them, or
     /// the gyros swing the ship back toward the old one and the controls fight it. Every piloted grid within 300 m.</summary>
+    // ── the first-person camera across a crossing ──
+    // (FirstPersonCameraComponent springs the render camera toward the cockpit: Slerp(last render orientation, the
+    //  cockpit's, stiffness). A crossing turns the ship by the chart's angle (~100 deg) in one tick: the view lagged 84 deg
+    //  off the cockpit and swung back over ~1.5 s - DevReentry. When the piloted grid the camera rides turns more than 20
+    //  deg in one frame - no physics does that - the render camera is turned with it: the spring sees no change.)
+    static Entity _snapGrid; static Quaternion _snapQ; static int _snaps;
+    private static void SnapCameraToGridTurn(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera)
+    {
+        if (!_cur.Seated) { _snapGrid = null; return; }
+        Entity grid = SeatGrid; double bd = 100;   // (the ship you sit in: a big ship's origin is far from its cockpit)
+        if (grid == null)
+        foreach (var e in session.GetEntitiesOfType<Keen.Game2.Simulation.WorldObjects.CubeGrids.CubeGridComponent>())
+        {
+            if (!e.Data.Has<Keen.Game2.Simulation.WorldObjects.Movement.TargetControlData>()) continue;
+            double d = (e.Data.GetWorldTransform().Position - camera.Position).Length();
+            if (d < bd) { bd = d; grid = e; }
+        }
+        if (grid == null) { _snapGrid = null; return; }
+        var q = grid.Data.GetWorldTransform().Orientation;
+        if (grid == _snapGrid)
+        {
+            var dq = Quaternion.Normalize(q * Quaternion.Inverse(_snapQ));
+            double ang = 2 * Math.Acos(Math.Min(1.0, Math.Abs((double)dq.W))) * 180 / Math.PI;
+            if (ang > 20)
+            {
+                var cam = SpecCam.CameraOf(session)?.Entity;
+                if (cam != null)
+                {
+                    var wt = cam.Data.GetWorldTransform();
+                    cam.Data.SetWorldTransform(new WorldTransform(wt.Position, Quaternion.Normalize(dq * wt.Orientation)));
+                    if (++_snaps <= 20) Event($"camera turned with its grid ({ang:F1} deg in one frame)");
+                }
+                // the seated character's copy too: the camera sits where the character's head is, and the character reaches
+                // the client a frame after its grid - on that frame the view stood 12 m outside the cockpit (the seat's offset
+                // unturned), and the engine's ~1 s stall that follows a crossing held that frame on screen
+                var ch = PlayerCharacter(session);
+                if (ch != null)
+                {
+                    var cwt = ch.Data.GetWorldTransform();
+                    var gp = grid.Data.GetWorldTransform().Position;
+                    Vector3D rel = cwt.Position - gp;
+                    // (only when it is still where the unturned seat put it: its offset is off the turned one by about the turn)
+                    if (rel.Length() < 100)
+                        ch.Data.SetWorldTransform(new WorldTransform(gp + Vector3D.Transform(rel, (QuaternionD)dq), Quaternion.Normalize(dq * cwt.Orientation)));
+                }
+            }
+        }
+        _snapGrid = grid; _snapQ = q;
+    }
+
     // ── the game's acceleration camera shake across a chart crossing ──
     // (AccelerationCameraShakeComponent: the observed grid's speed, averaged over 0.16 s, compared tick to tick - a change
     //  over 0.9 m/s shakes the camera. A crossing steps the speed 0 <-> ~1 km/s in one tick: a full shake, 19 deg and 13 m

@@ -22,8 +22,14 @@ public class OrbitalGridComponent : Component, IInSceneListener
     /// <summary>True for the server copy (SE2 builds grids from the same composition on both sides).</summary>
     internal bool IsServer => Session != null && ReferenceEquals(Session, ServerPlanetBeacon.ServerSession);
 
-    void IInSceneListener.OnAddedToScene() { Session = Entity.GetSession(); Id = GridMembers.Register(this); }
-    void IInSceneListener.OnBeforeRemovedFromScene() { GridMembers.Unregister(this); }
+    void IInSceneListener.OnAddedToScene()
+    {
+        Session = Entity.GetSession();
+        // (a warm berth's placeholder is no grid of ours: never framed, listed, marked or billed - WarmBerths)
+        if (DisplayName == WarmBerths.Name) { Id = 0; return; }
+        Id = GridMembers.Register(this);
+    }
+    void IInSceneListener.OnBeforeRemovedFromScene() { if (Id != 0) GridMembers.Unregister(this); }
 
     internal string DisplayName
     {

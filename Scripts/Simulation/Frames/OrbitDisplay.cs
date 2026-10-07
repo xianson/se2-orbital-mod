@@ -224,8 +224,11 @@ public static class OrbitDisplay
         var parentOrg = parent.OriginInRoot(t).Position;
         // Riding a frame anchored by something else (a station, an asteroid): your own orbit is the
         // frame's plus your offset and velocity in it (your jetpack changes it, not the frame's).
-        if ((FrameHost.RiderFrame == frame.Id || FrameHost.DevRider) && !EncounterFrames.IsSite(frame))
+        if ((FrameHost.RiderFrame == frame.Id || FrameHost.DevRider) && !EncounterFrames.IsLagrangeSite(frame))
         {
+            // Holding station (dampeners): no relative force on you, so no orbit of your own to show - you go round with
+            // the frame. (The plot drew a circle of held station; the card read the frame's orbit as yours.)
+            if (FrameHost.HoldingStation && !FrameHost.DevRider) { Clear(); return; }
             var fc = OrbitPropagation.StateAt(el, t);
             var mine = new StateVector(fc.Position + SEAerospace.PlanetBerths.SpinToCelestial(obs, FrameHost.RiderOffset),
                                        fc.Velocity + SEAerospace.PlanetBerths.SpinToCelestial(obs, FrameHost.RiderVelocity));
@@ -233,7 +236,7 @@ public static class OrbitDisplay
             if (IsFinite(own.SemiMajorAxis)) { el = own; riding = true; }
             // A static anchor (a station, an asteroid) sits where it is in the frame, not at its centre:
             // the plot is about it, so its own orbit is the frame's plus its offset.
-            if (ServerFrames.StaticAnchorOf(frame, out Vector3D anchorAt))
+            if (ServerFrames.StaticAnchorView(frame, out Vector3D anchorAt))
             {
                 var ae = CaptureMath.CaptureElements(new StateVector(fc.Position + SEAerospace.PlanetBerths.SpinToCelestial(obs, anchorAt - frame.BerthCenter), fc.Velocity), anchorEl.Mu, t);
                 if (IsFinite(ae.SemiMajorAxis)) anchorEl = ae;
@@ -286,13 +289,15 @@ public static class OrbitDisplay
             _relFlip = !_relFlip;
             rc.RelCross = _relFlip ? _crossA : _crossB; rc.RelCross.Clear();
             rc.Relative = Curvilinear(anchorEl, el, t, out rc.RelNow, cross: rc.RelCross, into: _relFlip ? _relA : _relB);
+            rc.RelBoundary = ServerFrames.LeaveRadius(ServerFrames.StaticAnchorView(frame, out _));   // (where you really leave it)
             rc.RelNowCross = rc.RelCross.Count > 0 ? rc.RelCross[0] : 0;
             // Past the frame's boundary you leave it on your own orbit: the prediction stops there.
             rc.RelSamples = rc.Relative.Count;
             for (int i = 0; i < rc.Relative.Count; i++)
             {
                 var q = rc.Relative[i];
-                if (Math.Sqrt(q.along * q.along + q.radial * q.radial) > ServerFrames.CaptureRadius)
+                double qc = i < rc.RelCross.Count ? rc.RelCross[i] : 0;
+                if (Math.Sqrt(q.along * q.along + q.radial * q.radial + qc * qc) > rc.RelBoundary)
                 {
                     rc.Relative.RemoveRange(i + 1, rc.Relative.Count - i - 1);
                     if (rc.RelCross.Count > i + 1) rc.RelCross.RemoveRange(i + 1, rc.RelCross.Count - i - 1);
@@ -430,8 +435,7 @@ public static class OrbitDisplay
     static string AnchorName(SEAerospace.Frames.ProximityFrame f)
     {
         if (f.AnchorEntityId == ServerFrames.AsteroidAnchorId) return "Asteroid";
-        var g = GridMembers.IsGridId(f.AnchorEntityId) ? GridMembers.Get(f.AnchorEntityId) : null;
-        return g?.DisplayName ?? "Anchor";
+        return GridMembers.IsGridId(f.AnchorEntityId) && ServerFrames.View(f.AnchorEntityId, out var v) && v.Name != null ? v.Name : "Anchor";
     }
 
     static List<(double along, double radial)> Curvilinear(KeplerianElements anchor, KeplerianElements you, double t, out (double along, double radial) now, int samples = 160, List<double> cross = null, List<(double, double)> into = null)
@@ -440,15 +444,10 @@ public static class OrbitDisplay
         (double, double) At3(double tk, out double oop)
         {
             oop = 0;
-            var a = OrbitPropagation.StateAt(anchor, tk); var b = OrbitPropagation.StateAt(you, tk);
-            Vector3D h = Vector3D.Cross(a.Position, a.Velocity);
-            if (h.LengthSquared() < 1e-12) return (0, 0);
-            h = Vector3D.Normalize(h);
-            double r0 = a.Position.Length();
-            oop = Vector3D.Dot(b.Position, h);   // out of the anchor's plane (+ along its orbit normal)
-            Vector3D bp = b.Position - h * oop;
-            double th = Math.Atan2(Vector3D.Dot(h, Vector3D.Cross(a.Position, bp)), Vector3D.Dot(a.Position, bp));
-            return (th * r0, b.Position.Length() - r0);
+            var q = SEAerospace.Frames.RendezvousPlot.Curvilinear(OrbitPropagation.StateAt(anchor, tk), OrbitPropagation.StateAt(you, tk));
+            if (!IsFinite(q.X)) return (0, 0);
+            oop = q.Z;   // out of the anchor's plane (+ along its orbit normal)
+            return (q.X, q.Y);
         }
         now = At(t);
         var list = into ?? new List<(double, double)>(samples + 1); list.Clear();

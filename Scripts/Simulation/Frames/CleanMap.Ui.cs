@@ -26,8 +26,8 @@ public static partial class CleanMap
         ordered = ordered.FindAll(b => listed(b));
         Vector2 scr = MapPipeline.ScreenSize;
         float k = MapPipeline.TextScale;   // rows and columns grow with the text
-        float x = scr.X * 0.782f, y = scr.Y * 0.27f, line = scr.Y * 0.0275f * k, scale = 0.78f;
-        float x0 = scr.X * 0.777f, x1 = scr.X * 0.975f;
+        float x = MapLayout.X(0.782f), y = MapLayout.Y(0.27f), line = MapLayout.LenY(0.0275f) * k, scale = 0.78f;
+        float x0 = MapLayout.X(0.777f), x1 = MapLayout.X(0.975f);
         // Lay out first (the panel goes behind), then draw.
         var rows = new List<(Band b, bool header, string text, float y)>();
         string group = null;
@@ -60,9 +60,9 @@ public static partial class CleanMap
             var c = b.Selected ? LineSel : Text;
             MapPipeline.PickName = b.Name;
             MapPipeline.ScreenText(new Vector2(x, r.y), b.Number.ToString(), Dim, scale);
-            MapPipeline.ScreenDot(new Vector2(x + scr.Y * 0.030f * k, r.y + line * 0.42f), 4.5f, StateColor(b));
-            MapPipeline.ScreenText(new Vector2(x + scr.Y * 0.045f * k, r.y), b.Name == Maneuvers.Target ? Label(b) + "  · target" : Label(b), b.Name == Maneuvers.Target ? TargetText : c, scale);
-            MapPipeline.ScreenText(new Vector2(x + scr.Y * 0.19f * k, r.y), Fit(Where(b), x1 - (x + scr.Y * 0.19f * k) - 6f, scale * 0.85f), Dim, scale * 0.85f);
+            MapPipeline.ScreenDot(new Vector2(x + MapLayout.LenY(0.030f) * k, r.y + line * 0.42f), 4.5f, StateColor(b));
+            MapPipeline.ScreenText(new Vector2(x + MapLayout.LenY(0.045f) * k, r.y), b.Name == Maneuvers.Target ? Label(b) + "  · target" : Label(b), b.Name == Maneuvers.Target ? TargetText : c, scale);
+            MapPipeline.ScreenText(new Vector2(x + MapLayout.LenY(0.19f) * k, r.y), Fit(Where(b), x1 - (x + MapLayout.LenY(0.19f) * k) - 6f, scale * 0.85f), Dim, scale * 0.85f);
             MapPipeline.PickName = null;
         }
         MapPipeline.Reserve(new Vector2(x0, top), new Vector2(scr.X, bottom));
@@ -80,14 +80,38 @@ public static partial class CleanMap
     /// A line of the controls, in the map's open area above the game's own hint bar: what the mouse can
     /// do where it is (on a maneuver, on the path, or on the map).
     /// </summary>
+    /// <summary>A hint line wrapped at its separators to a width (each piece kept whole; one wider than the width is cut).</summary>
+    internal static void DrawWrapped(Vector2 at, string text, float width, float scale, ColorSRGB color)
+    {
+        string sep = "   " + (char)0x00b7 + "   ";
+        var parts = text.Split(new[] { sep }, StringSplitOptions.None);
+        string line = "";
+        float lh = MapPipeline.MeasureText("Ag", scale).Y * 1.25f;
+        if (!(lh > 0)) lh = 22f * scale;
+        int n = 0;
+        foreach (var p in parts)
+        {
+            string tryLine = line.Length == 0 ? p : line + sep + p;
+            if (line.Length > 0 && MapPipeline.MeasureText(tryLine, scale).X > width)
+            {
+                MapPipeline.ScreenText(at + new Vector2(0, n++ * lh), Fit(line, width, scale), color, scale);
+                line = p;
+            }
+            else line = tryLine;
+        }
+        if (line.Length > 0) MapPipeline.ScreenText(at + new Vector2(0, n * lh), Fit(line, width, scale), color, scale);
+    }
+
     static void Hints()
     {
         var scr = MapPipeline.ScreenSize;
         string h;
         if (Maneuvers.OnGizmo) h = "Drag a handle to change the burn   \u00b7   Drag the node along the path   \u00b7   Right-click: options";
         else if (!double.IsNaN(Maneuvers.HoverT)) h = "Click: add a maneuver here   \u00b7   Right-click: options   \u00b7   Drag: pan";
-        else h = "Drag: pan   \u00b7   Right-drag: orbit   \u00b7   Wheel: zoom   \u00b7   Double-click a body: focus   \u00b7   Right-click: menu   \u00b7   .  ,  /  warp";
-        MapPipeline.ScreenText(new Vector2(scr.X * 0.265f, scr.Y * 0.9f), h, Dim, 0.74f);
+        else h = "Drag: pan   \u00b7   Right-drag: orbit   \u00b7   Wheel: zoom   \u00b7   Double-click: focus   \u00b7   Right-click: menu   \u00b7   . , /  warp";   // (two lines at most: the game's text is wide)
+        // (wrapped to the map's width at its separators: a long hint ran onto the right panel at 4:3 and 5:4; cut short, it
+        //  lost its last hints)
+        DrawWrapped(MapLayout.P(0.265f, 0.9f), h, MapLayout.X(0.775f) - MapLayout.X(0.265f), 0.74f, Dim);
     }
 
     // ───────────────────────────── encounters and GPS (both views) ─────────────────────────────
@@ -99,13 +123,24 @@ public static partial class CleanMap
     /// delete it (or it and the later ones). The trajectory: add a maneuver there. A sector (orbit,
     /// marker, list row): plan a route to it. Anywhere with a route: clear it.
     /// </summary>
+    /// <summary>A click is the map's: over its open area (not the panels beside it), with the terminal itself on top (not a
+    /// dialog over it - its clicks fell through: a delta-v dialog's OK added a node; a GPS entry refocused the map).</summary>
+    static bool MapClickable()
+    {
+        if (!MapLayout.InOpenArea(Mouse) && !InCrumbs(Mouse)) return false;
+        var s = MapView.SessionForLayout;
+        object top = s != null ? GameUi.TopScreenObject(s) : null;
+        return top == null || top.GetType().Name == "TerminalScreenViewModel";
+    }
+    static bool InCrumbs(Vector2 m) { foreach (var c in _crumbs) if (c.box.Contains(m) == ContainmentType.Contains) return true; return false; }
+
     private static void ContextMenu(List<Band> bands, double t)
     {
         float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
         bool rp = MapInput.RightPressed;
         if (MapMenu.Draw(Mouse, MapInput.LeftPressed, rp, u)) { Maneuvers.ClaimsMouse = true; return; }
         if (MapMenu.Open) { Maneuvers.ClaimsMouse = true; return; }
-        if (!rp) return;
+        if (!rp || !MapClickable()) return;
         var items = new List<MapMenu.Item>();
         string title = null;
         bool hasNodes = Maneuvers.Nodes.Count > 0;
@@ -146,8 +181,12 @@ public static partial class CleanMap
             string shown = hb != null ? Label(hb) : sec;
             title = shown;
             items.Add(new MapMenu.Item("Centre on " + shown, () => CentreOn(sec)));
-            items.Add(Maneuvers.Target == sec ? new MapMenu.Item("Clear target", () => Maneuvers.Target = null)
-                                              : new MapMenu.Item("Set as target", () => Maneuvers.Target = sec));
+            // (a virtual zone: a planet's space targets the planet, a ring its rocks - not the ring)
+            string tgt = hb != null && hb.Virtual && hb.Home.Kind == SectorHomes.Kind.Body ? hb.Home.Host
+                       : hb != null && hb.Virtual && hb.Home.Kind == SectorHomes.Kind.Ring ? null : sec;
+            if (tgt != null)
+                items.Add(Maneuvers.Target == tgt ? new MapMenu.Item("Clear target", () => Maneuvers.Target = null)
+                                                  : new MapMenu.Item("Set as target", () => Maneuvers.Target = tgt));
             if (hasNodes) items.Add(new MapMenu.Item("Remove all maneuvers", Maneuvers.ClearAll));
         }
         else
@@ -243,8 +282,8 @@ public static partial class CleanMap
         var at = Mouse + new Vector2(18f * u, 14f * u);
         var size = new Vector2(w + 16f * u, lines.Count * lh + 10f * u);
         var scr = MapPipeline.ScreenSize;
-        if (at.X + size.X > scr.X * 0.77f) at.X = Mouse.X - 18f * u - size.X;
-        if (at.Y + size.Y > scr.Y * 0.9f) at.Y = Mouse.Y - 14f * u - size.Y;
+        if (at.X + size.X > MapLayout.X(0.77f)) at.X = Mouse.X - 18f * u - size.X;
+        if (at.Y + size.Y > MapLayout.Y(0.9f)) at.Y = Mouse.Y - 14f * u - size.Y;
         MapPipeline.ScreenRect(at, at + size, PanelFill);
         MapPipeline.ScreenRect(at, new Vector2(at.X + 2f * u, at.Y + size.Y), LineSel);
         for (int i = 0; i < lines.Count; i++)
@@ -260,6 +299,7 @@ public static partial class CleanMap
             ClickDebug = $"release at {Mouse} drag={MapCamera.DragEnded} gizmo={Maneuvers.OnGizmo} menu={MapMenu.Open} hits={_hits.Count} nearest {nn} {nd:F0}px";
         }
         if (!MapInput.LeftReleased || MapCamera.DragEnded || Maneuvers.OnGizmo || MapMenu.Open) return;
+        if (!MapClickable()) return;
         foreach (var c in _crumbs)
             if (c.box.Contains(Mouse) == ContainmentType.Contains) { FocusOn(c.b, reg, t, W, solar); return; }
         double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
@@ -298,7 +338,7 @@ public static partial class CleanMap
     static void Title(GravityBody view, string playerPlanet, KeplerianElements? orbit)
     {
         var scr = MapPipeline.ScreenSize;
-        var at = new Vector2(scr.X * 0.265f, scr.Y * 0.158f);
+        var at = MapLayout.P(0.265f, 0.158f);
         // The breadcrumb: each part a click target (up to the star, down to what is in view).
         var chain = new List<GravityBody>();
         for (var b = view; b != null; b = b.Parent) chain.Insert(0, b);
@@ -320,7 +360,7 @@ public static partial class CleanMap
                 x += gap; MapPipeline.ScreenText(new Vector2(x, at.Y), ">", Dim, 1.05f); x += CrumbSize(">").X + gap;
             }
         }
-        MapPipeline.Reserve(at - new Vector2(4, 4), at + new Vector2(scr.X * 0.3f, scr.Y * 0.035f));
+        MapPipeline.Reserve(at - new Vector2(4, 4), at + new Vector2(MapLayout.LenX(0.3f), MapLayout.LenY(0.035f)));
         _titleAt = at;
         // (Only the path: the title box and the you / burn / target lines were removed on request.)
     }
@@ -329,7 +369,7 @@ public static partial class CleanMap
     public static bool InOpenArea(Vector2 s)
     {
         var scr = MapPipeline.ScreenSize;
-        return s.X >= scr.X * 0.255f && s.X <= scr.X * 0.775f && s.Y >= scr.Y * 0.1f && s.Y <= scr.Y * 0.84f;
+        return MapLayout.InOpenArea(s);   // (below the tab row - it was 0.1 here while the clip was 0.148: pins drew their names in the tabs)
     }
 
     static string Km(double m) => Math.Abs(m) >= 10000 ? $"{m / 1000:N0} km" : $"{m / 1000:F1} km";
@@ -393,7 +433,7 @@ public static partial class CleanMap
         }
         // The open area's centre, and where the ray to the marker leaves it.
         var scr = MapPipeline.ScreenSize;
-        Vector2 min = new Vector2(scr.X * 0.265f, scr.Y * 0.2f), max = new Vector2(scr.X * 0.765f, scr.Y * 0.82f);
+        Vector2 min = MapLayout.P(0.265f, 0.2f), max = MapLayout.P(0.765f, 0.82f);
         Vector2 c0 = (min + max) * 0.5f, d = s - c0;
         if (d.LengthSquared() < 1e-6f) return;
         float k = Math.Min(Math.Abs((d.X > 0 ? max.X - c0.X : c0.X - min.X) / (Math.Abs(d.X) + 1e-6f)), Math.Abs((d.Y > 0 ? max.Y - c0.Y : c0.Y - min.Y) / (Math.Abs(d.Y) + 1e-6f)));

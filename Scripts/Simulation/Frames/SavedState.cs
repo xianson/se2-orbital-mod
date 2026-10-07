@@ -167,6 +167,23 @@ public static class SavedState
     /// <summary>No saved state waiting to be applied (frame ids are safe to hand out).</summary>
     public static bool Idle => _pending == null;
 
+    /// <summary>One saved "node ..." line (split on spaces) back into the maneuver list (the load, and DEV noderound).</summary>
+    internal static void RestoreNode(string[] p)
+    {
+        // (NaN in a node made its burn report NaN m/s left and never complete; a bad target orbit was used
+        //  as is: restored Dirty, re-planned)
+        double nt = P(p[1]), np = P(p[2]), nn = P(p[3]), nr = P(p[4]);
+        bool auto = p[p.Length - 1] == "auto";   // (armed: the last word, after the target orbit if any)
+        if (!(IsFin(nt) && IsFin(np) && IsFin(nn) && IsFin(nr))) { Log.Default?.Info("[ORBIT-FRAME] restore: node not finite: dropped"); return; }
+        if (p.Length >= 14)
+        {
+            string tb = Unesc(p[5]); var ta = ParseEl(p, 6);
+            bool okT = FramePersistence.IsValidElements(ta, out _) && (SystemHost.Registry == null || SystemHost.Registry.Find(tb) != null);
+            if (okT) Maneuvers.Restore(nt, np, nn, nr, tb, ta, auto); else Maneuvers.Restore(nt, np, nn, nr, auto: auto);
+        }
+        else Maneuvers.Restore(nt, np, nn, nr, auto: auto);
+    }
+
     /// <summary>Called from the planets' [Init] on load (both planets carry the same state; first wins).</summary>
     public static void OnLoaded(EntityNameSessionComponentObjectBuilder b)
     {
@@ -271,20 +288,8 @@ public static class SavedState
                         break;
                     }
                     case "node":
-                    {
-                        // (NaN in a node made its burn report NaN m/s left and never complete; a bad target orbit was used
-                        //  as is: restored Dirty, re-planned)
-                        double nt = P(p[1]), np = P(p[2]), nn = P(p[3]), nr = P(p[4]);
-                        if (!(IsFin(nt) && IsFin(np) && IsFin(nn) && IsFin(nr))) { Log.Default?.Info("[ORBIT-FRAME] restore: node not finite: dropped"); break; }
-                        if (p.Length >= 14)
-                        {
-                            string tb = Unesc(p[5]); var ta = ParseEl(p, 6);
-                            bool okT = FramePersistence.IsValidElements(ta, out _) && (SystemHost.Registry == null || SystemHost.Registry.Find(tb) != null);
-                            if (okT) Maneuvers.Restore(nt, np, nn, nr, tb, ta); else Maneuvers.Restore(nt, np, nn, nr);
-                        }
-                        else Maneuvers.Restore(nt, np, nn, nr);
+                        RestoreNode(p);
                         break;
-                    }
                     case "gpshid":
                         FrameMarkers.RestoreHidden(Unesc(p[1]));
                         break;

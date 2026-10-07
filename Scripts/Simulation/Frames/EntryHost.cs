@@ -71,6 +71,7 @@ public static class EntryHost
                     _aeroRegister = t.GetMethod("RegisterEntrySource", new[] { typeof(string), typeof(Delegate) });
                     _aeroHas = t.GetMethod("HasEntrySource", new[] { typeof(string), typeof(Delegate) });
                     _aeroPredict = t.GetMethod("PredictHullForces");   // (aerobraking: each ship's drag area)
+                    _aeroAtmoAt = t.GetMethod("TryGetAtmosphereAt");   // (the border's density: the rails' drag matched to aero's)
                     _aeroRequestTable = t.GetMethod("RequestForceTable");   // (a railed grid has none until asked)
                     break;
                 }
@@ -132,6 +133,14 @@ public static class EntryHost
     /// when the player turns (or be gamed by pointing the slim end forward). It changes only with the ship's shape and
     /// mass. Without aero, or no table yet: Reentry.DefaultBeta (a table is asked for and it is measured again in ~1 s).
     /// Kept for BetaRefresh seconds. (airWorld: unused - kept for the callers.)</summary>
+    /// <summary>The client's: the server's last measured value (or the default) - measuring asks Aero for a table on the
+    /// server's grid entity, which the client must not touch.</summary>
+    public static double BetaCached(ProximityFrame f)
+    {
+        if (f == null) return Reentry.DefaultBeta;
+        lock (_beta) return _beta.TryGetValue(f.Id, out var c) ? c.beta : Reentry.DefaultBeta;
+    }
+
     public static double BetaOf(ProximityFrame f, Vector3D airWorld)
     {
         if (f == null) return Reentry.DefaultBeta;
@@ -179,7 +188,33 @@ public static class EntryHost
     {
         var def = SystemHost.Registry?.FindDefinition(body);
         if (def == null || !def.HasAtmosphere) return default;
-        return Reentry.For(def.RadiusMeters, def.AtmosphereHeightMeters, PlanetBerths.ShellRadius(def));
+        var b = Reentry.For(def.RadiusMeters, def.AtmosphereHeightMeters, PlanetBerths.ShellRadius(def));
+        b.Rho0 = BorderDensity(body, b.Bottom);
+        return b;
+    }
+
+    static System.Reflection.MethodInfo _aeroAtmoAt;
+    static readonly Dictionary<string, (double rho, double wall)> _borderRho = new Dictionary<string, (double, double)>();
+
+    /// <summary>Aero's air density at a body's border (kg/m3; 0: unknown - the setting's DragDensity is used), sampled in
+    /// the planet's cell every 30 s: the rails' drag ends where the physics' begins, at the same density (they stepped ~3x
+    /// at the handover: the rails' fixed 2e-3 against aero's tail there).</summary>
+    static double BorderDensity(string body, double borderRadius)
+    {
+        double wall = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+        lock (_borderRho) if (_borderRho.TryGetValue(body, out var c) && wall - c.wall < 30) return c.rho;
+        double rho = 0;
+        try
+        {
+            if (_aeroAtmoAt != null && VoxelBerthRegistry.TryGetCell(body, SystemHost.Registry, out Vector3D cell))
+            {
+                var args = new object[] { cell + new Vector3D(borderRadius, 0, 0), 0f, 0f, 0f, 0f };
+                if ((bool)_aeroAtmoAt.Invoke(null, args)) { double d = (float)args[1]; if (d > 0 && d < 1) rho = d; }
+            }
+        }
+        catch { rho = 0; }
+        lock (_borderRho) _borderRho[body] = (rho, wall);
+        return rho;
     }
 
     /// <summary>A body's spin (axis x rate, inertial): the air turns with it.</summary>
@@ -298,10 +333,14 @@ public static class EntryHost
         if (def == null || def.HasAtmosphere || string.IsNullOrEmpty(def.ParkSubtype)) return 0;
         var s = OrbitPropagation.StateAt(f.Elements, t);
         double r = s.Position.Length();
-        if (!(r <= PlanetBerths.ShellRadius(def))) return 0;
         Vector3D w = SpinOf(f.ParentBodyName), spin = Vector3D.Cross(w, s.Position), air = s.Velocity - spin;
         double va = air.Length();
-        if (!(va > Cap)) return 0;
+        // (at the border - or within the arrival's lead of it: the frame is materialized up to max(0.1 s, 0.05 s x warp) before
+        //  the crossing, at the cap, so a jolt checked only inside the shell never came: no heat, no wear, no warning)
+        double lead = s.Velocity.Length() * Math.Max(0.1, SystemHost.Timescale * 0.05) + 1.0;
+        double shellR = PlanetBerths.ShellRadius(def);
+        if (!(r <= shellR || (r <= shellR + lead && Vector3D.Dot(s.Position, s.Velocity) < 0))) return 0;   // (the lead: inbound only)
+        if (!(va > Cap + 0.5)) return 0;   // (clamped to the cap last tick: a hair over it after the elements' round trip - not a new jolt)
         var el = Reentry.ToElements(new StateVector(s.Position, spin + air * (Cap / va)), f.Elements.Mu, t);
         if (!IsFinite(el)) return 0;
         f.Elements = el;
@@ -361,11 +400,17 @@ public static class EntryHost
         }
     }
 
-    static void EndPass(ProximityFrame f, double heat)
+    /// <summary>The frame's members' plasma directions forgotten (an arrival turned them into the planet's chart).</summary>
+    public static void ForgetGlow(ProximityFrame f)
     {
         lock (_glow)
             foreach (long id in f.Members)
                 if (GridMembers.IsGridId(id) && GridMembers.Get(id) is OrbitalGridComponent gm && gm.Entity != null) _glow.Remove(gm.Entity);
+    }
+
+    static void EndPass(ProximityFrame f, double heat)
+    {
+        ForgetGlow(f);
         lock (_heat) foreach (long id in f.Members) _wear.Remove(id);
         Log(f, heat);
     }
@@ -420,8 +465,7 @@ public static class EntryHost
             double beta = 0;
             if (Reentry.DragDensity > 0 && el.PeriapsisRadius < b.Top)
             {
-                var s0 = OrbitPropagation.StateAt(el, t);
-                beta = BetaOf(f, Reentry.AirVelocity(s0.Position, s0.Velocity, SpinOf(f.ParentBodyName)));
+                beta = BetaCached(f);   // (the client: the server measured it)
             }
             var p = Reentry.Predict(el, b, SpinOf(f.ParentBodyName), Cap, t, horizon, HeatOf(f.Id), beta);
             Prediction = p.Braked ? p : null;

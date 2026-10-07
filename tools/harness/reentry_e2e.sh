@@ -16,6 +16,7 @@ cmds=(); for i in $(seq 1000000000 1000000300); do cmds+=("gridinfo $i"); done
 timeout 120 "$O" "${cmds[@]}" >/dev/null; sleep 3
 herc=$(grep -a "gridinfo 10000" "$L" | grep -ao "=> grid [0-9]* '$SHIP' server" | head -1 | grep -o "[0-9]\{10\}")
 echo "ship '$SHIP': $herc"
+echo "out of any seat: $(q "unseat")"; sleep 4   # (a seated character teleported crashed Havok)
 echo "to the ship: $(q "tpgrid $herc 30")"; sleep 5
 echo "seat: $(q "seat $SEAT")"; sleep 6
 echo "seated: $(q "aeroget OrbitalMod.FrameHost.Seated")"

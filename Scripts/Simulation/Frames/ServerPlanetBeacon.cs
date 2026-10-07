@@ -185,8 +185,11 @@ public partial class ServerPlanetBeacon
     private static void BeaconJobBody(ServerPlanetBeacon beacon)
     {
         long c0 = ModCost.Start();
+        long tk0 = System.Diagnostics.Stopwatch.GetTimestamp();
         try { ServerFrames.Tick(beacon.Entity.GetSession()); }
         catch (Exception ex) { FrameHost.Fault("ServerFrames", ex); }
+        { double tkMs = (System.Diagnostics.Stopwatch.GetTimestamp() - tk0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+          if (tkMs > 30) Keen.VRage.Library.Diagnostics.Log.Default?.Info($"[HITCH] the frames' server tick took {tkMs:F0} ms"); }
         // (every planet's beacon runs this job, in parallel: the once-a-frame work - the player's dv and heat, the dev
         //  generator - is claimed by one; it ran once per planet, concurrently on the same server character)
         bool mine = ClaimFrame();
@@ -237,6 +240,33 @@ public partial class ServerPlanetBeacon
     private static readonly object _riderLock = new object();
     private static Vector3D _riderDv; private static Vector3D? _riderVel;
     public static void AddRiderDv(Vector3D dv) { lock (_riderLock) _riderDv += dv; }
+    /// <summary>The rider held station: game seconds at the full jetpack thrust it would have taken (summed), to bill the suit.</summary>
+    public static void AddRiderHold(double fullThrustSeconds) { if (fullThrustSeconds > 0 && !double.IsNaN(fullThrustSeconds)) lock (_riderLock) _riderHold += fullThrustSeconds; }
+    private static double _riderHold;
+    private static System.Reflection.FieldInfo _jetDef;
+    public static string SuitBill = "-";
+    /// <summary>What the jetpack's thrust costs over hovering (the game's precision-flight fuel less its stationary fuel,
+    /// per second), times those seconds, from the suit's stat (its energy).</summary>
+    static void BillSuit(Entity ch, double secs)
+    {
+        try
+        {
+            var jet = ch.TryGet<Keen.Game2.Simulation.WorldObjects.Characters.JetpackFuelComponent>();
+            var stats = ch.TryGet<Keen.Game2.Simulation.WorldObjects.Characters.Stats.StatCollectionComponent>();
+            if (jet == null || stats == null) return;
+            _jetDef ??= typeof(Keen.Game2.Simulation.WorldObjects.Characters.JetpackFuelComponent).GetField("_definition", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            if (!(_jetDef?.GetValue(jet) is Keen.Game2.Simulation.WorldObjects.Characters.JetpackFuelComponentDefinition d)) return;
+            var p = d.PrecisionFlightFuel; var s = d.StationaryFuel;
+            double perS = p.Amount - (s.Stat == p.Stat ? s.Amount : 0);
+            if (!(perS > 0)) return;
+            float cost = (float)(perS * secs);
+            bool ok = stats.TryUpdateValue(p.Stat, -cost);
+            bool creative = false;
+            try { creative = ch.GetSession()?.SessionComponents.TryGet<Keen.Game2.Simulation.GameSystems.Player.GameModeSessionComponent>()?.IsCreative(ch) ?? false; } catch { }
+            SuitBill = $"suit billed {cost:G3} for {secs:G3} s of full thrust ({(ok ? "taken" : creative ? "refused: creative" : "refused")})";
+        }
+        catch (Exception e) { SuitBill = "suit bill failed: " + e.Message; }
+    }
     public static void SetRiderVelocity(Vector3D v) { lock (_riderLock) { _riderVel = v; _riderDv = Vector3D.Zero; } }
 
     /// <summary>The player's character on the server (position, velocity), as last seen by a beacon job.</summary>
@@ -255,7 +285,9 @@ public partial class ServerPlanetBeacon
     private static void ApplyPlayerRequest(ServerPlanetBeacon beacon)
     {
         Vector3D dv; Vector3D? vset;
-        lock (_riderLock) { dv = _riderDv; vset = _riderVel; _riderDv = Vector3D.Zero; _riderVel = null; }
+        double hold;
+        lock (_riderLock) { dv = _riderDv; vset = _riderVel; _riderDv = Vector3D.Zero; _riderVel = null; hold = _riderHold; _riderHold = 0; }
+        if (hold > 0) { var hc = PlayerCache.Of(beacon.Entity.GetSession()); if (hc != null) BillSuit(hc, hold); }
         if (vset.HasValue || dv.LengthSquared() > 0)
         {
             var ch = PlayerCache.Of(beacon.Entity.GetSession());

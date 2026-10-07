@@ -12,19 +12,7 @@ public static class CaptureMath
     /// a metre over the fall, and whose inbound shell crossing (the arrival) is well defined.
     /// </summary>
     public static SEAerospace.Orbital.KeplerianElements CaptureElements(SEAerospace.Orbital.StateVector s, double mu, double t)
-    {
-        Vector3D r = s.Position, v = s.Velocity;
-        double rm = r.Length(), vm = v.Length();
-        double h = Vector3D.Cross(r, v).Length();
-        if (rm > 1 && h < 1e-6 * rm * Math.Max(vm, 1.0))
-        {
-            Vector3D radial = r / rm;
-            Vector3D axis = Math.Abs(radial.Z) < 0.9 ? Vector3D.UnitZ : Vector3D.UnitX;
-            Vector3D perp = Vector3D.Normalize(Vector3D.Cross(axis, radial));
-            v += perp * Math.Max(0.01, 1e-5 * vm);
-        }
-        return SEAerospace.Orbital.OrbitalMath.ToElements(new SEAerospace.Orbital.StateVector(r, v), mu, t);
-    }
+        => SEAerospace.Frames.RendezvousPlot.Capture(s, mu, t);   // (tested offline there)
 }
 
 /// <summary>

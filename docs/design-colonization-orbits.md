@@ -180,3 +180,24 @@ map plane). Measured from the campaign:
 ## 8. Open decisions
 
 - Home of each deep-space sector (Trojans, belts, high planetary orbits).
+
+## Virtual sectors (worlds without colonization sectors), 2026-10-06
+
+A world with no colonization sectors, such as Creative (Concordia), used to get the bodies and orbits but none of the zones. The
+map then had no ring or belt bands, belt rocks couldn't be clicked or targeted, Lagrange zones were faint outlines with nothing to
+interact with, the right-hand list was empty, and preset stations got no orbit. `SectorHomes.Virtual(reg)` now builds the same
+kind of zones from the system itself:
+
+- each planet's own space ("Verdure space"; the star's is "Delfos space");
+- the belts Zarkon and Pyrethra (the same homes the belt rocks are built from, so the rocks, their names and their save slots
+  are unchanged);
+- each planet's ring, from the game's ring model (`PlanetRings.Known()`: the server's tori, else the client's ring entities;
+  Concordia has none);
+- L1-L5 of every planet and moon ("Kemik L4"). Their dynamics were already virtual (`EncounterFrames.VirtualLagrange`).
+
+`GameMap.HomesBySector` returns these zones when the world has no sectors. The map draws them as bands (`Band.Virtual`: no game
+mesh part, no colonization state, "selected" = your target) and lists them under their planet. A virtual planet space targets
+the planet itself; a ring is not a target, but its rocks are; a Lagrange zone is a target (`EncounterFrames.TargetSite`).
+`MakeSite` puts a station that has no sector into the space of the planet nearest it on the chart. `ZoneLevel` (Core, tested
+offline) decides which map level draws a zone: a moon's L1-L5 are drawn with its planet, not round the star.
+Check in game with `tools/harness/map_compare.sh` (the same views in a campaign save and in Concordia).

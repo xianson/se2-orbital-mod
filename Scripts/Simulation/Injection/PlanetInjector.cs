@@ -31,6 +31,7 @@ public class InjectPlanetComponents : Injections
     private static int _serverCount;
     private static int _clientCount;
     private static int _gridCount;
+    private static int _thrusterCount;
 
     public static void Please(PrefabDefinition prefab)
     {
@@ -38,8 +39,11 @@ public class InjectPlanetComponents : Injections
         bool isServerPlanet = false;
         bool isClientPlanet = false;
         bool isClientVolume = false;
+        bool isThruster = false, isPowerable = false;
         foreach (var type in prefab.Composition.Types)
         {
+            if (type == typeof(Keen.Game2.Simulation.WorldObjects.CubeBlocks.Movement.ThrusterComponent)) isThruster = true;
+            if (type == typeof(Keen.Game2.Simulation.WorldObjects.CubeBlocks.PowerableBlockComponent)) isPowerable = true;
             if (type == typeof(DiscoverablePlanetComponent)) isServerPlanet = true;
             if (type == typeof(PlanetEnvironmentRenderComponent)) isClientPlanet = true;
             if (type == typeof(Keen.Game2.Client.GameSystems.Render.ProceduralVolumeRenderComponent)) isClientVolume = true;
@@ -82,6 +86,13 @@ public class InjectPlanetComponents : Injections
             // Procedural volumes (the planets' rings): followed by PlanetRings (hidden with the real planet).
             Add(prefab, typeof(OrbitalRingComponent));
             Log.Default?.Info($"[ORBIT] client procedural volume prefab: '{prefab.DebugName}' +OrbitalRingComponent");
+        }
+
+        // Thrusters: holding station in a frame is charged to them (StationKeepCharge - it needs the block's resource sink).
+        if (isThruster && isPowerable)
+        {
+            Add(prefab, typeof(StationKeepCharge));
+            if (++_thrusterCount <= 3) Log.Default?.Info($"[ORBIT] thruster prefab '{prefab.DebugName}' +StationKeepCharge");
         }
 
         // The sensor blocks (Orbital Mod Blocks): their server prefabs, by GUID, get their sensor.

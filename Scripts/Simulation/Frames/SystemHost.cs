@@ -70,6 +70,18 @@ public static class SystemHost
 
     private static long _firstSeen;
     private static int _lastCount;
+    private static long _goneAt;
+    /// <summary>Checked once a second: beacons exist and none is one the system was built from.</summary>
+    static bool Gone()
+    {
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        if (now - _goneAt < System.Diagnostics.Stopwatch.Frequency) return false;
+        _goneAt = now;
+        var all = PlanetBeacons.All();
+        if (all.Count == 0 || BeaconOf.Count == 0) return false;
+        foreach (var b in BeaconOf.Values) if (all.Contains(b)) return false;
+        return true;
+    }
     private static readonly object _lock = new object();
 
     // ─────────────────────────── universe clock ───────────────────────────
@@ -80,6 +92,9 @@ public static class SystemHost
     private static long _lastClockTicks;
 
     private static DateTime _lastGameTime;
+    /// <summary>A new session: its game clock starts again (an earlier game time than the last world's stopped the mod
+    /// until it caught up: dt &lt;= 0 every frame).</summary>
+    public static void ResetClock() { _lastGameTime = default; }
 
     /// <summary>Legacy space: the nearest planet cell (the window this world region belongs to).</summary>
     public static bool TryNearestCell(Vector3D pos, out string body, out Vector3D cell)
@@ -192,6 +207,9 @@ public static class SystemHost
             // a lead time before the next maneuver node
             double tn = Maneuvers.NextBurnStart(Now), lead = Maneuvers.WarpLeadAt(Now);
             if (!double.IsNaN(tn)) Cand(tn - lead, tn - lead, $"ahead of a maneuver node (t={tn:F1})", null);
+            // ahead of a rendezvous that merges frames (screened every 30 ticks: in warp a pass went by between screens)
+            double tm = ServerFrames.MergeAhead;
+            if (!double.IsNaN(tm) && tm > Now) Cand(tm - ServerFrames.MergeWarpLead, tm - ServerFrames.MergeWarpLead, $"ahead of a rendezvous (t={tm:F1})", "Warp stopped: rendezvous ahead");
             // ahead of a reentry
             double te = EntryHost.NextWarpStop(Now);
             Cand(te, te, $"ahead of the entry interface (t={te:F1})", "Warp stopped: entry ahead");
@@ -237,6 +255,9 @@ public static class SystemHost
     /// <summary>Try to build once all planets have reported. Returns true when the system exists.</summary>
     public static bool EnsureBuilt(double gravityMultiplier)
     {
+        // Another world loaded in this process (statics outlive it): none of the planets the system was built from is there
+        // any more - built again from the new world's (it kept the old system, its frames and its sites).
+        if (Built && Gone()) { Log.Default?.Info("[ORBIT] a new world: the system is built again from its planets"); Built = false; _lastCount = 0; }
         if (Built) return true;
         lock (_lock)
         {
@@ -260,6 +281,7 @@ public static class SystemHost
         int Rank(PlanetBeacon p) { int i = Array.IndexOf(PlanetOrder, DevHarness.PlanetName(p)); return i < 0 ? PlanetOrder.Length : i; }
         beacons.Sort((a, b) => { int r = Rank(a).CompareTo(Rank(b)); return r != 0 ? r : string.CompareOrdinal(DevHarness.PlanetName(a), DevHarness.PlanetName(b)); });
         AsteroidFrames.Reset();   // the belts' asteroid frames are built afresh for this system
+        EncounterFrames.ResetWorld(); ServerFrames.ResetWorld();   // (and the sites and the frames' server state: another world's)
 
         var def = new SystemDefinition { Name = "SE2World", EpochSeconds = 0.0 };
         def.Bodies.Add(new BodyDefinition
@@ -338,7 +360,7 @@ public static class SystemHost
         //  before this world's zones are set)
         BerthAllocator.IsForbidden = null; BerthAllocator.IsClear = null;
         EntryHost.ResetWorld();
-        Maneuvers.ResetWorld(); GameMap.ResetWorld(); CleanMap.Reset(); CleanMap.ResetView();
+        Maneuvers.ResetWorld(); GameMap.ResetWorld(); CleanMap.Reset(); CleanMap.ResetView(); MapGlobes.ResetWorld();
         VoxelBerthRegistry.Clear();
         SystemBuildResult res = SystemRegistry.Build(def);
         if (!res.Ok)

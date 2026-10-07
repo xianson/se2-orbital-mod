@@ -35,6 +35,8 @@ public static class Maneuvers
         public bool Dirty = true;               // re-target on the next trajectory pass
         public bool Auto;                       // fly it automatically at the burn start
         public string TBody; public KeplerianElements TAfter;
+        /// <summary>The acceleration its target was planned with (a finite burn's shape depends on it).</summary>
+        public double TAccel;
         public void Edit() => Dirty = true;
     }
 
@@ -61,8 +63,12 @@ public static class Maneuvers
 
     public static void ClearAll() { lock (Nodes) Nodes.Clear(); Selected = null; }
     /// <summary>A new world: the last one's nodes (a reload doubled the saved ones), target, Lagrange plan and path cache.</summary>
+    /// <summary>Your own orbit while riding: none kept (a new session, a new world).</summary>
+    public static void ResetOwnOrbit() { lock (_own) _own.Clear(); }
+
     public static void ResetWorld()
     {
+        ResetOwnOrbit();
         ClearAll();
         Target = null; _lag = null;
         _cT = double.NaN; _cLegs = null; _cApplied = null; _cOk = false;
@@ -102,19 +108,34 @@ public static class Maneuvers
     public struct Leg { public GravityBody Body; public KeplerianElements El; public double T0, T1; public bool Planned; public bool Impact; }   // (Impact: T1 is where it meets the surface - CutAtImpact)
     public struct Applied { public Node Node; public GravityBody Body; public StateVector Before; public Vector3D Dv; public KeplerianElements After; }
 
-    /// <summary>The player's orbit now: the rails frame's, or the local orbit in a planet cell.</summary>
+    /// <summary>The player's orbit now: the rails frame's - your own in it while you ride a frame something else
+    /// anchors (its orbit plus your offset and velocity: up to 20 km from its centre) - or the local orbit in a planet cell.</summary>
     public static bool Base(double t, out GravityBody body, out KeplerianElements el)
     {
         body = null; el = default;
         var reg = SystemHost.Registry;
         if (reg == null) return false;
         var f = FrameHost.PlayerFrame;
-        if (f != null) { body = reg.Find(f.ParentBodyName); el = f.Elements; return body != null; }
+        if (f != null)
+        {
+            body = reg.Find(f.ParentBodyName); el = f.Elements;
+            if (FrameHost.RiderFrame == f.Id && !EncounterFrames.IsLagrangeSite(f))
+            {
+                var obs = FrameHost.Observer;
+                Vector3D off = obs.HasValue ? SEAerospace.PlanetBerths.SpinToCelestial(obs.Value, FrameHost.RiderOffset) : FrameHost.RiderOffset;
+                Vector3D vel = obs.HasValue ? SEAerospace.PlanetBerths.SpinToCelestial(obs.Value, FrameHost.RiderVelocity) : FrameHost.RiderVelocity;
+                lock (_own) el = _own.Get(f.Id, f.Elements, off, vel, t);
+            }
+            return body != null;
+        }
         string b = FrameHost.ObserverPlanet;
         if (b == null || !FrameHost.TryGetLocalOrbit(b, t, out el)) return false;
         body = reg.Find(b);
         return body != null;
     }
+
+    /// <summary>Your own orbit while riding (kept while it still says where you are: the plan is not re-solved every tick).</summary>
+    static readonly SEAerospace.Frames.RendezvousPlot.OwnOrbit _own = new SEAerospace.Frames.RendezvousPlot.OwnOrbit();
 
     /// <summary>The prograde / normal / radial-out axes at a state.</summary>
     public static void Axes(StateVector s, out Vector3D P, out Vector3D N, out Vector3D R)
@@ -233,6 +254,9 @@ public static class Maneuvers
             bool inLagSector = lg != null && Tn >= lg.TE - 1 && (double.IsNaN(lg.TX) || Tn <= lg.TX)
                                && SectorHomes.LagrangeOrbit(SystemHost.Registry?.Find(lg.Site.Home.Host), Tn, out lom, out _);
             if (inLagSector && t < BurnStart(n) - AutoBurn.AlignLead - 5) n.Dirty = true;
+            // (planned with another ship's acceleration - set on foot with the jetpack, then you sat in a ship: its finite burn
+            //  re-planned before it starts, not flown on the old shape)
+            if (!n.Dirty && n.TAccel > 0.01 && Accel > 0.01 && Math.Abs(Accel - n.TAccel) > 0.2 * n.TAccel && t < BurnStart(n) - 5) n.Dirty = true;
             if (n.Dirty || n.TBody != body.Name)
             {
                 Axes(st, out var P, out var N, out var R);
@@ -246,7 +270,15 @@ public static class Maneuvers
                 dv = P * n.Pro + N * n.Nor + R * n.Rad;
                 after = FiniteBurn(body, coastEl, coastT0, Tn, st, dv);
                 if (!IsFinite(after.SemiMajorAxis)) return legs.Count > 0;   // (true with no legs drew nothing and reported a path)
-                n.TAfter = after; n.TBody = body.Name; n.Dirty = false;
+                n.TAfter = after; n.TBody = body.Name; n.Dirty = false; n.TAccel = Accel;
+            }
+            else if (n.T < tc - 0.5 && n.TBody == body.Name)
+            {
+                // behind you (late, paused by warp): what is left at the node's own point - not now, where the orbits have
+                // drifted apart (that grew with lateness and never converged) - flown from now (RendezvousPlot.RemainingBurn)
+                dv = SEAerospace.Frames.RendezvousPlot.RemainingBurn(el, n.TAfter, n.T);
+                after = OrbitalMath.ToElements(new StateVector(st.Position, st.Velocity + dv), body.Mu, Tn);
+                if (!IsFinite(after.SemiMajorAxis)) after = n.TAfter;
             }
             else
             {
@@ -997,6 +1029,7 @@ public static class Maneuvers
         return $"Ring crossing: {n} rendezvous  ·  next {p.Label} {HudPanel.Km(p.D)} in {Clock(p.T - t)}  ·  {p.V:N0} m/s";
     }
     private static double _caAt = -1, _caGameT; private static string _caSig; private static (bool ok, double t, double d, Leg leg, EncounterFrames.Site site) _ca;
+    private static double _caAt2 = -1, _caGameT2; private static string _caSig2; private static (bool ok, double t, double d, Leg leg, EncounterFrames.Site site) _ca2;
 
     /// <summary>
     /// Closest approach of the path to the target's site, on the legs about the site's own body (as
@@ -1007,43 +1040,29 @@ public static class Maneuvers
         double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
         // Keyed on the plan (not the base orbit, which a planet cell re-derives every frame), and
         // refreshed once a second of real time or 30 s of game time (warp).
+        // (also on the base orbit - steady now that the local orbit is gated, OwnOrbit.GetState - and on which legs: the map
+        //  asks with the path cut at a Lagrange entry, the card with all of it; one shared slot gave whichever came first)
         var ks = new System.Text.StringBuilder(Target ?? "");
-        lock (Nodes) foreach (var nd in Nodes) ks.Append('|').Append(nd.T).Append(nd.Pro).Append(nd.Nor).Append(nd.Rad);
+        ks.Append('#').Append(_cSig).Append('#').Append(legs.Count).Append('#').Append(legs.Count > 0 ? legs[legs.Count - 1].T1 : 0);
+        lock (Nodes) foreach (var nd in Nodes) ks.Append('|').Append(nd.T).Append(',').Append(nd.Pro).Append(',').Append(nd.Nor).Append(',').Append(nd.Rad);
         string sig = ks.ToString();
         double gt = SystemHost.Now;
         if (sig == _caSig && now - _caAt < 1.0 && Math.Abs(gt - _caGameT) < 30) return _ca;
+        if (sig == _caSig2 && now - _caAt2 < 1.0 && Math.Abs(gt - _caGameT2) < 30) return _ca2;
+        _caSig2 = _caSig; _caAt2 = _caAt; _caGameT2 = _caGameT; _ca2 = _ca;   // (the other caller's, kept)
         _caSig = sig; _caAt = now; _caGameT = gt; _ca = default;
         EncounterFrames.Site site = null;
-        foreach (var s in EncounterFrames.Sites) if (s.Sector == Target && (site == null || s.Anchor)) site = s;
+        site = EncounterFrames.TargetSite(Target);
         if (site == null) return _ca;
         double best = double.MaxValue, bestT = double.NaN; Leg bestLeg = default;
         foreach (var l in legs)
         {
-            double span = l.T1 - l.T0;
-            if (!(span > 0)) continue;
-            int n = Math.Min(800, Math.Max(120, (int)(span / 15)));
-            double Dist(double tk)
-            {
-                if (!EncounterFrames.Ephemeris(site, tk, out var p, out var rel) || p != l.Body) return double.MaxValue;
-                return (OrbitPropagation.StateAt(l.El, tk).Position - rel.Position).Length();
-            }
-            for (int k = 0; k <= n; k++)
-            {
-                double tk = l.T0 + span * k / n, d = Dist(tk);
-                if (d < best) { best = d; bestT = tk; bestLeg = l; }
-            }
-            // refine around the best sample of this leg
-            if (bestLeg.Body == l.Body && bestLeg.T0 == l.T0)
-            {
-                double a = Math.Max(l.T0, bestT - span / n), b = Math.Min(l.T1, bestT + span / n);
-                for (int q = 0; q < 40; q++)
-                {
-                    double m1 = a + (b - a) / 3, m2 = b - (b - a) / 3;
-                    if (Dist(m1) < Dist(m2)) b = m2; else a = m1;
-                }
-                double tr = 0.5 * (a + b), dr = Dist(tr);
-                if (dr < best) { best = dr; bestT = tr; }
-            }
+            var leg = l;
+            var a = SEAerospace.Frames.RendezvousPlot.Closest(
+                tk => OrbitPropagation.StateAt(leg.El, tk),
+                tk => EncounterFrames.Ephemeris(site, tk, out var p, out var rel) && p == leg.Body ? rel : (StateVector?)null,
+                leg.T0, leg.T1);
+            if (a.Ok && a.Distance < best) { best = a.Distance; bestT = a.T; bestLeg = leg; }
         }
         if (best < double.MaxValue) _ca = (true, bestT, best, bestLeg, site);
         return _ca;
@@ -1066,7 +1085,7 @@ public static class Maneuvers
     }
 
     /// <summary>A rendezvous is only one when the path passes this close (m): where frames merge on arrival (a sector's Entry).</summary>
-    public const double RendezvousRange = 10000;
+    public static double RendezvousRange => ServerFrames.Rendezvous.EnterRangeMeters;   // (the merge's own: ScreenMerges)
 
     /// <summary>Speed relative to the target at the closest approach (m/s), NaN when unknown.</summary>
     static double RelSpeed((bool ok, double t, double d, Leg leg, EncounterFrames.Site site) ca)
@@ -1082,6 +1101,7 @@ public static class Maneuvers
         // a rock seen but not tracked: no orbit yet, so no closest approach (a telescope's lidar on it speeds the fit)
         if (Contacts.RockProgress(Target) is double prog && prog < 1)
             return $"Target ≈ {Target}  ·  tracking {prog:P0}{(Contacts.Lidar ? "  ·  lidar ranging" : "  ·  bearing only")}";
+        if (RendezvousView.TargetIsOwnFrame(Target)) return $"Target {Target}  ·  here";
         if (!Trajectory(t, out var legs, out _)) return null;
         var ca = ClosestApproach(legs);
         return ca.ok && ca.d <= RendezvousRange ? $"Target {Target}  ·  rendezvous {HudPanel.Km(ca.d)} in {Clock(ca.t - t)}  ·  {RelSpeed(ca):N0} m/s" : $"Target {Target}  ·  no rendezvous on this path";
@@ -1106,7 +1126,7 @@ public static class Maneuvers
         if (sig == _crossSig && ReferenceEquals(sites, _crossSites) && now - _crossAt < 10.0) return _cross;
         _crossSig = sig; _crossAt = now; _crossSites = sites;
         var list = new List<Crossing>();
-        const double enter = 10000, leave = ServerFrames.SlotRadius;
+        double enter = ServerFrames.Rendezvous.EnterRangeMeters, leave = ServerFrames.SlotRadius;   // (the merge's and the split's own)
         foreach (var site in EncounterFrames.Sites)
         {
             if (site.Home?.Kind == SectorHomes.Kind.Lagrange) continue;   // its region is its sphere of influence (the Lagrange preview)
@@ -1224,7 +1244,13 @@ public static class Maneuvers
             var own = EncounterFrames.SiteOf(pf.Id);
             if (ride != null) { site = ride.Site; tE = t; d = ride.D; v = ride.V; nowIn = true; }
             else if (own?.Home?.Kind == SectorHomes.Kind.Lagrange && FrameHost.RiderFrame == pf.Id)
-            { site = own; tE = t; d = FrameHost.RiderOffset; v = FrameHost.RiderVelocity; nowIn = true; }
+            {
+                // (the rider state is in window axes: celestial ones here, as everywhere it meets an orbit)
+                var obs = FrameHost.Observer;
+                site = own; tE = t; nowIn = true;
+                d = obs.HasValue ? SEAerospace.PlanetBerths.SpinToCelestial(obs.Value, FrameHost.RiderOffset) : FrameHost.RiderOffset;
+                v = obs.HasValue ? SEAerospace.PlanetBerths.SpinToCelestial(obs.Value, FrameHost.RiderVelocity) : FrameHost.RiderVelocity;
+            }
         }
         if (site == null)
         {
@@ -1309,7 +1335,10 @@ public static class Maneuvers
                 var bn = burns[bi].Node;
                 Vector3D u0 = V - Vector3D.Cross(omk, D);
                 Axes(new StateVector(D, u0), out var bP, out var bN, out var bR);
-                V += bP * bn.Pro + bN * bn.Nor + bR * bn.Rad;
+                // (a frozen node - its burn near or under way: what is LEFT of it (the plan's own, inertial like V); the full
+                //  delta-v again mid-burn previewed half a burn too many, 150% at half flown)
+                Vector3D left = burns[bi].Dv;
+                V += !bn.Dirty && IsFinite(left.X) && IsFinite(left.Y) && IsFinite(left.Z) ? left : bP * bn.Pro + bN * bn.Nor + bR * bn.Rad;
                 double thb = plan.Theta(tk);
                 plan.NodeAxes[bn] = (Turn(bP, ax, -thb), Turn(bN, ax, -thb), Turn(bR, ax, -thb));
                 plan.NodeAt[bn] = Turn(D, ax, -thb);
@@ -1518,7 +1547,7 @@ public static class Maneuvers
     static bool InMapArea(Vector2 s)
     {
         var sz = MapPipeline.ScreenSize;
-        return s.X > sz.X * 0.255f && s.X < sz.X * 0.772f && s.Y > sz.Y * 0.14f && s.Y < sz.Y * 0.84f;   // above the warp bar and hints
+        return s.X > MapLayout.X(0.255f) && s.X < MapLayout.X(0.772f) && s.Y > MapLayout.Y(MapLayout.TabRowBottom) && s.Y < MapLayout.Y(0.84f);   // above the warp bar and hints
     }
 
     static string HandleName(string l) => l switch
@@ -1735,6 +1764,13 @@ public static class Maneuvers
     }
 
     /// <summary>When the next burn starts: half its duration before the node.</summary>
+    /// <summary>The node's burn is over and done with (its second half ended a minute ago): not the next one to fly.</summary>
+    public static bool BurnOver(Node n, double t)
+    {
+        double mag = Math.Sqrt(n.Pro * n.Pro + n.Nor * n.Nor + n.Rad * n.Rad);
+        return n.T + (Accel > 0.01 ? 0.5 * mag / Accel : 0) + 60 < t;
+    }
+
     public static double BurnStart(Node n)
     {
         double mag = Math.Sqrt(n.Pro * n.Pro + n.Nor * n.Nor + n.Rad * n.Rad);
@@ -1750,7 +1786,10 @@ public static class Maneuvers
         try
         {
             Keen.VRage.DCS.Components.Entity e = null; double mass = 0;
-            if (FrameHost.Seated)
+            var sg = FrameHost.Seated ? FrameHost.SeatGrid : null;
+            if (sg != null && sg.Data.Has<Keen.Game2.Simulation.WorldObjects.Shared.Movement.MaxThrustData>() && sg.Data.TryGet<Keen.VRage.Physics.Data.RigidBodyMassProperties>(out var smp) && smp.InvMass > 0)
+            { e = sg; mass = 1.0 / smp.InvMass; }   // (the ship you fly - not the nearest grid: a docked fighter's thrust and mass)
+            else if (FrameHost.Seated)
             {
                 OrbitalGridComponent best = null; double bd = 300;
                 foreach (var g in GridMembers.All())
@@ -1789,7 +1828,7 @@ public static class Maneuvers
     {
         // Last frame's path when there is one (its times are absolute): not a second full solve per warp frame.
         List<Leg> legs = _cLegs;
-        if (legs == null || !_cOk) { if (!Trajectory(t0, out legs, out _)) return double.NaN; }
+        if (legs == null || !_cOk || t0 - _cT > 1.0 || Signature(t0) != _cSig) { if (!Trajectory(t0, out legs, out _)) return double.NaN; }
         for (int i = 1; i < legs.Count; i++)
             if (legs[i].Body != legs[i - 1].Body && legs[i].T0 > t0) return legs[i].T0;
         return double.NaN;
@@ -1820,14 +1859,15 @@ public static class Maneuvers
                     var e = n.TAfter;
                     line += $" {n.TBody.Replace(" ", "%20")} {R(e.SemiMajorAxis)} {R(e.Eccentricity)} {R(e.Inclination)} {R(e.Raan)} {R(e.ArgPeriapsis)} {R(e.TrueAnomaly)} {R(e.Mu)} {R(e.Epoch)}";
                 }
+                if (n.Auto) line += " auto";   // (armed: a reload disarmed every node, and warp still stopped for burns that never fired)
                 l.Add(line);
             }
         return l;
     }
 
-    public static void Restore(double t, double pro, double nor, double rad, string tBody = null, KeplerianElements? tAfter = null)
+    public static void Restore(double t, double pro, double nor, double rad, string tBody = null, KeplerianElements? tAfter = null, bool auto = false)
     {
-        var n = new Node { T = t, Pro = pro, Nor = nor, Rad = rad };
+        var n = new Node { T = t, Pro = pro, Nor = nor, Rad = rad, Auto = auto };
         if (tBody != null && tAfter.HasValue) { n.TBody = tBody; n.TAfter = tAfter.Value; n.Dirty = false; }
         lock (Nodes) Nodes.Add(n);
     }

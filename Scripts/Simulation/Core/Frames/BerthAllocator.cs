@@ -77,6 +77,18 @@ namespace SEAerospace.Frames
         /// </summary>
         public int Allocate(out Vector3D center)
         {
+            // A WARM slot first (WarmSlots: its physics region and sectors already alive - no engine stall on arrival),
+            // the nearest of them; else the nearest free slot as ever.
+            int warm = -1; double warmD = double.MaxValue;
+            foreach (int w in _warm)
+            {
+                if (_occupied.Contains(w)) continue;
+                Vector3D wc = SlotCenter(w);
+                if (IsForbidden != null && IsForbidden(wc, _slotRadius)) continue;
+                double d = (wc - _origin).LengthSquared();
+                if (d < warmD) { warmD = d; warm = w; }
+            }
+            if (warm >= 0) { _occupied.Add(warm); center = SlotCenter(warm); return warm; }
             int id = 0, skipped = 0;
             while (true)
             {
@@ -126,6 +138,45 @@ namespace SEAerospace.Frames
             if (IsForbidden != null && IsForbidden(SlotCenter(slotId), _slotRadius)) return false;   // (never inside a planet's frame)
             _occupied.Add(slotId);
             return true;
+        }
+
+        private readonly HashSet<int> _warm = new HashSet<int>();
+
+        /// <summary>
+        /// WARM SLOTS: free slots whose space the engine keeps ready (a placeholder body parked there keeps its physics
+        /// region and procedural sectors alive), so a frame put there costs no stall. Allocate hands these out first.
+        /// The game side (WarmBerths) keeps a few warm; marking is the allocator's only part.
+        /// </summary>
+        public void SetWarm(int slotId, bool warm) { if (warm) _warm.Add(slotId); else _warm.Remove(slotId); }
+        public bool IsWarm(int slotId) { return _warm.Contains(slotId); }
+        /// <summary>Warm slots not occupied by a frame (the pool ready to hand out).</summary>
+        public int FreeWarmCount { get { int n = 0; foreach (int w in _warm) if (!_occupied.Contains(w)) n++; return n; } }
+        /// <summary>The warm slot ids (a copy).</summary>
+        public List<int> WarmSlots() { return new List<int>(_warm); }
+
+        /// <summary>
+        /// The free, cold slot Allocate would hand out next if no warm one were left (not occupied, not warm, not forbidden;
+        /// the IsClear check is Allocate's own, at hand-out) - where to warm the pool next. -1 if none.
+        /// </summary>
+        public int NextColdFree()
+        {
+            for (int id = 0; id < MaxSlots; id++)
+            {
+                EnsureCells(id + 1);
+                if (_occupied.Contains(id) || _warm.Contains(id)) continue;
+                if (IsForbidden != null && IsForbidden(SlotCenter(id), _slotRadius)) continue;
+                return id;
+            }
+            return -1;
+        }
+
+        /// <summary>The slot whose centre is within <paramref name="within"/> of a point (among the first
+        /// <paramref name="maxId"/> slots), or -1: a placeholder found in a loaded world, back to its slot.</summary>
+        public int SlotNear(Vector3D p, double within, int maxId = 4096)
+        {
+            for (int id = 0; id < maxId && id < MaxSlots; id++)
+                if ((SlotCenter(id) - p).Length() <= within) return id;
+            return -1;
         }
 
         /// <summary>Release a slot back to the pool (frame dissolve/merge). Idempotent.</summary>

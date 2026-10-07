@@ -65,7 +65,11 @@ public static partial class CleanMap
             foreach (var bd in bands)
             {
                 var h = bd.Home;
-                bool mineHere = h.Host == planet.Name && (h.Kind != SectorHomes.Kind.Lagrange || h.Point <= 2);
+                // (its own zones - its L1 / L2 if it is a planet - and its moons' L1-L5: they are about it. ZoneLevel)
+                var hb = reg.Find(h.Host);
+                var lv = SEAerospace.Frames.ZoneLevel.Of(h.Kind == SectorHomes.Kind.Lagrange, h.Point, hb != null && hb.IsRoot, hb?.Parent != null && hb.Parent.IsRoot);
+                bool mineHere = (lv == SEAerospace.Frames.ZoneLevel.Level.Body && h.Host == planet.Name)
+                                || (lv == SEAerospace.Frames.ZoneLevel.Level.Parent && hb?.Parent?.Name == planet.Name);
                 if (mineHere)
                 {
                     ModCost.Sec("systems.lagrange").Stop(q1); q1 = ModCost.Start();
@@ -147,7 +151,9 @@ public static partial class CleanMap
         foreach (var bd in bands)
         {
             var h = bd.Home;
-            bool star = h.Host == root.Name || (h.Kind == SectorHomes.Kind.Lagrange && h.Point >= 3);
+            // (a planet's L3-L5 are about the star - a moon's are about its planet: drawn there)
+            var hs = reg.Find(h.Host);
+            bool star = SEAerospace.Frames.ZoneLevel.Of(h.Kind == SectorHomes.Kind.Lagrange, h.Point, h.Host == root.Name, hs?.Parent == root) == SEAerospace.Frames.ZoneLevel.Level.Star;
             if (star) DrawSector(bd, reg, t, W, S, SolarRadius / outer);
         }
         ModCost.Sec("solar.sectors").Stop(q0); q0 = ModCost.Start();
@@ -252,7 +258,7 @@ public static partial class CleanMap
         }
         // Only inside the map's open area (not over the game's tab bar or the title).
         var scr = MapPipeline.ScreenSize;
-        if (!haveTop || top.Y < scr.Y * 0.2f || top.X < scr.X * 0.26f || top.X > scr.X * 0.77f) return;
+        if (!haveTop || top.Y < MapLayout.Y(0.2f) || top.X < MapLayout.X(0.26f) || top.X > MapLayout.X(0.77f)) return;
         if (b.Home?.Kind == SectorHomes.Kind.Body || faint) return;   // the body's own label names it (a faint zone: its mark does)
         string nm = Label(b);
         var sz = MapPipeline.MeasureText(nm, 0.8f);

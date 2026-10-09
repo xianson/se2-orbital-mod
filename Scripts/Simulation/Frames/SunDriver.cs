@@ -7,22 +7,23 @@ using SEAerospace.Orbital;
 namespace OrbitalMod;
 
 /// <summary>
-/// Drives the sun from the orbital model: the light comes from the star as seen from wherever the
-/// observer is in the system (its frame's rails position, or its planet's position plus its offset
-/// in the cell). As Verdure goes round the star, the sun moves across the sky with it; in a
-/// conjunction the sun is where the star is from that point of the orbit.
+/// The sun, consistent across frames (the user, 2026-10-07). The sun is not Delfos: it is outside the Delfos system. In a
+/// planet's frame it is the game's own sun - its angle is shared by every player and runs on the game's clock (warp does not
+/// move it); the mod leaves it alone there. In any other frame it is that same sun turned by the rotation a crossing applies
+/// to your ship (the planet's chart to inertial axes), so the light does not jump when you cross and stays where it is
+/// relative to you. The planets spin on the game's clock too (SystemHost.SpinNow), so neither depends on warp.
 ///
-/// Uses the render side's ISunDebug.Override (client only, not synced, not saved): the world's own
-/// sun settings are never changed, so turning this off restores the vanilla day cycle.
-/// Convention (SunHelper): the engine's azimuth/elevation describe the LIGHT direction, i.e. minus
-/// the direction to the sun.
+/// Uses the render side's ISunDebug.Override (client only, not synced, not saved): each client lights its own frame; the
+/// world's sun settings are never changed.
 /// </summary>
 public static class SunDriver
 {
-    /// <summary>Off by default: the game's sun is its own (vanilla), not Delfos (StarProxy draws Delfos).</summary>
-    public static bool Enabled = false;
+    public static bool Enabled = true;
+    /// <summary>Unit vector from the azimuth/elevation the game uses for its sun (the same convention in and out).</summary>
     public static Vector3D DirectionToSun { get; private set; }
     public static string Status = "-";
+    /// <summary>The light as drawn now (world axes of the frame you are in; the game's azimuth/elevation convention).</summary>
+    public static Vector3D Light;
     private static bool _overriding;
 
     public static void Tick(Keen.VRage.Core.Game.Systems.Session session, Vector3D observerWorld, double t)
@@ -30,25 +31,26 @@ public static class SunDriver
         ISunDebug sun = null;
         try { sun = session.Get<ISunDebug>(); } catch { }
         if (sun == null) { Status = "no ISunDebug"; return; }
-        if (!Enabled || !SystemHost.Built)
+        var f = FrameHost.PlayerFrame;
+        Keen.Game2.Simulation.GameSystems.Sun.SunSessionComponent game = null;
+        try { game = session.SessionComponents.TryGet<Keen.Game2.Simulation.GameSystems.Sun.SunSessionComponent>(); } catch { }
+        if (game == null) { Status = "no game sun"; return; }
+        var (az, el) = game.GetSunDirection();
+        Vector3D v = Vector3D.CreateFromAzimuthAndElevation(MathHelper.ToRadians(az), MathHelper.ToRadians(el));
+        if (!Enabled || !SystemHost.Built || f == null)
         {
             if (_overriding) { sun.ResetOverride(); _overriding = false; }
-            Status = "off";
+            Light = v;
+            Status = !Enabled ? "off" : "the game's sun (a planet's frame)";
             return;
         }
-        if (!TryObserverCelestial(observerWorld, t, out Vector3D cel)) { Status = "no observer"; return; }
-        var reg = SystemHost.Registry;
-        Vector3D star = reg.Root.OriginInRoot(t).Position;
-        Vector3D d = star - cel;
-        if (d.LengthSquared() < 1) return;
-        d = Vector3D.Normalize(d);
-        if (FrameHost.PlayerFrame == null && VoxelBerthRegistry.TryCellContaining(observerWorld, reg, out string cb, out _))
-            d = Chart.Of(cb, t).FromInertial(d);   // the rotating chart: day and night
-        DirectionToSun = d;
-        var (az, el) = Vector3.GetAzimuthAndElevation(-(Vector3)d);
-        sun.Override(MathHelper.ToDegrees(az), MathHelper.ToDegrees(el));
+        // the frame's planet's chart to inertial: what a crossing out of that planet's frame does to your ship
+        v = Chart.Of(f.ParentBodyName, t).ToInertial(v);
+        var (a2, e2) = Vector3D.GetAzimuthAndElevation(v);
+        sun.Override((float)MathHelper.ToDegrees(a2), (float)MathHelper.ToDegrees(e2));
         _overriding = true;
-        Status = $"az={MathHelper.ToDegrees(az):F1} el={MathHelper.ToDegrees(el):F1} dir=({d.X:F3},{d.Y:F3},{d.Z:F3})";
+        DirectionToSun = -v; Light = v;
+        Status = $"frame #{f.Id} ({f.ParentBodyName}): game sun az {az:F1} el {el:F1} -> az {MathHelper.ToDegrees(a2):F1} el {MathHelper.ToDegrees(e2):F1}";
     }
 
     /// <summary>The observer's position in the root (star) frame.</summary>

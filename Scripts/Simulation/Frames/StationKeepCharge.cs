@@ -29,6 +29,8 @@ public class StationKeepCharge : Component, IInSceneListener,
     private readonly ThrusterComponent _thruster;
 
     internal static readonly List<StationKeepCharge> All = new List<StationKeepCharge>();
+    static readonly Dictionary<Entity, List<StationKeepCharge>> _byGrid = new Dictionary<Entity, List<StationKeepCharge>>();
+    static double _byGridAt = -1;
     private float _rate;
     private double _stamp;
     private double _full = -1;
@@ -84,7 +86,10 @@ public class StationKeepCharge : Component, IInSceneListener,
     {
         if (grid == null) return;
         double now = Wall(), total = 0; int n = 0;
-        StationKeepCharge[] all; lock (All) all = All.ToArray();
+        // (the thrusters by grid, gathered once a tick - every thruster in the world was copied for every holding grid)
+        if (now - _byGridAt > 0.01) { _byGrid.Clear(); StationKeepCharge[] every; lock (All) every = All.ToArray(); foreach (var c in every) { var top = c.Entity?.GetTopLevelParent(); if (top == null) continue; if (!_byGrid.TryGetValue(top, out var l)) _byGrid[top] = l = new List<StationKeepCharge>(); l.Add(c); } _byGridAt = now; }
+        if (!_byGrid.TryGetValue(grid, out var mine)) { Status = "holding: no thrusters"; return; }
+        var all = mine;
         // (the air it is in (no water in orbit): a thruster that makes no thrust here - an atmospheric one in vacuum - is not charged)
         float air = 0f, water = 0f;
         try { if (grid.Data.TryGet<Keen.Game2.Simulation.GameSystems.RangedAffectGenerators.Atmosphere.AirData>(out var ad)) air = ad.Density; } catch { }
@@ -95,7 +100,7 @@ public class StationKeepCharge : Component, IInSceneListener,
             try
             {
                 var e = c.Entity;
-                if (e == null || e.GetTopLevelParent() != grid) continue;
+                if (e == null) continue;
                 float rate = 0f;
                 if (e.Data.TryGet<ThrustData>(out var td) && td.MaxThrustPower > 0)
                 {

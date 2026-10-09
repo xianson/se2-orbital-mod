@@ -110,7 +110,9 @@ public partial class ServerPlanetBeacon : Component, IInSceneListener
 
     void IInSceneListener.OnAddedToScene()
     {
-        ServerSession ??= Entity.GetSession();
+        // (this world's server session, every load: set once per process, a second world loaded kept the first one's dead
+        //  session, and IsServer was false for every grid in it - nothing framed)
+        ServerSession = Entity.GetSession();
         OrbitalSettings.BeaconAdded();   // (the world's settings: the host's overrides file, the server side seen)
         _beacon = new PlanetBeacon
         {

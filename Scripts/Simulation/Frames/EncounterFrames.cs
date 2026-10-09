@@ -785,13 +785,23 @@ public static class EncounterFrames
         Vector3D T = Vector3D.Cross(N, R);
         Vector3D kick = (R * Math.Cos(ang) + T * Math.Sin(ang) + N * 0.15) * mag;
         var el = CaptureMath.CaptureElements(new StateVector(cur.Position + delta, cur.Velocity + vAvg + kick), F.Elements.Mu, t);
-        if (minPe > 0 && !(el.PeriapsisRadius >= minPe))
+        // (spawned orbits are always stable: clear of the planet's border by 5 km, and bound - checked every time, not only when
+        //  a caller asked)
+        if (minPe <= 0)
+        {
+            var pdef = SystemHost.Registry?.FindDefinition(F.ParentBodyName);
+            var pnode = SystemHost.Registry?.Find(F.ParentBodyName);
+            if (pdef != null && pnode != null && !pnode.IsRoot && !string.IsNullOrEmpty(pdef.ParkSubtype)) minPe = PlanetBerths.ShellRadius(pdef) + 5000;
+        }
+        if (minPe > 0 && !(el.Eccentricity < 1.0)) el = CaptureMath.CaptureElements(new StateVector(cur.Position + delta, cur.Velocity + vAvg), F.Elements.Mu, t);   // (no kick)
+        if (minPe > 0 && (!(el.PeriapsisRadius >= minPe) || !(el.Eccentricity < 1.0)))
         {
             // Off the border: a circular orbit at the safe radius, in the frame's plane, where the spawn is.
             Vector3D up = Vector3D.Normalize(cur.Position + delta);
             Vector3D along = Vector3D.Cross(N, up);
             along = along.LengthSquared() > 1e-12 ? Vector3D.Normalize(along) : T;
-            el = CaptureMath.CaptureElements(new StateVector(up * minPe, along * Math.Sqrt(F.Elements.Mu / minPe)), F.Elements.Mu, t);
+            double rc = Math.Max(minPe, (cur.Position + delta).Length());   // (circular where it is - or at the safe radius if lower)
+            el = CaptureMath.CaptureElements(new StateVector(up * rc, along * Math.Sqrt(F.Elements.Mu / rc)), F.Elements.Mu, t);
         }
         if (!IsFinite(el.SemiMajorAxis) || !IsFinite(el.MeanMotion)) return;
         var nf = SystemHost.Frames.CreateFrame(F.ParentBodyName, el, 0);
@@ -902,7 +912,7 @@ public static class EncounterFrames
                     foreach (long id in new List<long>(f.Members))
                     {
                         if (!GridMembers.IsGridId(id)) continue;
-                        if (GridMembers.Get(id) != null) { _missingSince.Remove(id); continue; }
+                        if (GridMembers.Get(id) != null || GridMembers.Tombstoned(id)) { _missingSince.Remove(id); continue; }   // (may be coming back: an area respawn keeps its id)
                         double now = SystemHost.Now;
                         if (!_missingSince.TryGetValue(id, out double since)) { _missingSince[id] = now; continue; }
                         if (now - since > 10) { SystemHost.Frames.RemoveMember(id); _missingSince.Remove(id); Event($"frame #{f.Id}: grid {id} gone - removed"); }
@@ -912,7 +922,7 @@ public static class EncounterFrames
             }
             if (!_built) continue;   // (encounter frames: only once their sites are built, as before)
             foreach (long id in new List<long>(f.Members))
-                if (GridMembers.IsGridId(id) && GridMembers.Get(id) == null) SystemHost.Frames.RemoveMember(id);
+                if (GridMembers.IsGridId(id) && GridMembers.Get(id) == null && !GridMembers.Tombstoned(id)) SystemHost.Frames.RemoveMember(id);
             if (f.Members.Count == 0 && !(SiteOf(f.Id)?.Anchor ?? false))
             {
                 long fid = f.Id;

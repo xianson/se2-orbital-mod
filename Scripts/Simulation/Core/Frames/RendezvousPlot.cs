@@ -153,7 +153,7 @@ namespace SEAerospace.Frames
         /// </summary>
         public sealed class OwnOrbit
         {
-            public double PosTol = 25, VelTol = 0.05;
+            public double PosTol = 25, VelTol = 0.05;   // (bounded by the measurements' noise: tighter, the plan re-solved every tick - a lag of up to ~860 m a revolution remains; smoothing the measurements is the fix)
             KeplerianElements _el; long _frame = long.MinValue; bool _has;
             public int Rebuilds { get; private set; }
 

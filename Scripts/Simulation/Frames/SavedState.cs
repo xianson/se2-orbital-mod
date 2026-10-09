@@ -130,7 +130,7 @@ public static class SavedState
     /// <summary>Radar settings from the save (where the block was, its power), set once a radar is there.</summary>
     private static readonly List<(Vector3D at, float power, double since)> _radarPower = new List<(Vector3D, float, double)>();
     private static Pending _pending;
-    private static double _pendingSince = -1;
+    private static double _pendingSince = -1, _pendingAt;
     public static string LastRestore = "none";
 
     static double Wall() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
@@ -187,7 +187,11 @@ public static class SavedState
     /// <summary>Called from the planets' [Init] on load (both planets carry the same state; first wins).</summary>
     public static void OnLoaded(EntityNameSessionComponentObjectBuilder b)
     {
+        // (a state left pending from another world - quit before it was applied - is not this world's: replaced, its clock with it)
+        double wallNow = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+        if (_pending != null && wallNow - _pendingAt > 120) { _pending = null; _pendingSince = -1; }
         if (b?.NamedEntities == null || b.NamedEntities.Count == 0 || _pending != null) return;
+        _pendingAt = wallNow; _pendingSince = -1;
         var ob = new Pending();
         foreach (var kv in b.NamedEntities)
         {
@@ -224,7 +228,7 @@ public static class SavedState
             if (live != 0) map[kv.Key] = live; else missing++;
         }
         if (missing > 0 && now - _pendingSince < 20) return;
-        _pending = null;
+        _pending = null; _pendingSince = -1;   // (the next world's wait starts afresh)
 
         long Map(long id) => map.TryGetValue(id, out long l) ? l : 0;
         int frames = 0, members = 0, hs = 0;

@@ -29,8 +29,25 @@ public static class DevHudCheck
         ProximityFrame f = null; Vector3D off = Vector3D.Zero, vel = Vector3D.Zero; string what;
         if (FrameHost.Seated)
         {
+            // (the seat's own grid, from the server: the seat whose pilot is your server character, and that block's grid - the
+            //  grid nearest you was a different sub-grid of a big ship whose cockpit sits 65 m from its origin)
             OrbitalGridComponent g = null; double bd = 100;
-            foreach (var x in GridMembers.All()) { if (!x.IsServer) continue; double d = (GridMembers.Position(x) - pos).Length(); if (d < bd) { bd = d; g = x; } }
+            try
+            {
+                var ss = ServerPlanetBeacon.ServerSession; var sch = ss != null ? PlayerCache.Of(ss) : null;
+                if (sch != null)
+                    foreach (var se in ss.GetEntitiesOfType<Keen.Game2.Simulation.WorldObjects.CubeBlocks.Pilotable.SeatComponent>())
+                    {
+                        var st = se.TryGet<Keen.Game2.Simulation.WorldObjects.CubeBlocks.Pilotable.SeatComponent>() as Keen.Game2.Simulation.WorldObjects.CubeBlocks.Pilotable.ISeat;
+                        if (st?.Pilot != sch) continue;
+                        var ge = se.TryGet<Keen.Game2.Simulation.WorldObjects.CubeBlocks.CubeBlockComponent>()?.Grid?.Entity;
+                        foreach (var x in GridMembers.All()) if (x.IsServer && ReferenceEquals(x.Entity, ge)) { g = x; break; }
+                        break;
+                    }
+            }
+            catch { }
+            if (g == null)
+                foreach (var x in GridMembers.All()) { if (!x.IsServer) continue; double d = (GridMembers.Position(x) - pos).Length(); if (d < bd) { bd = d; g = x; } }
             if (g == null) return "seated, no server grid within 100 m";
             lock (ServerFrames.FramesLock)
             {
@@ -83,9 +100,8 @@ public static class DevHudCheck
         double tSpeed = own.Velocity.Length(), tAlt = own.Position.Length() - radius;
         var r = OrbitHud.Current;
         bool walking = OrbitHud.Walking;
-        bool holding = FrameHost.HoldingStation;   // (holding station: no relative force, no orbit shown - by design)
-        if (holding) Line(r == null, $"holding station: no orbit shown ({(r == null ? "none" : "shown: " + r.Body)})");
-        else Line(r != null, $"an orbit card ({(r == null ? "none" : r.Body)}{(walking ? ", hidden: walking" : "")})");
+        bool holding = FrameHost.HoldingStation;   // (holding station: your orbit shown, no drift plot - by design)
+        Line(r != null, $"an orbit card ({(r == null ? "none" : r.Body)}{(walking ? ", hidden: walking" : "")}{(holding ? ", holding station" : "")})");
         if (r != null && !walking && !MapView.Visible) Line(OrbitHud.CardOpen, $"the card is up on screen ({OrbitHud.CardWhy})");
         if (r != null)
         {
@@ -111,8 +127,9 @@ public static class DevHudCheck
             Line(Math.Abs(r.RelBoundary - leaveAt) < 1, $"the plot's boundary {r.RelBoundary / 1000:F0} km is where you leave ({leaveAt / 1000:F0} km)");
         }
         bool inAnchor = FrameHost.Seated && what.Contains("(the anchor)");
-        if (!inAnchor) Line(Math.Abs((FrameHost.RiderOffset - off).Length()) <= 30 + vel.Length() * 0.6, $"the rider offset ({FrameHost.RiderOffset.Length():F0} m) is the grid's ({off.Length():F0} m)");
-        else Line(FrameHost.RiderFrame == -1, $"the anchor's pilot rides nothing (rider frame {FrameHost.RiderFrame})");
+        Line(Math.Abs((FrameHost.RiderOffset - off).Length()) <= 30 + vel.Length() * 0.6, $"the rider offset ({FrameHost.RiderOffset.Length():F0} m) is the grid's ({off.Length():F0} m)");
+        // (the anchor's pilot: its own place in the frame - the pin lets it sit off the centre - but no drift plot)
+        if (inAnchor) Line(FrameHost.AnchorRigid, $"the anchor's pilot: no drift plot (rigid {FrameHost.AnchorRigid})");
         // what the HUD draws, against who you are and what you target
         double wall = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
         string tgt = Maneuvers.Target;
@@ -127,10 +144,11 @@ public static class DevHudCheck
         }
         var want = !FrameHost.Seated ? (SEAerospace.Frames.RendezvousPlot.Plot?)null
                  : hasTgt ? SEAerospace.Frames.RendezvousPlot.Plot.Target
-                 : FrameHost.RiderFrame == f.Id && !FrameHost.AtAnchor ? SEAerospace.Frames.RendezvousPlot.Plot.Anchor
+                 : FrameHost.RiderFrame == f.Id && !FrameHost.AtAnchor && !FrameHost.AnchorRigid ? SEAerospace.Frames.RendezvousPlot.Plot.Anchor
                  : SEAerospace.Frames.RendezvousPlot.Plot.Disc;
         // (holding station - dampeners, no relative force: no orbit display at all, by design)
-        if (want.HasValue && holding) Line(!(wall - OrbitHud.LastPlotWall < 1), $"holding station: the HUD draws {(wall - OrbitHud.LastPlotWall < 1 ? OrbitHud.LastPlot.ToString() : "nothing")}, expected nothing");
+        if (OrbitHud.EntryHidden) want = null;   // (coming down through the air: no orbit graph, by design)
+        if (want.HasValue && holding) Line(wall - OrbitHud.LastPlotWall < 1 && OrbitHud.LastPlot == SEAerospace.Frames.RendezvousPlot.Plot.Disc, $"holding station: the HUD draws {(wall - OrbitHud.LastPlotWall < 1 ? OrbitHud.LastPlot.ToString() : "nothing")}, expected Disc (your orbit, no drift plot)");
         else if (want.HasValue) Line(wall - OrbitHud.LastPlotWall < 1 && OrbitHud.LastPlot == want.Value, $"the HUD draws {(wall - OrbitHud.LastPlotWall < 1 ? OrbitHud.LastPlot.ToString() : "nothing")}, expected {want} (target {tgt ?? "none"}, at anchor {FrameHost.AtAnchor})");
         if (hasTgt) { var tl = Maneuvers.TargetLine(t); Line(tl != null, $"the target line: {tl}"); }
         if (r?.Relative != null && hasTgt) Line(r.RelIsTarget, $"the plot is about the target ({r.AnchorName}), now along {r.RelNow.along / 1000:F2} km radial {r.RelNow.radial / 1000:F2} km");

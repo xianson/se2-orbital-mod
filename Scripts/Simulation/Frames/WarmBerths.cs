@@ -52,7 +52,12 @@ public static class WarmBerths
         var l = new List<(int, Vector3D)>();
         var alloc = SystemHost.Frames?.Allocator;
         if (alloc == null) return l;
-        lock (ServerFrames.FramesLock) foreach (int s in alloc.WarmSlots()) if (!alloc.IsOccupied(s)) l.Add((s, alloc.SlotCenter(s)));
+        lock (ServerFrames.FramesLock)
+        {
+            foreach (int s in alloc.WarmSlots()) if (!alloc.IsOccupied(s)) l.Add((s, alloc.SlotCenter(s)));
+            // (and a slot whose placeholder is on its way: closed BEFORE it arrives - it triggers the encounters as it spawns)
+            foreach (int s in _pending.Keys) if (!alloc.IsOccupied(s)) l.Add((s, alloc.SlotCenter(s)));
+        }
         return l;
     }
 
@@ -141,14 +146,15 @@ public static class WarmBerths
         // Spawned STAGED and async, as the game spawns encounters (and DevStress clones grids): GridBuilder.BuildOne's
         // synchronous spawn built the grid before its blocks' data existed - "Data not found" in the physics engine and in
         // the grid's anchoring test, a half-made body and two crashes. Found by its name next tick (Adopt).
+        _pending[slot] = Wall();
+        SpawnGuard.Refresh();   // (its slot closed to encounters first: the placeholder triggers them as it spawns)
         try
         {
             var bundle = new Keen.VRage.Core.Game.Systems.EntityBundle();
             bundle.Add(gb.CompileObjectBuilder(), null, true);
             server.Get<Keen.VRage.Core.Game.Systems.IEntitySpawner>().SpawnBundleAsync(new Keen.VRage.Core.Game.Systems.GameEntitySerializer.BundleInitArgs { Bundle = bundle });
         }
-        catch (System.Exception ex) { Stop("spawning a placeholder threw: " + ex.Message); return false; }
-        _pending[slot] = Wall();
+        catch (System.Exception ex) { _pending.Remove(slot); Stop("spawning a placeholder threw: " + ex.Message); return false; }
         return true;
     }
 

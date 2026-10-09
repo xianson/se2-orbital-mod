@@ -148,6 +148,8 @@ namespace PlayerOrbitTest
             Ok("the card's orbit is the player's: speed from its elements", Math.Abs(OrbitPropagation.StateAt(el, T).Velocity.Length() - truth.Velocity.Length()) < 1e-3);
 
             FadeCases();
+
+            MembershipCases.Run((n, c, d) => Ok(n, c, d));
             LayoutCases();
             ZoneCases();
             RendezvousCases.Run();

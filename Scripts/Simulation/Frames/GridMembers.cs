@@ -49,9 +49,43 @@ public static class GridMembers
 
     public static bool IsGridId(long id) => id >= IdBase;
 
+    // ── identity across a re-add ──
+    // A server grid that leaves the scene and comes back (the game's managed world areas unload and respawn their
+    // grids: a scenario ship teleported out of its area came back as new entities) is the same ship: it takes its old
+    // id back, so its frame, anchor role, orbit and contact state stay valid. A grid gone for good is forgotten after
+    // TombstoneSeconds (its per-grid state then, and the frames prune it).
+    public const double TombstoneSeconds = 60.0, RelinkMeters = 100.0;
+    struct Tomb { public string Name; public Vector3D At; public double Wall; }
+    private static readonly Dictionary<long, Tomb> _tombs = new Dictionary<long, Tomb>();
+    static double Wall() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+    /// <summary>A grid id that left the scene lately and may come back (frames keep it, anchors wait for it).</summary>
+    public static bool Tombstoned(long id) { lock (_lock) return _tombs.ContainsKey(id); }
+    public static int Relinked;
+
     internal static long Register(OrbitalGridComponent g)
     {
-        long nid;
+        long nid = 0;
+        string relinked = null;
+        if (g.IsServer)
+        {
+            string name = g.DisplayName; Vector3D at = default; bool hasAt = false;
+            try { at = g.Entity.Data.GetWorldTransform().Position; hasAt = true; } catch { }
+            lock (_lock)
+            {
+                if (hasAt)
+                {
+                    long best = 0; double bd = RelinkMeters;
+                    foreach (var kv in _tombs)
+                    {
+                        if (kv.Value.Name != name || _byId.ContainsKey(kv.Key)) continue;
+                        double d = (kv.Value.At - at).Length();
+                        if (d <= bd) { bd = d; best = kv.Key; }
+                    }
+                    if (best != 0) { nid = best; _tombs.Remove(best); _byId[nid] = g; Relinked++; relinked = $"{bd:F0} m"; }
+                }
+            }
+        }
+        if (nid != 0) { Log.Default?.Info($"[ORBIT-FRAME] grid {nid} '{g.DisplayName}' back in the scene ({relinked} from where it left): its old id kept"); return nid; }
         lock (_lock) { nid = ++_next; _byId[nid] = g; }
         EncounterFrames.OnGridRegistered(nid);
         return nid;
@@ -59,8 +93,45 @@ public static class GridMembers
 
     internal static void Unregister(OrbitalGridComponent g)
     {
+        bool tomb = false;
+        if (g.IsServer)
+            try { var at = g.Entity.Data.GetWorldTransform().Position; lock (_lock) _tombs[g.Id] = new Tomb { Name = g.DisplayName, At = at, Wall = Wall() }; tomb = true; } catch { }
         lock (_lock) { _byId.Remove(g.Id); }
-        ServerFrames.Forget(g.Id);   // (per-grid state dies with the grid)
+        lock (GridMembers.Pending) GridMembers.Pending.Remove(g.Id);
+        if (!tomb) ServerFrames.Forget(g.Id);   // (per-grid state dies with the grid - after its tombstone, if it may come back)
+    }
+
+    /// <summary>Tombstones past their time, removed (caller holds _lock): returned, to be forgotten AFTER the lock is let go
+    /// (Forget takes FramesLock; elsewhere FramesLock is held while this lock is taken - never the other way round).</summary>
+    static List<long> ExpireTombs()
+    {
+        double now = Wall();
+        List<long> dead = null;
+        foreach (var kv in _tombs) if (now - kv.Value.Wall > TombstoneSeconds) (dead ??= new List<long>()).Add(kv.Key);
+        if (dead != null) foreach (long id in dead) _tombs.Remove(id);
+        return dead;
+    }
+    /// <summary>From the server tick: grids gone for good forgotten.</summary>
+    public static void SweepTombs()
+    {
+        List<long> dead; lock (_lock) dead = ExpireTombs();
+        if (dead != null) foreach (long id in dead) ServerFrames.Forget(id);
+    }
+
+    /// <summary>
+    /// Out of the game's managed world area before a move: a scenario ship (and each of its sub-grids) stays managed by
+    /// the area it was placed in until its own seat is piloted, and a teleport out of the area made the game unload it and
+    /// respawn it as new entities. (The game's own call, as when a seat is first piloted.)
+    /// </summary>
+    public static void Unmanage(Entity e)
+    {
+        try
+        {
+            if (e == null || !e.Data.Has<Keen.VRage.Core.Game.GameSystems.ManagedWorldAreas.ManagedByWorldAreaTag>()) return;
+            var areas = e.GetSession()?.SessionComponents.TryGet<Keen.VRage.Core.Game.GameSystems.ManagedWorldAreas.ManagedWorldAreaSessionComponent>();
+            if (areas != null && areas.TryUnmanage(e)) Log.Default?.Info($"[ORBIT-FRAME] an entity released from its world area before a move");
+        }
+        catch { }
     }
 
     public static List<OrbitalGridComponent> All()
@@ -239,6 +310,7 @@ public static class GridMembers
     public static bool SetPosition(OrbitalGridComponent g, Vector3D p)
     {
         if (!Finite(p)) { NaNRefused++; return false; }
+        Unmanage(g.Entity);
         try
         {
             var wt = g.Entity.Data.GetWorldTransform();

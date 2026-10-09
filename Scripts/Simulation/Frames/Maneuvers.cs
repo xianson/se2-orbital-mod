@@ -118,13 +118,17 @@ public static class Maneuvers
         var f = FrameHost.PlayerFrame;
         if (f != null)
         {
-            body = reg.Find(f.ParentBodyName); el = f.Elements;
+            // (the frame's body and orbit copied under the frames lock: the server writes them every tick - a torn read seeded
+            //  the planner's own orbit with half of the old orbit)
+            string fb; KeplerianElements fe;
+            lock (ServerFrames.FramesLock) { fb = f.ParentBodyName; fe = f.Elements; }
+            body = reg.Find(fb); el = fe;
             if (FrameHost.RiderFrame == f.Id && !EncounterFrames.IsLagrangeSite(f))
             {
                 var obs = FrameHost.Observer;
                 Vector3D off = obs.HasValue ? SEAerospace.PlanetBerths.SpinToCelestial(obs.Value, FrameHost.RiderOffset) : FrameHost.RiderOffset;
                 Vector3D vel = obs.HasValue ? SEAerospace.PlanetBerths.SpinToCelestial(obs.Value, FrameHost.RiderVelocity) : FrameHost.RiderVelocity;
-                lock (_own) el = _own.Get(f.Id, f.Elements, off, vel, t);
+                lock (_own) el = _own.Get(f.Id, fe, off, vel, t);
             }
             return body != null;
         }

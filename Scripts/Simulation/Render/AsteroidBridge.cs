@@ -215,7 +215,11 @@ public static class AsteroidBridge
             catch { }
             lock (Asteroids)
             {
-                Asteroids.Clear(); Asteroids.AddRange(kept); AsteroidBoxes.Clear(); AsteroidBoxes.AddRange(boxes);
+                // (each rock by its box's centre: a voxel body's position is its storage corner - distances to rocks were off by
+                //  half a rock, and a frame was centred on a rock's corner)
+                Asteroids.Clear();
+                if (boxes.Count == kept.Count) foreach (var b in boxes) Asteroids.Add(b.Min == b.Max ? b.Min : b.Center); else Asteroids.AddRange(kept);
+                AsteroidBoxes.Clear(); AsteroidBoxes.AddRange(boxes);
                 AsteroidPersistent.Clear(); for (int i = 0; i < kept.Count; i++) AsteroidPersistent.Add(i < persistentCount);
             }
             foreach (var id in ids) { try { gen.DeleteEntity(id); _deleted++; } catch { } }

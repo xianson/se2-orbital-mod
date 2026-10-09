@@ -85,6 +85,9 @@ namespace SEAerospace.Frames
                 if (_occupied.Contains(w)) continue;
                 Vector3D wc = SlotCenter(w);
                 if (IsForbidden != null && IsForbidden(wc, _slotRadius)) continue;
+                // (a warm slot is handed out only empty, as any slot: something left in it - an encounter that spawned there -
+                //  would be the new frame's anchor)
+                if (IsClear != null && !IsClear(wc, _slotRadius)) continue;
                 double d = (wc - _origin).LengthSquared();
                 if (d < warmD) { warmD = d; warm = w; }
             }

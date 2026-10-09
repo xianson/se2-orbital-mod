@@ -426,7 +426,7 @@ public static class AsteroidFrames
         foreach (var kv in gen.Entities)
         {
             BoundingBoxD b;
-            try { b = Keen.VRage.Core.Game.Data.BoundingBoxData.GetWorldAABB(kv.Value); }
+            try { var tb = Keen.VRage.Core.Game.Data.BoundingBoxData.TryGetWorldAABB(kv.Value.Data); if (!tb.HasValue) continue; b = tb.Value; }
             catch { try { var p = kv.Value.Data.GetWorldTransform().Position; b = new BoundingBoxD(p, p); } catch { continue; } }
             foreach (var r in live)
                 if (AsteroidBridge.BoxDistance(b, r.Berth) <= MaxRadius(r.Radii) + ProtectMargin) { r.Rocks++; break; }

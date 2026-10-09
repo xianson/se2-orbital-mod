@@ -213,12 +213,15 @@ public static class OrbitDisplay
         SEAerospace.ObserverFrame obs, SEAerospace.Frames.ProximityFrame frame, SEAerospace.SystemDef.SystemRegistry reg, double t)
     {
         if (!OrbitalConfig.ShowOrbit) { Clear(); return; }
-        var parent = reg.Find(frame.ParentBodyName);
+        // (the frame's body, orbit and berth copied under the frames lock: the server writes them every tick)
+        string fBody; SEAerospace.Orbital.KeplerianElements fEl; Vector3D fBerth;
+        lock (ServerFrames.FramesLock) { fBody = frame.ParentBodyName; fEl = frame.Elements; fBerth = frame.BerthCenter; }
+        var parent = reg.Find(fBody);
         if (parent == null) return;
         _builder ??= CreateBuilder(session);
         if (_builder == null) return;
 
-        var el = frame.Elements;
+        var el = fEl;
         var anchorEl = el;
         bool riding = false;
         var parentOrg = parent.OriginInRoot(t).Position;
@@ -226,9 +229,8 @@ public static class OrbitDisplay
         // frame's plus your offset and velocity in it (your jetpack changes it, not the frame's).
         if ((FrameHost.RiderFrame == frame.Id || FrameHost.DevRider) && !EncounterFrames.IsLagrangeSite(frame))
         {
-            // Holding station (dampeners): no relative force on you, so no orbit of your own to show - you go round with
-            // the frame. (The plot drew a circle of held station; the card read the frame's orbit as yours.)
-            if (FrameHost.HoldingStation && !FrameHost.DevRider) { Clear(); return; }
+            // (holding station - dampeners on: your orbit is shown, the card and the disc, but no drift plot about the anchor:
+            //  you hold, there is no drift - below, with a seat held to the anchor by joints)
             var fc = OrbitPropagation.StateAt(el, t);
             var mine = new StateVector(fc.Position + SEAerospace.PlanetBerths.SpinToCelestial(obs, FrameHost.RiderOffset),
                                        fc.Velocity + SEAerospace.PlanetBerths.SpinToCelestial(obs, FrameHost.RiderVelocity));
@@ -238,7 +240,7 @@ public static class OrbitDisplay
             // the plot is about it, so its own orbit is the frame's plus its offset.
             if (ServerFrames.StaticAnchorView(frame, out Vector3D anchorAt))
             {
-                var ae = CaptureMath.CaptureElements(new StateVector(fc.Position + SEAerospace.PlanetBerths.SpinToCelestial(obs, anchorAt - frame.BerthCenter), fc.Velocity), anchorEl.Mu, t);
+                var ae = CaptureMath.CaptureElements(new StateVector(fc.Position + SEAerospace.PlanetBerths.SpinToCelestial(obs, anchorAt - fBerth), fc.Velocity), anchorEl.Mu, t);
                 if (IsFinite(ae.SemiMajorAxis)) anchorEl = ae;
             }
         }
@@ -262,7 +264,7 @@ public static class OrbitDisplay
             world = buf;
             for (int i = 0; i < pts.Length; i++) world[i] = SEAerospace.PlanetBerths.WorldFromCelestial(obs, parentOrg + pts[i]);
         }
-        var def = reg.FindDefinition(frame.ParentBodyName);
+        var def = reg.FindDefinition(fBody);
         double radius = def != null ? def.RadiusMeters : 0;
         StateVector cur = OrbitPropagation.StateAt(el, t);
         string ap = el.IsElliptic ? $"Ap {(el.ApoapsisRadius - radius) / 1000:F1} km  T {el.Period / 60:F1} min" : "escape";
@@ -281,7 +283,7 @@ public static class OrbitDisplay
             Path = world, PathClosed = path.IsClosed,
             BodyWorld = SEAerospace.PlanetBerths.WorldFromCelestial(obs, parentOrg), BodyRadius = radius,
         };
-        if (riding)
+        if (riding && !FrameHost.AnchorRigid && !(FrameHost.HoldingStation && !FrameHost.DevRider))   // (held - by joints, or holding station: no drift to plot - the card and the orbit are yours)
         {
             var rc = OrbitHud.Current;
             // (the plot's lists in two sets used in turn: the HUD draws the current frame's; new ones every frame
@@ -337,10 +339,14 @@ public static class OrbitDisplay
                 double pa = _predList[i0].along * (1 - w) + _predList[i0 + 1].along * w, pr = _predList[i0].radial * (1 - w) + _predList[i0 + 1].radial * w;
                 double err = Math.Sqrt((pa - rc.RelNow.along) * (pa - rc.RelNow.along) + (pr - rc.RelNow.radial) * (pr - rc.RelNow.radial));
                 PredDiag = $"prediction after {t - _predT:F0} s: predicted ({pa:F0}, {pr:F0}) m, actual ({rc.RelNow.along:F0}, {rc.RelNow.radial:F0}) m, error {err:F0} m{(rc.Holding ? " (holding)" : "")}";
+                // (the invariant: judged only if the frame and its anchor stayed the same and you did not start holding)
+                double sa = _predList[0].along, sr = _predList[0].radial;
+                Invariants.Prediction(err, Math.Sqrt((pa - sa) * (pa - sa) + (pr - sr) * (pr - sr)),
+                                      !rc.Holding && frame.Id == _predFrame && frame.AnchorEntityId == _predAnchor, frame.Id, SystemHost.Timescale);
                 _predList = null;
             }
             predDone:
-            if (_predList == null && !rc.Holding && rc.Relative.Count > 1) { _predList = new List<(double along, double radial)>(rc.Relative); /* (its own copy: the lists are reused) */ _predT = t; _predPeriod = rc.RelPeriod; _predN = Math.Max(1, rc.RelSamples - 1); }
+            if (_predList == null && !rc.Holding && rc.Relative.Count > 1) { _predList = new List<(double along, double radial)>(rc.Relative); /* (its own copy: the lists are reused) */ _predT = t; _predPeriod = rc.RelPeriod; _predN = Math.Max(1, rc.RelSamples - 1); _predFrame = frame.Id; _predAnchor = frame.AnchorEntityId; }
         }
         {
             // For the orbit disc and the direction markers: the orbit about the body in world axes.
@@ -429,6 +435,7 @@ public static class OrbitDisplay
     public static string PredDiag = "-";
     private static List<(double along, double radial)> _predList;
     private static double _predT, _predPeriod;
+    private static long _predFrame = -1, _predAnchor;
     private static int _predN = 160;
 
     /// <summary>What anchors a frame, for the plot's title.</summary>

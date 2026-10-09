@@ -4,7 +4,7 @@
 #  H1 the copy, dampeners on, holds station and its thrusters are charged for the pull (fuel or power asked > 0)
 #  H2 its stores drain faster holding than free (the charge reaches the tanks / batteries)
 #  H3 dampeners off: free again, its thrusters ask nothing
-#  H4 on foot beside it, jetpack dampeners on: holding station - no orbit shown, and the suit is billed
+#  H4 on foot beside it, jetpack dampeners on: holding station - your orbit shown (no drift plot), and the suit is billed
 #  H5 riding, the frame's origin is marked on screen (a screenshot is taken)
 H="$(cd "$(dirname "$0")" && pwd)"; O="$H/orb.sh"
 q() { timeout 30 "$O" "$@" | grep -a "=>" | tail -1 | sed 's/.*=>  //'; }
@@ -46,7 +46,7 @@ ok "H3 dampeners off: free, nothing asked" $(echo "$s2" | grep -q "free, .* 0 ch
 q "tpgrid $c 40" >/dev/null; sleep 8
 s3=$(q "skcharge $c"); echo "  $s3"
 hc=$(q "hudcheck"); echo "  $hc" | cut -c1-300
-ok "H4 on foot holding station: no orbit shown" $(echo "$s3" | grep -q "holdingStation(you) True card none" && echo 1 || echo 0) "$s3"
+ok "H4 on foot holding station: your orbit shown (no drift plot)" $(echo "$s3" | grep -q "holdingStation(you) True card shown" && echo 1 || echo 0) "$s3"
 ok "H4 ... and the suit billed (taken, or refused by the game in creative)" $(echo "$s3" | grep -q "suit billed .*\(taken\|refused: creative\)" && echo 1 || echo 0) "$(echo "$s3" | grep -o "suit billed[^|]*")"
 # H5 - the frame origin marked on screen (riding: where the pull is nothing)
 bm=$(q "bodymarkers on"); echo "  $bm"

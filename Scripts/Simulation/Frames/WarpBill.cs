@@ -46,8 +46,10 @@ public static class WarpBill
     public static void Run(Keen.VRage.Core.Game.Systems.Session session)
     {
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
-        if (_last != 0 && (now - _last) / (double)System.Diagnostics.Stopwatch.Frequency < 0.004) return;   // once a frame (one job per beacon)
-        _last = now;
+        // once a frame, claimed atomically (every beacon's job runs this, in parallel: two read the old stamp and both billed)
+        long last = System.Threading.Interlocked.Read(ref _last);
+        if (last != 0 && (now - last) / (double)System.Diagnostics.Stopwatch.Frequency < 0.004) return;
+        if (System.Threading.Interlocked.CompareExchange(ref _last, now, last) != last) return;
         double warp = SystemHost.Timescale;
         if (!Enabled || session == null || !(warp > 1.0) || !SystemHost.Built || SystemHost.Frames == null) return;
         double surplus = (warp - 1.0) / 60.0;   // s of game time this frame did not simulate

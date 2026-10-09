@@ -8,5 +8,6 @@
     <Compile Include="$(Core)\Frames\FrameRails.cs" />
     <Compile Include="$(Core)\Frames\TerminalLayout.cs" />
     <Compile Include="$(Core)\Frames\ZoneLevel.cs" />
+    <Compile Include="$(Core)\Frames\MembershipRules.cs" />
   </ItemGroup>
 </Project>

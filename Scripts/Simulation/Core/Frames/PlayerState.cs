@@ -24,5 +24,8 @@ namespace SEAerospace.Frames
         /// <summary>The suit's dampeners: station-keeping in the frame (on foot only).</summary>
         public bool Dampeners;
         public bool Seated;
+        /// <summary>Seated on a grid joined to the frame's anchor (a sub-grid of the anchor ship): held to the anchor by its joints -
+        /// your own place and orbit (the offset kept), but no drift about the anchor to plot.</summary>
+        public bool AnchorRigid;
     }
 }

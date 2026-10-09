@@ -99,14 +99,21 @@ public static class EntryHost
     public const double GlowMinDecel = 1.0;
 
     /// <summary>For the aero mod: a grid's air velocity (xyz, m/s) and glow (w, 0..1) while its frame is braked.</summary>
+    /// <summary>A grid's glow, once no longer refreshed, held this long (s) then faded to 0 over GlowFade.</summary>
+    public const double GlowHold = 0.25, GlowFade = 1.5;
     public static Vector4 GlowOf(Entity grid)
     {
         lock (_glow)
         {
             GlowAsks++;
-            if (grid == null || !_glow.TryGetValue(grid, out var g) || SystemHost.Now - g.t > 1.0) return default;
+            // (no longer refreshed - the pass over, the braking under the edge: it FADES, held 0.25 s then down to 0 over
+            //  1.5 s; it was full strength until 1 s stale, then gone - a hard cut of the plasma at the end of every pass)
+            if (grid == null || !_glow.TryGetValue(grid, out var g)) return default;
+            double age = SystemHost.Now - g.t;
+            if (age > GlowHold + GlowFade) return default;
             GlowAnswers++;
-            return new Vector4((float)g.air.X, (float)g.air.Y, (float)g.air.Z, (float)g.strength);
+            double k = age <= GlowHold ? 1.0 : Math.Clamp(1.0 - (age - GlowHold) / GlowFade, 0.0, 1.0);
+            return new Vector4((float)g.air.X, (float)g.air.Y, (float)g.air.Z, (float)(g.strength * k));
         }
     }
 
@@ -299,7 +306,9 @@ public static class EntryHost
             f.Elements = el;
             braking++;
             // (a whisper of drag - grazing the band's top, a low orbit decaying - is no entry: no plasma, no event)
-            bool visible = log.PeakDecel >= GlowMinDecel || log.Shed > log.DragShed;
+            // (hysteresis: on at GlowMinDecel, off only under half of it - at the band's edge it flickered on and off)
+            bool inPass; lock (_heat) inPass = _inPass.Contains(f.Id);
+            bool visible = log.PeakDecel >= (inPass ? 0.5 * GlowMinDecel : GlowMinDecel) || log.Shed > log.DragShed;
             if (visible)
             {
                 var s = OrbitPropagation.StateAt(el, t);

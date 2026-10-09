@@ -254,11 +254,13 @@ public static class OrbitHud
         // says the same (orbit and next burn).
         // (nor over another screen: the terminal's other tabs, a dialog - it sat on the terminal's close button)
         bool covered = !MapView.Visible && GameUi.TopScreenNeedingInput(session) != null;
-        bool show = OrbitalConfig.ShowOrbit && (r != null || burn != null) && !MapView.Visible && !covered;
+        // (in a planet's frame, an apoapsis inside its air - flying about, a hop, coming down: no orbit display at all)
+        EntryHidden = LowArc(r);
+        bool show = OrbitalConfig.ShowOrbit && ((r != null && !EntryHidden) || burn != null) && !MapView.Visible && !covered;
         _fallback = null;
         if (!show)
         {
-            CardWhy = !OrbitalConfig.ShowOrbit ? "orbit display off" : MapView.Visible ? "map open" : covered ? "a screen is open" : Walking ? "walking" : "no orbit";
+            CardWhy = !OrbitalConfig.ShowOrbit ? "orbit display off" : MapView.Visible ? "map open" : covered ? "a screen is open" : Walking ? "walking" : EntryHidden ? "apoapsis inside the air" : "no orbit";
             if (_card != null) { GameUi.CloseCard(_card); _card = null; }
             return;
         }
@@ -328,13 +330,41 @@ public static class OrbitHud
                     Flying = true, HasTarget = r.Relative != null && r.RelIsTarget, TargetSharesBody = true,
                     Riding = r.Relative != null && !r.RelIsTarget, AtAnchor = FrameHost.AtAnchor,
                 });
-                LastPlot = plot; LastPlotWall = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
-                if (plot == SEAerospace.Frames.RendezvousPlot.Plot.Target || plot == SEAerospace.Frames.RendezvousPlot.Plot.Anchor) DrawRelative(r, u);
-                else DrawDisc(r, u);
+                if (!EntryHidden)
+                {
+                    LastPlot = plot; LastPlotWall = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+                    if (plot == SEAerospace.Frames.RendezvousPlot.Plot.Target || plot == SEAerospace.Frames.RendezvousPlot.Plot.Anchor) DrawRelative(r, u);
+                    else DrawDisc(r, u);
+                }
             }
         }
         finally { MapPipeline.UiEnd(); }
     }
+
+    /// <summary>The orbit display is hidden: in a planet's frame with the apoapsis inside its air (LowArc).</summary>
+    public static bool EntryHidden;
+    static bool _lowArc;
+    /// <summary>
+    /// The orbit display only when the orbit reaches out of the air (the user, 2026-10-08): in a planet's own frame it shows
+    /// once the apoapsis is above the frame's border - the top of the air (an airless body: its shell) - by ArcShowMargin,
+    /// and hides again only when the apoapsis falls back under the border (hysteresis: it flickered at the edge). An
+    /// escape path shows; in an orbital frame it always shows.
+    /// </summary>
+    static bool LowArc(Readout r)
+    {
+        if (r == null || FrameHost.PlayerFrame != null || FrameHost.ObserverPlanet == null) return _lowArc = false;
+        if (r.Escape) return _lowArc = false;
+        var def = SystemHost.Registry?.FindDefinition(FrameHost.ObserverPlanet);
+        if (def == null || !(def.RadiusMeters > 0)) return _lowArc = false;
+        double border = SEAerospace.PlanetBerths.ShellRadius(def) - def.RadiusMeters;   // (altitude of the frame's edge)
+        if (!(border > 0)) return _lowArc = false;
+        double showAbove = border + Math.Max(ArcShowMarginMin, ArcShowMargin * border);
+        if (_lowArc) { if (r.Ap > showAbove) _lowArc = false; }
+        else if (r.Ap < border) _lowArc = true;
+        return _lowArc;
+    }
+    /// <summary>The apoapsis must clear the border by this fraction of it (or ArcShowMarginMin m) to show again.</summary>
+    public const double ArcShowMargin = 0.2, ArcShowMarginMin = 2000;
 
     static readonly ColorSRGB ProCol = new ColorSRGB(0.95f, 0.85f, 0.25f, 1f), NorCol = new ColorSRGB(0.82f, 0.45f, 1f, 1f),
                               RadCol = new ColorSRGB(0.35f, 0.85f, 1f, 1f);

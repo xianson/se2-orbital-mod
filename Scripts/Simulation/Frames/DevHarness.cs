@@ -571,6 +571,25 @@ public static class DevHarness
                 return FrameHost.SetOrbitTo(fb, el, $"flyby: Pe {D(a[2])} km, v-inf {vinf} m/s") + $" | at its border {vb:F0} m/s";
             }
 
+            case "findgrids":   // findgrids [name...]: the server grids (id, name, dynamic) - all, or those with this name - in one call
+            {
+                string want = a.Length > 1 ? string.Join(" ", a, 1, a.Length - 1) : null;
+                var sb2 = new System.Text.StringBuilder("grids:");
+                foreach (var g in GridMembers.All())
+                {
+                    if (!g.IsServer) continue;
+                    string nm = g.DisplayName;
+                    if (want != null && nm != want) continue;
+                    sb2.Append($" {g.Id}={nm.Replace(' ', '_')}{(GridMembers.IsDynamic(g) ? "" : "(static)")}");
+                }
+                return sb2.ToString();
+            }
+
+            case "inv":   // inv [reset]: the invariants' violations (Invariants) - every suite ends requiring none
+                if (a.Length > 1 && a[1] == "off") { Invariants.Enabled = false; return "invariants off"; }
+                if (a.Length > 1 && a[1] == "on") { Invariants.Enabled = true; return "invariants on"; }
+                return Invariants.Describe(a.Length > 1 && a[1] == "reset");
+
             case "exitcheck":   // exitcheck <gridId>: you against that ship - distance and relative speed (server and client), frames, warp
             {
                 var eg = GridMembers.Get((long)D(a[1]));
@@ -579,7 +598,27 @@ public static class DevHarness
                 string srv = ServerPlanetBeacon.PlayerState(out Vector3D sp, out Vector3D sv) ? $"server d {(sp - gp).Length():F1} m dv {(sv - gv).Length():F2} m/s" : "server -";
                 string cli = FrameHost.FootState(out Vector3D cp, out Vector3D cv) ? $"client d {(cp - gp).Length():F1} m dv {(cv - gv).Length():F2} m/s" : $"client (seated) d {(FrameHost.PlayerPosition - gp).Length():F1} m";
                 SEAerospace.Frames.ProximityFrame pf2, gf2; lock (ServerFrames.FramesLock) { pf2 = SystemHost.Frames?.FindByMember(FrameHost.PlayerId); gf2 = SystemHost.Frames?.FindByMember(eg.Id); }
-                return $"exitcheck seated {FrameHost.Seated} | {srv} | {cli} | you #{pf2?.Id.ToString() ?? "none"} (hud #{FrameHost.PlayerFrame?.Id.ToString() ?? "none"}) ship #{gf2?.Id.ToString() ?? "none"} | warp x{SystemHost.Timescale:F0} | ship |v| {gv.Length():F1}";
+                return $"exitcheck seated {FrameHost.Seated} | {srv} | {cli} | you #{pf2?.Id.ToString() ?? "none"} (hud #{FrameHost.PlayerFrame?.Id.ToString() ?? "none"}) ship #{gf2?.Id.ToString() ?? "none"} | warp x{SystemHost.Timescale:F0} | ship |v| {gv.Length():F1} | rider frame {FrameHost.RiderFrame} offset {FrameHost.RiderOffset.Length():F1} m rigid {FrameHost.AnchorRigid} seat grid {FrameHost.SeatGridServerId} '{FrameHost.SeatedWhy}' | graph hidden {OrbitHud.EntryHidden}";
+            }
+
+            case "sunrel":   // sunrel <gridId>: the light in that grid's own axes (does it jump at a crossing?) and the planets' spin clock
+            {
+                var sg = GridMembers.Get(long.Parse(a[1]));
+                if (sg?.Entity == null) return "no such grid";
+                var swt = sg.Entity.Data.GetWorldTransform();
+                Vector3D lc = WorldTransform.TransformDirectionInv(SunDriver.Light, swt);
+                var vb = SystemHost.Registry?.Find("Verdure");
+                return $"sunrel light local ({lc.X:F4},{lc.Y:F4},{lc.Z:F4}) frame {(FrameHost.PlayerFrame == null ? "planet" : "#" + FrameHost.PlayerFrame.Id)} | spin {SystemHost.SpinNow:F1} now {SystemHost.Now:F1} theta {(vb != null ? vb.RotationAngleAt(SystemHost.Now) * 180 / Math.PI : double.NaN):F3} | {SunDriver.Status}";
+            }
+
+            case "fxcheck":   // fxcheck [reset]: the aero mod's effect consistency since the last reset (every drawn frame judged)
+            {
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    var t = asm.GetType("AeroMod.AeroApi"); var m = t?.GetMethod("GetFxConsistency"); if (m == null) continue;
+                    return (string)m.Invoke(null, new object[] { a.Length > 1 && a[1] == "reset" });
+                }
+                return "fxcheck: the aero mod has no GetFxConsistency";
             }
 
             case "hitchms":   // hitchms <ms>: log every server tick gap over this (default 150)
@@ -1088,6 +1127,10 @@ public static class DevHarness
                 ServerFrames.GridLaunch.Enqueue((long.Parse(a[1]), D(a[2]), lb, a.Length > 4 ? D(a[4]) : double.NaN));
                 return "grid launch queued (server, next tick)";
             }
+
+            case "gridlevel":   // gridlevel <gridId>: level it - top away from the planet, nose horizontal - its joined group too (DEV)
+                ServerFrames.GridLevel.Enqueue(long.Parse(a[1]));
+                return "grid level queued (server, next tick)";
 
             case "griddamp":   // griddamp <gridId> on|off (DEV: the grid's dampeners, as the game toggles them)
                 ServerFrames.GridDamp.Enqueue((long.Parse(a[1]), On(a[2])));

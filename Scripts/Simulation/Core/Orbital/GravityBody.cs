@@ -133,9 +133,14 @@ namespace SEAerospace.Orbital
         /// Zero if the body has no specified spin. Epoch phase is 0 at t = 0 (the system
         /// epoch); add a body-fixed prime-meridian offset downstream if needed.
         /// </summary>
+        /// <summary>The clock a body spins on, from universe time (null: universe time itself). The game sets it to the
+        /// game's own clock: spin is shared by every player and does not speed up with warp (the user, 2026-10-07).</summary>
+        public static Func<double, double> SpinClock;
+
         public double RotationAngleAt(double t)
         {
             if (RotationPeriodSeconds <= 0.0) return 0.0;
+            if (SpinClock != null) t = SpinClock(t);
             double frac = t / RotationPeriodSeconds;
             frac -= Math.Floor(frac);
             return frac * (2.0 * Math.PI);

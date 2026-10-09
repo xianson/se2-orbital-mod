@@ -404,7 +404,6 @@ public static partial class CleanMap
                 var now = OrbitPropagation.StateAt(el, t);
                 if (!IsFinite(now.Position.X) || !IsFinite(now.Position.Y)) continue;
                 Vector3D here = toLocal(porg + now.Position);
-                int npc = 0; foreach (long id in f.Members) if (EncounterFrames.IsNpcId(id)) npc++;
                 string label = site != null ? site.Label : $"Encounter ({f.Members.Count})";
                 Pin(here, limit, W, label, EncColor);
             }

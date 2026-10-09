@@ -89,6 +89,27 @@ public static class SystemHost
     public static double Now { get; private set; }
     /// <summary>Time warp. 1 = real time. Warp only advances the celestial layer, never Havok.</summary>
     public static double Timescale = 1.0;
+
+    /// <summary>
+    /// The game's clock (s; IGameTime.CurrentGameTime - shared by every player, saved by the game, never warped): what the
+    /// planets spin on, so a planet's day, like the game's sun, is the same for everyone and warp does not turn it.
+    /// NaN until the first tick reads it.
+    /// </summary>
+    public static double SpinNow = double.NaN;
+    /// <summary>The spin clock at universe time t: now's game clock, plus the universe time from now in game seconds at
+    /// the present warp (a time a few ticks back under warp maps to those few ticks, not warp x them).</summary>
+    public static double SpinAt(double t) => double.IsNaN(SpinNow) ? t : SpinNow + (t - Now) / Math.Max(1.0, Timescale);
+    /// <summary>Read the game's clock (server or client tick).</summary>
+    public static void ReadSpinClock(Keen.VRage.Core.Game.Systems.Session session)
+    {
+        try
+        {
+            var gt = session?.Get<Keen.VRage.Core.Game.GameSystems.GameTimes.IGameTime>();
+            if (gt != null) SpinNow = gt.CurrentGameTime.Ticks / (double)TimeSpan.TicksPerSecond;
+        }
+        catch { }
+        SEAerospace.Orbital.GravityBody.SpinClock ??= SpinAt;
+    }
     private static long _lastClockTicks;
 
     private static DateTime _lastGameTime;
@@ -281,7 +302,7 @@ public static class SystemHost
         int Rank(PlanetBeacon p) { int i = Array.IndexOf(PlanetOrder, DevHarness.PlanetName(p)); return i < 0 ? PlanetOrder.Length : i; }
         beacons.Sort((a, b) => { int r = Rank(a).CompareTo(Rank(b)); return r != 0 ? r : string.CompareOrdinal(DevHarness.PlanetName(a), DevHarness.PlanetName(b)); });
         AsteroidFrames.Reset();   // the belts' asteroid frames are built afresh for this system
-        EncounterFrames.ResetWorld(); ServerFrames.ResetWorld();   // (and the sites and the frames' server state: another world's)
+        lock (ServerFrames.FramesLock) { EncounterFrames.ResetWorld(); ServerFrames.ResetWorld(); }   // (and the sites and the frames' server state: another world's - under the lock, the server reads them)
 
         var def = new SystemDefinition { Name = "SE2World", EpochSeconds = 0.0 };
         def.Bodies.Add(new BodyDefinition
@@ -373,10 +394,11 @@ public static class SystemHost
 
         var alloc = VoxelBerthRegistry.SharedAllocator(reg);
         // New berths only where nothing is left behind (a grid out of any frame, a rock).
+        // (from the server's grid positions snapshot: this runs on the client thread too - a stow - and read every server
+        //  grid's transform from there)
         BerthAllocator.IsClear = (c, r) =>
         {
-            foreach (var g in GridMembers.All())
-                if (g.IsServer && (GridMembers.Position(g) - c).Length() < r) return false;
+            lock (ServerFrames.GridPositions) foreach (var p in ServerFrames.GridPositions.Values) if ((p - c).Length() < r) return false;
             return !AsteroidBridge.NearestAsteroid(c, r, out _);
         };
         // Berths NEVER inside a planet's frame: a slot whose sphere reaches into any planet's frame (its border radius,

@@ -16,7 +16,7 @@ namespace OrbitalMod;
 /// </summary>
 public static class CrossingFade
 {
-    public static bool Enabled = true;
+    public static bool Enabled = false;   // (off: the user, 2026-10-07 - no fade to black at arrivals; 'crossfade on' brings it back)
     public static string Status => _m.Status;
     static readonly CrossingFadeMachine _m = new CrossingFadeMachine();
     /// <summary>How black the screen is now (0..1): the reentry recorder judges only what can be seen.</summary>

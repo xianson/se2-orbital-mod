@@ -83,8 +83,13 @@ public static class SpecCam
                 Vector3D gu = Vector3D.Normalize(WorldTransform.TransformDirection(Vector3.Up, gw));
                 Vector3D gr = Vector3D.Cross(gf, gu);
                 double gb = _bearing * Math.PI / 180, ge = _elev * Math.PI / 180;
-                Vector3D gpos = gw.Position + (gf * Math.Cos(gb) + gr * Math.Sin(gb)) * Math.Cos(ge) * _dist + gu * Math.Sin(ge) * _dist;
-                Vector3 gfwd = (Vector3)Vector3D.Normalize(gw.Position - gpos);
+                // (round the hull's middle - its box centre - not the grid's origin: on the Hercules that sat 40-60 m off the
+                //  hull, and the ship drifted out of the frame or behind the camera)
+                Vector3D mid = gw.Position;
+                var gbox = Keen.VRage.Core.Game.Data.BoundingBoxData.TryGetWorldAABB(g.Entity.Data);
+                if (gbox.HasValue) mid = gbox.Value.Center;
+                Vector3D gpos = mid + (gf * Math.Cos(gb) + gr * Math.Sin(gb)) * Math.Cos(ge) * _dist + gu * Math.Sin(ge) * _dist;
+                Vector3 gfwd = (Vector3)Vector3D.Normalize(mid - gpos);
                 var gwt = new WorldTransform(gpos, Quaternion.CreateFromForwardUp(gfwd, (Vector3)gu));
                 Current = gwt; cam.SetTransformOverride(gwt); Status = $"Grid {_grid} dist={_dist:F0} bearing={_bearing} elev={_elev}"; return;
             }

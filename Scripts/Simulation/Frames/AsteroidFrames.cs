@@ -133,6 +133,14 @@ public static class AsteroidFrames
 
     // ───────────────────────────── server tick (holds FramesLock; from EncounterFrames) ─────────────────────────────
 
+    // The pass is in two halves. Under FramesLock (ServerTick): what reads or changes frames - the sites, which rocks are
+    // wanted (from where you are). After it (ServerAfterLock, the same server tick): the generator's work - volumes spawned
+    // and deleted, its sectors rebuilt, its bodies counted. That work is the engine's and can be slow; under the lock it
+    // held the client's HUD, map and player tick (all of which take FramesLock) for as long.
+    private static List<Roid> _planRoids;
+    private static HashSet<Roid> _planWanted;
+    private static double _planNow;
+
     public static void ServerTick(Keen.VRage.Core.Game.Systems.Session session, double t, int tick)
     {
         if (!Enabled || session == null) return;
@@ -141,6 +149,17 @@ public static class AsteroidFrames
             if (!_built) Build(session, t);
             if (tick % 30 == 0) Update(session, t);
         }
+        catch (Exception e) { Warn("tick", "asteroid frames: " + (e.InnerException ?? e).Message); }
+    }
+
+    /// <summary>Server tick, after FramesLock is released (ServerFrames.Tick): the generator's half of the pass the locked
+    /// half planned this tick (nothing when it planned nothing). Takes FramesLock only briefly, to free a left ring rock's site.</summary>
+    public static void ServerAfterLock(Keen.VRage.Core.Game.Systems.Session session)
+    {
+        var roids = _planRoids; var wanted = _planWanted; double now = _planNow;
+        _planRoids = null; _planWanted = null;
+        if (roids == null || wanted == null || !Enabled || session == null) return;
+        try { Act(session, roids, wanted, now); }
         catch (Exception e) { Warn("tick", "asteroid frames: " + (e.InnerException ?? e).Message); }
     }
 
@@ -299,12 +318,66 @@ public static class AsteroidFrames
 
     // ───────────────────────────── rocks on demand ─────────────────────────────
 
+    /// <summary>The locked half (FramesLock held): the ring rocks that become sites, and which rocks are wanted - from the
+    /// frames and where you are. The generator's half (Act) runs after the lock, this same tick.</summary>
     private static void Update(Keen.VRage.Core.Game.Systems.Session session, double t)
     {
         double now = Wall();
         while (_force.TryDequeue(out var fr))
             lock (_gate) if (fr.index >= 0 && fr.index < _roids.Count) { _roids[fr.index].Forced = fr.on; if (fr.on) _roids[fr.index].LastWanted = now; }
 
+        var gen = AsteroidBridge.Generator(session);
+        if (gen == null) { Status = "no generator"; return; }
+
+        var pf = FrameHost.PlayerId != 0 ? SystemHost.Frames.FindByMember(FrameHost.PlayerId) : null;
+        StateVector ps = default; bool havePs = false;
+        if (pf != null) { ps = OrbitPropagation.StateAt(pf.Elements, t); havePs = IsFinite(ps.Position); }
+        // Ring rocks: the nearest few within range of you become sites (their rocks then come out as any).
+        if (RingRocks.Enabled && havePs)
+        {
+            var body = SystemHost.Registry?.Find(pf.ParentBodyName);
+            if (body != null)
+            {
+                int k = 0;
+                foreach (var (b, i, d) in RingRocks.Near(body, ps.Position, t, MaterializeRange))
+                {
+                    if (k++ >= MaxNearVolumes) break;
+                    EnsureRingRoid(b, i, t);
+                }
+            }
+        }
+        List<Roid> roids;
+        lock (_gate) roids = new List<Roid>(_roids);
+        // Which ones are wanted: forced, the one you are in, and of those within range only the nearest few
+        // (every rock volume out samples the generator's sectors; a whole ring's worth was out at once).
+        var inRange = new List<(Roid r, double d)>();
+        var inIt = new HashSet<Roid>();
+        foreach (var r in roids)
+        {
+            var f = SystemHost.Frames.Get(r.FrameId);
+            if (f == null) continue;
+            if (EncounterFrames.HasNonNpc(f)) { inIt.Add(r); continue; }   // you (or your grid) are in it
+            if (havePs && pf != f && pf.ParentBodyName == f.ParentBodyName)
+            {
+                var rs = OrbitPropagation.StateAt(f.Elements, t);
+                double d = IsFinite(rs.Position) ? (rs.Position - ps.Position).Length() : double.MaxValue;
+                if (d < MaterializeRange) inRange.Add((r, d));
+            }
+        }
+        inRange.Sort((x, y) => x.d.CompareTo(y.d));
+        var allowed = new HashSet<Roid>(inIt);
+        for (int i = 0; i < inRange.Count && i < MaxNearVolumes; i++) allowed.Add(inRange[i].r);
+        var wanted = new HashSet<Roid>();
+        foreach (var r in roids)
+            if (r.Forced || allowed.Contains(r)) { wanted.Add(r); r.LastWanted = now; }
+        _planRoids = roids; _planWanted = wanted; _planNow = now;   // (ServerAfterLock acts on them)
+    }
+
+    /// <summary>The generator's half (FramesLock NOT held): stale volumes reconciled, its sectors rebuilt when due, the wanted
+    /// rocks' volumes out and the others' in, and their bodies counted. A ring rock left behind gives its site back under a
+    /// brief FramesLock (the same pass as before: its volume went in just above).</summary>
+    private static void Act(Keen.VRage.Core.Game.Systems.Session session, List<Roid> roids, HashSet<Roid> wantedSet, double now)
+    {
         var gen = AsteroidBridge.Generator(session);
         if (gen == null) { Status = "no generator"; return; }
         Reconcile(session, gen, now);
@@ -348,49 +421,10 @@ public static class AsteroidFrames
         }
         catch (Exception ex) { Diag = "diag failed: " + ex.Message; }
 
-        var pf = FrameHost.PlayerId != 0 ? SystemHost.Frames.FindByMember(FrameHost.PlayerId) : null;
-        StateVector ps = default; bool havePs = false;
-        if (pf != null) { ps = OrbitPropagation.StateAt(pf.Elements, t); havePs = IsFinite(ps.Position); }
-        // Ring rocks: the nearest few within range of you become sites (their rocks then come out as any).
-        if (RingRocks.Enabled && havePs)
-        {
-            var body = SystemHost.Registry?.Find(pf.ParentBodyName);
-            if (body != null)
-            {
-                int k = 0;
-                foreach (var (b, i, d) in RingRocks.Near(body, ps.Position, t, MaterializeRange))
-                {
-                    if (k++ >= MaxNearVolumes) break;
-                    EnsureRingRoid(b, i, t);
-                }
-            }
-        }
-        List<Roid> roids;
-        lock (_gate) roids = new List<Roid>(_roids);
         int live = 0;
-        // Which ones are wanted: forced, the one you are in, and of those within range only the nearest few
-        // (every rock volume out samples the generator's sectors; a whole ring's worth was out at once).
-        var inRange = new List<(Roid r, double d)>();
-        var inIt = new HashSet<Roid>();
         foreach (var r in roids)
         {
-            var f = SystemHost.Frames.Get(r.FrameId);
-            if (f == null) continue;
-            if (EncounterFrames.HasNonNpc(f)) { inIt.Add(r); continue; }   // you (or your grid) are in it
-            if (havePs && pf != f && pf.ParentBodyName == f.ParentBodyName)
-            {
-                var rs = OrbitPropagation.StateAt(f.Elements, t);
-                double d = IsFinite(rs.Position) ? (rs.Position - ps.Position).Length() : double.MaxValue;
-                if (d < MaterializeRange) inRange.Add((r, d));
-            }
-        }
-        inRange.Sort((x, y) => x.d.CompareTo(y.d));
-        var allowed = new HashSet<Roid>(inIt);
-        for (int i = 0; i < inRange.Count && i < MaxNearVolumes; i++) allowed.Add(inRange[i].r);
-        foreach (var r in roids)
-        {
-            bool wanted = r.Forced || allowed.Contains(r);
-            if (wanted) r.LastWanted = now;
+            bool wanted = wantedSet.Contains(r);
             try
             {
                 if (r.Volume != null && r.Comp != null && _givenBack.Contains(r.Comp)) Dematerialize(gen, r, "its composition is the game's again");
@@ -399,13 +433,22 @@ public static class AsteroidFrames
             }
             catch (Exception e) { Warn("vol " + r.Label, $"{r.Label}: {(e.InnerException ?? e).Message}"); }
             if (r.Volume != null) live++;
-            // A ring rock you have left (its rocks gone, nobody in it): back to a number.
-            if (r.Dynamic && !wanted && r.Volume == null && now - r.LastWanted > LeaveSeconds && EncounterFrames.RemoveSite(r.FrameId))
+            // A ring rock you have left (its rocks gone, nobody in it): back to a number. (Its site and slot are the frames':
+            // under the lock, briefly - and only for one that has gone: the condition is checked before taking it.)
+            if (r.Dynamic && !wanted && r.Volume == null && now - r.LastWanted > LeaveSeconds)
             {
-                SystemHost.Frames?.Allocator?.Free(r.Slot);
-                lock (_gate) { _roids.Remove(r); _byName.Remove(r.Name); for (int k = 0; k < _roids.Count; k++) _roids[k].Index = k; }   // (indices stay list positions)
-                if (r.Site != null) lock (_left) _left[r.Label] = r.Site;   // (still a target: its orbit is known - EncounterFrames.TargetSite)
-                Event($"ring rock {r.Label} left behind: its site is gone (slot {r.Slot} free)");
+                bool gone;
+                lock (ServerFrames.FramesLock)
+                {
+                    gone = EncounterFrames.RemoveSite(r.FrameId);
+                    if (gone) SystemHost.Frames?.Allocator?.Free(r.Slot);
+                }
+                if (gone)
+                {
+                    lock (_gate) { _roids.Remove(r); _byName.Remove(r.Name); for (int k = 0; k < _roids.Count; k++) _roids[k].Index = k; }   // (indices stay list positions)
+                    if (r.Site != null) lock (_left) _left[r.Label] = r.Site;   // (still a target: its orbit is known - EncounterFrames.TargetSite)
+                    Event($"ring rock {r.Label} left behind: its site is gone (slot {r.Slot} free)");
+                }
             }
         }
         CountRocks(gen, roids);

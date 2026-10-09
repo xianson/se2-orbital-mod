@@ -89,6 +89,7 @@ namespace PlayerOrbitTest
             CommonBodies();
             PlotChoice();
             OwnOrbitCache();
+            OwnOrbitSmoothing();
             Degenerate();
         }
 
@@ -226,27 +227,126 @@ namespace PlayerOrbitTest
             var shipEl = El(new StateVector(At(frameEl, 0).Position + new Vector3D(0, 3000, 0), At(frameEl, 0).Velocity + new Vector3D(0.4, 0, 0)), MuV);
             var c = new RendezvousPlot.OwnOrbit();
             var rnd = new Random(7);
-            double worst = 0;
+            double worst = 0; int lateSolves = 0;
             for (int k = 0; k < 600; k++)
             {
                 double t = k / 60.0;
                 var fs = At(frameEl, t); var ss = At(shipEl, t);
                 Vector3D noiseP = new Vector3D(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5) * 2;
                 Vector3D noiseV = new Vector3D(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5) * 0.02;
+                int before = c.Rebuilds;
                 var el = c.Get(59, frameEl, ss.Position - fs.Position + noiseP, ss.Velocity - fs.Velocity + noiseV, t);
+                if (t >= 5 && c.Rebuilds != before) lateSolves++;
                 worst = Math.Max(worst, (At(el, t).Position - ss.Position).Length());
             }
-            Ok("own orbit: 10 s of noisy measurements -> one solve, kept (the plan is not re-solved every tick)", c.Rebuilds == 1, $"{c.Rebuilds} solves, worst {worst:F2} m off");
+            // (smoothed: the first solve is from one measurement, then refined as the window fills - a handful, then none)
+            Ok("own orbit: 10 s of noisy measurements -> a few solves while the fit fills, none once it has (not re-solved every tick)",
+               c.Rebuilds <= 4 && lateSolves == 0, $"{c.Rebuilds} solves, {lateSolves} after 5 s, worst {worst:F2} m off");
             Ok("own orbit: the kept orbit stays on the ship", worst < c.PosTol);
             // a 1 m/s burn
             double tb = 10;
             var fsb = At(frameEl, tb); var ssb = At(shipEl, tb);
-            c.Get(59, frameEl, ssb.Position - fsb.Position, ssb.Velocity - fsb.Velocity + new Vector3D(0, 1, 0), tb);
-            Ok("own orbit: a 1 m/s burn -> solved again", c.Rebuilds == 2);
+            int r0 = c.Rebuilds;
+            var burnt = c.Get(59, frameEl, ssb.Position - fsb.Position, ssb.Velocity - fsb.Velocity + new Vector3D(0, 1, 0), tb);
+            Ok("own orbit: a 1 m/s burn -> solved again, at once, from the burn (not averaged into the window)", c.Rebuilds == r0 + 1
+               && (At(burnt, tb).Velocity - (ssb.Velocity + new Vector3D(0, 1, 0))).Length() < 1e-3);
             c.Get(60, frameEl, ssb.Position - fsb.Position, ssb.Velocity - fsb.Velocity + new Vector3D(0, 1, 0), tb);
-            Ok("own orbit: another frame -> solved again", c.Rebuilds == 3);
+            Ok("own orbit: another frame -> solved again", c.Rebuilds == r0 + 2);
             var bad = c.Get(61, frameEl, new Vector3D(double.NaN, 0, 0), Vector3D.Zero, tb);
             Ok("own orbit: a NaN offset -> the frame's orbit, no exception", bad.SemiMajorAxis == frameEl.SemiMajorAxis);
+        }
+
+        // THE SMOOTHING (RendezvousPlot.OwnOrbit's window fit) against the single-measurement gate it replaced (Window = 0:
+        // exactly the old behaviour). The truth: a ship riding the frame on its own Kepler orbit, measured every tick (60 Hz)
+        // with noise; what counts is where the kept orbit says you will be a revolution on - the plan's lag.
+        static void OwnOrbitSmoothing()
+        {
+            var frameEl = El(Circ(R0, 0, MuV), MuV);
+            var shipEl = El(new StateVector(At(frameEl, 0).Position + new Vector3D(0, 3000, 0), At(frameEl, 0).Velocity + new Vector3D(0.4, 0, 0)), MuV);
+            double T = 2 * Math.PI * Math.Sqrt(R0 * R0 * R0 / MuV);
+            Vector3D Noise(Random r, double a) => new Vector3D(r.NextDouble() - 0.5, r.NextDouble() - 0.5, r.NextDouble() - 0.5) * (2 * a);
+
+            // 60 s held (no thrust), noise +-1 m and +-0.02 m/s per axis: the worst error a revolution ahead over the last 50 s
+            (double lag, int solves) Hold(double window, int seed)
+            {
+                var c = new RendezvousPlot.OwnOrbit { Window = window };
+                var rnd = new Random(seed);
+                double lag = 0;
+                for (int k = 0; k < 3600; k++)
+                {
+                    double t = k / 60.0;
+                    var fs = At(frameEl, t); var ss = At(shipEl, t);
+                    var el = c.Get(59, frameEl, ss.Position - fs.Position + Noise(rnd, 1), ss.Velocity - fs.Velocity + Noise(rnd, 0.02), t);
+                    if (t >= 10 && k % 60 == 0) lag = Math.Max(lag, (At(el, t + T).Position - At(shipEl, t + T).Position).Length());
+                }
+                return (lag, c.Rebuilds);
+            }
+            double rawLag = 0, smLag = 0; int rawSolves = 0, smSolves = 0;
+            for (int seed = 1; seed <= 6; seed++)
+            {
+                var a = Hold(0, seed); var b = Hold(5, seed);
+                rawLag = Math.Max(rawLag, a.lag); smLag = Math.Max(smLag, b.lag);
+                rawSolves = Math.Max(rawSolves, a.solves); smSolves = Math.Max(smSolves, b.solves);
+            }
+            Ok("own orbit smoothed: a revolution ahead it is still on the ship (noise +-0.02 m/s: under 100 m, the single measurement's several times that)",
+               smLag < 100 && smLag * 3 < rawLag, $"smoothed {smLag:F0} m, single-measurement {rawLag:F0} m a revolution ({T:F0} s) on, 6 seeds");
+            Ok("own orbit smoothed: no more solves than the old gate (no churn from the tighter gate)", smSolves <= Math.Max(4, rawSolves),
+               $"{smSolves} solves in 60 s (old gate {rawSolves})");
+
+            // a steady gentle burn (0.1 m/s^2 along track, 10 s): the kept orbit follows the motion about as closely as the old
+            // gate did (the window is dropped on a real change - a ramp is not averaged away), and never by the burn readout's 0.1
+            (double worstV, int solves) Burn(double window)
+            {
+                var c = new RendezvousPlot.OwnOrbit { Window = window };
+                var rnd = new Random(11);
+                var s = At(shipEl, 0); double dt = 1 / 60.0, w = 0;
+                for (int k = 0; k < 900; k++)
+                {
+                    double t = k * dt;
+                    var fs = At(frameEl, t);
+                    var el = c.Get(59, frameEl, s.Position - fs.Position + Noise(rnd, 1), s.Velocity - fs.Velocity + Noise(rnd, 0.01), t);
+                    if (k > 120) w = Math.Max(w, (At(el, t).Velocity - s.Velocity).Length());
+                    s = At(El(s, MuV, t), t + dt);
+                    if (k >= 120 && k < 720) s.Velocity += Vector3D.Normalize(s.Velocity) * (0.1 * dt);
+                }
+                return (w, c.Rebuilds);
+            }
+            var bRaw = Burn(0); var bSm = Burn(5);
+            Ok("own orbit smoothed: a steady burn - the kept orbit trails the ship no worse than the old gate did, under 0.1 m/s",
+               bSm.worstV < 0.1 && bSm.worstV <= bRaw.worstV + 0.03, $"smoothed {bSm.worstV:F3} m/s ({bSm.solves} solves), old gate {bRaw.worstV:F3} m/s ({bRaw.solves})");
+
+            // warp (x1000: ~16 game seconds between ticks): longer than the window - each measurement alone, gated as before
+            int Warp(double window)
+            {
+                var c = new RendezvousPlot.OwnOrbit { Window = window };
+                var rnd = new Random(5);
+                for (int k = 0; k < 300; k++)
+                {
+                    double t = k * 16.7;
+                    var fs = At(frameEl, t); var ss = At(shipEl, t);
+                    c.Get(59, frameEl, ss.Position - fs.Position + Noise(rnd, 1), ss.Velocity - fs.Velocity + Noise(rnd, 0.01), t);
+                }
+                return c.Rebuilds;
+            }
+            int wRaw = Warp(0), wSm = Warp(5);
+            Ok("own orbit smoothed: in warp (ticks further apart than the window) it solves as the old gate did", wSm == wRaw, $"{wSm} vs {wRaw} solves in 300 ticks");
+
+            // several callers in one tick (the plan, the map, the HUD) with the same measurement: counted once
+            {
+                var one = new RendezvousPlot.OwnOrbit(); var three = new RendezvousPlot.OwnOrbit();
+                var r1 = new Random(9); KeplerianElements e1 = default, e3 = default;
+                for (int k = 0; k < 600; k++)
+                {
+                    double t = k / 60.0;
+                    var fs = At(frameEl, t); var ss = At(shipEl, t);
+                    Vector3D off = ss.Position - fs.Position + Noise(r1, 1), vel = ss.Velocity - fs.Velocity + Noise(r1, 0.02);
+                    e1 = one.Get(59, frameEl, off, vel, t);
+                    for (int q = 0; q < 3; q++) e3 = three.Get(59, frameEl, off, vel, t);
+                }
+                Ok("own orbit smoothed: three callers a tick = one (the same tick is one measurement)",
+                   three.Rebuilds == one.Rebuilds && three.WindowCount == one.WindowCount && (At(e1, 10).Position - At(e3, 10).Position).Length() < 1e-6,
+                   $"{three.Rebuilds} / {one.Rebuilds} solves, window {three.WindowCount} / {one.WindowCount}");
+            }
         }
 
         static void Degenerate()
@@ -279,7 +379,7 @@ namespace PlayerOrbitTest
                     double tk = k / 60.0; var st = At(truthEl, tk);
                     c.GetState(7, new StateVector(st.Position + new Vector3D(rnd.NextDouble() - 0.5, 0, 0), st.Velocity + new Vector3D(0, (rnd.NextDouble() - 0.5) * 0.02, 0)), MuV, tk);
                 }
-                Ok("a planet's space: 10 s of noisy local measurements -> one solve (not one a frame)", c.Rebuilds == 1, $"{c.Rebuilds}");
+                Ok("a planet's space: 10 s of noisy local measurements -> a few solves while the fit fills (not one a frame)", c.Rebuilds <= 4, $"{c.Rebuilds}");
             }
             var back = RendezvousPlot.Closest(tk => Circ(R0, 0, MuV), tk => Circ(R0, 0, MuV), 100, 50);
             Ok("closest approach over a backwards span: none", !back.Ok);

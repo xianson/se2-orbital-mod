@@ -113,5 +113,40 @@ namespace SEAerospace.Frames
         /// missing past the grace.
         /// </summary>
         public static bool Prune(IFrameWorld w, long id, double missingSeconds, double grace) => !w.IsLive(id) && !w.MayReturn(id) && missingSeconds > grace;
+
+        /// <summary>Periapsis this far over the planet's frame border (m) for an orbit to count as stable.</summary>
+        public const double StableMargin = 5000;
+
+        /// <summary>
+        /// A frame's orbit stays clear of its planet's border: bound (an escape is no place for a station either) and its
+        /// periapsis over the border with <see cref="StableMargin"/> to spare. <paramref name="borderRadius"/>: the planet's
+        /// frame border (its shell). (A body with no planet frame - the star - is always stable: the caller's to say.)
+        /// </summary>
+        public static bool OrbitStable(SEAerospace.Orbital.KeplerianElements el, double borderRadius)
+        {
+            if (double.IsNaN(el.SemiMajorAxis) || double.IsInfinity(el.SemiMajorAxis) || !(el.Eccentricity < 1.0)) return false;
+            return el.PeriapsisRadius > borderRadius + StableMargin;
+        }
+
+        public enum StaticKind { None, Grid, Rock }
+
+        /// <summary>
+        /// What fixed thing anchors a (non-encounter) frame:
+        ///  - a static grid in it (a station, a base): always - on an unstable orbit it is made a ship first (the game's own
+        ///    static/dynamic switch), and anchors as one from then on;
+        ///  - else a rock near its centre - ONLY on a stable orbit. A rock cannot be made a ship and cannot move: a frame
+        ///    decaying into an atmosphere (or escaping) anchored on one was "the rock's orbit" going down, while the rock stayed
+        ///    in its berth for good (and every frame passing it was captured onto that orbit). Unstable, the rock is left out of
+        ///    the frame: it is anchored by its heaviest grid, or the player (ElectAnchor), and the rock is just scenery;
+        ///  - else none (the grids' or the player's election).
+        /// (No hysteresis needed: a rock-anchored frame's orbit is fixed - nothing folds into a static anchor's frame - so only a
+        ///  grid-anchored frame crosses the line, and once rock-anchored it stays on its stable orbit.)
+        /// </summary>
+        public static StaticKind StaticAnchorKind(bool staticGridIn, bool rockNear, bool orbitStable)
+        {
+            if (staticGridIn) return StaticKind.Grid;
+            if (rockNear && orbitStable) return StaticKind.Rock;
+            return StaticKind.None;
+        }
     }
 }

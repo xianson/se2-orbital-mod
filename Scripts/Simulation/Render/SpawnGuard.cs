@@ -72,23 +72,29 @@ public static class SpawnGuard
                 _remove = typeof(ProceduralGeneratorSessionComponent).GetMethod("RemoveLocalSpawnPreventionShape", bf);
                 if (_add == null || _remove == null) { Status = "spawn guard: no prevention zone API"; return; }
             }
+            // What should be closed is read from the frames under FramesLock; the zones are placed and taken away after it (the
+            // generator's calls: the tick held the client's HUD and map for them). Server thread only (Tick, and Refresh from a
+            // split or a warm berth - those already hold the lock, so nothing changes there).
             var want = new Dictionary<long, (Vector3D at, double r, bool border)>();
-            var reg = SystemHost.Frames;
-            var mine = FrameHost.PlayerFrame;
-            if (reg != null)
-                foreach (var f in reg.Frames)
-                {
-                    if (EncounterFrames.IsSite(f)) continue;
-                    if (EncounterFrames.OnPlanetBorder(f, out _)) { want[f.Id] = (f.BerthCenter, EncounterFrames.FarReach, true); continue; }
-                    // A frame nobody is in (the world's own ships, parked in a fresh berth by a split): the game spawned an
-                    // encounter round them there - a 230 ms hitch at each split, and rocks and wrecks in empty berths that
-                    // then captured frames. Its bubble only (slots are 100+ km apart: never over yours).
-                    bool seen = mine != null && mine.Id == f.Id;
-                    if (!seen) foreach (long m in f.Members) if (!GridMembers.IsGridId(m)) { seen = true; break; }   // (a character in it)
-                    if (!seen) want[f.Id] = (f.BerthCenter, ServerFrames.SlotRadius, false);
-                }
-            // free warm berths: their placeholders would trigger encounters as any grid (keys below every frame id)
-            foreach (var w in WarmBerths.FreeWarm()) want[-1000L - w.slot] = (w.at, ServerFrames.SlotRadius, false);
+            lock (ServerFrames.FramesLock)
+            {
+                var reg = SystemHost.Frames;
+                var mine = FrameHost.PlayerFrame;
+                if (reg != null)
+                    foreach (var f in reg.Frames)
+                    {
+                        if (EncounterFrames.IsSite(f)) continue;
+                        if (EncounterFrames.OnPlanetBorder(f, out _)) { want[f.Id] = (f.BerthCenter, EncounterFrames.FarReach, true); continue; }
+                        // A frame nobody is in (the world's own ships, parked in a fresh berth by a split): the game spawned an
+                        // encounter round them there - a 230 ms hitch at each split, and rocks and wrecks in empty berths that
+                        // then captured frames. Its bubble only (slots are 100+ km apart: never over yours).
+                        bool seen = mine != null && mine.Id == f.Id;
+                        if (!seen) foreach (long m in f.Members) if (!GridMembers.IsGridId(m)) { seen = true; break; }   // (a character in it)
+                        if (!seen) want[f.Id] = (f.BerthCenter, ServerFrames.SlotRadius, false);
+                    }
+                // free warm berths: their placeholders would trigger encounters as any grid (keys below every frame id)
+                foreach (var w in WarmBerths.FreeWarm()) want[-1000L - w.slot] = (w.at, ServerFrames.SlotRadius, false);
+            }
 
             foreach (var id in new List<long>(_zones.Keys))
             {

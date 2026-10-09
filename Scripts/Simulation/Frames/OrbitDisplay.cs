@@ -232,10 +232,11 @@ public static class OrbitDisplay
             // (holding station - dampeners on: your orbit is shown, the card and the disc, but no drift plot about the anchor:
             //  you hold, there is no drift - below, with a seat held to the anchor by joints)
             var fc = OrbitPropagation.StateAt(el, t);
-            var mine = new StateVector(fc.Position + SEAerospace.PlanetBerths.SpinToCelestial(obs, FrameHost.RiderOffset),
-                                       fc.Velocity + SEAerospace.PlanetBerths.SpinToCelestial(obs, FrameHost.RiderVelocity));
-            var own = CaptureMath.CaptureElements(mine, el.Mu, t);
-            if (IsFinite(own.SemiMajorAxis)) { el = own; riding = true; }
+            // (the smoothed fit, as the plan's - Maneuvers.Base: a fresh capture of each tick's noisy measurement drew an orbit
+            //  that wandered ~300 m a revolution on, and a plot that disagreed with the plan)
+            if (Maneuvers.OwnOrbitDrawn(frame.Id, el, SEAerospace.PlanetBerths.SpinToCelestial(obs, FrameHost.RiderOffset),
+                                        SEAerospace.PlanetBerths.SpinToCelestial(obs, FrameHost.RiderVelocity), t, out var own)
+                && IsFinite(own.SemiMajorAxis)) { el = own; riding = true; }
             // A static anchor (a station, an asteroid) sits where it is in the frame, not at its centre:
             // the plot is about it, so its own orbit is the frame's plus its offset.
             if (ServerFrames.StaticAnchorView(frame, out Vector3D anchorAt))

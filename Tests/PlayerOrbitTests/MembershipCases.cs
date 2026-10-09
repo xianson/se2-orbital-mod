@@ -106,5 +106,42 @@ static class MembershipCases
             ok("membership: a gone grid pruned past the grace only", !MembershipRules.Prune(w, 33, 5, 10) && MembershipRules.Prune(w, 33, 11, 10));
             ok("membership: a live grid never pruned", !MembershipRules.Prune(w, 30, 600, 10));
         }
+        // 10. a rock anchors a frame only on a stable orbit (a static grid is made a ship there; a rock cannot be, nor moved)
+        {
+            const double mu = 7.785e10, border = 100000;   // (a Verdure-like body; its planet frame's border at 100 km)
+            SEAerospace.Orbital.KeplerianElements Orbit(double rp, double ra)
+            {
+                double a = 0.5 * (rp + ra), v = Math.Sqrt(mu * (2 / rp - 1 / a));
+                return SEAerospace.Orbital.OrbitalMath.ToElements(new SEAerospace.Orbital.StateVector(new Vector3D(rp, 0, 0), new Vector3D(0, v, 0)), mu, 0);
+            }
+            var high = Orbit(363000, 363000);
+            var decaying = Orbit(90000, 363000);                    // periapsis inside the border: going down
+            var grazing = Orbit(border + 3000, 363000);             // over the border, but inside the 5 km margin
+            var clear = Orbit(border + 8000, 363000);
+            double vEsc = Math.Sqrt(2 * mu / 363000);
+            var escape = SEAerospace.Orbital.OrbitalMath.ToElements(new SEAerospace.Orbital.StateVector(new Vector3D(363000, 0, 0), new Vector3D(0, 1.2 * vEsc, 0)), mu, 0);
+            var nan = high; nan.SemiMajorAxis = double.NaN;
+            ok("membership: a high circular orbit is stable", MembershipRules.OrbitStable(high, border));
+            ok("membership: periapsis inside the border: unstable", !MembershipRules.OrbitStable(decaying, border));
+            ok("membership: periapsis over the border inside the 5 km margin: unstable; past it: stable",
+               !MembershipRules.OrbitStable(grazing, border) && MembershipRules.OrbitStable(clear, border));
+            ok("membership: an escape: unstable; NaN elements: unstable (never anchored on a guess)",
+               !MembershipRules.OrbitStable(escape, border) && !MembershipRules.OrbitStable(nan, border));
+            var K = MembershipRules.StaticKind.Rock; var N = MembershipRules.StaticKind.None; var Gk = MembershipRules.StaticKind.Grid;
+            ok("membership: a rock near a frame on a stable orbit anchors it", MembershipRules.StaticAnchorKind(false, true, MembershipRules.OrbitStable(high, border)) == K);
+            ok("membership: a rock near a frame decaying into the atmosphere does NOT anchor it (it cannot leave its berth)",
+               MembershipRules.StaticAnchorKind(false, true, MembershipRules.OrbitStable(decaying, border)) == N);
+            ok("membership: ... nor one on an escape", MembershipRules.StaticAnchorKind(false, true, MembershipRules.OrbitStable(escape, border)) == N);
+            ok("membership: a static grid anchors on any orbit (on an unstable one it is made a ship first)",
+               MembershipRules.StaticAnchorKind(true, true, false) == Gk && MembershipRules.StaticAnchorKind(true, false, true) == Gk);
+            ok("membership: nothing fixed: none", MembershipRules.StaticAnchorKind(false, false, true) == N);
+            // let go of its rock, the frame is anchored as any: its heaviest grid, else the player (the rock is no member)
+            const long Rock = -2;   // (ServerFrames.AsteroidAnchorId)
+            var w = new FakeWorld(); w.Add(70, 2000, F); w.Add(71, 90000, F); w.Add(72, 5000000, F, npc: true);
+            var c = MembershipRules.ElectAnchor(w, F, Rock, new long[] { 70, 71, 72, player }, player, true, out long a);
+            ok("membership: a frame let go of its rock -> its heaviest player grid (not an NPC's, not the player)", c == MembershipRules.AnchorChoice.Grid && a == 71, $"{c} {a}");
+            var e = new FakeWorld();
+            ok("membership: ... no grid in it -> the player", MembershipRules.ElectAnchor(e, F, Rock, new long[] { player }, player, true, out long p) == MembershipRules.AnchorChoice.Player && p == player);
+        }
     }
 }

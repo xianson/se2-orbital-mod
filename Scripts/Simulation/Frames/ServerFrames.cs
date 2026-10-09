@@ -109,7 +109,17 @@ public static class ServerFrames
             if (SystemHost.Frames.FindByMember(g.Id) != null) continue;
             if (SystemHost.Frames.AddMember(f, g.Id)) { Event($"frame #{f.Id}: static grid {g.Id} '{g.DisplayName}' in it joins it"); id = g.Id; pos = GridMembers.Position(g); return true; }
         }
-        // a rock (the same rock while it anchors: one 1 km from the last is another)
+        // a rock - only on a stable orbit (MembershipRules.StaticAnchorKind, tested offline): a static grid on a decaying orbit
+        // is made a ship, a rock cannot be - nor moved. Unstable, the rock is left out: the frame's grids or the player anchor
+        // it (a rock-anchored frame let go here goes to the election below, as when its rock is deleted).
+        if (SEAerospace.Frames.MembershipRules.StaticAnchorKind(false, true, OrbitStable(f)) != SEAerospace.Frames.MembershipRules.StaticKind.Rock)
+        {
+            if (_rockOf.Remove(f.Id) && f.AnchorEntityId == AsteroidAnchorId)
+                Event($"frame #{f.Id}: its orbit meets {f.ParentBodyName}'s border (periapsis {f.Elements.PeriapsisRadius / 1000:F0} km): not anchored on its rock - a rock cannot leave its berth");
+            pos = default;
+            return false;
+        }
+        // (the same rock while it anchors: one 1 km from the last is another)
         double rr = f.AnchorEntityId == AsteroidAnchorId ? CaptureRadius : CaptureEnterRadius;
         if (AsteroidBridge.NearestAsteroid(f.BerthCenter, rr, out pos))
         {
@@ -157,6 +167,46 @@ public static class ServerFrames
         SystemHost.Timescale = to;
         Event($"warp x{was:F0} -> x{to:F0}: a member moves {trueSpeed:F2} m/s relative to its frame (x{was:F0} would need {was * trueSpeed:F0} m/s) - {_fastestName}");
         WarpControl.PendingSay = $"Warp limited to ×{to:N0}: a ship moving nearby";
+    }
+
+    // The fastest TRUE relative speed (m/s) among the members of YOUR frame that the limit above judges - left by the server's
+    // last step of that frame, so a raise can be clamped before it runs a tick it cannot carry (raised first and limited after,
+    // one tick at x1000 flung the ship that tripped it). Written on the server thread, read on the client's: under its lock.
+    private static readonly object _fastLock = new object();
+    private static double _fastTrue, _fastAt = double.NegativeInfinity;
+    private static long _fastFrame, _fastGrid;
+    private static string _fastName;
+    // (the grid's id and name kept, not a message: this runs every tick, the text only when a raise is clamped)
+    static void PublishFastest(long frameId, double trueSpeed, OrbitalGridComponent g)
+    {
+        lock (_fastLock) { _fastFrame = frameId; _fastTrue = trueSpeed; _fastAt = Wall(); _fastGrid = g != null ? g.Id : 0; _fastName = g?.DisplayName; }
+    }
+
+    /// <summary>The highest warp up to <paramref name="want"/> that the limit would leave standing in your frame (as LimitWarp
+    /// picks it, 0.75 under the line: raised to just under it, a ship speeding up a little dropped it again); never below
+    /// <paramref name="cur"/> (a clamp of a raise, not a cut). <paramref name="why"/> names the ship when it clamped.</summary>
+    public static double ClampWarpRaise(double want, double cur, out string why)
+    {
+        why = null;
+        if (want <= cur || want <= 1.0) return want;
+        var pf = FrameHost.PlayerFrame;
+        double v; string name;
+        lock (_fastLock)
+        {
+            // (only your frame's, and only fresh: a frame not stepped for a while has nothing moving in it to judge)
+            if (pf == null || pf.Id != _fastFrame || Wall() - _fastAt > 2.0) return want;
+            v = _fastTrue; name = $"grid {_fastGrid} '{_fastName}' in frame #{_fastFrame}";
+        }
+        if (want * v <= WarpMemberSpeed * 0.75) return want;
+        double to = 1;
+        foreach (double l in WarpControl.Levels) if (l * v <= WarpMemberSpeed * 0.75 && l <= want) to = l;
+        to = Math.Max(to, cur);
+        if (to < want)
+        {
+            why = name;
+            Event($"warp raise x{cur:F0} -> x{want:F0} held at x{to:F0}: a member moves {v:F2} m/s relative to its frame (x{want:F0} would need {want * v:F0} m/s) - {name}");
+        }
+        return to;
     }
     public static readonly Dictionary<long, Vector3D> AnchorAccel = new Dictionary<long, Vector3D>();
 
@@ -209,7 +259,7 @@ public static class ServerFrames
         if (!OrbitalSettings.SawServer) OrbitalSettings.SawServer = true;
         OrbitalSettings.Poll();   // (the settings files, every ~2 s)
         SavedState.ApplyRadarSettings();
-        lock (FramesLock) SpawnGuard.Tick(AsteroidBridge.Generator(session));
+        SpawnGuard.Tick(AsteroidBridge.Generator(session));   // (takes FramesLock itself, only to read the frames: the zones' calls after it)
         StationKeepCharge.Sweep();   // (thrusters of grids no longer holding station ask nothing more)
         GridMembers.SweepTombs();   // (grids gone for good: forgotten once their tombstones expire)
         WarmBerths.Tick(session);   // (berths kept warm: no engine stall when a frame takes one)
@@ -312,6 +362,9 @@ public static class ServerFrames
                 if (_tick % MergeScreenInterval == 0) ScreenMerges(MergeScreenInterval * dt);
                 if (_tick % 60 == 0) CheckInvariants();   // (the frames' rules, judged once a second: Invariants)
             }
+            // The generator's work the locked step planned (rock volumes out and in, its sectors rebuilt, its bodies counted):
+            // the engine's, and slow at times - out here it no longer holds the client's HUD, map and player tick on FramesLock.
+            AsteroidFrames.ServerAfterLock(session);
         }
 
         if (_tick % 30 == 0) { BuildSnapshot(); AdoptLooseGrids(); }
@@ -560,9 +613,8 @@ public static class ServerFrames
         var def = SystemHost.Registry?.FindDefinition(f.ParentBodyName);
         var node = SystemHost.Registry?.Find(f.ParentBodyName);
         if (def == null || node == null || node.IsRoot || string.IsNullOrEmpty(def.ParkSubtype)) return true;
-        var el = f.Elements;
-        if (!IsFinite(el.SemiMajorAxis) || !(el.Eccentricity < 1.0)) return false;
-        return el.PeriapsisRadius > PlanetBerths.ShellRadius(def) + 5000;
+        // (the rule itself is game-free: MembershipRules.OrbitStable, tested offline)
+        return SEAerospace.Frames.MembershipRules.OrbitStable(f.Elements, PlanetBerths.ShellRadius(def));
     }
     private static void ExecuteMerge(ProximityFrame fa, ProximityFrame fb, StateVector sa, StateVector sb)
     {
@@ -996,7 +1048,7 @@ public static class ServerFrames
         // Warp N: relative motion N times faster, as the rails. In warp (and for a moment after) each member is
         // steered along its own Kepler orbit (see below); at x1 the differential gravity is integrated as ever.
         double N = Math.Max(1.0, SystemHost.Timescale);
-        double fastest = 0;
+        double fastest = 0; OrbitalGridComponent fastestG = null;
         // the game clock's step since this frame's last step (the steering's horizon)
         { double tnow = SystemHost.Now; _steerStep = _lastSteerNow.TryGetValue(f.Id, out double ln) && tnow > ln && tnow - ln < 10 * dt * N ? tnow - ln : 0; _lastSteerNow[f.Id] = tnow; }   // the largest physical speed a member needs this tick (N x its true relative speed)
         // what is joined to the anchor (docked, on its rotors and hinges): one body with it - never station-keeping on its
@@ -1132,17 +1184,26 @@ public static class ServerFrames
                     GridMembers.SetVelocity(g, vPhys);
                     _vSet[g.Id] = vPhys;
                     if (steerSet != null) foreach (var o in steerSet) if (o != g) GridMembers.SetVelocity(o, vPhys);   // (the whole ship)
-                    if (!unseen && N * _trueRel[g.Id].Length() > fastest) { fastest = N * _trueRel[g.Id].Length(); _fastestName = $"grid {g.Id} '{g.DisplayName}' in frame #{f.Id}"; }   // (its own orbit's speed, not a catch-up)
+                    if (!unseen && N * _trueRel[g.Id].Length() > fastest) { fastest = N * _trueRel[g.Id].Length(); fastestG = g; }   // (its own orbit's speed, not a catch-up)
                     if (settle > 0) { if (--settle == 0) { _settle.Remove(g.Id); _trueRel.Remove(g.Id); } else _settle[g.Id] = settle; }
                     continue;
                 }
             }
             _trueRel.Remove(g.Id); _vSet.Remove(g.Id);
+            // At x1 nothing is steered, and its velocity IS its true relative one: judged as the steering would judge it in
+            // warp (the same members - not an encounter's, not one off the chart), so a raise from x1 knows it too.
+            if (N <= 1.0 && lag == null && IsFinite(rRel) && FrameHost.PlayerFrame is ProximityFrame pf1 && pf1.Id == f.Id)
+            {
+                double v1 = GridMembers.Velocity(g).Length();
+                if (IsFinite(v1) && v1 > fastest) { fastest = v1; fastestG = g; }
+            }
             if (IsFinite(accel)) GridMembers.AddVelocity(g, accel * (dt * N * N));
         }
         // Warp is limited by what the physics can carry: a member moving relative to you needs N times its speed,
         // and the world caps speed (as KSP limits warp by circumstance).
-        if (N > 1.0 && fastest > WarpMemberSpeed) LimitWarp(fastest / N);
+        if (N > 1.0 && fastest > WarpMemberSpeed) { _fastestName = $"grid {fastestG?.Id} '{fastestG?.DisplayName}' in frame #{f.Id}"; LimitWarp(fastest / N); }
+        // (and left for a raise to read: your frame only - the unseen ones never limit)
+        if (FrameHost.PlayerFrame is ProximityFrame pf2 && pf2.Id == f.Id) PublishFastest(f.Id, fastest / N, fastestG);
 
         // encounter frames never arrive; a player-anchored frame with no grids arrives client-side - with grids in it, here
         // (the client moved only the player and left the ships at the berth with no frame)

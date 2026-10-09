@@ -64,7 +64,7 @@ public static class Maneuvers
     public static void ClearAll() { lock (Nodes) Nodes.Clear(); Selected = null; }
     /// <summary>A new world: the last one's nodes (a reload doubled the saved ones), target, Lagrange plan and path cache.</summary>
     /// <summary>Your own orbit while riding: none kept (a new session, a new world).</summary>
-    public static void ResetOwnOrbit() { lock (_own) _own.Clear(); }
+    public static void ResetOwnOrbit() { lock (_own) _own.Clear(); lock (_ownDrawn) _ownDrawn.Clear(); }
 
     public static void ResetWorld()
     {
@@ -140,6 +140,15 @@ public static class Maneuvers
 
     /// <summary>Your own orbit while riding (kept while it still says where you are: the plan is not re-solved every tick).</summary>
     static readonly SEAerospace.Frames.RendezvousPlot.OwnOrbit _own = new SEAerospace.Frames.RendezvousPlot.OwnOrbit();
+
+    /// <summary>Your own orbit as the HUD draws it while riding (OrbitDisplay): the same smoothed fit as the plan's (the
+    /// drawn orbit and its drift plot were a fresh capture of each tick's noisy measurement), kept on its own (the HUD may
+    /// draw a frame the plan is not on - DevRider - and two keys in one fit would restart it every call). False: no orbit.</summary>
+    public static bool OwnOrbitDrawn(long frameId, KeplerianElements frameEl, Vector3D offCelestial, Vector3D velCelestial, double t, out KeplerianElements el)
+    {
+        lock (_ownDrawn) return _ownDrawn.TryGet(frameId, frameEl, offCelestial, velCelestial, t, out el);
+    }
+    static readonly SEAerospace.Frames.RendezvousPlot.OwnOrbit _ownDrawn = new SEAerospace.Frames.RendezvousPlot.OwnOrbit();
 
     /// <summary>The prograde / normal / radial-out axes at a state.</summary>
     public static void Axes(StateVector s, out Vector3D P, out Vector3D N, out Vector3D R)

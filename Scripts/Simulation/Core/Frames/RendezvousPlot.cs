@@ -147,47 +147,165 @@ namespace SEAerospace.Frames
 
         /// <summary>
         /// Your own orbit while riding a frame: the frame's state plus your offset and velocity in it (celestial
-        /// axes). Kept while it still says where you are - within PosTol and VelTol of the measurement - so a plan
-        /// built on it is not re-solved every tick for the measurement's noise; a burn, a push off a wall, a new
-        /// frame: new elements.
+        /// axes) - or, in a planet's space, your own state directly. Kept while it still says where you are, so a plan
+        /// built on it is not re-solved every tick for the measurement's noise; a burn, a push off a wall, a new frame:
+        /// new elements.
+        ///
+        /// SMOOTHED: the kept orbit is solved from a least-squares fit over the last few seconds of measurements, not
+        /// from one. One measurement's velocity noise becomes an along-track error of ~3 T dv a revolution (the old
+        /// single-measurement gate, 0.05 m/s, let the plan lag ~860 m a revolution), and a gate tighter than the noise
+        /// re-solved every tick. Averaged over N measurements the noise is ~sqrt(N) smaller, so the gate can be that much
+        /// tighter without churn.
+        ///  - The fit: each measurement is kept as its residual from the kept orbit (position, velocity). Over a few
+        ///    seconds the difference of two nearby Kepler orbits is linear (dr + dv tau: the gravity-gradient term,
+        ///    n^2 tau^2 ~ 1e-5, is far under the noise), so the state at t is a 2-parameter weighted least squares per
+        ///    axis (positions weighted 1/SigmaP^2, velocities 1/SigmaV^2) - one pass over a fixed ring, no allocation.
+        ///  - The gate: re-solved when the fit leaves the kept orbit by more than K x the fit's own standard error
+        ///    (scaled by the residuals' reduced chi-square, so a noisier feed than the nominal widens it by itself),
+        ///    floored at FitPosTol / FitVelTol, never wider than PosTol / VelTol (the old gate).
+        ///  - A real change (a burn, a bump, a teleport): a measurement further from the fit than PosTol / VelTol -
+        ///    beyond anything the noise does - drops the window and starts over from that measurement, at once.
+        ///  - A gap longer than the window (warp: game seconds per tick) drops the window too: a lone measurement is
+        ///    gated exactly as before (PosTol / VelTol), so warp is no worse than unsmoothed.
         /// </summary>
         public sealed class OwnOrbit
         {
-            public double PosTol = 25, VelTol = 0.05;   // (bounded by the measurements' noise: tighter, the plan re-solved every tick - a lag of up to ~860 m a revolution remains; smoothing the measurements is the fix)
+            /// <summary>A real change: a measurement this far from the fit (the single measurement's noise bound - the old gate).</summary>
+            public double PosTol = 25, VelTol = 0.05;
+            /// <summary>The smoothed gate's floors (with the window full the fit's noise is well under these).</summary>
+            public double FitPosTol = 2, FitVelTol = 0.002;
+            /// <summary>The measurement's nominal noise (1 sigma per axis): the fit's weights and its standard error's floor.</summary>
+            public double SigmaP = 1, SigmaV = 0.01;
+            /// <summary>Game seconds of measurements the fit spans (0: no smoothing - each measurement alone, the old gate).</summary>
+            public double Window = 5;
+            const double K = 4;          // standard errors the fit may leave the kept orbit by (noise, not a change)
+            const int Cap = 256;         // ~4 s at 60 Hz
+            readonly double[] _rt = new double[Cap];
+            readonly Vector3D[] _rp = new Vector3D[Cap], _rv = new Vector3D[Cap];
+            int _head, _n;   // ring: the newest at _head - 1, _n of them
+            double _lastT;
             KeplerianElements _el; long _frame = long.MinValue; bool _has;
             public int Rebuilds { get; private set; }
+            /// <summary>Measurements in the fit now (tests).</summary>
+            public int WindowCount => _n;
 
             public KeplerianElements Get(long frameId, KeplerianElements frameEl, Vector3D offset, Vector3D velocity, double t)
             {
                 var fc = OrbitPropagation.StateAt(frameEl, t);
                 var mine = new StateVector(fc.Position + offset, fc.Velocity + velocity);
-                if (_has && _frame == frameId)
-                {
-                    var p = OrbitPropagation.StateAt(_el, t);
-                    if ((p.Position - mine.Position).Length() <= PosTol && (p.Velocity - mine.Velocity).Length() <= VelTol && Finite(p.Position)) return _el;
-                }
-                var el = Capture(mine, frameEl.Mu, t);
-                if (!Finite(new Vector3D(el.SemiMajorAxis, el.Eccentricity, el.Inclination))) { _has = false; return frameEl; }
-                _el = el; _frame = frameId; _has = true; Rebuilds++;
-                return el;
+                var el = Observe(frameId, mine, frameEl.Mu, t, out bool ok);
+                return ok ? el : frameEl;
             }
 
-            /// <summary>As Get, from your own state directly (a planet's space: the local orbit measured each tick) - kept while
-            /// it still says where you are, so the plan is not re-solved every frame for the measurement's noise.</summary>
-            public KeplerianElements GetState(long key, StateVector mine, double mu, double t)
+            /// <summary>As Get; false (and the frame's elements) when no orbit could be solved from the measurement.</summary>
+            public bool TryGet(long frameId, KeplerianElements frameEl, Vector3D offset, Vector3D velocity, double t, out KeplerianElements el)
             {
-                if (_has && _frame == key)
+                var fc = OrbitPropagation.StateAt(frameEl, t);
+                el = Observe(frameId, new StateVector(fc.Position + offset, fc.Velocity + velocity), frameEl.Mu, t, out bool ok);
+                if (!ok) el = frameEl;
+                return ok;
+            }
+
+            /// <summary>As Get, from your own state directly (a planet's space: the local orbit measured each tick).</summary>
+            public KeplerianElements GetState(long key, StateVector mine, double mu, double t)
+                => Observe(key, mine, mu, t, out _);
+
+            KeplerianElements Observe(long key, StateVector mine, double mu, double t, out bool ok)
+            {
+                ok = true;
+                // (a new key, or the clock gone back more than the window - a reload: no history to fit)
+                if (!_has || _frame != key || !(t >= _lastT - Window)) return Restart(key, mine, mu, t, out ok);
+                if (t - _lastT > Window) { _n = 0; _head = 0; }   // (a gap: what the window held is too far back for the linear fit)
+                var p = OrbitPropagation.StateAt(_el, t);
+                Vector3D dr = mine.Position - p.Position, dv = mine.Velocity - p.Velocity;
+                if (!Finite(dr) || !Finite(dv)) return Restart(key, mine, mu, t, out ok);
+                // a real change: this measurement is not the motion the window has been seeing. The old gate's bound, fixed - not
+                // widened by the window's scatter: a steady burn is a ramp the linear fit misreads as noise, and a widened bound
+                // let the kept orbit trail a burn by tenths of a m/s (the burn readout stops at 0.1); fixed, it trails as before
+                Fit(t, out Vector3D fr, out Vector3D fv, out _, out _);
+                if ((dr - fr).Length() > PosTol || (dv - fv).Length() > VelTol) return Restart(key, mine, mu, t, out ok);
+                // Several callers ask in one tick (the plan, the map, the HUD) with the same measurement: one sample per
+                // moment, else the same tick is counted many times (and a caller a hair behind is only gated)
+                if (t > _lastT || _n == 0) { Push(t, dr, dv); _lastT = Math.Max(_lastT, t); }
+                Fit(t, out fr, out fv, out double posTol, out double velTol);
+                if (fr.Length() <= posTol && fv.Length() <= velTol) return _el;
+                // the fit has left the kept orbit: re-solved from the smoothed state, not from this measurement
+                var el = Capture(new StateVector(p.Position + fr, p.Velocity + fv), mu, t);
+                if (!Finite(new Vector3D(el.SemiMajorAxis, el.Eccentricity, el.Inclination))) return _el;
+                // the window's residuals re-based on the new orbit: near t it is the old one plus (fr + fv tau, fv) - the fit's
+                // own linear model - so the next fit starts at zero instead of solving the same difference again
+                for (int k = 0; k < _n; k++)
                 {
-                    var p = OrbitPropagation.StateAt(_el, t);
-                    if ((p.Position - mine.Position).Length() <= PosTol && (p.Velocity - mine.Velocity).Length() <= VelTol && Finite(p.Position)) return _el;
+                    int i = (_head - 1 - k + Cap) % Cap;
+                    double tau = _rt[i] - t;
+                    _rp[i] -= fr + fv * tau; _rv[i] -= fv;
                 }
-                var el = Capture(mine, mu, t);
-                if (!Finite(new Vector3D(el.SemiMajorAxis, el.Eccentricity, el.Inclination))) { _has = false; return el; }
-                _el = el; _frame = key; _has = true; Rebuilds++;
+                _el = el; Rebuilds++;
                 return el;
             }
 
-            public void Clear() { _has = false; }
+            /// <summary>Elements from this one measurement; the window starts over with it.</summary>
+            KeplerianElements Restart(long key, StateVector mine, double mu, double t, out bool ok)
+            {
+                _n = 0; _head = 0;
+                var el = Capture(mine, mu, t);
+                if (!Finite(new Vector3D(el.SemiMajorAxis, el.Eccentricity, el.Inclination))) { _has = false; ok = false; return el; }
+                _el = el; _frame = key; _has = true; _lastT = t; Rebuilds++; ok = true;
+                Push(t, Vector3D.Zero, Vector3D.Zero);   // (the capture passes through it exactly)
+                return el;
+            }
+
+            void Push(double t, Vector3D dr, Vector3D dv)
+            {
+                if (!(Window > 0)) { _n = 0; _head = 0; }   // (no smoothing: only the newest)
+                _rt[_head] = t; _rp[_head] = dr; _rv[_head] = dv;
+                _head = (_head + 1) % Cap;
+                if (_n < Cap) _n++;
+            }
+
+            /// <summary>The window's least-squares state at t, relative to the kept orbit (fr, fv), and how far the kept orbit
+            /// may be from it before that is more than noise (posTol, velTol). Measurements older than the window are dropped.</summary>
+            void Fit(double t, out Vector3D fr, out Vector3D fv, out double posTol, out double velTol)
+            {
+                fr = Vector3D.Zero; fv = Vector3D.Zero; posTol = PosTol; velTol = VelTol;
+                // (dropped from the old end: the ring's oldest are the furthest back)
+                while (_n > 0 && t - _rt[(_head - _n + Cap) % Cap] > Window) _n--;
+                if (_n == 0) return;
+                double wp = 1 / (SigmaP * SigmaP), wv = 1 / (SigmaV * SigmaV);
+                // the normal equations, one matrix for x, y and z: [A B; B C+V] [a; b] = [Sp; Stp + Sv]
+                double A = 0, B = 0, C = 0, V = 0;
+                Vector3D Sp = Vector3D.Zero, Stp = Vector3D.Zero, Sv = Vector3D.Zero;
+                for (int k = 0; k < _n; k++)
+                {
+                    int i = (_head - 1 - k + Cap) % Cap;
+                    double tau = _rt[i] - t;
+                    A += wp; B += wp * tau; C += wp * tau * tau; V += wv;
+                    Sp += _rp[i] * wp; Stp += _rp[i] * (wp * tau); Sv += _rv[i] * wv;
+                }
+                double det = A * (C + V) - B * B;
+                if (!(det > 0)) return;
+                Vector3D rb = Stp + Sv;
+                fr = (Sp * (C + V) - rb * B) * (1 / det);
+                fv = (rb * A - Sp * B) * (1 / det);
+                // a lone measurement is no fit: the old gate (also what warp sees - a game second or more between ticks)
+                if (_n < 2) return;
+                // the residuals' scatter about the fit (reduced chi-square: 3 axes x 2n equations, 6 unknowns) - the real
+                // noise as a multiple of the nominal - never below it (a clean feed keeps the floors)
+                double chi = 0;
+                for (int k = 0; k < _n; k++)
+                {
+                    int i = (_head - 1 - k + Cap) % Cap;
+                    double tau = _rt[i] - t;
+                    chi += wp * (_rp[i] - fr - fv * tau).LengthSquared() + wv * (_rv[i] - fv).LengthSquared();
+                }
+                double s2 = Math.Max(1.0, chi / (6 * _n - 6));
+                // the fit's standard errors at t (the inverse's diagonal), as 3-D lengths
+                double seP = Math.Sqrt(3 * s2 * (C + V) / det), seV = Math.Sqrt(3 * s2 * A / det);
+                posTol = Math.Min(PosTol, Math.Max(FitPosTol, K * seP));
+                velTol = Math.Min(VelTol, Math.Max(FitVelTol, K * seV));
+            }
+
+            public void Clear() { _has = false; _n = 0; _head = 0; }
         }
 
         static bool Finite(Vector3D v) => !(double.IsNaN(v.X) || double.IsNaN(v.Y) || double.IsNaN(v.Z) || double.IsInfinity(v.X) || double.IsInfinity(v.Y) || double.IsInfinity(v.Z));

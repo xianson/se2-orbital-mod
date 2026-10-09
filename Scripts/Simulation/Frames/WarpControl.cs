@@ -33,8 +33,7 @@ public static class WarpControl
         int i = 0;
         for (int k = 0; k < Levels.Length; k++) if (SystemHost.Timescale >= Levels[k] - 1e-6) i = k;
         i = Math.Clamp(i + (up ? 1 : -1), 0, Levels.Length - 1);
-        SystemHost.Timescale = Levels[i];
-        Say($"Warp ×{Levels[i]:N0}");
+        Raise(Levels[i]);
     }
 
     /// <summary>Warp at level i (the warp bar's arrows): x1 always; faster only on rails.</summary>
@@ -42,8 +41,21 @@ public static class WarpControl
     {
         i = Math.Clamp(i, 0, Levels.Length - 1);
         if (i > 0 && FrameHost.PlayerFrame == null) { SystemHost.Timescale = 1; Say("Needs rails: leave the planet's space first"); return; }
-        SystemHost.Timescale = Levels[i];
-        Say($"Warp ×{Levels[i]:N0}");
+        Raise(Levels[i]);
+    }
+
+    /// <summary>
+    /// To warp level `want`, held first to what a ship moving in your frame allows - the rule the server's limit applies
+    /// (ServerFrames.ClampWarpRaise: N x its true relative speed, your frame's ships only, none held at a station). Raised
+    /// first and limited after, the warp ran one tick at the new level: a ship in your frame carried at N x its speed for it.
+    /// (Lowering is never held.)
+    /// </summary>
+    static void Raise(double want)
+    {
+        double cur = SystemHost.Timescale;   // (read once: the server's limit writes it in parallel)
+        double to = ServerFrames.ClampWarpRaise(want, cur, out string why);
+        SystemHost.Timescale = to;
+        Say(why != null ? $"Warp limited to ×{to:N0}: a ship moving nearby" : $"Warp ×{to:N0}");
     }
 
     public static Keen.VRage.Core.Game.Systems.Session Session;

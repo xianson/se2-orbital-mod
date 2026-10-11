@@ -8,42 +8,48 @@ using Keen.VRage.Library.Filesystem;
 namespace OrbitalMod;
 
 /// <summary>
-/// A high-detail proxy globe: a runtime cube-sphere textured with the planet's own 8K per-face
-/// overlay colour maps (Verdure_cm_px.. / Kemik_Right_cm..), instead of the colonization-map model
-/// whose 2K atlas of 20 icosahedron patches looks faceted and seamed up close.
+/// A high-detail proxy globe: a runtime cube-sphere textured with the planet's OWN overlay maps - the
+/// colour and normal cubemaps the real planet draws with from orbit (PlanetOverlayDefinition.
+/// OverlayColorMetal / OverlayNormalAO) - instead of the colonization-map model whose 2K atlas of 20
+/// icosahedron patches looks faceted and seamed up close.
 ///
 /// Built once per planet (per <see cref="Generation"/>), the way MapSectorsMesherComponent builds
 /// its runtime mesh (see MapPipeline): one sub-part and mesh section per cube face, each with its
 /// own runtime PBREmissive material in the MapPlanet state (the colonization globe's state: it
 /// scales the vertices by ScaleCustomData, so the mesh is a UNIT sphere and UpdateProxy's scale is
-/// simply the render radius). Optionally a cloud shell sub-part with the planet's map cloud material.
+/// simply the render radius). No cloud shell: the map cloud
+/// material only masks by its colonization atlas, so on this mesh it drew noise (removed 2026-10-11).
 ///
-/// The face textures are found in the content cache next to the planet's overlay cubemap
-/// (PlanetOverlayDefinition.OverlayColorMetal); they are indexed there but referenced by no definition.
-/// Which texture goes on which face, and how it is turned, is the <see cref="Faces"/> table:
-/// the default is the D3D cubemap convention the voxel code uses (CubemapCoordinates, uncorrected),
-/// tunable from the dev harness ("hiresglobe face ...").
+/// The textures are the overlay cubemaps' faces re-packed for that material by tools/globes/bake_globes.py
+/// (Assets/PlanetGlobes/&lt;Folder&gt;, compiled with the mod's content, found in the content cache):
+///  - &lt;Folder&gt;_globe_cm_&lt;face&gt;: the colour, bit for bit, with a zero alpha. The material reads metalness
+///    from that alpha; the game's own per-face colour maps carry BC1's alpha 1 - a fully metal, tan,
+///    mirror-like globe - where the terrain's overlay path forces metal 0.
+///  - &lt;Folder&gt;_globe_nr_&lt;face&gt;: the overlay's OBJECT-space normals turned into this mesh's tangent space
+///    (AddFace: T along +s, B along +t), roughness 1 (the overlay path's constant).
+/// Which texture goes on which face, and how it is turned, is the <see cref="Faces"/> table: the default
+/// is the D3D cubemap convention the voxel code samples the overlay by (CubemapCoordinates, uncorrected),
+/// tunable from the dev harness ("hiresglobe face ..."); the normal bake assumes that default.
 ///
-/// Everything is best effort: a planet without face textures, or any failure, gives null and the
-/// proxy keeps the map model. Off by default (<see cref="Enabled"/>).
+/// Everything is best effort: a planet without baked textures, or any failure, gives null and the
+/// proxy keeps the map model.
 /// </summary>
 public static class PlanetMesh
 {
     /// <summary>Master switch; the proxies pick it up on their next update.</summary>
-    public static bool Enabled = false;
-    /// <summary>A cloud shell with the planet's map cloud material (only with <see cref="Enabled"/>).</summary>
-    public static bool Clouds = true;
+    public static bool Enabled = true;
     /// <summary>Quads per cube-face edge (a power of two keeps the half-float UVs exact).</summary>
     public static int Quads = 64;
-    public static float CloudRadius = 1.012f;
     /// <summary>
-    /// The cloud material masks clouds by its colonization displacement atlas at the mesh UV; our UVs
-    /// are not that atlas's, so the whole shell samples one spot of it: an unused (zero-height) corner
-    /// of the Verdure and Kemik atlases, i.e. clouds from the noise alone.
+    /// Front faces counter-clockwise seen from outside; false: clockwise. The MapPlanet state culls back faces,
+    /// and in game (tools/harness/globeshot.sh, 2026-10-10) counter-clockwise showed the far hemisphere's
+    /// INSIDE - lit on the side away from the sun - and clockwise matches the real planet's terminator.
     /// </summary>
-    public static Vector2 CloudUv = new Vector2(0.02f, 0.25f);
-    /// <summary>Front faces counter-clockwise seen from outside (as PlanetWaterRenderUtils.CreateCube); false flips.</summary>
-    public static bool CcwOutside = true;
+    public static bool CcwOutside = false;
+    /// <summary>The baked normal maps (else the material's flat default). Dev switch.</summary>
+    public static bool NormalMaps = true;
+    /// <summary>Multiplies the tangent's w (the bitangent's sign). Dev switch, to check the normal bake's convention.</summary>
+    public static float TangentSign = 1f;
 
     /// <summary>Bumped by every change above: proxies swap to the current model on their next update.</summary>
     public static int Generation { get; private set; }
@@ -69,16 +75,9 @@ public static class PlanetMesh
     /// <summary>The MapPlanet material state (VRage Engine Content/Materials/States/MapPlanet.def).</summary>
     private static readonly Guid MapPlanetState = new Guid("8bb9a381-432c-4b96-b31a-50dfaab5ba4f");
 
-    /// <summary>The planets' map cloud materials (ColonizationMap/Models/Planets/*/..CloudsColonization.def), by planet folder.</summary>
-    private static readonly Dictionary<string, Guid> CloudMaterials = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase)
-    {
-        { "Verdure", new Guid("668536af-9831-4718-bac6-40b58415cf13") },
-        { "Kemik", new Guid("518cfe4b-d644-4331-b32a-f40ce4d2de10") },
-    };
-
     public static void SetEnabled(bool on) { Enabled = on; Invalidate(); }
-    public static void SetClouds(bool on) { Clouds = on; Invalidate(); }
     public static void SetWinding(bool ccwOutside) { CcwOutside = ccwOutside; Invalidate(); }
+    public static void SetNormals(bool on, float tangentSign) { NormalMaps = on; TangentSign = tangentSign; Invalidate(); }
 
     public static string SetFace(int face, int tex, bool flipU, bool flipV, int rot)
     {
@@ -99,7 +98,21 @@ public static class PlanetMesh
         public object Model;   // boxed RuntimeModel
         public int Users;
         public bool Retired;
+        /// <summary>Its textures, pinned (a boxed ResourcePin) while a visible proxy shows it: <see cref="SetShown"/>.</summary>
+        public List<ResourceHandle<TextureAsset>> Textures = new List<ResourceHandle<TextureAsset>>();
+        public int Shown;
+        public object Pin;
     }
+
+    /// <summary>
+    /// Pin the globes' textures while shown. The streamer otherwise picks a model texture's mip from its distance
+    /// alone at a fixed 1024 texels per metre (ManagedTexturePrioritizerComponent.CollectStandards / ApplyStandardMaterials):
+    /// a planet-sized proxy only ever gets the tail mips - the blotchy globe. The game pins its own terrain textures
+    /// the same way (TriplanarMaterialsComponent: RenderContracts.CreateTextureResourcePin).
+    /// </summary>
+    public static bool PinTextures = true;
+    /// <summary>ResourcePinType: 1 ObeyQuality (full size down to the texture-quality preset's skipped mips), 2 IgnoreQuality.</summary>
+    public static int PinType = 1;
 
     private sealed class Info
     {
@@ -108,10 +121,10 @@ public static class PlanetMesh
         public string Folder, Dir;
         public readonly string[] Files = new string[6];
         public readonly ResourceHandle<TextureAsset>?[] Tex = new ResourceHandle<TextureAsset>?[6];
-        public readonly PBREmissiveMaterialDefinition[] Mats = new PBREmissiveMaterialDefinition[6];
-        public readonly object[] MatHandles = new object[6];   // boxed RuntimeMaterialHandle<T>
+        public readonly ResourceHandle<TextureAsset>?[] NTex = new ResourceHandle<TextureAsset>?[6];   // normal + roughness
+        public readonly PBREmissiveMaterialDefinition[] Mats = new PBREmissiveMaterialDefinition[12];   // 0-5 with the normal maps, 6-11 without
+        public readonly object[] MatHandles = new object[12];   // boxed RuntimeMaterialHandle<T>
         public bool MaterialsOk;
-        public MaterialDefinition CloudMat;
         public Built Mesh;
         public int MeshGeneration = -1;
         public int FailedGeneration = -1;
@@ -178,8 +191,45 @@ public static class PlanetMesh
         }
     }
 
+    /// <summary>A proxy showing this model became visible (true) or hidden / let go of it (false).</summary>
+    public static void SetShown(Built b, bool shown)
+    {
+        if (b == null) return;
+        lock (_sync)
+        {
+            b.Shown = Math.Max(0, b.Shown + (shown ? 1 : -1));
+            if (b.Shown > 0 && b.Pin == null && PinTextures && !b.Retired) b.Pin = MakePin(b);
+            else if (b.Shown == 0) Unpin(b);
+        }
+    }
+
+    private static object MakePin(Built b)
+    {
+        if (b.Textures.Count == 0) return null;
+        try
+        {
+            object contracts = PlanetRenderBridge.Contracts;
+            MethodInfo m = contracts?.GetType().GetMethod("CreateTextureResourcePin");
+            if (m == null) { PlanetRenderBridge.WarnOnce("hiresglobe-pin", "RenderContracts.CreateTextureResourcePin not found: globe textures not pinned"); return null; }
+            var ps = m.GetParameters();
+            var handles = new Buffer<ResourceHandle<TextureAsset>>(Allocator.Heap, "OrbitalGlobePin");
+            foreach (var t in b.Textures) handles.Add(t);
+            return m.Invoke(contracts, new object[] { handles, Enum.ToObject(ps[1].ParameterType, PinType), Enum.ToObject(ps[2].ParameterType, 1 /* Texture2D */), "OrbitalGlobe" });
+        }
+        catch (Exception e) { PlanetRenderBridge.WarnOnce("hiresglobe-pin", "globe texture pin failed: " + PlanetRenderBridge.Inner(e)); return null; }
+    }
+
+    private static void Unpin(Built b)
+    {
+        if (b.Pin == null) return;
+        try { (b.Pin as IDisposable)?.Dispose(); }
+        catch (Exception e) { PlanetRenderBridge.WarnOnce("hiresglobe-unpin", "globe texture unpin failed: " + PlanetRenderBridge.Inner(e)); }
+        b.Pin = null;
+    }
+
     private static void DisposeIfUnused(Built b)
     {
+        if (b.Retired) Unpin(b);
         if (!b.Retired || b.Users > 0 || b.Model == null) return;
         try { b.Model.GetType().GetMethod("Dispose", new[] { typeof(bool) })?.Invoke(b.Model, new object[] { false }); }   // delayed: runs in order after the swaps
         catch (Exception e) { PlanetRenderBridge.WarnOnce("hiresglobe-dispose", "hi-res globe dispose failed: " + PlanetRenderBridge.Inner(e)); }
@@ -211,7 +261,7 @@ public static class PlanetMesh
 
     private static string Discover(PlanetRenderBridge.PlanetHandles h, Info info)
     {
-        for (int k = 0; k < 6; k++) { info.Tex[k] = null; info.Files[k] = null; }
+        for (int k = 0; k < 6; k++) { info.Tex[k] = null; info.NTex[k] = null; info.Files[k] = null; }
         if (h.Overlay == null) return "no planet overlay (no terrain definition)";
         object cube = PlanetRenderBridge.GetMember(h.Overlay, "OverlayColorMetal");
         if (!(cube is IResourceHandle rh)) return "overlay has no OverlayColorMetal";
@@ -237,52 +287,33 @@ public static class PlanetMesh
             foreach (var t in cache.GetAssets<TextureAsset>())
             {
                 if (!cache.TryTranslateResourceHandle((ResourceHandle)t, out FileHandle f) || f.Path == null) continue;
-                if (f.Path.IndexOf("Planets", StringComparison.OrdinalIgnoreCase) < 0) continue;   // only planet folders are ever asked for
+                if (f.Path.IndexOf("PlanetGlobes", StringComparison.OrdinalIgnoreCase) < 0) continue;   // only the baked globes are ever asked for
                 list.Add((DirOf(f.Path), NameOf(f.Path), t));
             }
             _indexed = list;
         }
 
+        // The baked faces: ..\PlanetGlobes\<Folder>\<Folder>_globe_cm_px.dds (and _nr_).
+        if (info.Folder == null) return "no planet folder in the overlay's path " + dir;
+        string prefix = info.Folder + "_globe_";
         int found = 0;
         foreach (var (d, name, handle) in _indexed)
         {
-            if (!d.Equals(dir, StringComparison.OrdinalIgnoreCase)) continue;
-            int face = FaceOf(name);
-            if (face < 0 || info.Tex[face].HasValue) continue;
-            info.Tex[face] = handle;
-            info.Files[face] = name;
-            found++;
+            if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) || name.Length < prefix.Length + 5) continue;
+            if (!NameOf(d).Equals(info.Folder, StringComparison.OrdinalIgnoreCase)) continue;
+            string kind = name.Substring(prefix.Length, 2).ToLowerInvariant();
+            int face = Array.IndexOf(FaceKeys, name.Substring(prefix.Length + 3, 2).ToLowerInvariant());
+            if (face < 0) continue;
+            if (kind == "cm" && !info.Tex[face].HasValue) { info.Tex[face] = handle; info.Files[face] = name; found++; }
+            else if (kind == "nr") info.NTex[face] = handle;
         }
-        if (found < 6) return $"{found}/6 face textures in {dir}";
+        if (found < 6) return $"{found}/6 baked globe faces for {info.Folder} (tools/globes/bake_globes.py {info.Folder}, then rebuild the content)";
 
-        if (info.Folder != null && CloudMaterials.TryGetValue(info.Folder, out Guid cg)
-            && DefinitionManager.Instance.TryGetDefinition(cg, out MapPlanetCloudsMaterialDefinition clouds))
-            info.CloudMat = clouds;
         return null;
     }
 
-    /// <summary>Face (px, nx, py, ny, pz, nz) of a per-face colour map name, or -1. "Planet_Back_nao", the cubemap itself and the like are not.</summary>
-    private static int FaceOf(string fileName)
-    {
-        string stem = fileName;
-        int dot = stem.LastIndexOf('.');
-        if (dot > 0) stem = stem.Substring(0, dot);
-        string[] tokens = stem.ToLowerInvariant().Split('_');
-        if (Array.IndexOf(tokens, "cm") < 0 || Array.IndexOf(tokens, "overlay") >= 0) return -1;
-        foreach (string t in tokens)
-        {
-            switch (t)
-            {
-                case "px": case "right": return 0;
-                case "nx": case "left": return 1;
-                case "py": case "up": return 2;
-                case "ny": case "down": return 3;
-                case "pz": case "back": case "backward": return 4;   // Backward is +Z (CubemapFace)
-                case "nz": case "front": case "forward": return 5;
-            }
-        }
-        return -1;
-    }
+    /// <summary>The baked faces' suffixes, in the cubemap's face order (+X, -X, +Y, -Y, +Z, -Z).</summary>
+    private static readonly string[] FaceKeys = { "px", "nx", "py", "ny", "pz", "nz" };
 
     static string DirOf(string path)
     {
@@ -300,7 +331,7 @@ public static class PlanetMesh
     /// One runtime material per face texture, as CachedRuntimeMaterialsFactory.Create makes them:
     /// a fresh definition from an object builder, in the MapPlanet state, then registered with the
     /// renderer through a RuntimeMaterialHandle (its constructor calls the internal AddRuntimeMaterial).
-    /// No normal/extensions maps: their defaults are a flat normal, full AO, no emissive.
+    /// The baked normal + roughness map; no extensions map (its default: full AO, no emissive).
     /// </summary>
     private static string MakeMaterials(Info info)
     {
@@ -308,12 +339,13 @@ public static class PlanetMesh
         Type handleType = PlanetRenderBridge.RenderAssembly?.GetType("Keen.VRage.Render.Materials.RuntimeMaterialHandle`1")?.MakeGenericType(typeof(PBREmissiveMaterialDefinition));
         object contracts = PlanetRenderBridge.Contracts;
         if (handleType == null || contracts == null) return "RuntimeMaterialHandle / RenderContracts not available";
-        for (int k = 0; k < 6; k++)
+        for (int k = 0; k < 12; k++)
         {
             if (info.Mats[k] != null) continue;
             var ob = DefinitionHelper.CreateObjectBuilder<PBREmissiveMaterialDefinitionObjectBuilder>();
             ob.DefaultState = state;
-            ob.ColorMetalTexture = info.Tex[k];
+            ob.ColorMetalTexture = info.Tex[k % 6];
+            ob.NormalRoughnessTexture = k < 6 ? info.NTex[k] : null;
             ob.EmissivityMultiplier = 0;
             var mat = RuntimeDefinitionHelper.Create<PBREmissiveMaterialDefinition>(ob, null, keepBuilderGuid: true);
             mat.SetRuntimeState(state);
@@ -412,9 +444,8 @@ public static class PlanetMesh
             });
         }
 
-        // One (n+1)^2 grid per face; uv(s, t) -> texture through the table. radius 1 for the ground,
-        // CloudRadius for the shell (whose UVs all point at one spot of its displacement atlas).
-        void AddFace(int f, int n, float radius, FaceMap map, Vector2? fixedUv)
+        // One (n+1)^2 grid per face on the unit sphere; uv(s, t) -> texture through the table.
+        void AddFace(int f, int n, FaceMap map)
         {
             int baseV = vcount;
             // Texture-space gradients of this face's (s, t) -> (u, v), for the tangent frame.
@@ -435,10 +466,10 @@ public static class PlanetMesh
                     tan = Vector3.Normalize(tan - p * Vector3.Dot(tan, p));
                     float w = Vector3.Dot(Vector3.Cross(p, tan), bit) > 0 ? -1f : 1f;   // as PlanetWaterRenderUtils: n x t = +dP/dv -> w = -1
 
-                    Vector2 uv = fixedUv ?? FaceUv(map, s, t);
-                    args1[0] = Activator.CreateInstance(_tVs0, new object[] { p * radius, uv });
+                    Vector2 uv = FaceUv(map, s, t);
+                    args1[0] = Activator.CreateInstance(_tVs0, new object[] { p, uv });
                     add0.Invoke(vs0, args1);
-                    args1[0] = Activator.CreateInstance(_tVs1, new object[] { p, new Vector4(tan, w) });
+                    args1[0] = Activator.CreateInstance(_tVs1, new object[] { p, new Vector4(tan, w * TangentSign) });
                     add1.Invoke(vs1, args1);
                     vcount++;
                 }
@@ -462,21 +493,13 @@ public static class PlanetMesh
         for (int f = 0; f < 6; f++)
         {
             FaceMap map = Faces[f];
-            var mat = info.Mats[map.Tex];
+            var mat = info.Mats[map.Tex + (NormalMaps ? 0 : 6)];
             if (mat == null) return $"no material for texture {map.Tex}";
             int start = idx.Count;
-            AddFace(f, quads, 1f, map, null);
+            AddFace(f, quads, map);
             AddPart("OrbitalGlobeFace" + f, mat, start);
         }
-        bool clouds = Clouds && info.CloudMat != null;
-        if (clouds)
-        {
-            int start = idx.Count;
-            for (int f = 0; f < 6; f++) AddFace(f, Math.Max(4, quads / 2), CloudRadius, Faces[f], CloudUv);
-            AddPart("OrbitalGlobeClouds", info.CloudMat, start);
-        }
-
-        float extent = clouds ? CloudRadius : 1f;
+        const float extent = 1f;
         object rmd = Activator.CreateInstance(_tRmd);
         SetField(rmd, "_vertexStream0", vs0);
         SetField(rmd, "_vertexStream1", vs1);
@@ -492,6 +515,11 @@ public static class PlanetMesh
         object dataType = Enum.ToObject(_createRuntimeModel.GetParameters()[1].ParameterType, (int)RenderRuntimeDataType.UI3D);
         object model = _createRuntimeModel.Invoke(contracts, new[] { rmd, dataType, (object)true, (object)false });
         info.Mesh = new Built { Model = model, Handle = (ResourceHandle)_toHandle.Invoke(null, new[] { model }) };
+        for (int k = 0; k < 6; k++)
+        {
+            if (info.Tex[k].HasValue) info.Mesh.Textures.Add(info.Tex[k].Value);
+            if (NormalMaps && info.NTex[k].HasValue) info.Mesh.Textures.Add(info.NTex[k].Value);
+        }
         return null;
     }
 
@@ -512,7 +540,7 @@ public static class PlanetMesh
     public static string Status()
     {
         var sb = new System.Text.StringBuilder();
-        sb.Append($"hiresglobe enabled={Enabled} clouds={Clouds} quads={Quads} ccwOutside={CcwOutside} gen={Generation} cloudUv=({CloudUv.X:F2},{CloudUv.Y:F2})\n");
+        sb.Append($"hiresglobe enabled={Enabled} pin={(PinTextures ? (PinType == 2 ? "ignore-quality" : "obey-quality") : "off")} normals={NormalMaps} tsign={TangentSign} quads={Quads} ccwOutside={CcwOutside} gen={Generation}\n");
         for (int f = 0; f < 6; f++)
             sb.Append($"  face {f} {FaceNames[f]}: tex {Faces[f].Tex} flipU={(Faces[f].FlipU ? 1 : 0)} flipV={(Faces[f].FlipV ? 1 : 0)} rot={Faces[f].Rot}\n");
         lock (_sync)
@@ -522,9 +550,9 @@ public static class PlanetMesh
             {
                 sb.Append($"  {info.Name} [{info.Folder ?? "?"}] dir={info.Dir ?? "?"}\n");
                 for (int k = 0; k < 6; k++)
-                    sb.Append($"    tex {k}: {info.Files[k] ?? "-"} {(info.Tex[k].HasValue ? info.Tex[k].Value.ToString() : "")}\n");
-                sb.Append($"    materials={(info.MaterialsOk ? "ok" : "no")} clouds={(info.CloudMat != null ? "material ok" : "none")} " +
-                          $"mesh={(info.Mesh != null ? $"ok (gen {info.MeshGeneration}, users {info.Mesh.Users})" : "no")} error={info.Error ?? "-"}\n");
+                    sb.Append($"    tex {k}: {info.Files[k] ?? "-"} {(info.Tex[k].HasValue ? info.Tex[k].Value.ToString() : "")} normal={(info.NTex[k].HasValue ? "yes" : "no")}\n");
+                sb.Append($"    materials={(info.MaterialsOk ? "ok" : "no")} " +
+                          $"mesh={(info.Mesh != null ? $"ok (gen {info.MeshGeneration}, users {info.Mesh.Users}, shown {info.Mesh.Shown}, pinned {(info.Mesh.Pin != null ? info.Mesh.Textures.Count : 0)})" : "no")} error={info.Error ?? "-"}\n");
             }
         }
         return sb.ToString();

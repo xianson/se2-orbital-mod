@@ -394,7 +394,7 @@ public static class OrbitDisplay
             {
                 r.RvRel = toRel(ry); r.RvTargetRel = toRel(rtg);
                 r.RvIn = Math.Max(0, rt - SystemHost.Now); r.RvDist = rd;
-                r.RvLabel = $"{Maneuvers.Target} Rendezvous";
+                r.RvLabel = $"{Targets.Name(Maneuvers.Target)} Rendezvous";
             }
             // The ring rocks met on the path about this body.
             if (Maneuvers.Trajectory(SystemHost.Now, out var rl, out _))

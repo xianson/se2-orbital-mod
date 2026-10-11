@@ -204,17 +204,8 @@ public static class RendezvousView
 
     // ───────────────────────────── the view ─────────────────────────────
 
-    /// <summary>The target's state about its parent at t (a sector's site, or a body), or false.</summary>
-    static bool TargetAt(string target, double tk, out GravityBody parent, out StateVector rel)
-    {
-        parent = null; rel = default;
-        var reg = SystemHost.Registry;
-        var body = reg?.Find(target);
-        if (body != null && body.Parent != null) { parent = body.Parent; rel = body.StateInParentAt(tk); return true; }
-        EncounterFrames.Site site = null;
-        site = EncounterFrames.TargetSite(target);
-        return site != null && EncounterFrames.Ephemeris(site, tk, out parent, out rel);
-    }
+    /// <summary>The target's state about its parent at t (a sector's site, a body, a ship: <see cref="Targets.At"/>), or false.</summary>
+    static bool TargetAt(string target, double tk, out GravityBody parent, out StateVector rel) => Targets.At(target, tk, out parent, out rel);
 
     /// <summary>The lowest body both go round.</summary>
     static GravityBody Common(GravityBody a, GravityBody b) => SEAerospace.Frames.RendezvousPlot.Common(a, b) ?? SystemHost.Registry?.Root;
@@ -225,7 +216,7 @@ public static class RendezvousView
         var f = FrameHost.PlayerFrame;
         if (f == null || target == null) return false;
         foreach (var st in EncounterFrames.Sites) if (st.Sector == target && st.FrameId == f.Id) return true;
-        return false;
+        return Targets.InOwnFrame(target);
     }
 
     /// <summary>A sun-centred position at tk in the target's curvilinear frame about the common body: (along, radial, cross) in metres.</summary>
@@ -264,8 +255,7 @@ public static class RendezvousView
         string target = Maneuvers.Target;
         var reg = SystemHost.Registry;
         if (r == null || target == null || reg == null) return false;
-        var tb = reg.Find(target);
-        if (tb != null || TargetIsOwnFrame(target)) return false;
+        if (Targets.Body(target) != null || TargetIsOwnFrame(target)) return false;
         if (!Maneuvers.Trajectory(t, out var legs, out _) || legs.Count == 0 || !TargetAt(target, t, out var tp, out var trel)) return false;
         var c = Common(legs[0].Body, tp);
         if (c == null || c.IsRoot) return false;
@@ -304,7 +294,7 @@ public static class RendezvousView
         r.RelVel = _hudVel;
         r.RelPeriod = _hudPeriod;
         r.RelSamples = 161;
-        r.AnchorName = target;
+        r.AnchorName = Targets.Name(target);
         r.Holding = false;
         r.RelLeaves = false;
         r.RelIsTarget = true;
@@ -381,22 +371,22 @@ public static class RendezvousView
         if (target == null)
         {
             MapPipeline.ScreenText(head, "No target", new ColorSRGB(1f, 1f, 1f, 1f), 1.05f);
-            MapPipeline.ScreenText(head + new Vector2(0, 34f * u), "Right-click a sector, a Lagrange point or a body on the map: Set as target", Dim, 0.8f);
+            MapPipeline.ScreenText(head + new Vector2(0, 34f * u), "On the map: point at a ship, a sector or a body and press N (or right-click: Set as target), or pick one in the target list", Dim, 0.8f);
             Status = "no target";
             return;
         }
         bool targetKnown = TargetAt(target, t, out var tpar, out _);
         if (!Maneuvers.Trajectory(t, out var legs, out var applied) || legs.Count == 0 || !targetKnown)
         {
-            MapPipeline.ScreenText(head, $"Rendezvous · {SystemHost.DisplayName(target)}", new ColorSRGB(1f, 1f, 1f, 1f), 1.05f);
+            MapPipeline.ScreenText(head, $"Rendezvous · {Targets.Name(target)}", new ColorSRGB(1f, 1f, 1f, 1f), 1.05f);
             // (a target that is not there any more - a site dissolved, a rock you left: say so, not "no path" forever)
             MapPipeline.ScreenText(head + new Vector2(0, 34f * u), targetKnown ? "No path to compare yet" : "Target lost  ·  right-click the map to set another, or clear it", Dim, 0.8f);
             Status = targetKnown ? "no path" : "target lost";
             return;
         }
         // A planet or a moon: its transfer windows (the porkchop) with your plan on them, instead of the plot.
-        var tbody = reg.Find(target);
-        if (tbody != null && !tbody.IsRoot)
+        var tbody = Targets.Body(target);
+        if (tbody != null)
         {
             DrawWindows(reg, t, legs, applied, tbody, target, head, mouse, u, scr);
             return;
@@ -463,14 +453,14 @@ public static class RendezvousView
                 }
             float h = 5f * u;
             MapPipeline.ScreenFill(new List<Vector2> { os + new Vector2(-h, -h), os + new Vector2(h, -h), os + new Vector2(h, h), os + new Vector2(-h, h) }, TargetCol);
-            MapPipeline.ScreenText(os + new Vector2(10f * u, 6f * u), target, TargetCol, 0.7f);
+            MapPipeline.ScreenText(os + new Vector2(10f * u, 6f * u), Targets.Name(target), TargetCol, 0.7f);
         }
 
         // Your path and nodes: the map's own editor, drawn through the relative frame (no ghost pinning: every arc at its true time).
         Maneuvers.MapDraw(toMap, W, double.PositiveInfinity, t, mouse, null, c.Name, allLive: true);
 
         MapPipeline.ClipRect = null;
-        MapPipeline.ScreenText(head, $"Rendezvous · {SystemHost.DisplayName(target)} · about {SystemHost.DisplayName(c.Name)}", new ColorSRGB(1f, 1f, 1f, 1f), 1.05f);
+        MapPipeline.ScreenText(head, $"Rendezvous · {Targets.Name(target)} · about {SystemHost.DisplayName(c.Name)}", new ColorSRGB(1f, 1f, 1f, 1f), 1.05f);
         string line = Maneuvers.TargetLine(t);
         if (line != null) MapPipeline.ScreenText(head + new Vector2(0, 34f * u), line, Dim, 0.8f);
         CleanMap.DrawWrapped(MapLayout.P(0.265f, 0.9f), "Click the path: add a maneuver   ·   Drag a handle: the burn   ·   Right-click: options   ·   Wheel: zoom", MapLayout.X(0.775f) - MapLayout.X(0.265f), 0.74f, Dim);   // (wrapped to the map: cut, it lost its last hints)

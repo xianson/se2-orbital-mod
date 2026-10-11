@@ -122,7 +122,7 @@ public static class FrameHost
         DropPending(); _pendingOrbit = null; ForceStow = false;
         Observer = null; ObserverPlanet = null;
         Maneuvers.ResetOwnOrbit();
-        SystemHost.ResetClock();
+        SystemHost.ResetClock(); SunDriver.Reset();
     }
 
     // A teleport in flight: its target, and the velocity to apply once it lands.
@@ -312,6 +312,7 @@ public static class FrameHost
         Guard("Maneuvers.HudTick", static a => Maneuvers.HudTick(a.Session, a.Camera, a.T), ta);
         Guard("AutoBurn.Tick", static a => AutoBurn.Tick(a.Session, a.T), ta);
         Guard("OrbitHud.Draw", static a => OrbitHud.Draw(a.Session), ta);
+        Guard("BuildHints.Draw", static a => BuildHints.Draw(a.Session), ta);   // (holding a block: the aimed ship's stability, top speed)
         Guard("WarpBar", static a => WarpBar.DrawHud(a.Session), ta);
         // On rails the game's SPD (your velocity in the frame) is 0: show your speed about the body.
         Guard("HudSpeed", static a => { if (_cur.Frame != null && OrbitHud.Current != null) GameUi.SetHudSpeed(a.Session, (float)OrbitHud.Current.Speed); }, ta);
@@ -376,7 +377,10 @@ public static class FrameHost
             if (!ForceStow && !tooFast)
             {
                 if (d < shell * PlanetBerths.StowShellMargin) return;                       // voxel frame owns low flight
-                if (!IsFinite(elBody.SemiMajorAxis) || !FrameRails.EscapesShell(elBody, t, shell, keep, MaterializeLead)) return;
+                // (STOWED AS SOON AS IT IS OUT: past the conversion radius R_c by the stow floor's 5 % (StowShellMargin - the hysteresis:
+                //  back down, the release is at R_c), whatever its orbit. Inside the keep it also had to be LEAVING (FrameRails.EscapesShell:
+                //  apoapsis above 1.5 R_c, or hyperbolic): a spaceplane in a low orbit - apoapsis under ~46 km at Verdure - never left the
+                //  planet frame, silently (the user, 2026-10-10: "need to stow as soon as you pass the nominal boundary, with hysteresis"))
             }
         }
         else if (!_wasInKeep && !ForceStow && !legacy) return; // v1 gate: only departures from a planet are captured

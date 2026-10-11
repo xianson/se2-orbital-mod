@@ -269,7 +269,7 @@ public static class GameMap
         try
         {
             if (!TryMouse(map, out var mouse)) return;
-            string name = Maneuvers.ClaimsMouse || MapCamera.Dragging ? null : MapPipeline.ResolvePick(mouse, 14f);
+            string name = Maneuvers.ClaimsMouse || MapCamera.Dragging ? null : MapPipeline.ResolvePick(mouse, 14f * Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f));   // (14 px at 1080p: as wide on any screen)
             CleanMap.Hovered = name;
             int idx = -1;
             if (name != null && PlanetRenderBridge.GetMember(PlanetRenderBridge.GetMember(map, "SectorsRenderer"), "SectorIds") is System.Collections.IList ids)

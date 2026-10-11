@@ -88,6 +88,29 @@ public static class SavedState
                 Remember(ob, id);
             }
             foreach (var nl in Maneuvers.SaveLines()) sb.Append(nl).Append((char)10);
+            // The target: a body, site or rock by name; a ship by its grid (its id mapped on load as members are).
+            // The Contacts tab: what you pinned to the HUD, and your names for things (ships by grid, mapped on load).
+            foreach (var pk in ContactsTab.Pinned)
+            {
+                if (Targets.GridOf(pk, out long pid)) { sb.Append("pingrid ").Append(pid).Append((char)10); Remember(ob, pid); }
+                else sb.Append("pin ").Append(Esc(pk)).Append((char)10);
+            }
+            foreach (var hk in ContactsTab.HiddenKeys)
+            {
+                if (Targets.GridOf(hk, out long hid)) { sb.Append("chidegrid ").Append(hid).Append((char)10); Remember(ob, hid); }
+                else sb.Append("chide ").Append(Esc(hk)).Append((char)10);
+            }
+            foreach (var kv in ContactsTab.Names)
+            {
+                if (Targets.GridOf(kv.Key, out long nid)) { sb.Append("namegrid ").Append(nid).Append(' ').Append(Esc(kv.Value)).Append((char)10); Remember(ob, nid); }
+                else sb.Append("name ").Append(Esc(kv.Key)).Append(' ').Append(Esc(kv.Value)).Append((char)10);
+            }
+            string tgt = Maneuvers.Target;
+            if (tgt != null)
+            {
+                if (Targets.GridOf(tgt, out long tid)) { sb.Append("targetgrid ").Append(tid).Append((char)10); Remember(ob, tid); }
+                else sb.Append("target ").Append(Esc(tgt)).Append((char)10);
+            }
             foreach (var k in FrameMarkers.HiddenKeys()) sb.Append("gpshid ").Append(Esc(k)).Append((char)10);
             // What you have seen (Contacts): rocks by label, grids by id (mapped on load as members are).
             foreach (var k in Contacts.RockKeys()) sb.Append("knownrock ").Append(Esc(k)).Append((char)10);
@@ -294,6 +317,42 @@ public static class SavedState
                     case "node":
                         RestoreNode(p);
                         break;
+                    case "target":
+                        Maneuvers.Target = Unesc(p[1]);
+                        break;
+                    case "pin":
+                        ContactsTab.Pinned.Add(Unesc(p[1]));
+                        break;
+                    case "pingrid":
+                    {
+                        long pg = Map(long.Parse(p[1], Inv));
+                        if (pg != 0) ContactsTab.Pinned.Add(Targets.OfGrid(pg));
+                        break;
+                    }
+                    case "chide":
+                        ContactsTab.HiddenKeys.Add(Unesc(p[1]));
+                        break;
+                    case "chidegrid":
+                    {
+                        long hg = Map(long.Parse(p[1], Inv));
+                        if (hg != 0) ContactsTab.HiddenKeys.Add(Targets.OfGrid(hg));
+                        break;
+                    }
+                    case "name":
+                        ContactsTab.Names[Unesc(p[1])] = Unesc(p[2]);
+                        break;
+                    case "namegrid":
+                    {
+                        long ng = Map(long.Parse(p[1], Inv));
+                        if (ng != 0) ContactsTab.Names[Targets.OfGrid(ng)] = Unesc(p[2]);
+                        break;
+                    }
+                    case "targetgrid":
+                    {
+                        long gid = Map(long.Parse(p[1], Inv));
+                        if (gid != 0) Maneuvers.Target = Targets.OfGrid(gid);
+                        break;
+                    }
                     case "gpshid":
                         FrameMarkers.RestoreHidden(Unesc(p[1]));
                         break;

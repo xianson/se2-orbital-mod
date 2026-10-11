@@ -140,7 +140,8 @@ public static partial class CleanMap
         }
 
         Frame = $"anchor {anchor.Name} pxPerV {_pxPerV:G3} d {MapCamera.Distance:G3} min {GameMap.MinZoom:G3} focusV {MapCamera.FocusV.Length():G3} scale {_wscale:G3}";
-        _hits.Clear(); _crumbs.Clear(); SwapLens();
+        _hits.Clear(); _crumbs.Clear(); SwapLens(); SwapPins(); _bandsLast = bands;
+        _hoverOrbitLast = _hoverOrbitD <= 7f * Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f) ? _hoverOrbit : null; _hoverOrbit = null; _hoverOrbitD = float.MaxValue;
         GravityBody focusPlanet = anchor.IsRoot ? null : anchor.Parent != null && !anchor.Parent.IsRoot ? anchor.Parent : anchor;
         string focus = focusPlanet?.Name;
         // The planet's own level (its sectors listed) while its system shows.
@@ -156,6 +157,7 @@ public static partial class CleanMap
         try
         {
             RendezvousView.Tab(session, Mouse);
+            ContactsTab.Tab(session);
             if (RendezvousView.Active)
             {
                 // The Rendezvous tab has the view: the relative plot instead of the map's contents.
@@ -173,7 +175,9 @@ public static partial class CleanMap
             MapPipeline.Reserve(new Vector2(0, MapLayout.Y(0.93f)), scrR);
             // The system level lists every sector (the star's opened); a planet's level only that planet's.
             long s0 = ModCost.Start();
-            DrawList(ordered, b => sys ? b.Home.Host == root.Name || b.Selected : b.Host == focus,
+            // (with a target the right column is its panel: the lists come back with "Lists")
+            if (TargetPanelShown) TargetPanel(t, ui, W);
+            else DrawList(ordered, b => sys ? b.Home.Host == root.Name || b.Selected : b.Host == focus,
                 b => sys || b.Host == focus);
             ModCost.Sec("list").Stop(s0); s0 = ModCost.Start();
             // The title's area is kept free of map labels now; the title itself is drawn after the map, over its lines.
@@ -236,9 +240,13 @@ public static partial class CleanMap
             _lastW = W; _lastSolar = false;
             ModCost.Sec("ui.menu").Stop(u0); u0 = ModCost.Start();
             if (ui) FocusInput(reg, t, W, false);
-            BodyTooltip(reg, playerPlanet, playerOrbit);
+            HoverCard(reg, playerPlanet, playerOrbit, t);
             ModCost.Sec("ui.focus+tip").Stop(u0); u0 = ModCost.Start();
             if (ui) ListInput(W);
+            long tl0 = ModCost.Start();
+            if (!TargetPanelShown) TargetList(reg, t, ui);
+            if (ui) TargetKey();
+            ModCost.Sec("ui.targets").Stop(tl0);
             Hints();
             ModCost.Sec("ui.list+hints").Stop(u0); u0 = ModCost.Start();
             WarpBar.DrawMap(Mouse);
@@ -389,6 +397,7 @@ public static partial class CleanMap
         void Flush() { if (run.Count > 1) MapPipeline.ScreenPath(run, false, runDim ? dim : col, px * u); run.Clear(); }
         void Emit(Vector2 sa, Vector2 sb, bool below)
         {
+            if (_curveKey != null) OrbitHover(_curveKey, sa, sb);
             if (run.Count > 0 && ((run[run.Count - 1] - sa).LengthSquared() > 0.25f || below != runDim)) { var last = run[run.Count - 1]; Flush(); if ((last - sa).LengthSquared() <= 0.25f) run.Add(last); }
             runDim = below;
             if (run.Count == 0) run.Add(sa);
@@ -405,6 +414,18 @@ public static partial class CleanMap
     }
 
     static readonly List<Vector2> _curveRun = new List<Vector2>();
+
+    /// <summary>The orbit a Curve draws (a target key), for the hover; null: none of interest.</summary>
+    static string _curveKey;
+    /// <summary>The orbit line nearest the cursor this frame (within a few px) - its key and distance - and the last frame's.</summary>
+    static string _hoverOrbit, _hoverOrbitLast; static float _hoverOrbitD = float.MaxValue;
+    static void OrbitHover(string key, Vector2 a, Vector2 b)
+    {
+        Vector2 ab = b - a; float l2 = ab.LengthSquared();
+        float k = l2 > 0 ? Math.Clamp(Vector2.Dot(Mouse - a, ab) / l2, 0f, 1f) : 0f;
+        float d = (a + ab * k - Mouse).Length();
+        if (d < _hoverOrbitD) { _hoverOrbitD = d; _hoverOrbit = key; }
+    }
     static double Wall() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
     private static Func<Vector3D, double, Vector3D> _toMap;
     private static double _limit;

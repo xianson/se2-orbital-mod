@@ -157,7 +157,7 @@ public static class Contacts
         var newlyTracked = new List<string>();
         void Watch(string key, string name, SensorModel.Kind k)
         {
-            bool targeted = target != null && name == target;
+            bool targeted = target != null && (name == target || key.StartsWith("g:", StringComparison.Ordinal) && target == Targets.GridPrefix + key.Substring(2));
             if (targeted && k == SensorModel.Kind.Telescope) lidar = true;
             lock (_dwell)
             {

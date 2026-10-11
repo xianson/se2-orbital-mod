@@ -495,9 +495,10 @@ public static class ServerFrames
             double shell = PlanetBerths.ShellRadius(def);
             double keep = PlanetBerths.KeepRadius(def);
             if (d < shell * PlanetBerths.StowShellMargin) continue;
-            var elBody = CaptureMath.CaptureElements(new StateVector(rel, vel), node.Mu, t);
-            if (d < keep && (!IsFinite(elBody.SemiMajorAxis) ||
-                             !FrameRails.EscapesShell(elBody, t, shell, keep, FrameHost.MaterializeLead))) continue;
+            // (STOWED AS SOON AS IT IS OUT: past the conversion radius R_c by the stow floor's 5 % (StowShellMargin - the hysteresis:
+            //  back down, the release is at R_c), whatever its orbit. Inside the keep it also had to be LEAVING (FrameRails.EscapesShell:
+            //  apoapsis above 1.5 R_c, or hyperbolic): a spaceplane in a low orbit - apoapsis under ~46 km at Verdure - never left the
+            //  planet frame, silently (the user, 2026-10-10: "need to stow as soon as you pass the nominal boundary, with hysteresis"))
 
             StateVector borg = node.OriginInRoot(t);
             Vector3D cel = borg.Position + rel;

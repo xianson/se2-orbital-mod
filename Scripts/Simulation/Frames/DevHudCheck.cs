@@ -137,9 +137,8 @@ public static class DevHudCheck
         if (hasTgt)
         {
             // a target only the star is common to: no plot about it
-            string host = null;
-            foreach (var st in EncounterFrames.Sites) if (st.Sector == tgt) { host = st.Host; break; }
-            var c = SEAerospace.Frames.RendezvousPlot.Common(SystemHost.Registry?.Find(f.ParentBodyName), host != null ? SystemHost.Registry?.Find(host) : null);
+            Targets.At(tgt, SystemHost.Now, out var tpar, out _);
+            var c = SEAerospace.Frames.RendezvousPlot.Common(SystemHost.Registry?.Find(f.ParentBodyName), tpar);
             if (c == null || c.IsRoot) hasTgt = false;
         }
         var want = !FrameHost.Seated ? (SEAerospace.Frames.RendezvousPlot.Plot?)null

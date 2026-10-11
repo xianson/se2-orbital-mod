@@ -38,6 +38,7 @@ public static class FrameMarkers
         _proxies.Clear();
         Prewarm.Tick();
         try { Contacts.Tick(session, camera, t); } catch (Exception ex) { FrameHost.Fault("Contacts", ex); }
+        try { ContactsTab.Tick(session); } catch (Exception ex) { FrameHost.Fault("ContactsTab", ex); }
         var markers = LocalMarkers(session);
         if (markers == null) return;
 
@@ -244,6 +245,18 @@ public static class FrameMarkers
         m.Position = world;
         m.Hidden = false;
         return PlanetRenderBridge.CallAdd(PlanetRenderBridge.GetMember(gps, "GPSMarkers"), m) ? $"marker '{name}' added" : "add failed";
+    }
+
+    /// <summary>Every GPS point and marked place of yours (the Contacts tab's places), or null.</summary>
+    public static List<GPSMarker> PlaceMarkers(Keen.VRage.Core.Game.Systems.Session session) => session == null ? null : LocalMarkers(session);
+
+    /// <summary>The player hides (true) or shows a GPS point (the Contacts tab's eye): a hidden one is the player's, never
+    /// ours to show again; a shown one may be frame-transferred again on the next tick.</summary>
+    public static void SetUserHidden(GPSMarker m, bool hidden)
+    {
+        if (m == null) return;
+        _hidden.Remove(m);
+        m.Hidden = hidden;
     }
 
     private static void UnhideAll()

@@ -70,7 +70,7 @@ public static class Maneuvers
     {
         ResetOwnOrbit();
         ClearAll();
-        Target = null; _lag = null;
+        Target = null; _lag = null; Targets.ResetWorld(); ContactsTab.ResetWorld();
         _cT = double.NaN; _cLegs = null; _cApplied = null; _cOk = false;
     }
 
@@ -632,19 +632,34 @@ public static class Maneuvers
         // Target: the closest approach on the path, and where the target is then (a ring), joined.
         if (Target != null)
         {
-            var ca = ClosestApproach(legs);
-            if (ca.ok && ca.d <= RendezvousRange && Live(ca.leg.Body) && MapPipeline.ToScreen(W(LegLoc(ca.leg, ca.t)), out var cs1) && InMapArea(cs1))
+            string tname = Targets.Name(Target);
+            TargetWorld = null;
+            // The target itself, now: brackets round it (a planet's round its disc).
+            if (Targets.At(Target, t, out var tp0, out var trel0) && Live(tp0) && MapPipeline.ToScreen(W(Loc(tp0, trel0.Position, t)), out var ts0) && InMapArea(ts0))
             {
+                float br = 11f * u;
+                double tr = Targets.Radius(Target);
+                if (tr > 0 && MapPipeline.ToScreen(W(Loc(tp0, trel0.Position + new Vector3D(tr, 0, 0), t)), out var te))
+                    br = Math.Max(br, (te - ts0).Length() + 7f * u);
+                TargetBrackets(ts0, br, u);
+                TargetWorld = W(Loc(tp0, trel0.Position, t));
+            }
+            var ca = ClosestApproach(legs);
+            if (ca.ok && Live(ca.leg.Body) && MapPipeline.ToScreen(W(LegLoc(ca.leg, ca.t)), out var cs1) && InMapArea(cs1))
+            {
+                bool rv = ca.d <= RendezvousRange && Targets.Radius(Target) <= 0;
+                var col = rv ? TargetColor : HudPanel.Alpha(TargetColor, 0.8f);
                 // Marked as an entry / escape is (a ring round a dot, named), in the target's colour.
-                MapPipeline.ScreenCircle(cs1, 5f * u, TargetColor, 2f * u);
-                MapPipeline.ScreenCircle(cs1, 1.5f * u, TargetColor, 2.5f * u);
-                if (EncounterFrames.Ephemeris(ca.site, ca.t, out var tp, out var trel) && tp == ca.leg.Body
-                    && MapPipeline.ToScreen(W(Loc(tp, trel.Position, ca.t)), out var cs2) && InMapArea(cs2))
+                MapPipeline.ScreenCircle(cs1, 5f * u, col, 2f * u);
+                MapPipeline.ScreenCircle(cs1, 1.5f * u, col, 2.5f * u);
+                if (Targets.Radius(Target) <= 0 && Targets.About(Target, ca.leg.Body, ca.t, out var trel)
+                    && MapPipeline.ToScreen(W(Loc(ca.leg.Body, trel.Position, ca.t)), out var cs2) && InMapArea(cs2))
                 {
-                    MapPipeline.ScreenCircle(cs2, 7f * u, TargetColor, 1.6f * u);
+                    MapPipeline.ScreenCircle(cs2, 7f * u, col, 1.6f * u);
                     MapPipeline.ScreenDashed(cs1, cs2, HudPanel.Alpha(TargetColor, 0.6f), 1.2f * u);
                 }
-                HudPanel.TagAt(cs1 + new Vector2(10f * u, 0), $"{Target} Rendezvous  ·  {HudPanel.Km(ca.d)}  in {Clock(ca.t - t)}  ·  {RelSpeed(ca):N0} m/s", TargetColor, u, diamond: false);
+                string what = ApproachText(ca, t);
+                HudPanel.TagAt(cs1 + new Vector2(10f * u, 0), $"{tname}  ·  {char.ToUpperInvariant(what[0])}{what.Substring(1)}", col, u, diamond: false);
             }
         }
 
@@ -729,14 +744,23 @@ public static class Maneuvers
                 }
                 else { a0 = Loc(selA.Body, relAt, Selected.T); a1 = Loc(selA.Body, relAt + v * eps, Selected.T); }
                 if (!MapPipeline.ToScreen(W(a0), out var s0) || !MapPipeline.ToScreen(W(a1), out var s1)) return Vector2.Zero;
-                var d = s1 - s0;
-                return d.LengthSquared() > 1e-4f ? Vector2.Normalize(d) : Vector2.Zero;
+                return s1 - s0;   // (unnormalised: how much of the axis the view shows)
             }
-            Vector2 dp = Dir(P), dr = Dir(R);
-            if (dp == Vector2.Zero) dp = new Vector2(1, 0);
-            if (dr == Vector2.Zero) dr = new Vector2(-dp.Y, dp.X);
-            // Normal is out of the map plane from above: its handles sit on the diagonals.
-            Vector2 dn = Vector2.Normalize(dp + dr), dan = -dn;
+            // EACH AXIS ALONG ITS OWN PROJECTION (the user, 2026-10-10, a node seen edge-on in flight: "the maneuver nodes aren't
+            // correctly oriented?" - normal always sat on the prograde/radial diagonal, the top-down map's convention; seen along
+            // the orbit's plane prograde and radial project onto one line and all six handles piled on it, where normal is in
+            // fact square to the path). An axis the view barely shows (pointing at the camera) or one lying on another falls
+            // back: radial square to prograde, normal on their diagonal (the map from above, as before).
+            Vector2 pR = Dir(P), rR = Dir(R), nR = Dir(N);
+            float m = Math.Max(pR.Length(), Math.Max(rR.Length(), nR.Length()));
+            bool Shown(Vector2 v) => m > 0f && v.Length() > 0.3f * m;
+            static float Cross(Vector2 a, Vector2 b) => MathF.Abs(a.X * b.Y - a.Y * b.X);
+            Vector2 dp = Shown(pR) ? Vector2.Normalize(pR) : new Vector2(1, 0);
+            Vector2 dr = Shown(rR) && Cross(dp, Vector2.Normalize(rR)) > 0.35f ? Vector2.Normalize(rR)
+                       : (Vector2.Dot(new Vector2(-dp.Y, dp.X), rR) >= 0 ? new Vector2(-dp.Y, dp.X) : new Vector2(dp.Y, -dp.X));
+            Vector2 dn = Shown(nR) && Cross(dp, Vector2.Normalize(nR)) > 0.35f && Cross(dr, Vector2.Normalize(nR)) > 0.35f ? Vector2.Normalize(nR)
+                       : Vector2.Normalize(dp + dr);
+            Vector2 dan = -dn;
             float d0 = 48f * u;
             handles.Add((selS + dp * d0, dp, 0, +1, "P", ProColor));
             handles.Add((selS - dp * d0, -dp, 0, -1, "R", ProColor));
@@ -1023,8 +1047,22 @@ public static class Maneuvers
     static readonly ColorSRGB SectorIn = new ColorSRGB(0.45f, 1.00f, 0.55f, 1f);
     static readonly ColorSRGB SectorOut = new ColorSRGB(0.70f, 0.85f, 0.75f, 0.9f);
 
-    /// <summary>The sector targeted from the map (its site): the path's closest approach to it is marked.</summary>
+    /// <summary>The target (a <see cref="Targets"/> key: a body, a sector's site or rock, a ship): the path's closest approach
+    /// to it is marked, and the target itself bracketed.</summary>
     public static string Target;
+
+    /// <summary>Four corner brackets round a screen point: the target.</summary>
+    static void TargetBrackets(Vector2 c, float r, float u)
+    {
+        float a = Math.Max(4f * u, r * 0.35f);
+        for (int i = 0; i < 4; i++)
+        {
+            float sx = (i & 1) == 0 ? -1f : 1f, sy = (i & 2) == 0 ? -1f : 1f;
+            var k = c + new Vector2(sx * r, sy * r);
+            MapPipeline.ScreenLine(k, k - new Vector2(sx * a, 0), TargetColor, 2f * u);
+            MapPipeline.ScreenLine(k, k - new Vector2(0, sy * a), TargetColor, 2f * u);
+        }
+    }
     static readonly ColorSRGB TargetColor = new ColorSRGB(0.95f, 0.45f, 0.85f, 1f);
     /// <summary>A ring rock's rendezvous (the rocks' colour on the map).</summary>
     public static readonly ColorSRGB RockColor = new ColorSRGB(1.00f, 0.80f, 0.45f, 1f);
@@ -1041,14 +1079,14 @@ public static class Maneuvers
         while (n < ps.Count && ps[n].T - ps[n - 1].T < 120) n++;
         return $"Ring crossing: {n} rendezvous  ·  next {p.Label} {HudPanel.Km(p.D)} in {Clock(p.T - t)}  ·  {p.V:N0} m/s";
     }
-    private static double _caAt = -1, _caGameT; private static string _caSig; private static (bool ok, double t, double d, Leg leg, EncounterFrames.Site site) _ca;
-    private static double _caAt2 = -1, _caGameT2; private static string _caSig2; private static (bool ok, double t, double d, Leg leg, EncounterFrames.Site site) _ca2;
+    private static double _caAt = -1, _caGameT; private static string _caSig; private static (bool ok, double t, double d, Leg leg) _ca;
+    private static double _caAt2 = -1, _caGameT2; private static string _caSig2; private static (bool ok, double t, double d, Leg leg) _ca2;
 
     /// <summary>
     /// Closest approach of the path to the target's site, on the legs about the site's own body (as
     /// KSP's intercept markers): time and distance. Recomputed at most once a second or on a change.
     /// </summary>
-    static (bool ok, double t, double d, Leg leg, EncounterFrames.Site site) ClosestApproach(List<Leg> legs)
+    static (bool ok, double t, double d, Leg leg) ClosestApproach(List<Leg> legs)
     {
         double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
         // Keyed on the plan (not the base orbit, which a planet cell re-derives every frame), and
@@ -1064,20 +1102,21 @@ public static class Maneuvers
         if (sig == _caSig2 && now - _caAt2 < 1.0 && Math.Abs(gt - _caGameT2) < 30) return _ca2;
         _caSig2 = _caSig; _caAt2 = _caAt; _caGameT2 = _caGameT; _ca2 = _ca;   // (the other caller's, kept)
         _caSig = sig; _caAt = now; _caGameT = gt; _ca = default;
-        EncounterFrames.Site site = null;
-        site = EncounterFrames.TargetSite(Target);
-        if (site == null) return _ca;
+        string key = Target;
+        if (!Targets.At(key, gt, out _, out _)) return _ca;
+        // (every leg, about whatever body it is: the target's place is taken about that body - a ship, a site or a planet
+        //  alike; a planet's own legs give its periapsis)
         double best = double.MaxValue, bestT = double.NaN; Leg bestLeg = default;
         foreach (var l in legs)
         {
             var leg = l;
             var a = SEAerospace.Frames.RendezvousPlot.Closest(
                 tk => OrbitPropagation.StateAt(leg.El, tk),
-                tk => EncounterFrames.Ephemeris(site, tk, out var p, out var rel) && p == leg.Body ? rel : (StateVector?)null,
+                tk => Targets.About(key, leg.Body, tk, out var rel) ? rel : (StateVector?)null,
                 leg.T0, leg.T1);
             if (a.Ok && a.Distance < best) { best = a.Distance; bestT = a.T; bestLeg = leg; }
         }
-        if (best < double.MaxValue) _ca = (true, bestT, best, bestLeg, site);
+        if (best < double.MaxValue) _ca = (true, bestT, best, bestLeg);
         return _ca;
     }
 
@@ -1090,7 +1129,7 @@ public static class Maneuvers
         body = null; at = dist = double.NaN; you = target = default;
         if (Target == null || !Trajectory(t, out var legs, out _)) return false;
         var ca = ClosestApproach(legs);
-        if (!ca.ok || ca.d > RendezvousRange || !EncounterFrames.Ephemeris(ca.site, ca.t, out var tp, out var trel) || tp != ca.leg.Body) return false;
+        if (!ca.ok || ca.d > RendezvousRange || Targets.Body(Target) != null || !Targets.About(Target, ca.leg.Body, ca.t, out var trel)) return false;
         body = ca.leg.Body; at = ca.t; dist = ca.d;
         you = OrbitPropagation.StateAt(ca.leg.El, ca.t).Position;
         target = trel.Position;
@@ -1101,11 +1140,51 @@ public static class Maneuvers
     public static double RendezvousRange => ServerFrames.Rendezvous.EnterRangeMeters;   // (the merge's own: ScreenMerges)
 
     /// <summary>Speed relative to the target at the closest approach (m/s), NaN when unknown.</summary>
-    static double RelSpeed((bool ok, double t, double d, Leg leg, EncounterFrames.Site site) ca)
+    static double RelSpeed((bool ok, double t, double d, Leg leg) ca)
     {
-        if (!ca.ok || !EncounterFrames.Ephemeris(ca.site, ca.t, out var p, out var rel) || p != ca.leg.Body) return double.NaN;
+        if (!ca.ok || !Targets.About(Target, ca.leg.Body, ca.t, out var rel)) return double.NaN;
         return (OrbitPropagation.StateAt(ca.leg.El, ca.t).Velocity - rel.Velocity).Length();
     }
+
+    /// <summary>
+    /// The closest approach told: a rendezvous when within the merge range, else how close the path comes (any
+    /// distance: how far off you are is what a correction needs); a planet's as the altitude you pass at.
+    /// </summary>
+    static string ApproachText((bool ok, double t, double d, Leg leg) ca, double t)
+    {
+        double r = Targets.Radius(Target);
+        double v = RelSpeed(ca);
+        string vs = double.IsNaN(v) ? "" : $"  ·  {v:N0} m/s";
+        if (r > 0) return ca.d <= r ? $"impact in {Clock(ca.t - t)}" : $"closest {HudPanel.Km(ca.d - r)} up in {Clock(ca.t - t)}{vs}";
+        return ca.d <= RendezvousRange ? $"rendezvous {HudPanel.Km(ca.d)} in {Clock(ca.t - t)}{vs}" : $"closest {HudPanel.Km(ca.d)} in {Clock(ca.t - t)}{vs}";
+    }
+
+    /// <summary>The target's closest approach, as values (the map's target panel).</summary>
+    public struct Approach
+    {
+        public bool Ok, Here, Rendezvous, Impact, Body, Tracking;
+        public double At, Dist, Alt, RelV;
+        public string TrackingText;
+    }
+    public static Approach TargetApproach(double t)
+    {
+        var a = new Approach();
+        if (Target == null) return a;
+        if (Contacts.RockProgress(Target) is double prog && prog < 1)
+        { a.Tracking = true; a.TrackingText = $"{prog:P0}{(Contacts.Lidar ? " (lidar ranging)" : " (bearing only)")}"; return a; }
+        if (RendezvousView.TargetIsOwnFrame(Target)) { a.Here = true; return a; }
+        if (!Trajectory(t, out var legs, out _)) return a;
+        var ca = ClosestApproach(legs);
+        if (!ca.ok) return a;
+        double r = Targets.Radius(Target);
+        a.Ok = true; a.At = ca.t; a.Dist = ca.d; a.RelV = RelSpeed(ca);
+        a.Body = r > 0; a.Alt = ca.d - r; a.Impact = r > 0 && ca.d <= r;
+        a.Rendezvous = r <= 0 && ca.d <= RendezvousRange;
+        return a;
+    }
+
+    /// <summary>Where the target was bracketed on the map last frame (world), for "show on map"; null when not drawn.</summary>
+    public static Vector3D? TargetWorld;
 
     /// <summary>The target's closest approach as a line for the orbit card (null: no target or no approach).</summary>
     public static string TargetLine(double t)
@@ -1114,10 +1193,12 @@ public static class Maneuvers
         // a rock seen but not tracked: no orbit yet, so no closest approach (a telescope's lidar on it speeds the fit)
         if (Contacts.RockProgress(Target) is double prog && prog < 1)
             return $"Target ≈ {Target}  ·  tracking {prog:P0}{(Contacts.Lidar ? "  ·  lidar ranging" : "  ·  bearing only")}";
-        if (RendezvousView.TargetIsOwnFrame(Target)) return $"Target {Target}  ·  here";
+        string name = Targets.Name(Target);
+        if (RendezvousView.TargetIsOwnFrame(Target)) return $"Target {name}  ·  here";
         if (!Trajectory(t, out var legs, out _)) return null;
         var ca = ClosestApproach(legs);
-        return ca.ok && ca.d <= RendezvousRange ? $"Target {Target}  ·  rendezvous {HudPanel.Km(ca.d)} in {Clock(ca.t - t)}  ·  {RelSpeed(ca):N0} m/s" : $"Target {Target}  ·  no rendezvous on this path";
+        if (!ca.ok) return Targets.At(Target, t, out _, out _) ? $"Target {name}  ·  no approach on this path" : $"Target {name}  ·  lost";
+        return $"Target {name}  ·  {ApproachText(ca, t)}";
     }
 
     public struct Crossing { public string Name; public double T; public bool Entry; public Leg Leg; }

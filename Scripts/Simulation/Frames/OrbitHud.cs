@@ -401,6 +401,45 @@ public static class OrbitHud
     /// prograde tick, Pe / Ap; a view wedge from you; and at its left edge how far above or below the
     /// orbit plane you are looking.
     /// </summary>
+    /// <summary>
+    /// A plot's scale that holds still (the user, 2026-10-10: "very twitchy from constantly resizing the axis scale to fit"):
+    /// the shown extent sits on clean steps (1, 2, 5 x 10^n), GROWS at once when the content reaches GrowAt of it, SHRINKS
+    /// only after the content has stayed under ShrinkAt of it for ShrinkHold s, and any change is eased (Tau, in log
+    /// space - a zoom, not a slide). It was the content's exact extent every frame.
+    /// </summary>
+    internal sealed class ScaleLatch
+    {
+        public const double GrowAt = 0.92, ShrinkAt = 0.38, ShrinkHold = 1.5, Tau = 0.25, Margin = 1.12;
+        double _shown = -1, _target = -1, _shrinkSince, _at;
+        public double Target => _target;
+        public static double Nice(double x)
+        {
+            if (!(x > 0)) return 1;
+            double mag = Math.Pow(10, Math.Floor(Math.Log10(x))), f = x / mag;
+            return mag * (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10);
+        }
+        /// <summary>The extent to draw this frame for content needing <paramref name="need"/>.</summary>
+        public double Update(double need, double now)
+        {
+            need = Math.Max(need, 1e-6);
+            double dt = _at > 0 ? Math.Clamp(now - _at, 0, 0.25) : 0; _at = now;
+            if (_target < 0 || !(_shown > 0)) { _target = _shown = Nice(need * Margin); return _shown; }
+            if (need > _target * GrowAt) { _target = Nice(need * Margin); _shrinkSince = 0; }
+            else if (need < _target * ShrinkAt)
+            {
+                if (_shrinkSince == 0) _shrinkSince = now;
+                else if (now - _shrinkSince > ShrinkHold) { _target = Nice(need * Margin); _shrinkSince = 0; }
+            }
+            else _shrinkSince = 0;
+            double a = dt > 0 ? 1 - Math.Exp(-dt / Tau) : 1;
+            _shown = Math.Exp(Math.Log(_shown) + (Math.Log(_target) - Math.Log(_shown)) * a);
+            return _shown;
+        }
+        public void Reset() { _shown = _target = -1; _shrinkSince = 0; _at = 0; }
+    }
+    static readonly ScaleLatch _discScale = new(), _relScale = new(), _oopScale = new();
+    static double _relCx, _relCy, _relCxT, _relCyT, _relCenterAt; static bool _relCenterSet; static string _relFor;
+
     static void DrawDisc(Readout r, float u)
     {
         if (r.RelPath == null || r.RelPath.Length < 2 || r.Nor.LengthSquared() < 0.5) return;
@@ -427,7 +466,7 @@ public static class OrbitHud
         if (r.Rocks != null) foreach (var rk in r.Rocks) far = Math.Max(far, rk.rel.Length());
         bool showSoi = r.SoiRadius > 0 && (r.Escape || (r.EventRel.HasValue && !r.MoonRel.HasValue) || far > 0.5 * r.SoiRadius);
         if (showSoi) far = Math.Max(far, r.SoiRadius);
-        double k = (R * 0.86) / Math.Max(1.0, far);
+        double k = (R * 0.86) / _discScale.Update(Math.Max(1.0, far), Wall());   // (held on clean steps, eased: it refit every frame)
         Vector2 P(Vector3D q) => c + new Vector2((float)(Vector3D.Dot(q, e2) * k), (float)(-Vector3D.Dot(q, e1) * k));
         // Panel: a dark disc, a thin rim (as the game's HUD).
         var rim = new List<Vector2>(64);
@@ -535,10 +574,24 @@ public static class OrbitHud
         void Inc((double x, double y) p) { minX = Math.Min(minX, p.x); maxX = Math.Max(maxX, p.x); minY = Math.Min(minY, p.y); maxY = Math.Max(maxY, p.y); }
         foreach (var q in r.Relative) Inc(Ax(q));
         Inc(Ax(r.RelNow));
-        double ext = Math.Max(500, Math.Max(maxX - minX, maxY - minY)) * 1.08;
+        // (a steady view: the extent on clean steps, grown at once, shrunk late, eased - ScaleLatch; the centre held where it is
+        //  until the content would leave the view, then eased onto it. Both were refit to the content every frame: twitchy)
+        double now = Wall();
+        if (_relFor != r.AnchorName) { _relFor = r.AnchorName; _relScale.Reset(); _relCenterSet = false; }
+        double target0 = _relScale.Target;
+        double ext = _relScale.Update(Math.Max(500, Math.Max(maxX - minX, maxY - minY)), now);
         float span = Math.Min(a1.X - a0.X, a1.Y - a0.Y);
         double k = span / ext;
-        double cx = 0.5 * (minX + maxX), cy = 0.5 * (minY + maxY);
+        {
+            double bx = 0.5 * (minX + maxX), by = 0.5 * (minY + maxY), half = 0.5 * _relScale.Target * 0.96;
+            bool leaves = maxX - _relCxT > half || _relCxT - minX > half || maxY - _relCyT > half || _relCyT - minY > half;
+            if (!_relCenterSet) { _relCx = _relCxT = bx; _relCy = _relCyT = by; _relCenterSet = true; }
+            else if (leaves || _relScale.Target != target0) { _relCxT = bx; _relCyT = by; }
+            double dt = _relCenterAt > 0 ? Math.Clamp(now - _relCenterAt, 0, 0.25) : 0; _relCenterAt = now;
+            double a = dt > 0 ? 1 - Math.Exp(-dt / ScaleLatch.Tau) : 1;
+            _relCx += (_relCxT - _relCx) * a; _relCy += (_relCyT - _relCy) * a;
+        }
+        double cx = _relCx, cy = _relCy;
         var mid = 0.5f * (a0 + a1);
         Vector2 P((double along, double radial) q) { var p = Ax(q); return mid + new Vector2((float)((p.x - cx) * k), (float)((p.y - cy) * k)); }
         bool In(Vector2 s) => s.X >= a0.X - 1 && s.X <= a1.X + 1 && s.Y >= a0.Y - 1 && s.Y <= a1.Y + 1;
@@ -550,26 +603,28 @@ public static class OrbitHud
         var box = new List<Vector2> { lo, new Vector2(c.X + R, c.Y - R), new Vector2(c.X + R, c.Y + R), new Vector2(c.X - R, c.Y + R) };
         MapPipeline.ScreenFill(box, new ColorSRGB(0.02f, 0.04f, 0.06f, 0.55f));
         for (int i = 0; i < 4; i++) MapPipeline.ScreenLine(box[i], box[(i + 1) % 4], HudPanel.Alpha(white, 0.55f), 1.2f * u);
-        // Grid at a clean step (1, 2, 5 x 10^n m), labelled in km along the top (V bar) and left (R bar).
-        double raw = ext / 4, mag = Math.Pow(10, Math.Floor(Math.Log10(raw))), step = mag * (raw / mag < 1.5 ? 1 : raw / mag < 3.5 ? 2 : 5);
-        string Lab(double m) => Math.Abs(m) < 1 ? "0" : Math.Abs(m) >= 1000 ? $"{m / 1000:0.#}" : $"{m / 1000:0.##}";
+        // Grid at a clean step (the shown extent's: it moves with the eased zoom, never jumps), unlabelled - ONE scale bar
+        // says what a square is (the user, 2026-10-10: "too much text... measurement spans, markers on the plot"; it was a
+        // number on every other line, top and left).
+        double step = ScaleLatch.Nice(_relScale.Target / 4.5);
         var origin = P((0, 0));
         for (int i = -40; i <= 40; i++)
         {
             float gx = origin.X + (float)(i * step * k), gy = origin.Y + (float)(i * step * k);
-            if (gx >= a0.X && gx <= a1.X)
-            {
-                MapPipeline.ScreenLine(new Vector2(gx, a0.Y), new Vector2(gx, a1.Y), i == 0 ? dim : faint, 1f * u);
-                if (i % 2 == 0) MapPipeline.TextScreen(new Vector2(gx, lo.Y + 7f * u), Lab(i * step), dim, 0.34f);   // behind: +
-            }
-            if (gy >= a0.Y && gy <= a1.Y)
-            {
-                MapPipeline.ScreenLine(new Vector2(a0.X, gy), new Vector2(a1.X, gy), i == 0 ? dim : faint, 1f * u);
-                if (i % 2 == 0) MapPipeline.TextScreen(new Vector2(lo.X + 7f * u, gy), Lab(i * step), dim, 0.34f);   // below: +
-            }
+            if (gx >= a0.X && gx <= a1.X) MapPipeline.ScreenLine(new Vector2(gx, a0.Y), new Vector2(gx, a1.Y), i == 0 ? dim : faint, 1f * u);
+            if (gy >= a0.Y && gy <= a1.Y) MapPipeline.ScreenLine(new Vector2(a0.X, gy), new Vector2(a1.X, gy), i == 0 ? dim : faint, 1f * u);
         }
-        MapPipeline.TextScreen(new Vector2(a1.X - 16f * u, a1.Y - 8f * u), "-V km", dim, 0.34f);
-        MapPipeline.TextScreen(new Vector2(a0.X + 16f * u, a1.Y - 8f * u), "+R", dim, 0.34f);
+        {
+            // the scale bar, bottom right: one grid square, end ticks, its length
+            float bl = (float)(step * k), by0 = a1.Y - 7f * u, bx1 = a1.X - 6f * u, bx0 = bx1 - bl;
+            MapPipeline.ScreenLine(new Vector2(bx0, by0), new Vector2(bx1, by0), dim, 1.2f * u);
+            MapPipeline.ScreenLine(new Vector2(bx0, by0 - 3f * u), new Vector2(bx0, by0 + 3f * u), dim, 1.2f * u);
+            MapPipeline.ScreenLine(new Vector2(bx1, by0 - 3f * u), new Vector2(bx1, by0 + 3f * u), dim, 1.2f * u);
+            MapPipeline.TextScreen(new Vector2(0.5f * (bx0 + bx1), by0 - 8f * u), HudPanel.Km(step), dim, 0.32f);
+        }
+        // axis hints at the axes' ends (NASA: behind is +V to the right, the planet down)
+        if (origin.Y > a0.Y + 8f * u && origin.Y < a1.Y - 8f * u) MapPipeline.TextScreen(new Vector2(a1.X - 10f * u, origin.Y - 7f * u), "−V", dim, 0.32f);
+        if (origin.X > a0.X + 8f * u && origin.X < a1.X - 8f * u) MapPipeline.TextScreen(new Vector2(origin.X + 9f * u, a1.Y - 20f * u), "+R", dim, 0.32f);
         // The frame's boundary round the anchor (past it you leave on your own orbit).
         {
             var arc = new List<Vector2>();
@@ -612,12 +667,49 @@ public static class OrbitHud
             MapPipeline.ScreenCircle(ex, 4f * u, orange, 1.6f * u);
             MapPipeline.TextScreen(ex + new Vector2(0, 9f * u), "leaves frame", orange, 0.34f);
         }
-        // The anchor (a square) and you (a dot with your relative velocity).
-        MapPipeline.ScreenFill(new List<Vector2> { origin + new Vector2(-3.5f * u, -3.5f * u), origin + new Vector2(3.5f * u, -3.5f * u), origin + new Vector2(3.5f * u, 3.5f * u), origin + new Vector2(-3.5f * u, 3.5f * u) }, orange);
+        // ON THE PLOT, not in a line under it (the user, 2026-10-10): the range as a measured span from the anchor to you, the
+        // closing / opening rate on your velocity arrow, the anchor's name by its square, the closest approach marked on the path.
+        double rng = Math.Sqrt(r.RelNow.along * r.RelNow.along + r.RelNow.radial * r.RelNow.radial);
+        double rdot = rng > 1 ? (r.RelNow.along * r.RelVel.along + r.RelNow.radial * r.RelVel.radial) / rng : 0;
+        double vrel = Math.Sqrt(r.RelVel.along * r.RelVel.along + r.RelVel.radial * r.RelVel.radial);
         var me = P(r.RelNow);
+        // the range span: anchor to you, end ticks, its length at the middle
+        if (In(me) && In(origin) && (me - origin).Length() > 18f * u)
+        {
+            var d = Vector2.Normalize(me - origin); var nrm = new Vector2(-d.Y, d.X);
+            var sc = HudPanel.Alpha(white, 0.45f);
+            MapPipeline.ScreenLine(origin + d * 6f * u, me - d * 6f * u, sc, 1f * u);
+            MapPipeline.ScreenLine(origin + d * 6f * u - nrm * 3f * u, origin + d * 6f * u + nrm * 3f * u, sc, 1f * u);
+            MapPipeline.ScreenLine(me - d * 6f * u - nrm * 3f * u, me - d * 6f * u + nrm * 3f * u, sc, 1f * u);
+            var mid0 = 0.5f * (origin + me) + nrm * 8f * u;
+            MapPipeline.TextScreen(mid0, HudPanel.Km(rng), HudPanel.Alpha(white, 0.8f), 0.34f);
+        }
+        // the closest approach on the predicted revolution (marked where it happens: its distance and when)
+        if (!r.Holding && r.Relative.Count > 2)
+        {
+            int ci = 0; double cmin = double.MaxValue;
+            for (int i = 0; i < r.Relative.Count; i++) { var q = r.Relative[i]; double dd = q.along * q.along + q.radial * q.radial; if (dd < cmin) { cmin = dd; ci = i; } }
+            var cs = P(r.Relative[ci]);
+            if (ci > 0 && In(cs))
+            {
+                MapPipeline.ScreenCircle(cs, 4.5f * u, Orbit, 1.3f * u);
+                double tca = r.RelPeriod * ci / Math.Max(1, r.RelSamples - 1);
+                MapPipeline.TextScreen(cs + new Vector2(0, 11f * u), $"closest {HudPanel.Km(Math.Sqrt(cmin))} · +{Maneuvers.Clock(tca)}", HudPanel.Alpha(Orbit, 0.9f), 0.32f);
+            }
+        }
+        // The anchor (a square, its name by it) and you (a dot, your relative velocity with its rate on it).
+        MapPipeline.ScreenFill(new List<Vector2> { origin + new Vector2(-3.5f * u, -3.5f * u), origin + new Vector2(3.5f * u, -3.5f * u), origin + new Vector2(3.5f * u, 3.5f * u), origin + new Vector2(-3.5f * u, 3.5f * u) }, orange);
+        if (In(origin) && !string.IsNullOrEmpty(r.AnchorName)) MapPipeline.TextScreen(origin + new Vector2(0, -10f * u), r.AnchorName, orange, 0.34f);
         var vr = new Vector2((float)-r.RelVel.along, (float)-r.RelVel.radial);
-        if (vr.LengthSquared() > 1e-6f) MapPipeline.ScreenLine(me, me + Vector2.Normalize(vr) * 12f * u, white, 1.6f * u);
+        if (vr.LengthSquared() > 1e-6f)
+        {
+            var tip = me + Vector2.Normalize(vr) * 14f * u;
+            MapPipeline.ScreenLine(me, tip, white, 1.6f * u);
+            MapPipeline.TextScreen(tip + Vector2.Normalize(vr) * 10f * u, r.Holding ? "holding" : $"{(rdot < 0 ? "closing" : "opening")} {Math.Abs(rdot):0.0} m/s", white, 0.32f);
+        }
+        else if (r.Holding) MapPipeline.TextScreen(me + new Vector2(0, -10f * u), "holding", white, 0.32f);
         MapPipeline.ScreenDisc(me, 3.4f * u, white);
+        _ = vrel;
         // Out of plane: a strip under the plot (same along-track axis), only when there is real motion out of it.
         if (r.RelCross != null && r.RelCross.Count >= 2)
         {
@@ -630,10 +722,17 @@ public static class OrbitHud
                 MapPipeline.ScreenFill(sb, new ColorSRGB(0.02f, 0.04f, 0.06f, 0.55f));
                 for (int i = 0; i < 4; i++) MapPipeline.ScreenLine(sb[i], sb[(i + 1) % 4], HudPanel.Alpha(white, 0.55f), 1.2f * u);
                 float midY = top + sh * 0.5f;
-                double kc = (sh * 0.5 - 6 * u) / (oop * 1.1);
+                double oopShown = _oopScale.Update(oop, Wall());   // (held and eased as the plot's: it refit every frame)
+                double kc = (sh * 0.5 - 6 * u) / oopShown;
                 MapPipeline.ScreenLine(new Vector2(a0.X, midY), new Vector2(a1.X, midY), dim, 1f * u);   // the anchor's plane
-                MapPipeline.TextScreen(new Vector2(c.X - R + 22f * u, top + 8f * u), $"out of plane ±{HudPanel.Km(oop)}", dim, 0.34f);
                 MapPipeline.TextScreen(new Vector2(c.X + R - 12f * u, top + 8f * u), "+N", dim, 0.34f);
+                {
+                    // the out-of-plane reach as a measured span at the left edge: from the plane to the furthest point
+                    float sx = a0.X + 6f * u, sy = midY - (float)(oop * kc);
+                    MapPipeline.ScreenLine(new Vector2(sx, midY), new Vector2(sx, sy), dim, 1f * u);
+                    MapPipeline.ScreenLine(new Vector2(sx - 3f * u, sy), new Vector2(sx + 3f * u, sy), dim, 1f * u);
+                    MapPipeline.TextScreen(new Vector2(sx + 22f * u, 0.5f * (midY + sy)), "±" + HudPanel.Km(oop), dim, 0.32f);
+                }
                 var sp = new List<Vector2>(r.Relative.Count);
                 for (int i = 0; i < r.Relative.Count && i < r.RelCross.Count; i++)
                     sp.Add(new Vector2(P(r.Relative[i]).X, midY - (float)(r.RelCross[i] * kc)));
@@ -643,13 +742,7 @@ public static class OrbitHud
                 MapPipeline.ScreenDisc(new Vector2(P(r.RelNow).X, midY - (float)(r.RelNowCross * kc)), 3f * u, white);
             }
         }
-        // Readout: range, range rate, relative speed.
-        double rng = Math.Sqrt(r.RelNow.along * r.RelNow.along + r.RelNow.radial * r.RelNow.radial);
-        double rdot = rng > 1 ? (r.RelNow.along * r.RelVel.along + r.RelNow.radial * r.RelVel.radial) / rng : 0;
-        double vrel = Math.Sqrt(r.RelVel.along * r.RelVel.along + r.RelVel.radial * r.RelVel.radial);
-        MapPipeline.TextScreen(new Vector2(c.X, c.Y + R + 11f * u), r.Holding
-            ? $"{r.AnchorName}   range {HudPanel.Km(rng)}   holding (dampeners)"
-            : $"{r.AnchorName}   range {HudPanel.Km(rng)}   {(rdot < 0 ? "closing" : "opening")} {Math.Abs(rdot):0.0} m/s   rel {vrel:0.0} m/s", Orbit, 0.4f);
+        // (the readout line that was here - name, range, closing rate, relative speed - is on the plot now, above)
     }
 
     /// <summary>Your suit's jetpack is on (unknown: treated as on).</summary>

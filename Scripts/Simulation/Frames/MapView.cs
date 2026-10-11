@@ -449,7 +449,7 @@ public static class MapView
         var map = Map(session);
         FrameHost.Guard("MapView.Sectorless", () => SectorlessScene(session, map));
         Visible = map != null && map.IsVisible;
-        if (map == null || !map.IsVisible || !SystemHost.Built) { RendezvousView.Reset(); MapCamera.Release(session); CleanMap.ResetView(); if (map != null) GameMap.RestoreGame(map); MapGlobes.HideAll(); Clear(); Status = map == null ? "no map component" : "map closed"; return; }
+        if (map == null || !map.IsVisible || !SystemHost.Built) { RendezvousView.Reset(); ContactsTab.Reset(); MapCamera.Release(session); CleanMap.ResetView(); if (map != null) GameMap.RestoreGame(map); MapGlobes.HideAll(); Clear(); Status = map == null ? "no map component" : "map closed"; return; }
         SectorsSessionComponent sectors = null;
         try { sectors = session.SessionComponents.TryGet<SectorsSessionComponent>(); } catch { }
         if (sectors == null) { Status = "no sectors component"; return; }   // (a sectorless world still has the component: its list is empty)

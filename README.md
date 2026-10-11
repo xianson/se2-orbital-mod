@@ -29,6 +29,31 @@ arrivals and before a burn).
 - A selected maneuver has six navball handles: drag one to add delta-v along it (the further you
   pull, the faster); drag the maneuver along the trajectory to move it; click a handle's number to
   type it.
+- **Targets** (2026-10-11): a planet or moon, a sector or rock, or a ship or station (yours, and the
+  contacts you have seen - drawn as pins, with their orbits when on rails).
+  - **N** over something on the map targets it (again: the next thing there; on the target alone: clears it).
+    Right-click works too; when several things lie under the cursor, the menu lists each one.
+  - The **target list** under the sector list: your ships and known contacts (nearest first), then the
+    planets and moons, with distances; click a row to target it.
+  - The target is bracketed on the map; the path's closest approach is marked at ANY distance
+    ("closest 1,240 km in 2:10:00 · 380 m/s"; a planet's as the altitude you pass at), a rendezvous
+    when within the merge range. The orbit card, the Rendezvous tab and the HUD's relative plot follow it.
+  - In flight, **N** targets the body or contact marker nearest the crosshair; the target is bracketed with its
+    name and distance. The target is saved with the world.
+- **Contacts** (2026-10-11): the map's GPS tab lists everything you can target instead of GPS points - the game's own
+  screen (search, sort by name or distance, folding groups, the eye) over the mod's list: Your ships · Contacts ·
+  Planets and moons · Sectors · Places (your GPS points, where they truly are). Distances are true across frames.
+  Selecting a row targets it; its eye pins it to the HUD. The HUD marks your target, what you pinned and contacts
+  within 50 km; everything else lives in the list. Renames and pins are saved with the world; your real GPS data is
+  never changed (a GPS point added from the tab is a real one and shows under Places).
+  Del on a selected row puts a ship, a body or a sector away under Hidden (Del there brings it back); on a place it
+  deletes that GPS point. Renaming a place renames its GPS point. The game's words for the screen are the tab's
+  ("Contacts", "Search contacts", "Rename contact", "Remove contact"; its string table, relabelled at load).
+- **Orbital elements** (2026-10-11): point at anything on the map - a ship, a planet or moon, an orbit line, a sector,
+  your own path - and a card by the cursor gives its orbit (Ap / Pe, about which body, inclination, period). The
+  target has its own card at the foot of the map: Ap / Pe / e, inclination, node, argument of periapsis, period and
+  semi-major axis, where it is now (height, speed, the next apsis), against your orbit (Ap / Pe differences, the
+  planes' angle, how far ahead or behind) and the closest approach on your path.
 
 **In flight.** The game's notification card shows your orbit (altitude, speed, periapsis /
 apoapsis, period, warp) and the next burn (delta-v, burn time, time to start). A navball marker

@@ -906,7 +906,7 @@ namespace SEAerospace
         /// compression); raise for a more dramatic sky. Positions/distances are NEVER touched —
         /// only the drawn size. The factor RAMPS back to 1x as a body nears materialization
         /// (<see cref="ApparentSizeMult"/>) so the proxy -> real-voxel handoff has no size pop.</summary>
-        public const double ProxyApparentSizeMult = 2.0;
+        public const double ProxyApparentSizeMult = 1.0;   // (2026-10-10: 2x magnified the proxy's texture - "a low quality one", the user)
 
         /// <summary>Outer edge of the apparent-size ramp, in body radii: beyond this the full
         /// <see cref="ProxyApparentSizeMult"/> applies; it eases to 1x by <see cref="ApparentRampInnerRadii"/>.</summary>

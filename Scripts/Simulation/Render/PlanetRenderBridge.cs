@@ -248,6 +248,44 @@ public static class PlanetRenderBridge
         return ApplyTerrain(h, visible, setFlag: visible);
     }
 
+    /// <summary>
+    /// WARM-UP before showing (2026-10-10, "often I see a low quality one" - the user): the terrain was frozen while hidden,
+    /// its detail still centred where the camera last was (often a berth 2,000+ km away); shown at once, it rebuilt in view,
+    /// coarse first. Warm: unfreeze it (_visible = true: the clipmap updates round the camera again) while its render roots
+    /// stay deactivated - call every frame until <see cref="TerrainSettled"/>, keeping the proxy up, then
+    /// <see cref="SetTerrainVisible"/>(true).
+    /// </summary>
+    public static bool WarmTerrain(PlanetHandles h)
+    {
+        if (h?.Terrain == null) return false;
+        h.HideFramesLeft = 0;
+        try
+        {
+            foreach (object clipmap in h.Clipmaps) SetMember(clipmap, "_visible", true);
+        }
+        catch { return false; }
+        return ApplyTerrain(h, false, setFlag: false);   // (roots made since last frame: dark too)
+    }
+
+    /// <summary>The terrain has caught up: every clipmap idle with no update pending (VoxelClipmap._updateState Idle,
+    /// _needsUpdate false). Unknown (reflection failed): true - show it rather than wait for ever.</summary>
+    public static bool TerrainSettled(PlanetHandles h)
+    {
+        if (h?.Terrain == null) return true;
+        try
+        {
+            foreach (object clipmap in h.Clipmaps)
+            {
+                object st = GetMember(clipmap, "_updateState");
+                if (st == null) return true;
+                if (st.ToString() != "Idle") return false;
+                if (GetMember(clipmap, "_needsUpdate") is bool nu && nu) return false;
+            }
+            return true;
+        }
+        catch { return true; }
+    }
+
     /// <summary>Advance a pending hide. Cheap no-op when nothing is pending.</summary>
     public static void TickTerrain(PlanetHandles h)
     {
@@ -341,6 +379,7 @@ public static class PlanetRenderBridge
                 (mapOnly ? "OrbitalMapGlobe_" : "OrbitalProxy_") + h.Name, mesh != null ? mesh.Handle : h.ProxyModel, RelativeTransform.Identity, root, flags, entityType, null
             });
             PlanetMesh.Acquire(mesh);
+            PlanetMesh.SetShown(mesh, true);   // (made visible)
 
             return new Proxy
             {
@@ -390,6 +429,7 @@ public static class PlanetRenderBridge
             if (update == null) { WarnOnce("proxy-swap", "ModelEntity.UpdateModel not found"); return; }
             update.Invoke(p.Model, new object[] { mesh != null ? mesh.Handle : h.ProxyModel });
             PlanetMesh.Acquire(mesh);
+            if (p.Visible) { PlanetMesh.SetShown(mesh, true); PlanetMesh.SetShown(p.Mesh, false); }
             PlanetMesh.Release(p.Mesh);
             p.Mesh = mesh;
             p.ModelRadius = mesh != null ? 1.0 : h.ProxyModelRadius;
@@ -474,6 +514,7 @@ public static class PlanetRenderBridge
         {
             p.Model.GetType().GetMethod("SetRenderFlagsState")?.Invoke(p.Model, new[] { Enum.ToObject(_renderFlagsType, 0x1), (object)visible });
             p.Visible = visible;
+            PlanetMesh.SetShown(p.Mesh, visible);
         }
         catch (Exception e) { WarnOnce("proxy-vis", $"proxy visibility failed: {Inner(e)}"); }
     }
@@ -488,6 +529,7 @@ public static class PlanetRenderBridge
             p.Root?.GetType().GetMethod("Dispose", Type.EmptyTypes)?.Invoke(p.Root, null);
         }
         catch (Exception e) { WarnOnce("proxy-dispose", $"proxy dispose failed: {Inner(e)}"); }
+        if (p.Visible) PlanetMesh.SetShown(p.Mesh, false);
         PlanetMesh.Release(p.Mesh);
         p.Mesh = null;
     }
@@ -1060,6 +1102,19 @@ public static class PlanetRenderBridge
             return true;
         }
         catch (Exception e) { Log.Default?.Info("[ORBIT] CallAdd: " + (e.InnerException ?? e).Message); return false; }
+    }
+
+    /// <summary>list.Remove(item) on a collection type mod code cannot reference.</summary>
+    internal static bool CallRemove(object list, object item)
+    {
+        try
+        {
+            var m = list?.GetType().GetMethod("Remove", new[] { item.GetType() }) ?? list?.GetType().GetMethod("Remove");
+            if (m == null) return false;
+            m.Invoke(list, new[] { item });
+            return true;
+        }
+        catch (Exception e) { Log.Default?.Info("[ORBIT] CallRemove: " + (e.InnerException ?? e).Message); return false; }
     }
 
     // Member lookups cached per (type, name), misses included: GetMember/SetMember run ~35 times a map frame, and a lookup

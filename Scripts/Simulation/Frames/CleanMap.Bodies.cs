@@ -35,7 +35,9 @@ public static partial class CleanMap
             Vector3D ml = Lv(mp);
             {
                 var mel = OrbitalMath.ToElements(moon.StateInParentAt(t), planet.Mu, t);
+                _curveKey = moon.Name;
                 if (mel.IsElliptic) Curve(nu => Lv(OrbitSampler.PositionAtTrueAnomaly(mel, nu)), W, 0, 2 * Math.PI, 64, HudPanel.Alpha(Dim, 0.35f), 1.0f, depthCue: true);
+                _curveKey = null;
             }
             if (!MapPipeline.ToScreen(W(ml), out var mls) || !InOpenArea(mls)) continue;   // off view: not over the game's panels
             MapGlobes.Use(moon.Name, W(ml), (reg.FindDefinition(moon.Name)?.RadiusMeters ?? 2e4) * scaleSys * _wscale, globes);
@@ -177,7 +179,9 @@ public static partial class CleanMap
             }
             // Faint while a planet's own system has the view (its sweep across the screen is not the point there).
             long pq = ModCost.Start();
+            _curveKey = _planetLevel ? null : p.Name;   // (faint behind a planet's own view: not a hover there)
             if (el.IsElliptic) Curve(nu => S(OrbitSampler.PositionAtTrueAnomaly(el, nu)), W, 0, 2 * Math.PI, 96, _planetLevel ? HudPanel.Alpha(Line, 0.1f) : Line, 1.0f, skip: skip);
+            _curveKey = null;
             ModCost.Sec("planet.orbit").Stop(pq); pq = ModCost.Start();
             Vector3D hp = p.StateInParentAt(t).Position;
             Vector3D c = S(hp);

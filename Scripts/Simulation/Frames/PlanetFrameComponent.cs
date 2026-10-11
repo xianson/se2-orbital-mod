@@ -292,6 +292,13 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
     ///    frame-relative celestial offset (PlanetBerths.ProjectProxy: true direction, true angular
     ///    size, render distance clamped at 2000 km).
     /// </summary>
+    /// <summary>Warm the real terrain before showing it (PlanetRenderBridge.WarmTerrain): at least WarmMinFrames, then
+    /// three settled frames in a row, at most WarmMaxSeconds.</summary>
+    public static bool WarmBeforeShow = true;
+    public static int WarmMinFrames = 10;
+    public static double WarmMaxSeconds = 3.0;
+    private int _warmFrames, _settledFrames; private long _warmStart;
+
     private bool TickFramesMode(WorldTransform camera, double distance)
     {
         if (!SystemHost.Built || !FrameHost.Observer.HasValue) return false;
@@ -313,18 +320,37 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
         else if (OrbitalConfig.Mode == ProxyMode.AlwaysProxy) wantReal = false;
         if (!OrbitalConfig.HideRealPlanets || !_handles.HasProxyModel) wantReal = true;
 
-        if (wantReal != _realShown && PlanetRenderBridge.SetTerrainVisible(_handles, wantReal))
+        double radius = _handles.SurfaceRadius > 0 ? _handles.SurfaceRadius : _handles.Radius;
+        var pp = SEAerospace.PlanetBerths.ProjectProxy(camera.Position, node.OriginInRoot(t).Position, obs, radius, t, drop);
+
+        // Showing the real planet: warm its terrain first (rebuilt round the camera while dark), the proxy staying up -
+        // only where a proxy is there to stand in, and no longer than WarmMaxSeconds
+        bool show = wantReal;
+        if (wantReal && !_realShown && WarmBeforeShow && _proxy != null && pp.RenderRadius > 0)
         {
-            if (OrbitalConfig.HideAtmosphere) PlanetRenderBridge.SetAtmosphereVisible(_handles, wantReal);
-            _realShown = wantReal;
-            Log.Default?.Info($"[ORBIT] {body}: real planet {(wantReal ? "SHOWN" : "HIDDEN")} " +
+            if (_warmFrames == 0) _warmStart = System.Diagnostics.Stopwatch.GetTimestamp();
+            PlanetRenderBridge.WarmTerrain(_handles);
+            _warmFrames++;
+            _settledFrames = PlanetRenderBridge.TerrainSettled(_handles) ? _settledFrames + 1 : 0;
+            double warmS = (System.Diagnostics.Stopwatch.GetTimestamp() - _warmStart) / (double)System.Diagnostics.Stopwatch.Frequency;
+            show = (_warmFrames >= WarmMinFrames && _settledFrames >= 3) || warmS >= WarmMaxSeconds;
+            if (show) Log.Default?.Info($"[ORBIT] {body}: terrain warmed in {warmS:F2} s ({_warmFrames} frames{(warmS >= WarmMaxSeconds ? ", capped" : "")})");
+        }
+        else if (!wantReal && _warmFrames > 0 && !_realShown)
+            PlanetRenderBridge.SetTerrainVisible(_handles, false);   // (warming called off: dark and frozen again)
+        if (!wantReal || _realShown) { _warmFrames = 0; _settledFrames = 0; }
+
+        if (show != _realShown && PlanetRenderBridge.SetTerrainVisible(_handles, show))
+        {
+            if (OrbitalConfig.HideAtmosphere) PlanetRenderBridge.SetAtmosphereVisible(_handles, show);
+            _realShown = show;
+            _warmFrames = 0; _settledFrames = 0;
+            Log.Default?.Info($"[ORBIT] {body}: real planet {(show ? "SHOWN" : "HIDDEN")} " +
                               $"(frames: observer in {(FrameHost.ObserverPlanet ?? "conjunction")}, {distance / 1000:F1} km)");
         }
 
         if (_realShown) { PlanetRenderBridge.SetProxyVisible(_proxy, false); return true; }
 
-        double radius = _handles.SurfaceRadius > 0 ? _handles.SurfaceRadius : _handles.Radius;
-        var pp = SEAerospace.PlanetBerths.ProjectProxy(camera.Position, node.OriginInRoot(t).Position, obs, radius, t, drop);
         if (pp.RenderRadius <= 0) { PlanetRenderBridge.SetProxyVisible(_proxy, false); return true; }
 
         if (_proxy == null)

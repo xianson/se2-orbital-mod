@@ -27,10 +27,15 @@ for s in $(echo "$G" | tr ' ' '
 done
 q "gridlaunch $h 2 Verdure 150" >/dev/null; sleep 3; q "gridlevel $h" >/dev/null; sleep 2; q "gridhold $h 0.5" >/dev/null   # (levelled: top away from the planet, the world the right way up)
 q "aeroset AeroEntryFx.TestAxis $AX" >/dev/null; q "aeroset AeroEntryFx.TestSpeed $V0" >/dev/null; q "cam grid $h $DIST ${BEAR:-30} ${ELEV:-12}" >/dev/null; sleep 6
+# PRE: commands (';'-separated, harness syntax) run before the capture - e.g. "aeroset FlightField.TipLead 0"
+if [ -n "$PRE" ]; then IFS=';' read -ra pre <<< "$PRE"; for c in "${pre[@]}"; do q "$c" >/dev/null; done; sleep 2; fi
 echo "status: $(q 'aeroget AeroMod.AeroEntryFx.FlightStatus' | cut -c1-160)"
 ffmpeg -hide_banner -loglevel error -y -f gdigrab -framerate 30 -offset_x ${CAPX:-0} -offset_y ${CAPY:-0} -video_size ${CAPSIZE:-2560x1440} -t $DUR -i desktop \
   -vf "scale=1920:-2" -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -movflags +faststart "$OUTMP4" &
 FF=$!
+# YAW (rad/s): the ship yawing about its own up axis through the take; the camera's bearing (measured from the nose)
+# swung against it so the camera stays put in the world and the ship is seen turning
+if [ -n "$YAW" ]; then q "gridspin $h yaw $YAW" >/dev/null; SWING=$(awk -v w=$YAW -v d=$DUR 'BEGIN{printf "%.1f", -w*d*57.2958}'); fi
 steps=$(( DUR * 2 ))
 for i in $(seq 0 $((steps-1))); do
   v=$(awk -v i=$i -v n=$steps -v a=$V0 -v b=$V1 'BEGIN{k=i/(n-1); printf "%.0f", a + (b-a)*k}')
@@ -39,5 +44,5 @@ for i in $(seq 0 $((steps-1))); do
   sleep 0.5
 done
 wait $FF
-q "aeroset AeroEntryFx.TestSpeed 0" >/dev/null; q "gridhold $h 0" >/dev/null; q "encon on" >/dev/null
+q "aeroset AeroEntryFx.TestSpeed 0" >/dev/null; [ -n "$YAW" ] && q "gridspin $h 0 0 0" >/dev/null; q "gridhold $h 0" >/dev/null; q "encon on" >/dev/null
 ls -la "$OUTMP4"; echo "== recsuper in $(( $(date +%s) - T0 )) s; exceptions: $(grep -ac 'Exception occurred' "$(LOG)")"

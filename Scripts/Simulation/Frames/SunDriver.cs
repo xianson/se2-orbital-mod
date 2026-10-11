@@ -1,3 +1,4 @@
+using System;
 using Keen.VRage.Core;
 using Keen.VRage.Core.Game.GameSystems.Sun;
 using SEAerospace;
@@ -7,11 +8,10 @@ using SEAerospace.Orbital;
 namespace OrbitalMod;
 
 /// <summary>
-/// The sun, consistent across frames (the user, 2026-10-07). The sun is not Delfos: it is outside the Delfos system. In a
-/// planet's frame it is the game's own sun - its angle is shared by every player and runs on the game's clock (warp does not
-/// move it); the mod leaves it alone there. In any other frame it is that same sun turned by the rotation a crossing applies
-/// to your ship (the planet's chart to inertial axes), so the light does not jump when you cross and stays where it is
-/// relative to you. The planets spin on the game's clock too (SystemHost.SpinNow), so neither depends on warp.
+/// The sun, consistent across frames (the user, 2026-10-07; one sun, 2026-10-10). The sun is not Delfos: it is outside the
+/// Delfos system - a fixed direction in inertial space. Drawn as it is in orbit, and turned into a planet's rotating chart in
+/// that planet's frame: the planet's day is its own spin (SystemHost.SpinNow, the game's clock - warp does not move it), and
+/// orbit, sky and terrain all see the same sun.
 ///
 /// Uses the render side's ISunDebug.Override (client only, not synced, not saved): each client lights its own frame; the
 /// world's sun settings are never changed.
@@ -36,22 +36,45 @@ public static class SunDriver
         try { game = session.SessionComponents.TryGet<Keen.Game2.Simulation.GameSystems.Sun.SunSessionComponent>(); } catch { }
         if (game == null) { Status = "no game sun"; return; }
         var (az, el) = game.GetSunDirection();
-        Vector3D v = Vector3D.CreateFromAzimuthAndElevation(MathHelper.ToRadians(az), MathHelper.ToRadians(el));
-        if (!Enabled || !SystemHost.Built || f == null)
+        Vector3D v = SunDir(MathHelper.ToRadians(az), MathHelper.ToRadians(el));
+        string planet = f != null ? f.ParentBodyName : FrameHost.ObserverPlanet;
+        if (!Enabled || !SystemHost.Built || planet == null)
         {
             if (_overriding) { sun.ResetOverride(); _overriding = false; }
             Light = v;
-            Status = !Enabled ? "off" : "the game's sun (a planet's frame)";
+            Status = !Enabled ? "off" : "the game's sun (no frame)";
             return;
         }
-        // the frame's planet's chart to inertial: what a crossing out of that planet's frame does to your ship
-        v = Chart.Of(f.ParentBodyName, t).ToInertial(v);
+        // ONE SUN (2026-10-10, "the sun atmosphere lighting mismatched" on a night entry - the user): the sun is a fixed
+        // direction in inertial space, taken once from the game's sun through the planet's chart; every frame draws THAT -
+        // the orbit frame as it is, a planet's frame turned into its rotating chart. It used to be the game's own sun in a
+        // planet's frame and the game's sun turned by the chart in orbit: those agree only if the game turns its sun exactly
+        // against our planet's spin - same axis (the world's sun axis is private; we spin about +Z), same clock (the game's
+        // sun runs on time of day and jumps at midnight unless its period divides a day; we spin on the total game time).
+        // Where they did not, the day side, the sky and the sun disagreed between orbit and planet - and after arrival.
+        var chart = Chart.Of(planet, t);
+        if (!_haveInertial) { _inertialLight = chart.ToInertial(v); _haveInertial = true; }
+        v = f != null ? _inertialLight : chart.FromInertial(_inertialLight);
         var (a2, e2) = Vector3D.GetAzimuthAndElevation(v);
         sun.Override((float)MathHelper.ToDegrees(a2), (float)MathHelper.ToDegrees(e2));
         _overriding = true;
         DirectionToSun = -v; Light = v;
-        Status = $"frame #{f.Id} ({f.ParentBodyName}): game sun az {az:F1} el {el:F1} -> az {MathHelper.ToDegrees(a2):F1} el {MathHelper.ToDegrees(e2):F1}";
+        Status = $"{(f != null ? $"frame #{f.Id} ({planet})" : $"{planet}'s chart")}: game sun az {az:F1} el {el:F1} -> az {MathHelper.ToDegrees(a2):F1} el {MathHelper.ToDegrees(e2):F1}";
     }
+
+    /// <summary>The direction for an azimuth and elevation, as the game's own <c>Vector3D.GetAzimuthAndElevation</c> (which
+    /// makes the sun's az/el, and reads ours back for the override) defines them - its exact inverse (round trip under 1e-13
+    /// rad). Vector3D.CreateFromAzimuthAndElevation is not: in this build it applies each rotation twice, so the sun turned
+    /// through it and read back came out elsewhere - in orbit the sun stood wherever that put it, not the game's sun turned
+    /// by the chart (2026-10-10: the night entry whose sky and sun did not match; globesun.sh).</summary>
+    public static Vector3D SunDir(double azimuth, double elevation)
+        => new Vector3D(-Math.Cos(elevation) * Math.Sin(azimuth), Math.Sin(elevation), -Math.Cos(elevation) * Math.Cos(azimuth));
+
+    /// <summary>The sun's fixed inertial light direction (taken from the game's sun the first tick a planet's chart is known).</summary>
+    private static Vector3D _inertialLight;
+    private static bool _haveInertial;
+    /// <summary>A new session: take the sun again.</summary>
+    public static void Reset() { _haveInertial = false; }
 
     /// <summary>The observer's position in the root (star) frame.</summary>
     public static bool TryObserverCelestial(Vector3D world, double t, out Vector3D cel)

@@ -15,3 +15,12 @@ docs/shots-work/
 
 # compiled sensor block definitions (tools/blocks/gen_blocks.py --build)
 Content/Sensors/
+
+# proxy globe textures (tools/globes/bake_globes.py, from the game install)
+Assets/PlanetGlobes/
+Assets/planetglobes.meta
+Content/PlanetGlobes/
+
+# content build backups (D:ero	oolsuild_mod_content.py)
+Content.before-*/
+__pycache__/

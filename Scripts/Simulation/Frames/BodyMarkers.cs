@@ -1,5 +1,6 @@
 using Keen.Game2.Simulation.GameSystems.GPS;
 using Keen.VRage.Core;
+using Keen.VRage.Core.Input;
 using Keen.VRage.Library.Utils;
 using SEAerospace;
 using SEAerospace.Orbital;
@@ -21,6 +22,9 @@ namespace OrbitalMod;
 /// where a station lies off the screen is the point); none within 1 km (you see it) nor for your own grids.
 ///
 /// Riding a frame, its ORIGIN as well (CollectOrigin): where the relative pull is nothing.
+///
+/// TARGETING in flight: N takes the marked body or contact nearest the crosshair as your target (again on it: clears
+/// it); the target, whatever it is (a ship of yours too), is bracketed where it lies, with its name and distance.
 /// </summary>
 public static class BodyMarkers
 {
@@ -36,15 +40,26 @@ public static class BodyMarkers
     public const double GameMarkRadius = 5000;
     internal static Keen.VRage.Core.Game.Systems.Session _session;
     static readonly Dictionary<string, GPSMarker> _markers = new Dictionary<string, GPSMarker>();
-    struct Item { public GPSMarker M; public Vector3D World; public double Surface; public bool Moon, Contact; }
+    struct Item { public GPSMarker M; public Vector3D World; public double Surface; public bool Moon, Contact; public string Key; }
     static readonly List<Item> _items = new List<Item>();
 
     /// <summary>Client tick, from FrameMarkers (the camera's true place known): which bodies to mark, and where.</summary>
     public static void Collect(WorldTransform camera, Vector3D camModel, Chart camChart, double t)
     {
-        _items.Clear();
+        _items.Clear(); _tgtOn = false;
         var reg = SystemHost.Registry;
         if (!Enabled || reg == null || MapView.Visible || OrbitHud.Walking) { Status = "off"; return; }
+        // the target, wherever it is (bracketed in Draw)
+        string tk = Maneuvers.Target;
+        if (tk != null && Targets.RootAt(tk, t, out var troot))
+        {
+            Vector3D d = troot.Position - camModel; double dist = d.Length();
+            if (dist > 1 && !double.IsNaN(dist))
+            {
+                _tgtWorld = camera.Position + camChart.FromInertial(d) * (System.Math.Min(dist, 5e4) / dist);
+                _tgtDist = dist - Targets.Radius(tk); _tgtName = Targets.Name(tk); _tgtOn = true;
+            }
+        }
         int hidden = 0;
         foreach (var b in reg.Bodies)
         {
@@ -58,7 +73,7 @@ public static class BodyMarkers
             var m = MarkerOf(b.Name);
             if (m == null) continue;
             // At a comfortable depth in the true direction (only the direction projects).
-            _items.Add(new Item { M = m, World = camera.Position + dw * (System.Math.Min(dist, 5e4) / dist), Surface = dist - radius, Moon = b.Parent != null && !b.Parent.IsRoot });
+            _items.Add(new Item { M = m, World = camera.Position + dw * (System.Math.Min(dist, 5e4) / dist), Surface = dist - radius, Moon = b.Parent != null && !b.Parent.IsRoot, Key = b.Name });
         }
         int bodies = _items.Count;
         CollectContacts(camera, camModel, camChart, t, FrameMarkers.GameMarked(_session));
@@ -92,26 +107,23 @@ public static class BodyMarkers
     static GPSMarker _origin;
     static readonly ColorSRGB OriginColor = new ColorSRGB(0.55f, 0.95f, 0.75f, 1f);
 
-    /// <summary>The contacts you know of, one per group (frame), where they truly are.</summary>
+    /// <summary>Contacts this close are marked whether pinned or not (m).</summary>
+    public const double NearbyMeters = 50000;
+
+    /// <summary>
+    /// The ships and stations to mark (one per group - a frame - where they truly are): your target, what you pinned in the
+    /// Contacts tab, and the contacts you know of within <see cref="NearbyMeters"/>; your own ships only when pinned or
+    /// targeted. Everything else is in the Contacts tab, not on the HUD.
+    /// </summary>
     static void CollectContacts(WorldTransform camera, Vector3D camModel, Chart camChart, double t, List<Vector3D> gameMarked)
     {
-        var seen = new HashSet<long>();
-        var pf = FrameHost.PlayerFrame;
-        foreach (long id in Contacts.KnownGrids())
+        string target = Maneuvers.Target;
+        foreach (var e in Targets.ShipsCached())
         {
-            if (!ServerFrames.View(id, out var g)) continue;   // (the server's snapshot, not its entity)
-            string name = g.Name; long group = id;
-            lock (ServerFrames.FramesLock)
-            {
-                var f = SystemHost.Frames?.FindByMember(id);
-                if (f != null)
-                {
-                    group = -f.Id;
-                    var site = EncounterFrames.SiteOf(f.Id);
-                    if (site?.Label != null) name = site.Label;
-                }
-            }
-            if (!seen.Add(group)) continue;
+            if (!Targets.GridOf(e.Key, out long id) || !ServerFrames.View(id, out var g)) continue;
+            bool targeted = target != null && Targets.SameShip(target, id);
+            bool pinned = ContactsTab.Pinned.Contains(e.Key);
+            if (e.Yours && !targeted && !pinned) continue;
             // the game marks it already (a contract's station, an antenna's broadcast): not twice
             Vector3D wpos = g.Position; bool marked = false;
             foreach (var gm in gameMarked) if ((gm - wpos).LengthSquared() < GameMarkRadius * GameMarkRadius) { marked = true; break; }
@@ -121,16 +133,18 @@ public static class BodyMarkers
             if (!ok) continue;
             Vector3D d = m - camModel; double dist = d.Length();
             if (!(dist > ContactMinDistance)) continue;
+            if (!targeted && !pinned && !(dist <= NearbyMeters)) continue;
             // detected, not yet tracked: '≈' and a rough distance (a bearing and a rough range, no orbit yet)
-            bool tracked = Contacts.TrackedGrid(id);
-            var mk = ContactOf(group, tracked ? name : "≈ " + name);
+            bool tracked = e.Tracked;
+            string name = ContactsTab.Names.TryGetValue(e.Key, out var nn) ? nn : e.Name;
+            var mk = ContactOf(id, tracked ? name : "\u2248 " + name);
             if (mk == null) continue;
             _items.Add(new Item { M = mk, World = camera.Position + camChart.FromInertial(d) * (System.Math.Min(dist, 5e4) / dist),
-                                  Surface = tracked ? dist : SEAerospace.Sensing.Tracking.Rough(dist), Contact = true });
+                                  Surface = tracked ? dist : SEAerospace.Sensing.Tracking.Rough(dist), Contact = true, Key = e.Key });
         }
     }
 
-    public static bool Any => _items.Count > 0;
+    public static bool Any => _items.Count > 0 || _tgtOn;
     public static void Clear() { _items.Clear(); Status = "no camera place"; }
 
     /// <summary>Inside an open HUD batch.</summary>
@@ -160,6 +174,43 @@ public static class BodyMarkers
             placed.Add(s);
             MapPipeline.GameMarker(session, it.M, it.World, it.Surface);
         }
+        // The target: brackets, its name and distance.
+        if (_tgtOn && MapPipeline.ToScreen(_tgtWorld, out var ts) && ts.X >= 0 && ts.Y >= 0 && ts.X <= size.X && ts.Y <= size.Y)
+        {
+            float r = 18f * u, a = 7f * u;
+            for (int i = 0; i < 4; i++)
+            {
+                float sx = (i & 1) == 0 ? -1f : 1f, sy = (i & 2) == 0 ? -1f : 1f;
+                var k = ts + new Vector2(sx * r, sy * r);
+                MapPipeline.ScreenLine(k, k - new Vector2(sx * a, 0), TargetColor, 2f * u);
+                MapPipeline.ScreenLine(k, k - new Vector2(0, sy * a), TargetColor, 2f * u);
+            }
+            MapPipeline.TextScreen(ts + new Vector2(0, r + 12f * u), $"Target  {_tgtName}  {HudPanel.Km(System.Math.Max(0, _tgtDist))}", TargetColor, 0.45f);
+        }
+        TargetKey(session, size);
+    }
+
+    static Vector3D _tgtWorld; static bool _tgtOn; static double _tgtDist; static string _tgtName;
+    static readonly ColorSRGB TargetColor = new ColorSRGB(0.95f, 0.45f, 0.85f, 1f);
+
+    /// <summary>N in flight: target the marked body or contact nearest the crosshair (within ~12% of the screen); on the
+    /// target itself, clear it.</summary>
+    static void TargetKey(Keen.VRage.Core.Game.Systems.Session session, Vector2 size)
+    {
+        bool n = MapInput.KeyPressed(KeyboardInputs.N) | MapInput.DevKeys.Remove("hudn");
+        if (!n || MapView.Visible || GameUi.TopScreenNeedingInput(session) != null) return;
+        Vector2 c = size * 0.5f;
+        float best = size.Y * 0.12f; string key = null, name = null;
+        foreach (var it in _items)
+        {
+            if (it.Key == null || !MapPipeline.ToScreen(it.World, out var s)) continue;
+            float d = (s - c).Length();
+            if (d < best) { best = d; key = it.Key; name = it.M?.Name; }
+        }
+        if (_tgtOn && MapPipeline.ToScreen(_tgtWorld, out var ts) && (ts - c).Length() <= best && key == null) key = Maneuvers.Target;
+        if (key == null) { WarpControl.Say("Nothing to target at the crosshair: aim at a marker and press N"); return; }
+        if (key == Maneuvers.Target) { Maneuvers.Target = null; WarpControl.Say("Target cleared"); }
+        else { Maneuvers.Target = key; WarpControl.Say("Target: " + Targets.Name(key)); }
     }
 
     static readonly Dictionary<long, GPSMarker> _contacts = new Dictionary<long, GPSMarker>();

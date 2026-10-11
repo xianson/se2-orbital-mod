@@ -370,8 +370,18 @@ public static class DevHarness
             case "aero":   // aero on|off: the whole aero mod's simulation (A/B tests)
                 return PlanetRenderBridge.SetForeignFlag("AeroMod.AeroSwitch", "Enabled", On(a[1]));
 
-            case "gridspin":   // gridspin <id> <wx> <wy> <wz>: set a grid's angular velocity (rad/s, world)
+            case "gridspin":   // gridspin <id> <wx> <wy> <wz>: set a grid's angular velocity (rad/s, world); gridspin <id> yaw|pitch|roll <rad/s>: about its own axis
+            {
+                if (a.Length > 3 && (a[2] == "yaw" || a[2] == "pitch" || a[2] == "roll"))
+                {
+                    var sg = GridMembers.Get((long)D(a[1]));
+                    if (sg?.Entity == null) return "no grid " + a[1];
+                    var sq = sg.Entity.Data.GetWorldTransform().Orientation;
+                    Vector3 ax = a[2] == "yaw" ? Vector3.Up : a[2] == "pitch" ? Vector3.Right : Vector3.Forward;   // (its own up, right, nose)
+                    return DevStress.Spin((long)D(a[1]), Vector3.Transform(ax, sq) * (float)D(a[3]));
+                }
                 return DevStress.Spin((long)D(a[1]), new Vector3((float)D(a[2]), (float)D(a[3]), (float)D(a[4])));
+            }
 
             case "flightdump":   // flightdump <id> <name>: the grid as the aero mod's thruster steering sees it (AeroMod.FlightFixture),
             {                    // one line, ' ;; ' between fixture lines (tools: Tests/data/<name>.flight from the log)
@@ -983,7 +993,7 @@ public static class DevHarness
                 return "sector renderer visible=" + On(a[1]);
             }
 
-            case "hiresglobe":   // hiresglobe on|off | status | face <i> <tex> <flipU> <flipV> <rot> | clouds on|off | wind ccw|cw | cloudsuv <u> <v>
+            case "hiresglobe":   // hiresglobe on|off | status | face <i> <tex> <flipU> <flipV> <rot> | normals on|off [tangentSign] | wind ccw|cw
             {
                 string sub = a.Length > 1 ? a[1].ToLowerInvariant() : "status";
                 switch (sub)
@@ -996,18 +1006,14 @@ public static class DevHarness
                     case "face":
                         if (a.Length < 7) return "hiresglobe face <i 0-5> <texIndex 0-5> <flipU 0|1> <flipV 0|1> <rot 0-3>";
                         return PlanetMesh.SetFace(int.Parse(a[2]), int.Parse(a[3]), On(a[4]), On(a[5]), int.Parse(a[6]));
-                    case "clouds":
-                        PlanetMesh.SetClouds(On(a[2]));
-                        return "hi-res globe clouds=" + PlanetMesh.Clouds;
+                    case "normals":   // hiresglobe normals on|off [tangentSign 1|-1]
+                        PlanetMesh.SetNormals(On(a[2]), a.Length > 3 ? (float)D(a[3]) : 1f);
+                        return $"hi-res globe normal maps={PlanetMesh.NormalMaps} tangent sign={PlanetMesh.TangentSign}";
                     case "wind":
                         PlanetMesh.SetWinding(!a[2].Equals("cw", StringComparison.OrdinalIgnoreCase));
                         return "hi-res globe front faces " + (PlanetMesh.CcwOutside ? "counter-clockwise" : "clockwise") + " from outside";
-                    case "cloudsuv":
-                        PlanetMesh.CloudUv = new Vector2((float)D(a[2]), (float)D(a[3]));
-                        PlanetMesh.SetClouds(PlanetMesh.Clouds);   // rebuild
-                        return $"cloud shell samples its displacement atlas at ({PlanetMesh.CloudUv.X:F3}, {PlanetMesh.CloudUv.Y:F3})";
                     default:
-                        return "hiresglobe on|off|status|face|clouds|wind|cloudsuv";
+                        return "hiresglobe on|off|status|face|normals|wind";
                 }
             }
 
@@ -1161,6 +1167,19 @@ public static class DevHarness
             case "selrock":   // selrock <rock label> | selrock off (as a click on its map marker)
                 CleanMap.SelectedRock = a[1] == "off" ? null : string.Join(" ", a, 1, a.Length - 1);
                 return "selected rock " + (CleanMap.SelectedRock ?? "none");
+
+            case "targets":   // targets: the target, its line, the map's target list, the ship pins on screen, what is under the cursor
+                return CleanMap.DevTargets();
+
+            case "contactstab":   // contactstab [open | search <text> | pin <key> | unpin <key> | select <key>]: the Contacts tab
+                return ContactsTab.DevCommand(a);
+
+            case "targetpanel":   // targetpanel lists|panel|more: the map's right column with a target
+                return CleanMap.DevPanel(a.Length > 1 ? a[1] : "");
+
+            case "targetrow":   // targetrow <i>: click the map's target list row i (0 = first) on the next frame
+                CleanMap.DevRowClick = (int)D(a[1]);
+                return "target list row " + a[1] + " click queued";
 
             case "target":   // target <sector name> | target off
                 Maneuvers.Target = a[1] == "off" ? null : string.Join(" ", a, 1, a.Length - 1);

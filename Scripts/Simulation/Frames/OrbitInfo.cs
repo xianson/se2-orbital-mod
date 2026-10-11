@@ -140,6 +140,7 @@ public static class OrbitInfo
             OrbitRows(i.Add("Orbit"), o);
             // now: height, speed, the next apsis
             var now = i.Add("Now");
+            now.Folded = more;   // (an accordion with More: one open at a time, so the panel keeps its size)
             double r = o.Rel.Position.Length();
             now.Row(o.R > 0 ? "Altitude" : "Distance", Km(r - o.R));
             now.Row("Speed", $"{o.Rel.Velocity.Length():N0} m/s");

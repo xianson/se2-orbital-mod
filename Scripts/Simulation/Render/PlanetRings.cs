@@ -172,8 +172,9 @@ public static class PlanetRings
     /// Once per planet frame (PlanetFrameComponent, under PlanetRenderBridge.Lock): the rings round
     /// planetCenter follow the planet's state. proxyOn: a proxy drawn at proxyCenter, k = its radius / the real radius.
     /// </summary>
-    public static void Sync(Vector3D planetCenter, bool realShown, bool proxyOn, Vector3D proxyCenter, double k)
+    public static void Sync(Vector3D planetCenter, bool realShown, bool proxyOn, Vector3D proxyCenter, double k, Quaternion? turn = null)
     {
+        Quaternion rot = turn ?? Quaternion.Identity;
         if (_rings.Count == 0) return;
         foreach (var r in _rings)
         {
@@ -182,7 +183,10 @@ public static class PlanetRings
             if (r.GameShown != gameVisible && (r.GameShown.HasValue || !gameVisible)) SetGameRing(r, gameVisible);
 
             bool want = ProxyRings && !realShown && proxyOn && k > 0 && !double.IsInfinity(k);
-            if (want) UpdateProxy(r, r.P, proxyCenter + (r.Center - planetCenter) * k, k, r.Orientation);
+            // (the ring's place and lie turned as the proxy globe is: the planet's axes into the viewer's)
+            // (in the game's own lie - GameOrientation: the real ring is drawn there whatever its entity's transform says, and
+            //  the proxy laid on the equator stood across the real one when the views swapped; checked in game, atmoab)
+            if (want) UpdateProxy(r, r.P, proxyCenter + (Vector3D)Vector3.Transform((Vector3)(r.Center - planetCenter), rot) * k, k, Quaternion.Normalize(Quaternion.Concatenate(r.GameOrientation, rot)));
             else if (r.P.Shown) { SafeVisible(r.P, false); }
         }
     }

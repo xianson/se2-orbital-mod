@@ -5,8 +5,6 @@
 #  S2 back down into Verdure's frame (gridlaunch 8 km): kept again - now the same inertial sun turned into the chart, not the
 #     game's own (they disagreed where the game's sun axis or its midnight wrap differed from the planet's spin)
 #  W  the real planet shown after its terrain warmed ("terrain warmed in" in the log)
-#  G  Verdure from 250 km at random bearings: the proxy's map model, the hi-res globe, and the real planet - engine shots to
-#     compare (are the globe's six faces on the right faces, turned right?)
 H="$(cd "$(dirname "$0")" && pwd)"; O="$H/orb.sh"; T0=$(date +%s)
 q() { timeout 20 "$O" "$@" | grep -a "=>" | tail -1 | sed 's/.*=>  //'; }
 LOG() { ls -t "$APPDATA/SpaceEngineers2/Temp/Logs/"SpaceEngineers2_*[0-9].log | grep -v "Render\|Mission\|Stats" | head -1; }
@@ -50,19 +48,9 @@ ok "S2 ... the planet frame draws the chart's sun" $(echo "$r3" | grep -q "chart
 
 # W - the warm-up
 sleep 4; w=$(grep -a "terrain warmed in" "$(LOG)" | tail -1 | sed 's/.*\[ORBIT\] //')
-ok "W the real planet shown after its terrain warmed" $([ -n "$w" ] && echo 1 || echo 0) "$w"
-
-# G - the globes from 250 km, three random views each: map model, hi-res, real
-q "unseat" >/dev/null
-for i in 1 2 3; do
-  b=$((RANDOM % 360)); e=$(( (RANDOM % 120) - 60 ))
-  q "cam planet Verdure 250 $b $e" >/dev/null
-  q "mode AlwaysProxy" >/dev/null; q "hiresglobe off" >/dev/null; sleep 2; echo "G$i bearing $b elev $e  map:    $(shot 'mode AlwaysProxy')"
-  q "hiresglobe on" >/dev/null; sleep 3; echo "G$i bearing $b elev $e  hires:  $(shot 'hiresglobe status')"
-  q "mode AlwaysReal" >/dev/null; sleep 4; echo "G$i bearing $b elev $e  real:   $(shot 'mode AlwaysReal')"
-done
-echo "      globe: $(q 'hiresglobe status' | cut -c1-200)"
+ok "W the real planet shown once its terrain caught up (not at the cap)" $([ -n "$w" ] && ! echo "$w" | grep -q capped && echo 1 || echo 0) "$w"
 
 # restore
-q "hiresglobe off" >/dev/null; q "mode Frame" >/dev/null; q "cam off" >/dev/null; q "encon on" >/dev/null
+q "mode Frame" >/dev/null; q "cam off" >/dev/null; q "encon on" >/dev/null
+powershell -NoProfile -Command "Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Stop-Process -Force"
 echo "== globesun: $P passed, $F failed in $(( $(date +%s) - T0 )) s; exceptions: $(grep -ac 'Exception occurred' "$(LOG)")"

@@ -361,8 +361,9 @@ public static class DevHarness
             case "aeroexport":   // aeroexport on|off: the aero mod writes each grid it builds to %TEMP%\AeroMod\*.boxes (for Tests/AeroBench)
                 return PlanetRenderBridge.SetForeignFlag("AeroMod.AeroExport", "Enabled", On(a[1]));
 
-            case "aeroflight":   // aeroflight on|off: the aero mod's scripted flight test (the grid with the most wings)
-                return PlanetRenderBridge.SetForeignFlag("AeroMod.AeroGridComponent+AeroFlightTest", "Enabled", On(a[1]));
+            case "aeroflight":   // aeroflight on|off [name]: the aero mod's scripted flight test (the grid with the most wings, or the one named)
+                return PlanetRenderBridge.SetForeignString("AeroMod.AeroGridComponent+AeroFlightTest", "Only", a.Length > 2 ? a[2] : null) + "; "
+                     + PlanetRenderBridge.SetForeignFlag("AeroMod.AeroGridComponent+AeroFlightTest", "Enabled", On(a[1]));
 
             case "aerocost":   // aerocost on|off: the aero mod's [AERO-COST] line (where its time goes, once a second)
                 return PlanetRenderBridge.SetForeignFlag("AeroMod.AeroCost", "Log", On(a[1]));
@@ -981,10 +982,6 @@ public static class DevHarness
                 }
             }
 
-            case "sectororbits":
-                MapView.SectorOrbits = On(a[1]);
-                return "sectororbits=" + MapView.SectorOrbits;
-
             case "sectorvis":   // sectorvis on|off: the map's sector renderer (our mesh) shown or not
             {
                 var mp = MapView.Map(session);
@@ -1176,6 +1173,14 @@ public static class DevHarness
 
             case "targetpanel":   // targetpanel lists|panel|more: the map's right column with a target
                 return CleanMap.DevPanel(a.Length > 1 ? a[1] : "");
+
+            case "atmosphz":   // atmosphz on|off: the proxy atmosphere spherized as the planet's
+                PlanetRenderBridge.AtmoSpherize = On(a[1]); PlanetRenderBridge.ResetAtmospheres();
+                return "proxy atmosphere spherized: " + PlanetRenderBridge.AtmoSpherize;
+
+            case "atmohills":   // atmohills on|off: the proxy atmosphere's inner sphere (radius with the hills) on the globe
+                PlanetRenderBridge.AtmoOnHills = On(a[1]); PlanetRenderBridge.ResetAtmospheres();
+                return "proxy atmosphere on the hills radius: " + PlanetRenderBridge.AtmoOnHills;
 
             case "targetrow":   // targetrow <i>: click the map's target list row i (0 = first) on the next frame
                 CleanMap.DevRowClick = (int)D(a[1]);

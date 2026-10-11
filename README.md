@@ -227,13 +227,14 @@ definitions (see the script for why SE2 2.4 needs a stand-in Vanilla to build mo
    real mouse (verified through the harness only).
 3. **The speed cap as a setting** (vanilla 300 to 1000): the reentry rules follow any cap (tested
    with 300), but the physics cap is set at definition load, before a world is known.
-4. **Proxy fidelity.** The map globe is low-poly and pale, with no atmosphere rim.
+4. **Proxy fidelity.** Done 2026-10-11: proxies wear the planets' own overlay maps (all ten planets baked), are
+   turned as the planet is in your window, their atmosphere spherized as the real one; rings in the game's own lie.
 5. **Gravity patch as the default.** The 1/r^2 patch is applied at runtime and saved with the world;
    decide whether a world without the mod's first load should be patched automatically.
 6. **Warp and member motion.** While the rails warp, members' relative motion runs at x1 (as KSP
    keeps vessels on rails); fine for coasting, not for long warps of loose formations.
 7. **Ship shipping checklist.** `PlanetFrameComponent.DevHarness` must be false in a release build.
-8. **Old map code.** `Frames/OrbitalMap.cs`, `Frames/MapView.cs` and the band path in
-   `Frames/UnifiedMap.cs` are superseded by the clean map (gated off); removing them waits on a go-ahead.
+8. **Old map code.** Removed: OrbitalMap / UnifiedMap earlier, and MapView's LOCAL / SYSTEM debug layers
+   (2026-10-11); MapView keeps only the map's hooks.
 9. **No auto-planning, ever.** The route planner was removed (2026-09-29): no auto target, no auto
    rendezvous. Targets are for display only (closest approach, relative-motion plot); you fly the burns.

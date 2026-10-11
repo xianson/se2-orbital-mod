@@ -546,7 +546,7 @@ public static partial class CleanMap
             else MapPipeline.ScreenRect(new Vector2(x0, y - secSep * 0.5f), new Vector2(x1, y - secSep * 0.5f + Math.Max(1f, u)), Rule);
             if (sec.Head != null)
             {
-                bool toggle = toggles && sec.Head == "More elements" && sec.Rows.Count > 0;
+                bool toggle = toggles && (sec.Head == "More elements" || sec.Head == "Now") && sec.Rows.Count > 0;   // (the two take turns)
                 string head = sec.Head.ToUpperInvariant() + (toggle ? (sec.Folded ? "  +" : "  \u2212") : "");
                 var hb = new BoundingBox2(new Vector2(at.X, sTop), new Vector2(at.X + width, y + headH));
                 bool hot = toggle && hb.Contains(Mouse) == ContainmentType.Contains;

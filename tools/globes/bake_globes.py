@@ -1,4 +1,4 @@
-# bake_globes.py [--size 4096] [--normal-size 2048] [planet folder ...]   (default: every planet with a BC1 overlay)
+# bake_globes.py [--size 4096] [--normal-size 2048] [planet folder ...]   (default: every planet with an overlay)
 #
 # The proxy globe's textures (PlanetMesh), from the planet's OWN overlay cubemaps - the maps the real planet draws with
 # from orbit (PlanetOverlayDefinition.OverlayColorMetal / OverlayNormalAO, sampled by direction in
@@ -20,7 +20,8 @@ import numpy as np
 GAME = r"C:\Program Files (x86)\Steam\steamapps\common\SpaceEngineers2\GameData\Vanilla\Content\Procedural"
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "Assets", "PlanetGlobes")
 FACES = ["px", "nx", "py", "ny", "pz", "nz"]
-BC1_UNORM, BC1_SRGB, BC3_SRGB = 71, 72, 78
+BC1_UNORM, BC1_SRGB, BC3_SRGB, BC7_UNORM, BC7_SRGB = 71, 72, 78, 98, 99
+def block_of(fmt): return 16 if fmt in (BC7_UNORM, BC7_SRGB, BC3_SRGB) else 8
 
 # ── DDS ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -40,13 +41,30 @@ def level_bytes(w, block):
     return b * b * block
 
 def surface(path, face, mip):
-    """The raw BC1 blocks of one face's mip."""
+    """The raw blocks (BC1 or BC7) of one face's mip."""
     w, mips, faces, fmt, off = read_dds(path)
-    per_face = sum(level_bytes(w >> m, 8) for m in range(mips))
-    start = off + face * per_face + sum(level_bytes(w >> m, 8) for m in range(mip))
+    bs = block_of(fmt)
+    per_face = sum(level_bytes(w >> m, bs) for m in range(mips))
+    start = off + face * per_face + sum(level_bytes(w >> m, bs) for m in range(mip))
     with open(path, "rb") as f:
         f.seek(start)
-        return f.read(level_bytes(w >> mip, 8))
+        return f.read(level_bytes(w >> mip, bs))
+
+def bc7_decode(buf, w, fmt):
+    """float32 (w, w, 3) 0..255 of BC7 blocks (Pillow's decoder, on a one-surface DDS made for it)."""
+    import io
+    from PIL import Image
+    hdr = struct.pack("<4sIIIIIII", b"DDS ", 124, 0x1 | 0x2 | 0x4 | 0x1000 | 0x80000, w, w, len(buf), 0, 1) + b"\0" * 44
+    hdr += struct.pack("<II4s5I", 32, 0x4, b"DX10", 0, 0, 0, 0, 0) + struct.pack("<5I", 0x1000, 0, 0, 0, 0)
+    hdr += struct.pack("<5I", fmt, 3, 0, 1, 0)
+    im = Image.open(io.BytesIO(hdr + buf)); im.load()
+    return np.asarray(im.convert("RGB")).astype(np.float32)
+
+def decode(path, face, mip):
+    """A face's mip as float RGB 0..255, whatever its format (BC1 or BC7)."""
+    w, mips, faces, fmt, off = read_dds(path)
+    buf = surface(path, face, mip)
+    return bc7_decode(buf, w >> mip, fmt) if fmt in (BC7_UNORM, BC7_SRGB) else bc1_decode(buf, w >> mip)
 
 def write_dds(path, w, fmt, levels):
     write_meta(path, os.path.basename(path))
@@ -147,7 +165,7 @@ def tangent_normals(nao_path, face, size):
     w, mips = read_dds(nao_path)[:2]
     mip = int(round(np.log2(w / size)))
     if mip < 0: mip = 0
-    src = bc1_decode(surface(nao_path, face, mip), w >> mip)
+    src = decode(nao_path, face, mip)
     if src.shape[0] != size:   # (a source smaller than asked: nearest up-sample)
         k = size // src.shape[0]; src = src.repeat(k, 0).repeat(k, 1)
     n = src / 255 * 2 - 1   # (SampleCubemapNormalOverlay: plain *2-1, length = AO)
@@ -179,13 +197,13 @@ def overlays():
         except OSError: continue
         if "PlanetOverlayDefinitionObjectBuilder" not in t: continue
         folder = d.replace("\\", "/").split("/Planets/")[1].split("/")[0]
-        # the cubemaps themselves: the Overlay folder's two cube textures (colour BC1 sRGB, normal BC1)
+        # the cubemaps themselves: the Overlay folder's cube textures - the colour sRGB, the normal linear (BC1 or BC7)
         cm = nao = None
         for p in glob.glob(os.path.join(os.path.dirname(os.path.dirname(d)), "Maps", "Overlay", "*.dds")):
             w, mips, faces, fmt, _ = read_dds(p)
             if faces != 6: continue
-            if fmt == BC1_SRGB: cm = p
-            elif fmt == BC1_UNORM: nao = p
+            if fmt in (BC1_SRGB, BC7_SRGB): cm = p
+            elif fmt in (BC1_UNORM, BC7_UNORM): nao = p
         if cm: found[folder] = (cm, nao)
     return found
 
@@ -212,15 +230,19 @@ def bake(folder, cm, nao, size, nsize):
     os.makedirs(out, exist_ok=True)
     write_meta(os.path.join(os.path.dirname(OUT), "planetglobes"))
     write_meta(os.path.join(OUT, folder.lower()))
-    w = read_dds(cm)[0]
+    w, mips, _, cfmt, _ = read_dds(cm)
     top = max(0, int(round(np.log2(w / size))))
-    mips = read_dds(cm)[1]
     fixed = 0
     for f, name in enumerate(FACES):
         levels = []
-        for m in range(top, mips):
-            b, n = bc1_to_bc3(surface(cm, f, m)); levels.append(b); fixed += n
-        write_dds(os.path.join(out, f"{folder}_globe_cm_{name}.dds"), w >> top, BC3_SRGB, levels)
+        if cfmt == BC7_SRGB:
+            # BC7 carries its own alpha (the game's: metal ~0 already): the blocks copied as they are
+            for m in range(top, mips): levels.append(surface(cm, f, m))
+            write_dds(os.path.join(out, f"{folder}_globe_cm_{name}.dds"), w >> top, BC7_SRGB, levels)
+        else:
+            for m in range(top, mips):
+                b, n = bc1_to_bc3(surface(cm, f, m)); levels.append(b); fixed += n
+            write_dds(os.path.join(out, f"{folder}_globe_cm_{name}.dds"), w >> top, BC3_SRGB, levels)
         if nao:
             tn = tangent_normals(nao, f, nsize)
             levels, cur = [], tn
@@ -244,7 +266,7 @@ def main(argv):
     found = overlays()
     if not want or want == ["all"]: want = sorted(found)
     for folder in want:
-        if folder not in found: print(f"{folder}: no BC1 overlay cubemap (have: {', '.join(sorted(found))})"); continue
+        if folder not in found: print(f"{folder}: no overlay cubemap (have: {', '.join(sorted(found))})"); continue
         bake(folder, *found[folder], size, nsize)
 
 if __name__ == "__main__":

@@ -60,6 +60,10 @@ public static class PlanetRenderBridge
         public object Environment;
         public MethodInfo EnvSetParameters;
         public object[] EnvShowArgs;
+        /// <summary>The warm-up's per-clipmap progress (TerrainSettled).</summary>
+        public Dictionary<object, int> WarmBusy;
+        /// <summary>The planet's atmosphere and sky spherization (SpherizationData, boxed), for the proxy's atmosphere.</summary>
+        public object AtmoSphere, SkySphere;
         public object[] EnvHideArgs;
         /// <summary>The terrain's PlanetOverlayDefinition (its cubemaps locate the hi-res globe's face textures), or null.</summary>
         public object Overlay;
@@ -83,6 +87,7 @@ public static class PlanetRenderBridge
         public object Atmo;
         public Vector3D AtmoAt;
         public double AtmoK, AtmoMadeAt;
+        public int AtmoGen;
         /// <summary>The hi-res globe it draws (<see cref="PlanetMesh"/>), else the map model; the model's radius; for which PlanetMesh.Generation.</summary>
         public PlanetMesh.Built Mesh;
         public double ModelRadius = 1.0;
@@ -159,6 +164,10 @@ public static class PlanetRenderBridge
                           ?? FindType("VRage.Render", "Keen.VRage.Render.Materials.SpherizationOverrideHelper");
             MethodInfo getData = helper?.GetMethod("GetSpherizationData", BindingFlags.Public | BindingFlags.Static);
             if (getData != null) sphereData = getData.Invoke(null, new[] { spherization });
+            // (the atmosphere's and the sky's own: at a distance the game pulls the atmosphere's shell down to the ground -
+            //  the proxy's atmosphere needs them too, or it shows its full height: a thick glow)
+            h.AtmoSphere = helper?.GetMethod("GetAtmosphereSpherization", BindingFlags.Public | BindingFlags.Static)?.Invoke(null, new[] { spherization });
+            h.SkySphere = helper?.GetMethod("GetSkyboxSpherization", BindingFlags.Public | BindingFlags.Static)?.Invoke(null, new[] { spherization });
             object overlay = GetMember(GetMember(h.Terrain, "Definition"), "PlanetOverlay");
             h.Overlay = overlay;
             object atmosphereRadius = GetMember(planet, "AtmosphereRadius");
@@ -267,23 +276,48 @@ public static class PlanetRenderBridge
         return ApplyTerrain(h, false, setFlag: false);   // (roots made since last frame: dark too)
     }
 
-    /// <summary>The terrain has caught up: every clipmap idle with no update pending (VoxelClipmap._updateState Idle,
-    /// _needsUpdate false). Unknown (reflection failed): true - show it rather than wait for ever.</summary>
-    public static bool TerrainSettled(PlanetHandles h)
+    /// <summary>
+    /// The terrain has caught up since the warm-up began (warmFrame 0 starts the count): every clipmap has been through one
+    /// whole rebuild round the camera (VoxelClipmap._updateState left Idle and came back to it: a batch done), or had
+    /// nothing to rebuild (Idle all along, for 20 frames). Waiting for "idle with nothing pending" never ended for a moving
+    /// camera - an orbit re-centres the clipmap continually (it always hit the cap). Unknown (reflection failed): true.
+    /// </summary>
+    public static bool TerrainSettled(PlanetHandles h, int warmFrame)
     {
         if (h?.Terrain == null) return true;
         try
         {
+            if (warmFrame <= 0 || h.WarmBusy == null) { h.WarmBusy = new Dictionary<object, int>(ReferenceEqualityComparer.Instance); }
+            bool all = true;
             foreach (object clipmap in h.Clipmaps)
             {
                 object st = GetMember(clipmap, "_updateState");
                 if (st == null) return true;
-                if (st.ToString() != "Idle") return false;
-                if (GetMember(clipmap, "_needsUpdate") is bool nu && nu) return false;
+                bool idle = st.ToString() == "Idle";
+                h.WarmBusy.TryGetValue(clipmap, out int phase);   // 0 not seen busy, 1 busy, 2 a rebuild done
+                if (!idle && phase == 0) phase = 1;
+                else if (idle && phase == 1) phase = 2;
+                h.WarmBusy[clipmap] = phase;
+                if (phase != 2 && !(phase == 0 && idle && warmFrame >= 20)) all = false;
             }
-            return true;
+            return all;
         }
         catch { return true; }
+    }
+
+    /// <summary>The warm-up's state, for the log: per clipmap its phase (done / busy and its state / idle all along).</summary>
+    public static string WarmReport(PlanetHandles h)
+    {
+        if (h?.Terrain == null || h.WarmBusy == null) return "-";
+        int done = 0, idle = 0; var busy = new List<string>();
+        foreach (object clipmap in h.Clipmaps)
+        {
+            h.WarmBusy.TryGetValue(clipmap, out int phase);
+            if (phase == 2) done++;
+            else if (phase == 0) idle++;
+            else busy.Add(GetMember(clipmap, "_updateState")?.ToString() ?? "?");
+        }
+        return $"{done} rebuilt, {idle} idle throughout, {busy.Count} still busy{(busy.Count > 0 ? " (" + string.Join(", ", busy) + ")" : "")}";
     }
 
     /// <summary>Advance a pending hide. Cheap no-op when nothing is pending.</summary>
@@ -390,14 +424,15 @@ public static class PlanetRenderBridge
         catch (Exception e) { WarnOnce("proxy-create", $"proxy create failed for {h.Name}: {Inner(e)}"); return null; }
     }
 
-    public static void UpdateProxy(PlanetHandles h, Proxy p, Vector3D center, double radius)
+    public static void UpdateProxy(PlanetHandles h, Proxy p, Vector3D center, double radius, Quaternion? orient = null)
     {
         if (p == null) return;
         if (!GridMembers.Finite(center) || double.IsNaN(radius) || double.IsInfinity(radius) || radius <= 0) return;   // never a NaN transform or scale to the renderer
         try
         {
             _rootUpdateTransform ??= p.Root.GetType().GetMethod("UpdateTransform");
-            _rootUpdateTransform?.Invoke(p.Root, new object[] { new WorldTransform(center) });
+            // (turned as the planet is in the viewer's axes: its surface's axes through its spin, into the observer's window)
+            _rootUpdateTransform?.Invoke(p.Root, new object[] { orient.HasValue ? new WorldTransform(center, orient.Value) : new WorldTransform(center) });
 
             if (p.MeshGeneration != PlanetMesh.Generation) SwapProxyModel(h, p);
             float scale = (float)(radius / p.ModelRadius);
@@ -445,6 +480,28 @@ public static class PlanetRenderBridge
     // position is fixed at creation: it is made again as soon as the proxy has moved; a size
     // change goes through SetParameters. Any failure turns them off for the session.
     public static bool ProxyAtmospheres = true;
+    /// <summary>The proxy atmosphere's inner sphere (the radius with the highest hills) laid on the globe's surface.</summary>
+    public static bool AtmoOnHills = false;
+    /// <summary>The proxy atmosphere spherized as the planet's (its shell pulled down to the ground at a distance).</summary>
+    public static bool AtmoSpherize = true;
+
+    /// <summary>A SpherizationData (boxed) with its distances (start, range) scaled by k; a default one when there is none.</summary>
+    static object Sphere(object src, double k, Type t)
+    {
+        if (src == null) return Activator.CreateInstance(t);
+        var copy = Activator.CreateInstance(t);   // (a fresh box: the planet's own is never changed)
+        foreach (var f in t.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+        {
+            object v = f.GetValue(src);
+            if (f.FieldType == typeof(float) && (f.Name.Contains("Start") || f.Name.Contains("Range"))) v = (float)((float)v * k);
+            f.SetValue(copy, v);
+        }
+        return copy;
+    }
+
+    /// <summary>A change of AtmoOnHills: the atmospheres made again.</summary>
+    public static void ResetAtmospheres() { _atmoGen++; }
+    static int _atmoGen;
     private static MethodInfo _createEnv;
 
     static Type Plain(ParameterInfo pi) => pi.ParameterType.IsByRef ? pi.ParameterType.GetElementType() : pi.ParameterType;
@@ -452,13 +509,17 @@ public static class PlanetRenderBridge
     static void UpdateAtmosphere(PlanetHandles h, Proxy p, Vector3D center, double radius)
     {
         if (h.EnvShowArgs == null || h.EnvShowArgs[0] == null || !(h.SurfaceRadius > 0)) return;
-        double k = radius / h.SurfaceRadius;
+        // The atmosphere's inner sphere is the radius WITH the highest hills: scaled by the surface radius it floated above
+        // the smooth globe's edge - a band of ground-level air there, a thick bright ring. AtmoOnHills: its inner sphere on
+        // the globe instead (dev switch while compared).
+        double inner = AtmoOnHills && h.EnvShowArgs[2] != null ? Convert.ToDouble(h.EnvShowArgs[2]) : h.SurfaceRadius;
+        double k = radius / (inner > 0 ? inner : h.SurfaceRadius);
         if (!(k > 0) || double.IsInfinity(k)) return;
         double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
         try
         {
             // Remade as soon as the proxy has moved visibly (a throttle made it trail the globe in warp).
-            bool moved = p.Atmo != null && (center - p.AtmoAt).Length() > radius * 0.002;
+            bool moved = p.Atmo != null && ((center - p.AtmoAt).Length() > radius * 0.002 || p.AtmoGen != _atmoGen);
             if (p.Atmo == null || moved)
             {
                 DisposeAtmosphere(p);
@@ -472,12 +533,15 @@ public static class PlanetRenderBridge
                 {
                     "OrbitalProxyAtmosphere_" + h.Name, h.EnvShowArgs[0], F(h.EnvShowArgs[1]), F(h.EnvShowArgs[2]),
                     null,                                         // no clouds
-                    Activator.CreateInstance(Plain(ps[5])),       // no spherization: the proxy is already a sphere
-                    Activator.CreateInstance(Plain(ps[6])), Activator.CreateInstance(Plain(ps[7])),
+                    // the planet's spherization, its distances scaled as the proxy is (AtmoSpherize: the atmosphere pulled
+                    // down to the ground at a distance as the real one is; off: none - the proxy is already a sphere)
+                    AtmoSpherize ? Sphere(h.EnvShowArgs[4], k, Plain(ps[5])) : Activator.CreateInstance(Plain(ps[5])),
+                    AtmoSpherize ? Sphere(h.AtmoSphere, k, Plain(ps[6])) : Activator.CreateInstance(Plain(ps[6])),
+                    AtmoSpherize ? Sphere(h.SkySphere, k, Plain(ps[7])) : Activator.CreateInstance(Plain(ps[7])),
                     F(h.EnvShowArgs[5]), center, null,
                     Array.CreateInstance(Plain(ps[11]).GetElementType(), 0),
                 });
-                p.AtmoAt = center; p.AtmoK = k; p.AtmoMadeAt = now;
+                p.AtmoAt = center; p.AtmoK = k; p.AtmoMadeAt = now; p.AtmoGen = _atmoGen;
             }
             else if (Math.Abs(k - p.AtmoK) > p.AtmoK * 0.01)
             {
@@ -486,7 +550,7 @@ public static class PlanetRenderBridge
                 if (set != null && sp.Length == 7)
                 {
                     float F(object o) => (float)(Convert.ToDouble(o) * k);
-                    set.Invoke(p.Atmo, new object[] { h.EnvShowArgs[0], F(h.EnvShowArgs[1]), F(h.EnvShowArgs[2]), null, Activator.CreateInstance(Plain(sp[4])), F(h.EnvShowArgs[5]), null });
+                    set.Invoke(p.Atmo, new object[] { h.EnvShowArgs[0], F(h.EnvShowArgs[1]), F(h.EnvShowArgs[2]), null, AtmoSpherize ? Sphere(h.EnvShowArgs[4], k, Plain(sp[4])) : Activator.CreateInstance(Plain(sp[4])), F(h.EnvShowArgs[5]), null });
                     p.AtmoK = k;
                 }
             }
@@ -1006,6 +1070,26 @@ public static class PlanetRenderBridge
                 if (f == null || f.FieldType != typeof(bool)) return $"{typeName}.{field} not a static bool";
                 f.SetValue(null, value);
                 return $"{typeName}.{field}={value} (in {a.GetName().Name})";
+            }
+            return $"{typeName} not loaded";
+        }
+        catch (Exception e) { return "failed: " + Inner(e); }
+    }
+
+    /// <summary>DEV HARNESS: as SetForeignFlag, a static string field (null clears it).</summary>
+    public static string SetForeignString(string typeName, string field, string value)
+    {
+        try
+        {
+            foreach (Assembly a in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type t;
+                try { t = a.GetType(typeName); } catch { continue; }
+                if (t == null) continue;
+                FieldInfo f = t.GetField(field, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                if (f == null || f.FieldType != typeof(string)) return $"{typeName}.{field} not a static string";
+                f.SetValue(null, value);
+                return $"{typeName}.{field}={value ?? "null"} (in {a.GetName().Name})";
             }
             return $"{typeName} not loaded";
         }

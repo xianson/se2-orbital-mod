@@ -150,6 +150,39 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
     private bool _ringProxyOn;
     private Vector3D _ringProxyAt;
     private double _ringK;
+    private Quaternion? _ringTurn;
+
+    /// <summary>
+    /// The proxy's turn: the planet's surface axes (its cell's world axes, body-fixed) through its spin to the celestial
+    /// axes (its Chart), then into the observer's window (its own chart, when it rides a spinning cell). Identity when
+    /// you are in the planet's own cell (the two cancel) - where the proxy was always right; from anywhere else the
+    /// planet's spin and the windows' axes were ignored (its surface and rings stood turned).
+    /// </summary>
+    static Quaternion ProxyTurn(string body, SEAerospace.ObserverFrame obs, double t)
+    {
+        var chart = Chart.Of(body, t);
+        Vector3D R(Vector3D v) => SEAerospace.PlanetBerths.SpinFromCelestial(obs, chart.ToInertial(v));
+        Vector3D x = R(Vector3D.UnitX), y = R(Vector3D.UnitY), z = R(Vector3D.UnitZ);
+        // (a planet without spin data, or a NaN: no turn - a NaN transform is never drawn, the proxy vanished)
+        if (!GridMembers.Finite(x) || !GridMembers.Finite(y) || !GridMembers.Finite(z) || Math.Abs(x.Length() - 1) > 1e-3 || Math.Abs(z.Length() - 1) > 1e-3) return Quaternion.Identity;
+        // rows are the images of the basis (VRage's row-vector matrices: Transform(UnitX) is the first row)
+        var m = Matrix.Identity;
+        m.M11 = (float)x.X; m.M12 = (float)x.Y; m.M13 = (float)x.Z;
+        m.M21 = (float)y.X; m.M22 = (float)y.Y; m.M23 = (float)y.Z;
+        m.M31 = (float)z.X; m.M32 = (float)z.Y; m.M33 = (float)z.Z;
+        var q = Quaternion.Normalize(Quaternion.CreateFromRotationMatrix(m));
+        if (float.IsNaN(q.X) || float.IsNaN(q.W)) return Quaternion.Identity;
+        // (checked once: the quaternion must turn the axes as the charts do)
+        if (!_turnChecked)
+        {
+            _turnChecked = true;
+            Vector3 qx = Vector3.Transform(Vector3.UnitX, q), qz = Vector3.Transform(Vector3.UnitZ, q);
+            double ex = (new Vector3D(qx.X, qx.Y, qx.Z) - x).Length(), ez = (new Vector3D(qz.X, qz.Y, qz.Z) - z).Length();
+            Log.Default?.Info($"[ORBIT] proxy turn check ({body}): axes off by {ex:E1} / {ez:E1}{(ex > 1e-3 || ez > 1e-3 ? " - WRONG CONVENTION" : "")}");
+        }
+        return q;
+    }
+    static bool _turnChecked;
 
     private void RingProxy(Vector3D at, double renderRadius, double realRadius)
     {
@@ -161,7 +194,7 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
     private void SyncRings()
     {
         if (_handles == null) return;
-        try { PlanetRings.Sync(Entity.Data.GetWorldTransform().Position, _realShown, _ringProxyOn, _ringProxyAt, _ringK); }
+        try { PlanetRings.Sync(Entity.Data.GetWorldTransform().Position, _realShown, _ringProxyOn, _ringProxyAt, _ringK, _ringTurn); }
         catch (Exception e) { FrameHost.Fault("PlanetRings", e); }
     }
 
@@ -296,7 +329,7 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
     /// three settled frames in a row, at most WarmMaxSeconds.</summary>
     public static bool WarmBeforeShow = true;
     public static int WarmMinFrames = 10;
-    public static double WarmMaxSeconds = 3.0;
+    public static double WarmMaxSeconds = 8.0;   // (the proxy stands in meanwhile: a late real planet beats a coarse one)
     private int _warmFrames, _settledFrames; private long _warmStart;
 
     private bool TickFramesMode(WorldTransform camera, double distance)
@@ -331,10 +364,10 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
             if (_warmFrames == 0) _warmStart = System.Diagnostics.Stopwatch.GetTimestamp();
             PlanetRenderBridge.WarmTerrain(_handles);
             _warmFrames++;
-            _settledFrames = PlanetRenderBridge.TerrainSettled(_handles) ? _settledFrames + 1 : 0;
+            _settledFrames = PlanetRenderBridge.TerrainSettled(_handles, _warmFrames - 1) ? _settledFrames + 1 : 0;
             double warmS = (System.Diagnostics.Stopwatch.GetTimestamp() - _warmStart) / (double)System.Diagnostics.Stopwatch.Frequency;
             show = (_warmFrames >= WarmMinFrames && _settledFrames >= 3) || warmS >= WarmMaxSeconds;
-            if (show) Log.Default?.Info($"[ORBIT] {body}: terrain warmed in {warmS:F2} s ({_warmFrames} frames{(warmS >= WarmMaxSeconds ? ", capped" : "")})");
+            if (show) Log.Default?.Info($"[ORBIT] {body}: terrain warmed in {warmS:F2} s ({_warmFrames} frames{(warmS >= WarmMaxSeconds ? ", capped" : "")}; clipmaps: {PlanetRenderBridge.WarmReport(_handles)})");
         }
         else if (!wantReal && _warmFrames > 0 && !_realShown)
             PlanetRenderBridge.SetTerrainVisible(_handles, false);   // (warming called off: dark and frozen again)
@@ -359,7 +392,8 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
             Log.Default?.Info($"[ORBIT] {body}: frames proxy {(_proxy != null ? "created" : "FAILED")}");
             if (_proxy == null) return true;
         }
-        PlanetRenderBridge.UpdateProxy(_handles, _proxy, pp.RenderPos, pp.RenderRadius);
+        _ringTurn = ProxyTurn(body, obs, t);
+        PlanetRenderBridge.UpdateProxy(_handles, _proxy, pp.RenderPos, pp.RenderRadius, _ringTurn);
         PlanetRenderBridge.SetProxyVisible(_proxy, true);
         NoteProxy(body, pp.RenderPos - camera.Position, pp.RenderRadius, radius, "frames");
         RingProxy(pp.RenderPos, pp.RenderRadius, radius);

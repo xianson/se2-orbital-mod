@@ -69,6 +69,18 @@ public static class MapInput
     /// <summary>DEV: keys pressed by the harness this frame.</summary>
     public static readonly HashSet<string> DevKeys = new HashSet<string>();
 
+    /// <summary>A key held down now (polled on first ask each frame).</summary>
+    public static bool KeyDown(DigitalInput key)
+    {
+        int id = key.GetHashCode();
+        if (!_keys.TryGetValue(id, out bool down))
+        {
+            try { down = _keyboard != null && _keyboard.GetDigitalState(key); } catch { _keyboard = null; }
+            _keys[id] = down;
+        }
+        return down;
+    }
+
     /// <summary>A key that went down this frame (polled on first ask each frame).</summary>
     public static bool KeyPressed(DigitalInput key)
     {

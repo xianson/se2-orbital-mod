@@ -83,7 +83,7 @@ public static class BuildHints
         return true;
     }
 
-    // ── the states: 1 stable, 0 neutral, 2 controllable, -1 unstable (-9 unknown) ──
+    // ── the states: 1 stable, 0 neutral, 2 controllable (shown "flyable": the box fits "unstable"; the user, 2026-10-12), -1 unstable (-9 unknown) ──
     /// <summary>What the air does with the ship flying along travel (grid-local) with this centre of pressure: neutral when
     /// it sits within NeutralFraction of the ship's length of the centre of mass along the flow; else stable when the air
     /// turns it back (stab, the probe's); else - when control is asked for - controllable when its gyros and thrusters can
@@ -109,7 +109,7 @@ public static class BuildHints
         -1 => new ColorSRGB(1f, 0.35f, 0.3f, a),
         _ => new ColorSRGB(0.6f, 0.62f, 0.66f, a),
     };
-    static string StateWord(int st) => st switch { 1 => "stable", 0 => "neutral", 2 => "controllable", -1 => "unstable", _ => "-" };
+    static string StateWord(int st) => st switch { 1 => "stable", 0 => "neutral", 2 => "flyable", -1 => "unstable", _ => "-" };
 
     static Entity AimedGrid(Keen.VRage.Core.Game.Systems.Session session)
     {

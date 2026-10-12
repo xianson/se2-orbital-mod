@@ -117,7 +117,7 @@ public static class FrameHost
     private static void NewSession()
     {
         _cur = new PlayerState(); _pub = PlayerState.None;
-        SeatGrid = null; _seatChar = null; _lastChar = null; _seatVelOk = false;
+        SeatGrid = null; SeatBlock = null; _seatChar = null; _lastChar = null; _seatVelOk = false;
         _tpPending = false; _riderN = 0; _riderFrame = -1; _wasInKeep = false; _hsActive = false;
         DropPending(); _pendingOrbit = null; ForceStow = false;
         Observer = null; ObserverPlanet = null;
@@ -219,7 +219,7 @@ public static class FrameHost
                     }
                 }
                 _cur.Frame = frame;
-                SeatGrid = null; SeatGridServerId = 0;
+                SeatGrid = null; SeatBlock = null; SeatGridServerId = 0;
                 if (frame == null) _riderN = 0;   // (no frame: the state's defaults - not riding, not at an anchor; no walk's warp scale)
                 if (frame != null) { _hsActive = false; UpdatePlayerFrame(session, ch, frame, pos, vel, t, dt); }
                 else if (!_tpPending)
@@ -305,6 +305,7 @@ public static class FrameHost
         Guard("DevTurn.ClientTick", static a => DevTurn.ClientTick(a.Session), ta);
         Guard("DevReentry.ClientTick", static a => DevReentry.ClientTick(a.Session, a.Camera), ta);
         Guard("AttitudeHold.ClientTick", static a => AttitudeHold.ClientTick(a.Session), ta);
+        Guard("FlyTest.ClientTick", static a => FlyTest.ClientTick(a.Session), ta);   // (DEV: Ctrl+T seated - 1 km, level, cruise)
         WarpControl.Session = session;
         Guard("WarpControl.Tick", static a => WarpControl.Tick(), ta);
         Guard("MapView.Tick", static a => MapView.Tick(a.Session, a.Camera, a.T), ta);
@@ -1158,8 +1159,8 @@ public static class FrameHost
     static Entity _seatChar, _lastChar, _lastSeatEntity;
     static long _lastSeatSid; static double _lastSeatAt;
     static readonly List<PlayerOrbit.GridState> _joinGrids = new List<PlayerOrbit.GridState>();
-    /// <summary>The client's copy of the grid the player's seat is on (null: not seated, or none found).</summary>
-    public static Entity SeatGrid;
+    /// <summary>The client's copy of the grid the player's seat is on (null: not seated, or none found), and the seat block.</summary>
+    public static Entity SeatGrid, SeatBlock;
     /// <summary>The server's id of that grid (0: not matched) - for server-side code acting on the ship you fly.</summary>
     public static long SeatGridServerId;
     static Vector3D _seatVel; static bool _seatVelOk;
@@ -1190,6 +1191,7 @@ public static class FrameHost
             var s = e.TryGet<Keen.Game2.Simulation.WorldObjects.CubeBlocks.Pilotable.SeatComponent>() as Keen.Game2.Simulation.WorldObjects.CubeBlocks.Pilotable.ISeat;
             if (s?.Pilot != _seatChar) continue;
             seat = e.TryGet<Keen.Game2.Simulation.WorldObjects.CubeBlocks.CubeBlockComponent>()?.Grid?.Entity;
+            SeatBlock = e;
             break;
         }
         _seatVelOk = false;

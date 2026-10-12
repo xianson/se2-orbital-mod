@@ -305,6 +305,7 @@ public static class ServerFrames
                 while (GridOrbit.TryDequeue(out var go)) DoGridOrbit(go);
                 while (GridDamp.TryDequeue(out var gd)) DoGridDamp(gd.id, gd.on);
                 while (GridLaunch.TryDequeue(out var gl)) DoGridLaunch(gl.id, gl.altKm, gl.body, gl.speed);
+                while (FlyTest.TryDequeue(out var ft)) DoFlyTest(ft.id, ft.nose, ft.top);
                 while (GridLevel.TryDequeue(out long glv)) DoGridLevel(glv);
                 while (GridDelete.TryDequeue(out long gd))
                 {
@@ -1418,6 +1419,56 @@ public static class ServerFrames
         bool ok = MoveGrid(g, cell + chart.FromInertial(pI), chart.VelFromInertial(pI, vI), out var with);
         Event($"gridlaunch: grid {id} '{g.DisplayName}' to a {altKm:F0} km circular orbit of {body}: {(ok ? $"moving ({with.Count} grid(s) with it)" : "refused")}");
     }
+
+    /// <summary>DEV (FlyTest, Ctrl+T seated): a grid AltitudeM over the ground under it, level on its cockpit's heading, flying
+    /// along its nose at cruise speed. nose, top: the cockpit's forward and up in the grid's axes.</summary>
+    public static readonly System.Collections.Concurrent.ConcurrentQueue<(long id, Vector3 nose, Vector3 top)> FlyTest = new System.Collections.Concurrent.ConcurrentQueue<(long, Vector3, Vector3)>();
+    static System.Reflection.MethodInfo _ftGround, _ftTop; static bool _ftResolved;
+    static void DoFlyTest(long id, Vector3 noseL, Vector3 topL)
+    {
+        var g = GridMembers.Get(id);
+        var reg = SystemHost.Registry;
+        if (g?.Entity == null || !g.IsServer || reg == null) { OrbitalMod.FlyTest.Status = Event2($"flytest: no server grid {id}"); return; }
+        Vector3D pos = GridMembers.Position(g);
+        if (!VoxelBerthRegistry.TryCellContaining(pos, reg, out string body, out Vector3D cell)) { OrbitalMod.FlyTest.Status = Event2("flytest: not at a planet"); return; }
+        var def = reg.FindDefinition(body);
+        if (def == null) return;
+        // the aero mod's ground ray and cruise speed (AeroApi; found once)
+        if (!_ftResolved)
+        {
+            _ftResolved = true;
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                var t = asm.GetType("AeroMod.AeroApi");
+                if (t == null) continue;
+                _ftGround = t.GetMethod("TryGetGroundHeight"); _ftTop = t.GetMethod("GetTopSpeedAt");
+                break;
+            }
+        }
+        double rNow = (pos - cell).Length(), rGround = def.RadiusMeters; string over = "sea level";
+        if (_ftGround != null)
+        {
+            var ga = new object[] { g.Entity, null };
+            try { if ((bool)_ftGround.Invoke(null, ga) && (float)ga[1] >= 0f) { rGround = rNow - (float)ga[1]; over = "the ground"; } } catch { }
+        }
+        float speed = float.NaN;
+        try { if (_ftTop != null) speed = (float)_ftTop.Invoke(null, new object[] { g.Entity, noseL, OrbitalMod.FlyTest.CruiseThrottle }); } catch { }
+        if (!(speed > 1f) || float.IsInfinity(speed)) speed = OrbitalMod.FlyTest.FallbackSpeed;
+        // level: the cockpit's nose horizontal on its heading, its top away from the planet
+        Vector3D up = Vector3D.Normalize(pos - cell);
+        var q = g.Entity.Data.GetWorldTransform().Orientation;
+        Vector3D noseW = Vector3D.Transform((Vector3D)noseL, q), topW = Vector3D.Transform((Vector3D)topL, q);
+        Vector3D h = noseW - up * Vector3D.Dot(noseW, up);
+        if (h.LengthSquared() < 1e-6) h = Vector3D.Cross(up, Vector3D.Cross(topW, up));   // (nose straight up or down: its top's heading)
+        h = Vector3D.Normalize(h);
+        var have = Quaternion.CreateFromForwardUp((Vector3)noseW, (Vector3)topW);
+        var want = Quaternion.CreateFromForwardUp((Vector3)h, (Vector3)up);
+        var turn = Quaternion.Normalize(want * Quaternion.Inverse(have));
+        double r = rGround + OrbitalMod.FlyTest.AltitudeM;
+        bool ok = MoveGrid(g, cell + up * r, h * speed, out var with, default, turn);
+        OrbitalMod.FlyTest.Status = Event2($"flytest: grid {id} '{g.DisplayName}' {OrbitalMod.FlyTest.AltitudeM:F0} m over {over}, level, {speed:F0} m/s ({(ok ? $"{with.Count} grid(s) with it" : "refused")})");
+    }
+    static string Event2(string s) { Event(s); return s; }
 
     /// <summary>DEV: move a grid (server), unless it has joints.</summary>
     public static readonly System.Collections.Concurrent.ConcurrentQueue<(long id, Vector3D d, bool group)> GridMove = new System.Collections.Concurrent.ConcurrentQueue<(long, Vector3D, bool)>();

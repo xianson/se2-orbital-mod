@@ -146,7 +146,7 @@ public static class ContactsTab
         object term = null;
         try { term = GameUi.TopScreenObject(session); } catch { }
         if (term == null || term.GetType().Name != "TerminalScreenViewModel") return;
-        if (ReferenceEquals(term, _term)) { if (_vm != null) { OnSelection(); DeleteKey(term); } return; }
+        if (ReferenceEquals(term, _term)) { if (_vm != null) { OnSelection(); DeleteKey(term); RenameKey(term); } return; }
         _term = term;
         try { Install(term); }
         catch (Exception e) { Status = "not installed: " + PlanetRenderBridge.Inner(e); PlanetRenderBridge.WarnOnce("contacts-tab", "contacts tab: " + Status); }
@@ -167,8 +167,8 @@ public static class ContactsTab
         }
         object orig = Prop(mapTab, "GPSViewModel");
         if (orig == null) { Status = "no map tab / GPS screen"; return; }
-        if (_local == null) _local = new GPSMarkersData();
-        _type = Prop(Field(orig, "_markersConfiguration"), "PlayerMadeMarkerType");
+        if (_local == null) { _local = new GPSMarkersData(); if (!GuardGrouping(_local)) { _local = null; Status = "not installed: could not guard the group button"; return; } }
+        _type = NotEditable(Prop(Field(orig, "_markersConfiguration"), "PlayerMadeMarkerType"));
         if (_type == null) { Status = "no player-made marker type"; return; }
         var iconObj = Prop(Field(orig, "_markersConfiguration"), "PlayerCreatedMarkerIcon");
         if (iconObj != null) _icon = (ResourceHandle<Keen.VRage.Core.Render.TextureAsset>)iconObj;
@@ -196,6 +196,74 @@ public static class ContactsTab
         _vm = vm; _mapTab = mapTab;
         Status = "installed";
         Refresh(force: true);
+    }
+
+    /// <summary>
+    /// THE CONTACTS ARE NOT EDITABLE (2026-10-11: the game crashed). The screen's Edit and Remove buttons show for an
+    /// editable marker type, and Remove calls the SERVER's GPSMarkersData.RemoveMarker with the selected marker - ours live
+    /// only in this client's list, the server could not pair it, and the in-process replication's failure is fatal
+    /// (NoMatchingLocalPairingException in RemoveMarker's network story). So our markers get a copy of the player-made type
+    /// with Editable off: no Edit, no Remove (the screen's CanEditMarker). Del still hides a contact / deletes a place
+    /// (DeleteKey: ours, against the right lists). The copy: MemberwiseClone, Editable's private setter.
+    /// </summary>
+    static object NotEditable(object def)
+    {
+        if (def == null) return null;
+        try
+        {
+            var copy = typeof(object).GetMethod("MemberwiseClone", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(def, null);
+            var pe = copy.GetType().GetProperty("Editable", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            pe?.GetSetMethod(true)?.Invoke(copy, new object[] { false });
+            if (pe != null && pe.GetValue(copy) is bool b && !b) return copy;
+        }
+        catch { }
+        // (no copy: no contacts tab at all rather than a crash a click away)
+        return null;
+    }
+
+    /// <summary>
+    /// THE GROUP BUTTON (2026-10-11, the same crash's other door): the screen's ToggleGroup sends the selected markers to
+    /// the SERVER's GPSMarkersData.SetMarkerGroup - ours, which it cannot pair: fatal. It takes only the selected markers
+    /// its list Contains; so our list's inner list answers Contains with no (Collection&lt;T&gt;.Contains asks it) while
+    /// adding, removing (IndexOf), counting and listing work as ever - the button finds nothing to group and does nothing.
+    /// False: the inner list could not be swapped (no tab rather than a crash a click away).
+    /// </summary>
+    static bool GuardGrouping(GPSMarkersData data)
+    {
+        try
+        {
+            // (by its non-generic faces: mod code may not name ObservableCollection's assembly)
+            object list = PlanetRenderBridge.GetMember(data, "GPSMarkers");
+            if (!(list is System.Collections.IList il)) return false;
+            System.Reflection.FieldInfo f = null;
+            for (var t = list.GetType(); t != null && f == null; t = t.BaseType)
+                f = t.GetField("items", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+            if (f == null) return false;
+            var inner = new NoContains();
+            foreach (var m in il) inner.Add((GPSMarker)m);
+            f.SetValue(list, inner);
+            return il.Count == inner.Count && ReferenceEquals(f.GetValue(list), inner);
+        }
+        catch { return false; }
+    }
+
+    /// <summary>A list that says it contains nothing (GuardGrouping); everything else as a List.</summary>
+    sealed class NoContains : IList<GPSMarker>
+    {
+        readonly List<GPSMarker> _l = new();
+        public GPSMarker this[int i] { get => _l[i]; set => _l[i] = value; }
+        public int Count => _l.Count;
+        public bool IsReadOnly => false;
+        public void Add(GPSMarker item) => _l.Add(item);
+        public void Clear() => _l.Clear();
+        public bool Contains(GPSMarker item) => false;
+        public void CopyTo(GPSMarker[] array, int arrayIndex) => _l.CopyTo(array, arrayIndex);
+        public IEnumerator<GPSMarker> GetEnumerator() => _l.GetEnumerator();
+        public int IndexOf(GPSMarker item) => _l.IndexOf(item);
+        public void Insert(int index, GPSMarker item) => _l.Insert(index, item);
+        public bool Remove(GPSMarker item) => _l.Remove(item);
+        public void RemoveAt(int index) => _l.RemoveAt(index);
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => _l.GetEnumerator();
     }
 
     static object _lastSel;
@@ -232,6 +300,30 @@ public static class ContactsTab
             Refresh(force: true);
             return;
         }
+    }
+
+    /// <summary>
+    /// F2 on a selected row (2026-10-11: the contacts are not editable any more - their Edit was the crash's door): the
+    /// game's text dialog, "Rename contact", the name in it; OK sets it through the row (its Name: the list shows it at
+    /// once) and Refresh keeps it under Names, saved with the world. A place - a real GPS point - is renamed on its own
+    /// marker. Not while the search box is being typed in.
+    /// </summary>
+    static void RenameKey(object term)
+    {
+        bool f2 = MapInput.KeyPressed(KeyboardInputs.F2) | MapInput.DevKeys.Remove("contactrename");
+        if (!f2) return;
+        object selSub = Prop(term, "SelectedSubScreen");
+        if (Prop(Prop(selSub, "Id"), "Value") as string != "Map/GPS") return;
+        object row = Prop(_vm, "SelectedMarker");
+        if (!(Prop(row, "GPSMarker") is GPSMarker m)) return;
+        string current = Strip(m.Name);
+        GameUi.TextDialog(_session, "Rename contact", current, name =>
+        {
+            name = (name ?? "").Trim();
+            if (name.Length == 0) return;
+            try { row.GetType().GetProperty("Name")?.SetValue(row, name); } catch { m.Name = name; }
+            Refresh(force: true);
+        });
     }
 
     /// <summary>A row selected (one): it is the target (polled every map frame: the selection's own event is a framework
@@ -425,7 +517,10 @@ public static class ContactsTab
         foreach (var m in real)
         {
             if (m == null) continue;
-            bool ours = _ours.Contains(m);
+            // (one of OUR objects in the real list: never sent to the server's remove - it cannot pair it, and that is the
+            //  fatal crash of 2026-10-11; only the server's own copies, found by name and place below, are removed)
+            if (_ours.Contains(m)) { PlanetRenderBridge.WarnOnce("contacts-own-in-real", "contacts: one of ours is in the real GPS list - left alone (the server cannot remove it)"); continue; }
+            bool ours = false;
             // (a copy sent to the server, in multiplayer: by its name and place - never a place's row: those mirror real points)
             if (!ours) foreach (var r in _rows.Values) if (!r.Key.StartsWith(PlacePrefix) && r.M.Name == m.Name && (r.M.Position - m.Position).LengthSquared() < 1) { ours = true; break; }
             // (GPSMarkersData.RemoveMarker: a network story - its type is one mod code cannot name, so called by reflection)

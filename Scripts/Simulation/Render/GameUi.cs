@@ -89,6 +89,13 @@ public static class GameUi
 
     /// <summary>The game's numeric input dialog; onOk gets the typed number (validated).</summary>
     public static bool NumberDialog(Keen.VRage.Core.Game.Systems.Session session, string title, double current, Action<double> onOk)
+        => TextDialog(session, title, current.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture),
+            s => { if (double.TryParse(s.Replace(',', '.'), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double v)) onOk(v); },
+            s => double.TryParse((s ?? "").Replace(',', '.'), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _) ? null : "Enter a number (m/s)");
+
+    /// <summary>The game's text input dialog (the numeric dialog's definition - its own view model takes any text; its third
+    /// argument only focuses the text); onOk gets what was typed, when validate (null: anything) passes.</summary>
+    public static bool TextDialog(Keen.VRage.Core.Game.Systems.Session session, string title, string current, Action<string> onOk, Func<string, string> validate = null)
     {
         try
         {
@@ -104,17 +111,11 @@ public static class GameUi
                 if (ps.Length >= 3 && ps[1].ParameterType == typeof(string) && ps[2].ParameterType == typeof(bool)) { ctor = c; break; }
             }
             var args = new object[ctor.GetParameters().Length];
-            args[0] = def; args[1] = current.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture); args[2] = true;
+            args[0] = def; args[1] = current ?? ""; args[2] = true;
             for (int i = 3; i < args.Length; i++) args[i] = null;
             object vm = ctor.Invoke(args);
-            Action<string> confirm = s =>
-            {
-                if (double.TryParse(s.Replace(',', '.'), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double v)) onOk(v);
-            };
-            Func<string, string> validate = s =>
-                double.TryParse((s ?? "").Replace(',', '.'), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _) ? null : "Enter a number (m/s)";
-            vmType.GetProperty("ConfirmAction").SetValue(vm, confirm);
-            vmType.GetProperty("InputValidator")?.SetValue(vm, validate);
+            vmType.GetProperty("ConfirmAction").SetValue(vm, onOk);
+            if (validate != null) vmType.GetProperty("InputValidator")?.SetValue(vm, validate);
             vmType.GetProperty("TitleOverride")?.SetValue(vm, title);
             MethodInfo showDialog = null;
             foreach (var m in shared.GetType().GetMethods()) if (m.Name == "ShowDialog" && m.GetParameters().Length == 1) showDialog = m;

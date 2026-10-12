@@ -76,6 +76,8 @@ public static class Maneuvers
 
     /// <summary>The next burn, one line for the orbit card (null when none).</summary>
     public static string BurnLine;
+    /// <summary>Seconds until the next burn starts (0: now) - with BurnLeft, the plot's short tag.</summary>
+    public static double BurnIn;
     /// <summary>The next burn's direction (world axes) and what is left (m/s), from the last HUD tick.</summary>
     public static Vector3D BurnDirWorld; public static double BurnLeft;
     public const double WarpLead = 30.0;      // s: warp stops this long before a burn (time to line up)
@@ -1809,6 +1811,7 @@ public static class Maneuvers
         Accel = MaxAccel(session);
         double burn = Accel > 1e-3 ? left / Accel : double.NaN;
         double start = BurnStart(node);   // half the burn before the node (as KSP)
+        BurnIn = start > t ? start - t : 0;   // (the plot's short tag: OrbitHud)
         BurnLine = (AutoBurn.Flying ? "Auto-burning " : node.Auto ? "Auto-burn " : "Next burn ") + $"{left:F1} m/s" + (IsFinite(burn) ? (burn < 60 ? $" ({Math.Max(1, burn):F0} s)" : $" ({Clock(burn)})") : "")
                    + (start > t ? $"   ·   in {Clock(start - t)}" : "   ·   now");
         if (MapView.Visible) return;

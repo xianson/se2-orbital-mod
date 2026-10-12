@@ -361,9 +361,28 @@ public static class DevHarness
             case "aeroexport":   // aeroexport on|off: the aero mod writes each grid it builds to %TEMP%\AeroMod\*.boxes (for Tests/AeroBench)
                 return PlanetRenderBridge.SetForeignFlag("AeroMod.AeroExport", "Enabled", On(a[1]));
 
+            case "setting":   // setting <name> [value]: a mod setting read, or set (DEV: OrbitalSettings, as the settings file would)
+            {
+                if (a.Length < 2) return "setting <name> [value]";
+                if (a.Length < 3) return OrbitalSettings.TryGet(a[1], out double cur) ? $"{a[1]} = {cur}" : $"no setting {a[1]}";
+                return OrbitalSettings.Set(a[1], D(a[2]), out string why) ? $"{a[1]} = {D(a[2])}" : $"not set: {why}";
+            }
+
+            case "hints":   // hints <gridId> | off | overlay <0|1|2> | status: the build hints on a grid without holding a block
+                if (a.Length > 1 && a[1] == "off") { BuildHints.DevGridId = 0; return "build hints: building only"; }
+                if (a.Length > 2 && a[1] == "overlay") { BuildHints.Overlay = (int)D(a[2]); return $"overlay {BuildHints.Overlay}"; }
+                if (a.Length > 1 && a[1] != "status") BuildHints.DevGridId = (long)D(a[1]);
+                return $"build hints: grid {BuildHints.DevGridId}, overlay {BuildHints.Overlay} | {BuildHints.Status}";
+
             case "aeroflight":   // aeroflight on|off [name]: the aero mod's scripted flight test (the grid with the most wings, or the one named)
                 return PlanetRenderBridge.SetForeignString("AeroMod.AeroGridComponent+AeroFlightTest", "Only", a.Length > 2 ? a[2] : null) + "; "
                      + PlanetRenderBridge.SetForeignFlag("AeroMod.AeroGridComponent+AeroFlightTest", "Enabled", On(a[1]));
+
+            case "aeroaware":   // aeroaware on|off: the aero mod's aero-aware attitude law (gyros and thrusters told the air's torque; off: the game's gyros)
+                return PlanetRenderBridge.SetForeignFlag("AeroMod.ThrustTorque", "AeroAware", On(a[1]));
+
+            case "pitchlog":   // pitchlog on|off: the aero mod's [AERO-PITCH] line (a piloted grid's rates, the air's torque, the gyros' and thrusters', 10 a second)
+                return PlanetRenderBridge.SetForeignFlag("AeroMod.AeroGridComponent", "PitchLog", On(a[1]));
 
             case "aerocost":   // aerocost on|off: the aero mod's [AERO-COST] line (where its time goes, once a second)
                 return PlanetRenderBridge.SetForeignFlag("AeroMod.AeroCost", "Log", On(a[1]));

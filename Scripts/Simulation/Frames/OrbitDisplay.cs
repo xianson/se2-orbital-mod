@@ -508,12 +508,24 @@ public static class OrbitDisplay
 
     private static bool IsFinite(double x) => !double.IsNaN(x) && !double.IsInfinity(x);
     /// <summary>Seconds from t to the orbit's true anomaly nu (the next time round; NaN when behind you on an escape).</summary>
+    /// <summary>How long until the orbit is at true anomaly nu. Bounded (2026-10-12, the user on ascent: "Pe 18 km ·
+    /// 476181d 10h"): a nearly radial or nearly parabolic path - a climb out - gave the propagation's time absurd values;
+    /// a closed orbit is never more than one period from an apsis (wrapped into it), and a period past MaxApsisPeriod or an
+    /// open path's time past MaxOpenApsis is no countdown at all (NaN: the label shows none).</summary>
+    public const double MaxApsisPeriod = 20 * 86400, MaxOpenApsis = 2 * 86400;
     static double ApsisIn(KeplerianElements el, double t, double nu)
     {
         try
         {
             double s = OrbitPropagation.TimeToTrueAnomaly(OrbitPropagation.AtTime(el, t), nu);
-            return double.IsNaN(s) || double.IsInfinity(s) || s < 0 ? double.NaN : s;
+            if (double.IsNaN(s) || double.IsInfinity(s) || s < 0) return double.NaN;
+            if (el.IsElliptic)
+            {
+                double T = el.Period;
+                if (!(T > 0) || double.IsInfinity(T) || T > MaxApsisPeriod) return double.NaN;
+                return s % T;
+            }
+            return s > MaxOpenApsis ? double.NaN : s;
         }
         catch { return double.NaN; }
     }

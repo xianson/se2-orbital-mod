@@ -5,7 +5,7 @@ rows = {}
 for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
     m = re.search(r"\b(SETUP|CRUISE|CLIMB|GLIDE)\b", line)
     if not m: continue
-    v = dict((k, float(x)) for k, x in re.findall(r"(spd|vs|aoa|L/D|lift|drag)=\s*(-?[0-9.]+)", line))
+    v = dict((k, float(x)) for k, x in re.findall(r"(spd|vs|aoa|L/D|lift|drag|trim|gyroMax)=\s*(-?[0-9.]+)", line))
     rows.setdefault(m.group(1), []).append(v)
 for ph in ("CRUISE", "CLIMB", "GLIDE"):
     r = rows.get(ph, [])
@@ -15,4 +15,5 @@ for ph in ("CRUISE", "CLIMB", "GLIDE"):
     avg = lambda k: sum(x.get(k, 0) for x in r) / len(r)
     sink = avg("vs")
     gr = f"  speed/sink {-avg('spd') / sink:.1f}" if ph == "GLIDE" and sink < -0.1 else ""
-    print(f"  {sys.argv[2]} {ph:<6} n={len(r):3d}  L/D {avg('L/D'):6.2f}  spd {avg('spd'):6.0f}  vs {sink:6.1f}  aoa {avg('aoa'):5.1f}{gr}")
+    tr = f"  trim {avg('trim'):6.0f} kNm (gyros {avg('gyroMax'):.0f})" if any("trim" in x for x in r) else ""
+    print(f"  {sys.argv[2]} {ph:<6} n={len(r):3d}  L/D {avg('L/D'):6.2f}  spd {avg('spd'):6.0f}  vs {sink:6.1f}  aoa {avg('aoa'):5.1f}{gr}{tr}")

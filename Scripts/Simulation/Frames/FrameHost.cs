@@ -312,7 +312,8 @@ public static class FrameHost
         Guard("Maneuvers.HudTick", static a => Maneuvers.HudTick(a.Session, a.Camera, a.T), ta);
         Guard("AutoBurn.Tick", static a => AutoBurn.Tick(a.Session, a.T), ta);
         Guard("OrbitHud.Draw", static a => OrbitHud.Draw(a.Session), ta);
-        Guard("BuildHints.Draw", static a => BuildHints.Draw(a.Session), ta);   // (holding a block: the aimed ship's stability, top speed)
+        Guard("BuildHints.Draw", static a => BuildHints.Draw(a.Session), ta);
+        Guard("SpdIcon.Draw", static a => SpdIcon.Draw(a.Session), ta);   // (seated: the cockpit SPD box's missing speedometer)   // (holding a block: the aimed ship's stability, top speed)
         Guard("WarpBar", static a => WarpBar.DrawHud(a.Session), ta);
         // On rails the game's SPD (your velocity in the frame) is 0: show your speed about the body.
         Guard("HudSpeed", static a => { if (_cur.Frame != null && OrbitHud.Current != null) GameUi.SetHudSpeed(a.Session, (float)OrbitHud.Current.Speed); }, ta);

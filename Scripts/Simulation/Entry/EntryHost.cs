@@ -17,8 +17,11 @@ public static class EntryHost
     public static bool Enabled = true;
     /// <summary>The world's speed cap (m/s): what the band slows you to.</summary>
     public static double Cap => double.IsNaN(TestCap) ? FrameHost.SpeedCap : TestCap;   // (the arrival's cap: a hair under the world's)
-    /// <summary>Harness: a lower cap for the reentry rules only (NaN: the world's).</summary>
+    /// <summary>Harness: a lower cap for the reentry rules only (NaN: the world's) - the band, an airless border's clamp, and
+    /// the arrival's cap (client and server: <see cref="OverCap"/>).</summary>
     public static double TestCap = double.NaN;
+    /// <summary>An arrival's speed over <see cref="Cap"/> (the one margin: Reentry.CapSlack).</summary>
+    public static bool OverCap(double speed) => Reentry.OverCap(speed, Cap);
     /// <summary>Warp stops this long before the braking starts.</summary>
     public const double WarpLead = 30.0;
 

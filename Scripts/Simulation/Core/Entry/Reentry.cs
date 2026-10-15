@@ -257,6 +257,13 @@ namespace SEAerospace.Entry
             return log;
         }
 
+        /// <summary>How far over the cap (m/s) a speed may sit and still count as AT it: the elements' round trip leaves a clamped
+        /// speed a hair over (~1e-3 of 990). One margin for every arrival's "over the cap?" (2026-10-15: x1.001 on the
+        /// client, none on the server).</summary>
+        public const double CapSlack = 1.0;
+        /// <summary>The arrival's test: over <paramref name="cap"/> by more than <see cref="CapSlack"/>.</summary>
+        public static bool OverCap(double speed, double cap) { return speed > cap + CapSlack; }
+
         /// <summary>An airless body: an arrival over the cap is clamped at the border; the heat-equivalent of the jolt.</summary>
         public static double Jolt(double airSpeed, double cap)
             => airSpeed > cap ? AirlessJoltShare * (airSpeed * airSpeed - cap * cap) / 2 : 0;

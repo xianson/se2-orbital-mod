@@ -160,7 +160,7 @@ public static class DevReentry
                 Check(moved, "handover: moved into the planet's frame (off its berth)");
                 Check(pe < 2 + v.Length() / 60.0 * 2, $"handover: placed where the arrival sent it ({pe:F1} m off, its motion since included)");
                 Check(ve < 2, $"handover: at the arrival's velocity ({ve:F2} m/s off)");
-                Check(_handSpeed <= FrameHost.SpeedCap * 1.02 + 1, $"handover: at or under the cap ({_handSpeed:F0} m/s, cap {FrameHost.SpeedCap:F0})");
+                Check(_handSpeed <= EntryHost.Cap * 1.02 + 1, $"handover: at or under the cap ({_handSpeed:F0} m/s, cap {EntryHost.Cap:F0})");   // (the arrival's cap: TestCap honoured)
                 if (_joined.Count > 0)
                 {
                     int with = 0; double worst = 0;

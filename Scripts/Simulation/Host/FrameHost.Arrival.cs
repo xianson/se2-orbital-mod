@@ -50,10 +50,13 @@ public static partial class FrameHost
         // the braking band or with an airless border's clamp. Over it here, wait a few ticks for that clamp (its
         // jolt counts); then arrive capped regardless: no rails inside the planet's frame.
         double alt = cel.Position.Length() - def.RadiusMeters;
-        if (speed > SpeedCap * 1.001 && EntryHost.Enabled && ++_overCapWait <= 10) return;
+        // (the cap and its margin are the entry's - EntryHost.Cap honours the harness's TestCap; 2026-10-15: the world's cap at
+        //  x1.001 here, at x1 on the server)
+        double cap = EntryHost.Cap;
+        if (EntryHost.OverCap(speed) && EntryHost.Enabled && ++_overCapWait <= 10) return;
         _overCapWait = 0;
-        bool capped = speed > SpeedCap * 1.001;
-        Vector3D applied = capped ? worldVel * (SpeedCap / speed) : worldVel;
+        bool capped = EntryHost.OverCap(speed);
+        Vector3D applied = capped ? worldVel * (cap / speed) : worldVel;
 
         // (a frame with grids in it arrives on the server - grids and the player together, RequestArrival)
         foreach (long mid in f.Members) if (GridMembers.IsGridId(mid)) return;
@@ -63,7 +66,7 @@ public static partial class FrameHost
         _wasInKeep = true;
         StartTeleport(session, worldPos, applied, t, chart.FromInertialRotation());
         Event($"ARRIVE frame #{fid} -> {node.Name} cell: r={cel.Position.Length() / 1000:F1} km (shell {shell / 1000:F1}) " +
-              $"|v|={speed:F0} m/s{(capped ? $" -> capped to {SpeedCap:F0} ({alt / 1000:F1} km up)" : "")}");
+              $"|v|={speed:F0} m/s{(capped ? $" -> capped to {cap:F0} ({alt / 1000:F1} km up)" : "")}");
     }
 
     // ───────────────────────────── HighSpeed (planet cell, above the cap) ─────────────────────────────

@@ -81,8 +81,10 @@ public static partial class ServerFrames
         _arrivalNoticed.Remove(f.Id);
         EntryHost.ForgetGlow(f);   // (its plasma's air direction was in the rails' axes: off by the chart's angle after the move)
         // At or under the cap (reentry's band or an airless border's clamp makes sure); if not, capped here.
-        bool capped = speed > FrameHost.SpeedCap;
-        double k = capped ? FrameHost.SpeedCap / speed : 1.0;
+        // (the entry's cap and margin, as the client's arrival: EntryHost.Cap honours the harness's TestCap - 2026-10-15)
+        double cap = EntryHost.Cap;
+        bool capped = EntryHost.OverCap(speed);
+        double k = capped ? cap / speed : 1.0;
         var went = new HashSet<long>();   // (moved with an earlier member's joined set: its queued position is already its arrival)
         foreach (var g in grids)
         {
@@ -118,7 +120,7 @@ public static partial class ServerFrames
         FrameHost.RequestArrival(fid, node.Name, target, anchorPos, cel.Position, cel.Velocity, epoch);
         SystemHost.Frames.Dissolve(fid);
         AnchorAccel.Remove(fid);
-        Event($"ARRIVE grid frame #{fid} -> {node.Name}: {grids.Count} grid(s), r={cel.Position.Length() / 1000:F1} km |v|={speed:F0} m/s{(capped ? $" -> capped to {FrameHost.SpeedCap:F0}" : "")}");
+        Event($"ARRIVE grid frame #{fid} -> {node.Name}: {grids.Count} grid(s), r={cel.Position.Length() / 1000:F1} km |v|={speed:F0} m/s{(capped ? $" -> capped to {cap:F0}" : "")}");
     }
 
     /// <summary>Save: the grid HighSpeed conics. Caller holds FramesLock.</summary>

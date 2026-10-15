@@ -249,6 +249,10 @@ namespace EntryTest
             Ok("cooling: half in ~83 s", Math.Abs(Reentry.Cool(1, 83.18) - 0.5) < 0.01);
             Ok("airless jolt: a quarter of the heat", Math.Abs(Reentry.Jolt(1300, 1000) - 0.25 * (1300.0 * 1300 - 1e6) / 2) < 1);
             Ok("airless jolt: none under the cap", Reentry.Jolt(900, 1000) == 0);
+            // O27 (2026-10-15): one "over the cap?" margin for every arrival, against whatever cap applies (the harness's TestCap too)
+            Ok("over the cap: a clamped speed's round-trip hair is at it", !Reentry.OverCap(990.0 * 1.0009, 990.0));
+            Ok("over the cap: past the slack is over", Reentry.OverCap(990.0 + Reentry.CapSlack + 0.01, 990.0));
+            Ok("over the cap: judged against the cap given (a test cap of 300)", Reentry.OverCap(400, 300) && !Reentry.OverCap(300.5, 300));
 
             Console.WriteLine($"== {_passed} passed, {_failed} failed");
             return _failed == 0 ? 0 : 1;

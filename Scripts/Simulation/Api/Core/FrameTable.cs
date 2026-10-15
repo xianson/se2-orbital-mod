@@ -17,6 +17,10 @@ namespace SEAerospace.Api
     /// every read is bounds-checked against the array it holds, so a reader racing a writer reads stale numbers - which the
     /// count then rejects - never throws. One writer at a time (Refresh takes its own lock; the caller holds the frame lock
     /// so the registry holds still while it is copied). Engine-free: the offline ApiTests drive it.
+    ///
+    /// (2026-10-15: a throw inside the write left the count odd - every reader spun forever (HUD, map, jobs, other mods) and the
+    /// next refresh inverted the parity. The writer now restores an even count in a finally (an emptied table on a throw), and
+    /// a reader gives up after ReadTries without sleeping - "no data", never a stall.)
     /// </summary>
     public sealed class FrameTable
     {
@@ -40,6 +44,10 @@ namespace SEAerospace.Api
         long _setHash;
 
         const byte FlagEncounter = 1;
+        /// <summary>Reader retries before it answers "no data" (spins and yields only - never Sleep(1)).</summary>
+        const int ReadTries = 64;
+        /// <summary>(test hook) Called inside the write's odd window: the offline suite throws from it.</summary>
+        internal Action FaultInWrite;
 
         /// <summary>One frame as copied (what a reader gets out).</summary>
         public struct Row
@@ -60,7 +68,7 @@ namespace SEAerospace.Api
             get
             {
                 var sw = new SpinWait();
-                while (true)
+                for (int tries = 0; tries < ReadTries; tries++)
                 {
                     int s = Volatile.Read(ref _seq);
                     if ((s & 1) == 0)
@@ -69,8 +77,9 @@ namespace SEAerospace.Api
                         Interlocked.MemoryBarrier();
                         if (Volatile.Read(ref _seq) == s) return t;
                     }
-                    sw.SpinOnce();
+                    sw.SpinOnce(-1);
                 }
+                return double.NaN;   // (a writer held the count past ReadTries: no data rather than a stall)
             }
         }
         /// <summary>Bumped whenever the set of frames or of any frame's members changed between two refreshes.</summary>
@@ -90,18 +99,28 @@ namespace SEAerospace.Api
                     else foreach (var f in frames) { n++; m += f.Members.Count; }
                 }
                 Interlocked.Increment(ref _seq);   // odd: writing (a full fence - nothing below moves above it)
-                Grow(n, m);   // (inside the odd window: a reader that saw the new arrays sees the count move, and reads again)
-                int i = 0, k = 0; long hash = 17;
-                if (reg != null)
+                bool done = false;
+                try
                 {
-                    var frames = reg.Frames;
-                    if (frames is Dictionary<long, ProximityFrame>.ValueCollection vc) foreach (var f in vc) Put(f, ref i, ref k, ref hash);
-                    else foreach (var f in frames) Put(f, ref i, ref k, ref hash);
+                    FaultInWrite?.Invoke();
+                    Grow(n, m);   // (inside the odd window: a reader that saw the new arrays sees the count move, and reads again)
+                    int i = 0, k = 0; long hash = 17;
+                    if (reg != null)
+                    {
+                        var frames = reg.Frames;
+                        if (frames is Dictionary<long, ProximityFrame>.ValueCollection vc) foreach (var f in vc) Put(f, ref i, ref k, ref hash);
+                        else foreach (var f in frames) Put(f, ref i, ref k, ref hash);
+                    }
+                    hash = hash * 31 + i;
+                    _count = i; _time = now;
+                    if (hash != _setHash) { _setHash = hash; _setVersion++; }
+                    done = true;
                 }
-                hash = hash * 31 + i;
-                _count = i; _time = now;
-                if (hash != _setHash) { _setHash = hash; _setVersion++; }
-                Interlocked.Increment(ref _seq);   // even: done (a full fence - nothing above moves below it)
+                finally
+                {
+                    if (!done) { _count = 0; _setHash = 0; _setVersion++; }   // a half-written copy: empty rather than torn
+                    Interlocked.Increment(ref _seq);   // even: done (a full fence - nothing above moves below it)
+                }
             }
         }
 
@@ -140,7 +159,7 @@ namespace SEAerospace.Api
         public bool TryGet(long frameId, out Row row)
         {
             var sw = new SpinWait();
-            while (true)
+            for (int tries = 0; tries < ReadTries; tries++)
             {
                 int s = Volatile.Read(ref _seq);
                 if ((s & 1) == 0)
@@ -149,8 +168,9 @@ namespace SEAerospace.Api
                     Interlocked.MemoryBarrier();
                     if (Volatile.Read(ref _seq) == s) return found;
                 }
-                sw.SpinOnce();
+                sw.SpinOnce(-1);
             }
+            row = default; return false;   // (no data - see ReadTries)
         }
 
         bool TryCopy(long frameId, out Row row)
@@ -182,7 +202,7 @@ namespace SEAerospace.Api
         public int CopyIds(long[] ids)
         {
             var sw = new SpinWait();
-            while (true)
+            for (int tries = 0; tries < ReadTries; tries++)
             {
                 int s = Volatile.Read(ref _seq);
                 if ((s & 1) == 0)
@@ -192,15 +212,16 @@ namespace SEAerospace.Api
                     Interlocked.MemoryBarrier();
                     if (Volatile.Read(ref _seq) == s) return n;
                 }
-                sw.SpinOnce();
+                sw.SpinOnce(-1);
             }
+            return 0;   // (no data - see ReadTries)
         }
 
         /// <summary>A frame's members into the caller's buffer (as many as fit). Returns its member count, or -1: no such frame.</summary>
         public int CopyMembers(long frameId, long[] into)
         {
             var sw = new SpinWait();
-            while (true)
+            for (int tries = 0; tries < ReadTries; tries++)
             {
                 int s = Volatile.Read(ref _seq);
                 if ((s & 1) == 0)
@@ -220,15 +241,16 @@ namespace SEAerospace.Api
                     Interlocked.MemoryBarrier();
                     if (Volatile.Read(ref _seq) == s) return r;
                 }
-                sw.SpinOnce();
+                sw.SpinOnce(-1);
             }
+            return -1;   // (no data - see ReadTries)
         }
 
         /// <summary>The frame a member (grid member id or player id) is in, or -1.</summary>
         public long FrameOf(long memberId)
         {
             var sw = new SpinWait();
-            while (true)
+            for (int tries = 0; tries < ReadTries; tries++)
             {
                 int s = Volatile.Read(ref _seq);
                 if ((s & 1) == 0)
@@ -245,8 +267,9 @@ namespace SEAerospace.Api
                     Interlocked.MemoryBarrier();
                     if (Volatile.Read(ref _seq) == s) return r;
                 }
-                sw.SpinOnce();
+                sw.SpinOnce(-1);
             }
+            return -1;   // (no data - see ReadTries)
         }
 
         /// <summary>The frame whose berth (a sphere of radius slotRadius about its centre) holds a world point - the nearest
@@ -255,7 +278,7 @@ namespace SEAerospace.Api
         {
             row = default;
             var sw = new SpinWait();
-            while (true)
+            for (int tries = 0; tries < ReadTries; tries++)
             {
                 int s = Volatile.Read(ref _seq);
                 if ((s & 1) == 0)
@@ -272,8 +295,9 @@ namespace SEAerospace.Api
                     Interlocked.MemoryBarrier();
                     if (Volatile.Read(ref _seq) == s) return found;
                 }
-                sw.SpinOnce();
+                sw.SpinOnce(-1);
             }
+            row = default; return false;   // (no data - see ReadTries)
         }
     }
 }

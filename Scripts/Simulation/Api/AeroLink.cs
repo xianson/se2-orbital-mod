@@ -34,7 +34,10 @@ internal static class AeroLink
     {
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
         if (now < System.Threading.Volatile.Read(ref _checkAt)) return;
-        lock (_lock)
+        // (2026-10-15: every thread reaching the 5 s mark queued on the lock behind the assembly scan - HUD, jobs, sim. One
+        //  refreshes; the others go on with the current binding, a check at most 5 s stale)
+        if (!System.Threading.Monitor.TryEnter(_lock)) return;
+        try
         {
             if (now < _checkAt) return;
             _checkAt = now + 5 * System.Diagnostics.Stopwatch.Frequency;
@@ -52,5 +55,6 @@ internal static class AeroLink
             System.Threading.Volatile.Write(ref _asm, found);
             System.Threading.Interlocked.Increment(ref _gen);
         }
+        finally { System.Threading.Monitor.Exit(_lock); }
     }
 }

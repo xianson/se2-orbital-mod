@@ -146,7 +146,7 @@ Threads: any; the settings' own lock.
 
 ### Peek: the frames without the frame lock
 
-`OrbitalApi.Peek.cs`, over `Api/Core/FrameTable.cs`. A copy of every frame (id, body, elements, berth, anchor, flags, members), refreshed by the first read after the universe clock moved (or a quarter second passed) **if the frame lock is free at that moment** (no wait); while a server step holds it, readers get the last copy. So an answer is at most a tick or two old, and a read never blocks and never allocates. States are still propagated to the time you ask from the copied elements, which is exact on rails between burns.
+`OrbitalApi.Peek.cs`, over `Api/Core/FrameTable.cs`. A copy of every frame (id, body, elements, berth, anchor, flags, members), refreshed by the first read after the universe clock moved (or a quarter second passed) **if the frame lock is free at that moment** (no wait); while a server step holds it, readers get the last copy. So an answer is at most a tick or two old, and a read never blocks and never allocates. In the rare case a read meets a copy still being written for longer than a few dozen spins (the writing thread was preempted), it answers "no data" (false, -1, 0) for that call rather than wait. States are still propagated to the time you ask from the copied elements, which is exact on rails between burns.
 
 Threads: any. Lock: none (snapshot). Allocation: none.
 
@@ -183,7 +183,7 @@ Threads: any (best the one that updates the grid: another may read a transform m
 
 | Member | What it gives |
 |---|---|
-| `bool TryGetGridState(Entity grid, out string body, out long frameId, out Vector3D position, out Vector3D velocity)` | The grid's state now about the body it orbits (m, m/s, inertial), the body, and its frame (−1: in a planet's cell). `false`: in neither a cell nor a berth. |
+| `bool TryGetGridState(Entity grid, out string body, out long frameId, out Vector3D position, out Vector3D velocity)` | The grid's state now about the body it orbits (m, m/s, inertial), the body, and its frame (−1: in a planet's cell). `false`: in neither a cell nor a berth, or the grid is closed or removed. |
 | `bool TryGetGridOrbit(Entity grid, out string body, out double semiMajorAxis, out double eccentricity, out double inclination, out double raan, out double argPeriapsis, out double trueAnomaly, out double epoch, out double mu)` | Its own osculating orbit (epoch: now). On the ground it is still the conic its state gives (periapsis inside the planet). |
 | `bool TryGetGridOrbitSummary(Entity grid, out string body, out double periapsisAltitude, out double apoapsisAltitude, out double period, out double timeToPeriapsis, out double timeToApoapsis)` | In plain numbers: periapsis and apoapsis **altitude** over the surface (m; apoapsis +∞ when hyperbolic), period (s; +∞ hyperbolic), time to the next periapsis and apoapsis (s from now; hyperbolic: periapsis negative once past, apoapsis NaN). |
 | `bool TryGetGridStatus(Entity grid, out long memberId, out long frameId, out bool isFrameAnchor, out bool holdingStation, out bool joinedToAnchor, out bool isEncounter)` | What orbital knows of it: member id, frame (−1), whether it anchors its frame, holds station (dampeners and thrust cancelling the pull: no relative force), is joined to the anchor (docked, a sub-grid: moves as one with it), is an encounter's (NPC-owned or spawned by one). From the views (every 5 server ticks). `false`: not a grid orbital tracks. |
@@ -399,7 +399,7 @@ The two mods compile apart and meet only by reflection. Every link, both ways (`
 | `TryGetAtmosphereAt(Vector3D, out float ×4)` | `EntryHost.SampleBorder` (after the locked step) | The air at a planet's border: the band's density (the rails' drag meets the physics' at the handover) and temperature (`TryGetEntryState2`). |
 | `NoteMoved(Entity)` | `ServerFrames.AeroNoteMoved` (moves made under the lock: told right after it) | The push: a grid was teleported or turned; its next physics contacts are no loads. The pull side is `TryGetGridEdits`' stamp. |
 | `SetFocusGrid`, `TryGetFlight`, `TryGetForces`, `TryGetStructure`, `TryGetStall`, `TryGetLoac`, `TryDesign`, `GetTopSpeed`, `GetTopSpeedAt`, `GetThrustAlong`, `TryGetCenterOfMass`, `GetMass`, `GetDesignPressures`, `GetControlRatio` | `BuildHints` (client) | The build hints and the seated flight gauges (STRUCT, HEAT, STALL, LOSS OF CONTROL). |
-| `GetStructureEventSequence`, `ReadStructureEvents` (version 7) | `StructureAlerts` (client, every 0.5 s; typed delegates through `AeroLink`) | The seated ship's structural failures and burn-throughs as a toast. |
+| `GetStructureEventSequence`, `ReadStructureEvents` (version 7) | `StructureAlerts` (client, every 0.5 s while seated - never asked unseated, so aero's recording gate holds; typed delegates through `AeroLink`) | The seated ship's structural failures and burn-throughs as a toast. |
 | `TryGetGroundHeight`, `GetTopSpeedAt` | `ServerFrames.DoFlyTest` (dev) | The fly test's altitude and cruise speed. |
 | `TryGetFlight`, `TryGetForces`, `TryGetLift`, `TryGetGroundHeight`, `TryGetEntry`, `TryGetAtmosphere`, `GetFxConsistency`; `FlightFixture.Build`, `PhysicsHack.GetGravityDirection`; static fields by name (`aeroset`) | `GridGen`, `DevReentry`, `DevHarness` (dev) | Harness readouts and switches. |
 

@@ -103,6 +103,12 @@ namespace TimeTest
             Ok(!c.TryClaim(t1, 0.25, out dt), "paused (game time standing still): nothing claimed");
             Ok(c.TryClaim(t1 + 10 * TimeSpan.TicksPerSecond, 0.25, out dt) && dt == 0.25, "a stall bills at most maxDt");
             Ok(c.TryClaim(t0 - TimeSpan.TicksPerSecond, 0.25, out dt) && dt == 0, "a new session's earlier clock claims afresh (not held until it caught up)");
+            // (2026-10-15: any step back claimed and moved the claim back - a straggler let the current frame claim twice)
+            long t2 = t0 + TimeSpan.TicksPerSecond / 60;
+            Ok(c.TryClaim(t2, 0.25, out dt), "the new clock's next frame claims");
+            Ok(!c.TryClaim(t2 - TimeSpan.TicksPerSecond / 60, 0.25, out dt), "a straggler from the frame before claims nothing");
+            Ok(!c.TryClaim(t2, 0.25, out dt), "...and the current frame still cannot claim twice");
+            Ok(c.TryClaim(t2 + TimeSpan.TicksPerSecond / 60, 0.25, out dt) && Math.Abs(dt - 1.0 / 60) < 1e-6, "the next frame bills from the real last claim");
             c.Reset();
             Ok(c.TryClaim(t1, 0.25, out dt) && dt == 0, "after Reset the first claim bills nothing");
             // parallel: N jobs per frame, one claim each frame

@@ -8,7 +8,7 @@ live mods and in every reorg worktree.
 
 How the names are reached:
 - **Commands**: `orb.sh "verb args" ...` writes `%TEMP%\OrbitalMod\cmd.txt`; `DevHarness.Execute`
-  (Orbital `Scripts/Simulation/Frames/DevHarness.cs`) switches on the verb. Replies come back in `status.txt` as
+  (Orbital `Scripts/Simulation/Dev/DevHarness*.cs`) switches on the verb. Replies come back in `status.txt` as
   `> verb ... => reply` lines (scripts take the text after ` => `).
 - **aeroget / aeroset `Type.Member [value]`**: `PlanetRenderBridge.ForeignValue` - `Assembly.GetType("AeroMod.Type")`
   (the `AeroMod.` prefix is added when the type has no dot; `OrbitalMod.X.Y` reads this mod's own statics), then a
@@ -193,8 +193,8 @@ tools/flightdump.sh.)
 | `AeroMod.ThrustTorque.FlameLookups` | get | checkall | Simulation/Integration/ThrustTorque.cs |
 | `AeroMod.ThrustTorque.FlameHits` | get | checkall | Simulation/Integration/ThrustTorque.cs |
 | `AeroMod.ThrustTorque.FlameLit` | get | checkall | Simulation/Integration/ThrustTorque.cs |
-| `OrbitalMod.FrameHost.SeatGridServerId` | get | experiments/fxlook, experiments/herctrail, experiments/tipsweep | Simulation/Frames/FrameHost.cs |
-| `OrbitalMod.FrameHost.Seated` | get | reentry_e2e | Simulation/Frames/FrameHost.cs |
+| `OrbitalMod.FrameHost.SeatGridServerId` | get | experiments/fxlook, experiments/herctrail, experiments/tipsweep | Simulation/Host/FrameHost*.cs |
+| `OrbitalMod.FrameHost.Seated` | get | reentry_e2e | Simulation/Host/FrameHost*.cs |
 
 ## Text the scripts grep (keep the wording)
 

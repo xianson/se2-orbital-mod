@@ -146,7 +146,7 @@ Threads: any; the settings' own lock.
 
 ### Peek: the frames without the frame lock
 
-`OrbitalApi.Peek.cs`, over `Api/Core/FrameTable.cs`. A copy of every frame (id, body, elements, berth, anchor, flags, members), refreshed by the first read after the universe clock moved (or a quarter second passed) **if the frame lock is free at that moment** (no wait); while a server step holds it, readers get the last copy. So an answer is at most a tick or two old, and a read never blocks and never allocates. States are still propagated to the time you ask from the copied elements, which is exact on rails between burns.
+`OrbitalApi.Peek.cs`, over `Api/Core/FrameTable.cs`. A copy of every frame (id, body, elements, berth, anchor, flags, members), refreshed by the first read after the universe clock moved (or a quarter second passed) **if the frame lock is free at that moment** (no wait); while a server step holds it, readers get the last copy. So an answer is at most a tick or two old, and a read never blocks and never allocates. In the rare case a read meets a copy still being written for longer than a few dozen spins (the writing thread was preempted), it answers "no data" (false, -1, 0) for that call rather than wait. States are still propagated to the time you ask from the copied elements, which is exact on rails between burns.
 
 Threads: any. Lock: none (snapshot). Allocation: none.
 

@@ -29,7 +29,9 @@ public static partial class OrbitalApi
         var reg = SystemHost.Frames;
         double now = SystemHost.Now;
         long wall = System.Diagnostics.Stopwatch.GetTimestamp();
-        if (!ReferenceEquals(reg, System.Threading.Volatile.Read(ref _tableReg)) || now != System.Threading.Volatile.Read(ref _tableClock)
+        double clock = System.Threading.Volatile.Read(ref _tableClock);
+        // (2026-10-15: NaN != NaN - before a system was built every Peek re-copied the table as a writer; NaN now matches NaN)
+        if (!ReferenceEquals(reg, System.Threading.Volatile.Read(ref _tableReg)) || (now != clock && !(double.IsNaN(now) && double.IsNaN(clock)))
             || wall - System.Threading.Volatile.Read(ref _tableWall) > System.Diagnostics.Stopwatch.Frequency / 4)
         {
             if (System.Threading.Monitor.TryEnter(ServerFrames.FramesLock))

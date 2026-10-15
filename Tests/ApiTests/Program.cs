@@ -27,6 +27,7 @@ namespace Orbital.ApiTests
             OrbitQueriesSampling();
             FrameTableReads();
             FrameTableRace();
+            FrameTableWriterThrows();
             ApiShape();
             Console.WriteLine($"\n{_passed} passed, {_failed} failed");
             return _failed == 0 ? 0 : 1;
@@ -214,7 +215,7 @@ namespace Orbital.ApiTests
             var regs = new[] { Make(3, 1), Make(50, 2), Make(10, 3), Make(120, 4) };
             var t = new FrameTable();
             t.Refresh(regs[0], 0);
-            bool stop = false; long torn = 0, reads = 0;
+            bool stop = false; long torn = 0, reads = 0, nodata = 0;
             // (the game refreshes at most once per tick; here as fast as a short spin lets it - every read races a write)
             var writer = new Thread(() => { int i = 0; while (!Volatile.Read(ref stop)) { t.Refresh(regs[++i % regs.Length], i); Thread.SpinWait(50); } });
             writer.Start();
@@ -230,11 +231,45 @@ namespace Orbital.ApiTests
                     if (r.MemberCount != 1 + salt % 7) torn++;
                 }
                 int n = t.CopyIds(ids);
-                if (n != 3 && n != 50 && n != 10 && n != 120) torn++;
+                if (n == 0) nodata++;   // (a reader that ran out of tries says "no data" - never a torn count)
+                else if (n != 3 && n != 50 && n != 10 && n != 120) torn++;
                 reads++;
             }
             Volatile.Write(ref stop, true); writer.Join();
             Ok($"{reads} reads against a writer: none torn", torn == 0 && reads > 1000);
+            Console.WriteLine($"   ({nodata} gave up: no data)");
+            Ok("... giving up is rare even against a writer that never pauses", nodata * 100 < reads);
+        }
+
+        static void FrameTableWriterThrows()
+        {
+            Console.WriteLine("-- the Peek snapshot when a write throws");
+            // (2026-10-15: a throw inside Refresh left the count odd - every reader spun forever, and the next refresh inverted
+            // the parity so readers accepted half-written copies)
+            var reg = new FrameRegistry(new BerthAllocator(2000.0, 20000.0));
+            var f1 = reg.CreateFrame("Verdure", ElOf(1), 1000000001);
+            var t = new FrameTable();
+            t.Refresh(reg, 10);
+            t.FaultInWrite = () => throw new InvalidOperationException("Collection was modified");
+            bool threw = false;
+            try { t.Refresh(reg, 11); } catch (InvalidOperationException) { threw = true; }
+            t.FaultInWrite = null;
+            Ok("the write threw", threw);
+            // readers on another thread with a deadline: a hang fails instead of hanging the suite
+            bool got = true; long of = 0; int ids = -1;
+            var reader = new Thread(() => { got = t.TryGet(f1.Id, out _); of = t.FrameOf(1000000001); ids = t.CopyIds(new long[4]); }) { IsBackground = true };
+            reader.Start();
+            Ok("... readers return (no spin forever)", reader.Join(2000));
+            Ok("... an emptied table, not a torn one", !got && of == -1 && ids == 0 && t.Count == 0);
+            t.Refresh(reg, 12);
+            Ok("the next write: read again", t.TryGet(f1.Id, out var r) && r.Body == "Verdure" && t.Time == 12);
+            // parity: a reader inside the next write's window must see "writing" (no data), not the old copy as settled
+            bool inWindow = true; double timeInWindow = 0;
+            t.FaultInWrite = () => { inWindow = t.TryGet(f1.Id, out _); timeInWindow = t.Time; };
+            t.Refresh(reg, 13);
+            t.FaultInWrite = null;
+            Ok("... parity kept: a read inside a write is refused", !inWindow && double.IsNaN(timeInWindow));
+            Ok("... and the write landed", t.TryGet(f1.Id, out _) && t.Time == 13);
         }
 
         // ── the API's shape (from source) ──

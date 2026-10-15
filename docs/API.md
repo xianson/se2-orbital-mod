@@ -398,6 +398,7 @@ The two mods compile apart and meet only by reflection. Every link, both ways (`
 | `TryGetAtmosphereAt(Vector3D, out float ×4)` | `EntryHost.SampleBorder` (after the locked step) | The air at a planet's border: the band's density (the rails' drag meets the physics' at the handover) and temperature (`TryGetEntryState2`). |
 | `NoteMoved(Entity)` | `ServerFrames.AeroNoteMoved` (moves made under the lock: told right after it) | The push: a grid was teleported or turned; its next physics contacts are no loads. The pull side is `TryGetGridEdits`' stamp. |
 | `SetFocusGrid`, `TryGetFlight`, `TryGetForces`, `TryGetStructure`, `TryGetStall`, `TryGetLoac`, `TryDesign`, `GetTopSpeed`, `GetTopSpeedAt`, `GetThrustAlong`, `TryGetCenterOfMass`, `GetMass`, `GetDesignPressures`, `GetControlRatio` | `BuildHints` (client) | The build hints and the seated flight gauges (STRUCT, HEAT, STALL, LOSS OF CONTROL). |
+| `GetStructureEventSequence`, `ReadStructureEvents` (version 7) | `StructureAlerts` (client, every 0.5 s; typed delegates through `AeroLink`) | The seated ship's structural failures and burn-throughs as a toast. |
 | `TryGetGroundHeight`, `GetTopSpeedAt` | `ServerFrames.DoFlyTest` (dev) | The fly test's altitude and cruise speed. |
 | `TryGetFlight`, `TryGetForces`, `TryGetLift`, `TryGetGroundHeight`, `TryGetEntry`, `TryGetAtmosphere`, `GetFxConsistency`; `FlightFixture.Build`, `PhysicsHack.GetGravityDirection`; static fields by name (`aeroset`) | `GridGen`, `DevReentry`, `DevHarness` (dev) | Harness readouts and switches. |
 
@@ -405,15 +406,17 @@ The two mods compile apart and meet only by reflection. Every link, both ways (`
 
 | Member | Who (aero) | What for |
 |---|---|---|
-| `TryGetEntryState2` (else `TryGetEntryState`) | `OrbitalLink`, `AeroEntryFx.EntryStateAt` | A railed re-entry's true travel, density and temperature (the hull heats, weakens and scorches as in a real one) and its braking (the structure is loaded with it). |
+| `TryGetEntryState2` (else `TryGetEntryState`) | `OrbitalLink` (`AeroEntryFx.EntryStateAt` through it) | A railed re-entry's true travel, density and temperature (the hull heats, weakens and scorches as in a real one) and its braking (the structure is loaded with it). |
 | `TryGetGridEdits` | `OrbitalLink` → `StructureContacts` | The contact loads' momentum balance: orbital's velocity writes and moves taken out, so a drained frame anchor, a warp switch or the fictitious forces never read as loads on the plates and wheels. |
 
-**What the Aerodynamics Mod could use next** (version 2; none of it is bound yet):
+Aero binds every member above in `Api/OrbitalLink.cs`, on one rule (`Api/CrossModLink.cs`): the last loaded copy of `OrbitalApi`, bound again when this mod's assembly changes, as this mod's `AeroLink` does the other way.
+
+**What the Aerodynamics Mod could use next** (version 2; none of it is bound yet - looked at 2026-10-15 and left, each for its reason):
 
 | Member | What for |
 |---|---|
-| `PeekFrameOf` (≥ 0: on rails) | A grid in a frame's berth is in no air: skip its air model there without asking the atmosphere, without the frame lock. |
-| `TryGetBodyCell`, `TryGetBodyRotation` | The planet's centre and spin straight from orbital (the turning air is ω × r: the same law the rails' entry state uses). |
-| `TryGetGridOrbitSummary` | Orbit figures on the build hints and flight gauges (periapsis in the air: an aerobraking pass ahead). |
-| `GetTimescale`, `CanWarp` | Know that warp is running (the physics are not sped up, but the entry heat and the rails' loads arrive faster). |
-| `TryWorldToBody` | A world velocity as a planet-relative one, for a grid that has just left or not yet reached the air. |
+| `PeekFrameOf` (≥ 0: on rails) | A grid in a frame's berth is in no air: skip its air model there without asking the atmosphere, without the frame lock. *Not adopted:* a railed grid is still simulated (its physics in the berth; aero's attitude law flies its gyros and thrusters, its railed entry heats and loads it), and aero's model already returns at once under its minimum density - what is left is the work a railed grid needs, so a per-grid call into orbital each tick would only add cost. |
+| `TryGetBodyCell`, `TryGetBodyRotation` | The planet's centre and spin straight from orbital (the turning air is ω × r: the same law the rails' entry state uses). *Not adopted:* aero computes neither - its air comes from the atmosphere generators (their centres, `AtmosphereProbe`) and the game's cells do not turn (orbital's chart and fictitious forces do); a railed entry's turning air already arrives in `TryGetEntryState2`'s travel. |
+| `TryGetGridOrbitSummary` | Orbit figures on the build hints and flight gauges (periapsis in the air: an aerobraking pass ahead). *Not adopted:* aero draws no hints or gauges of its own (this mod's `BuildHints` does, with `OrbitHud`'s orbit card beside them). |
+| `GetTimescale`, `CanWarp` | Know that warp is running (the physics are not sped up, but the entry heat and the rails' loads arrive faster). *Not adopted:* warp drops to ×1 ahead of an entry, so a railed entry never runs warped. |
+| `TryWorldToBody` | A world velocity as a planet-relative one, for a grid that has just left or not yet reached the air. *Not adopted:* out of the air aero has nothing to compute. |

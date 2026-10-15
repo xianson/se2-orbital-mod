@@ -4,9 +4,10 @@
 # fine and fails silently in game. Every name this mod reaches in AeroMod must exist there with the expected shape,
 # and the entry-source contract numbers must agree; both ways (2026-10-14): every member either mod reaches in the other
 # is declared with the parameter list the caller binds, every lookup passes its parameter types, neither API overloads a
-# name. SKIP (exit 0) when the aero mod's source is not next to us.
+# name. SKIP (exit 0) when the aero mod's source is not next to us. AERO=<path to an aero tree's Scripts> checks against
+# another checkout (a branch whose two halves must agree before either is merged).
 cd "$(dirname "$0")/.."
-AERO="../Aerodynamics Mod/Scripts"
+AERO="${AERO:-../Aerodynamics Mod/Scripts}"
 [ -d "$AERO" ] || { echo "SKIP  contract (no Aerodynamics Mod source beside this one)"; exit 0; }
 rc=0; bad() { rc=1; echo "      $1"; }
 # src <tree> <File.cs>: the one file of that name anywhere under the tree (both mods move files between feature folders;
@@ -44,7 +45,7 @@ grep -q 'Func<Keen.VRage.DCS.Components.Entity, ValueTuple<Vector3, float>>' "$f
 grep -q 'Func<Entity, ValueTuple<Vector3, float>>' "$EH" || bad "orbital's source delegate is no longer Func<Entity, (Vector3, float)>"
 
 # 2. every AeroMod member named in a GetMethod/GetField string here exists in the aero source (dev code included)
-NAMES="RegisterEntrySource HasEntrySource TryGetFlow WingTips EntryStrength TryGetFlight TryGetForces TryGetLift TryGetGroundHeight PredictHullForces RequestForceTable TryGetEntry TryGetAtmosphere TryGetAtmosphereAt GetFxConsistency TryGetStructure SetFocusGrid TryGetStall TryGetLoac NoteMoved Build GetGravityDirection TryDesign GetTopSpeed GetTopSpeedAt GetThrustAlong TryGetCenterOfMass GetMass GetDesignPressures GetControlRatio GetWavePeak"
+NAMES="RegisterEntrySource HasEntrySource TryGetFlow WingTips EntryStrength TryGetFlight TryGetForces TryGetLift TryGetGroundHeight PredictHullForces RequestForceTable TryGetEntry TryGetAtmosphere TryGetAtmosphereAt GetFxConsistency TryGetStructure SetFocusGrid TryGetStall TryGetLoac NoteMoved Build GetGravityDirection TryDesign GetTopSpeed GetTopSpeedAt GetThrustAlong TryGetCenterOfMass GetMass GetDesignPressures GetControlRatio GetWavePeak GetStructureEventSequence ReadStructureEvents"
 for f in $(grep -rl '"AeroMod\.' Scripts --include=*.cs); do
   for m in $(grep -o 'GetMethod("[A-Za-z]*"' "$f" | sed 's/GetMethod("//; s/"//' | sort -u); do
     case " $NAMES " in *" $m "*) ;; *) continue ;; esac
@@ -80,6 +81,9 @@ want aero PredictHullForces "Entity, Vector3, float, float, out Vector3, out Vec
 want aero RequestForceTable "Entity" EntryHost.MeasureBeta
 want aero TryGetAtmosphereAt "Vector3D, out float, out float, out float, out float" EntryHost.SampleBorder
 want aero NoteMoved "Entity" ServerFrames.CallNoteMoved
+# ... the seated ship's structure failures (StructureAlerts, version 7's event queue: typed delegates)
+want aero GetStructureEventSequence "" StructureAlerts
+want aero ReadStructureEvents "long, long[], int[], Entity[], Entity[], Vector3[], Vector3[], float[], out long" StructureAlerts
 # ... the build hints and flight gauges (BuildHints, aero-2c's: bound by name; these are its Invoke arrays' shapes)
 want aero TryGetFlight "Entity, out Vector3, out float, out float, out float, out float" "BuildHints / DevReentry / GridGen"
 want aero TryGetForces "Entity, out Vector3, out Vector3, out float, out float, out float" "BuildHints / DevReentry / GridGen"
@@ -103,8 +107,8 @@ want aero TryGetAtmosphere "Entity, out float, out float, out float, out float" 
 want aero GetFxConsistency "bool" "DevHarness fxcheck"
 want "$fixture" Build "Entity, string" "DevHarness flightdump"
 want "$hack" GetGravityDirection "DEntityContext" "DevHarness gridup"
-# Aero -> Orbital (OrbitalApi): the railed entry's heat and loads (OrbitalLink, AeroEntryFx), the contact balance (OrbitalLink)
-want orbital TryGetEntryState "Entity, out Vector3, out float" AeroEntryFx.EntryStateAt
+# Aero -> Orbital (OrbitalApi): the railed entry's heat and loads, the contact balance - every lookup in OrbitalLink
+want orbital TryGetEntryState "Entity, out Vector3, out float" "OrbitalLink.TryGetEntryState (AeroEntryFx.EntryStateAt)"
 want orbital TryGetEntryState2 "Entity, out Vector3, out float, out float, out Vector3" OrbitalLink.TryGetEntryState2
 want orbital TryGetGridEdits "Entity, out Vector3D, out long" OrbitalLink.TryGetGridEdits
 
@@ -115,14 +119,27 @@ for f in $(grep -rl '"AeroMod\.' Scripts --include=*.cs); do
   while IFS= read -r line; do
     for one in $(echo "$line" | grep -o 'GetMethod("[A-Za-z]*"' | sed 's/GetMethod("//; s/"//'); do
       case " $NAMES " in *" $one "*) ;; *) continue ;; esac
-      echo "$line" | grep -q "GetMethod(\"$one\", *new\[\]" && continue
+      echo "$line" | grep -qE "GetMethod\(\"$one\", *(new *(System\.)?(Type)? *\[\]|(System\.)?Type\.EmptyTypes)" && continue
       if [ "$(basename "$f")" = BuildHints.cs ]; then warn="$warn $one"; else bad "$f: GetMethod(\"$one\") without its parameter types"; fi
     done
   done < <(grep 'GetMethod("' "$f")
 done
 for n in TryGetEntryState TryGetEntryState2 TryGetGridEdits; do
-  grep -rqE "(GetMethod|Find)\(\"$n\", *new\[\]" "$AERO" || bad "aero's lookup of OrbitalApi.$n passes no parameter types (or is gone)"
+  grep -rqE "(GetMethod|Find|Bind(<[A-Za-z0-9_]+>)?)\(\"$n\", *new\[\]" "$AERO" || bad "aero's lookup of OrbitalApi.$n passes no parameter types (or is gone)"
 done
+# ... and ONE RULE each way (2026-10-15): the other mod's API type is found in one place - aero's OrbitalLink (the last
+#     loaded copy, bound again after a reload: CrossModLink), orbital's AeroLink - never by a scan of a site's own, which
+#     kept the first copy it bound for good. BuildHints is aero-2c's: noted until it moves onto AeroLink.
+if [ -n "$(find "$AERO" -name CrossModLink.cs -type f 2>/dev/null)" ]; then
+  link=$(grep -rlE '"OrbitalMod\.OrbitalApi"' "$AERO" --include=*.cs | while IFS= read -r f; do basename "$f"; done | sort -u | tr '\n' ' ')
+  [ "$link" = "OrbitalLink.cs " ] || bad "aero names OrbitalMod.OrbitalApi outside OrbitalLink.cs: $link"
+  grep -qE 'new LastLoadedType\("OrbitalMod\.OrbitalApi"' "$(src "$AERO" OrbitalLink.cs)" || bad "OrbitalLink no longer finds OrbitalApi by LastLoadedType (the last loaded copy)"
+else echo "      (note: this aero tree predates its one link rule, Api/CrossModLink.cs: aero's side not checked)"; fi
+own=""
+for f in $(grep -rlE 'GetType\("AeroMod\.' Scripts --include=*.cs); do
+  case "$(basename "$f")" in AeroLink.cs) ;; BuildHints.cs) own="$own BuildHints.cs" ;; *) bad "$f finds an AeroMod type itself (use AeroLink.Find)" ;; esac
+done
+[ -n "$own" ] && echo "      (note: finds the aero type by its own scan, not AeroLink:$own)"
 [ -n "$warn" ] && echo "      (note: BuildHints.cs looks up by name only:$warn)"
 
 # 5. NO OVERLOADS in either public API (a name-only lookup would throw AmbiguousMatchException)
@@ -182,5 +199,5 @@ else
   echo "      (note: settings UI parity skipped - the aero side has no UI metadata yet)"
 fi
 
-[ $rc -eq 0 ] && echo "PASS  contract (aero API $a, entry source $e; names, signatures both ways, explicit lookups, no overloads, $nflags harness flags$parity)" || echo "FAIL  contract"
+[ $rc -eq 0 ] && echo "PASS  contract (aero API $a, entry source $e; names, signatures both ways, explicit lookups, one link each way, no overloads, $nflags harness flags$parity)" || echo "FAIL  contract"
 exit $rc

@@ -26,11 +26,19 @@ public static class DevFlight
         Vector3D target = ch.Data.GetWorldTransform().Position;
         if (!string.IsNullOrEmpty(gridName))
         {
-            bool found = false;
-            foreach (var g in GridMembers.All())
-                if (g.IsServer && g.DisplayName.IndexOf(gridName, StringComparison.OrdinalIgnoreCase) >= 0 && GridMembers.Mass(g) > 500)
-                { target = GridMembers.Position(g); _seatGrid = g.Id; found = true; break; }
-            if (!found) return $"no grid '{gridName}'";
+            // (the server grid by name - its mass and place read on the server thread: from here they were the cross-scene read
+            //  the game's DataGuard asserts on, the 2026-10-15 scene audit)
+            Vector3D at = default; long id = 0;
+            string found = GridGen.OnServerThread(() =>
+            {
+                foreach (var g in GridMembers.All())
+                    if (g.IsServer && g.DisplayName.IndexOf(gridName, StringComparison.OrdinalIgnoreCase) >= 0 && GridMembers.Mass(g) > 500)
+                    { at = GridMembers.Position(g); id = g.Id; return "ok"; }
+                return "none";
+            });
+            if (found == "none") return $"no grid '{gridName}'";
+            if (found != "ok") return found;
+            target = at; _seatGrid = id;
         }
         Entity best = null; double bd = double.MaxValue;
         // (a seat ON the named grid first - its top entity the grid: the grid's origin can be 100 m from its cockpit, and the
@@ -265,14 +273,21 @@ public static class DevFlight
         _burn = false;
         if (!FrameHost.Seated) { _move = move; _until = Wall() + seconds; _gridId = -1; return $"jetpack thrust {move} for {seconds:F0} s"; }
         // The grid you sat into (named at `seat`), else the heaviest one within 100 m of you.
-        OrbitalGridComponent best = _seatGrid != 0 ? GridMembers.Get(_seatGrid) : null; double bm = best != null ? GridMembers.Mass(best) : -1;
-        if (best == null)
+        // (masses and places of the server grids: read on the server thread - the 2026-10-15 scene audit)
+        OrbitalGridComponent best = _seatGrid != 0 ? GridMembers.Get(_seatGrid) : null; double bm = -1;
+        Vector3D me = FrameHost.PlayerPosition;
+        string ran = GridGen.OnServerThread(() =>
+        {
+            if (best != null) { bm = GridMembers.Mass(best); return "ok"; }
             foreach (var g in GridMembers.All())
             {
-                if (!g.IsServer || (GridMembers.Position(g) - FrameHost.PlayerPosition).Length() > 100) continue;
+                if (!g.IsServer || (GridMembers.Position(g) - me).Length() > 100) continue;
                 double m = GridMembers.Mass(g);
                 if (m > bm) { bm = m; best = g; }
             }
+            return "ok";
+        });
+        if (ran != "ok") return ran;
         if (best == null) return "no grid under you";
         _gridId = best.Id;
         _move = move;

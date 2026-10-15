@@ -64,7 +64,7 @@ public static class DevReentry
         _followTicks = -1;
         _expect = false; _handPosErr = _handSpeed = double.NaN;
         _atmoMoving = 0; _airFrom = double.NaN; _haveAcc = false; _decelChecks = _decelBad = 0; _decelWorst = ""; _timeline.Clear();
-        _cFrames = 0; _cHitches = 0; _cCamAng = _cCamPos = _cShipJump = _cPlanetJump = _cPlasma = 0; _cHaveLast = false; _cWorst = ""; _cEvents = 0; _cSpeed = -1f; _cRailLog = 0; _cRailErrMax = 0; _cRailSamples = 0; _cLookLog = 0; _cAfter = 0; _shotBand = _shot15 = _shot3 = false; _contacts = 0; _contactMax = 0; _contactLogs = 0; _contactTried = false; _airWall0 = double.NaN; _lagS = double.NaN; _restSince = double.NaN; _railWall = Wall();
+        _cFrames = 0; _cHitches = 0; _cCamAng = _cCamPos = _cShipJump = _cPlanetJump = _cPlasma = 0; _cHaveLast = false; _cWorst = ""; _cEvents = 0; _cSpeed = -1f; _cRailLog = 0; _cRailErrMax = 0; _cRailSamples = 0; _cLookLog = 0; _cAfter = 0; _shotBand = _shot15 = _shot3 = false; _contacts = 0; _contactMax = 0; _contactLogs = 0; _contactTried = false; _airWall0 = double.NaN; _restSince = double.NaN;
         _haveLast = false; _airTicks = _maxJump = _maxJumpAt = _flowTicks = _maxMach = _plasmaTicks = _maxPlasma = 0; _minAlt = double.MaxValue;
         _armWall = Wall();
         _expWall = double.NaN; _cLastWall = _armWall;

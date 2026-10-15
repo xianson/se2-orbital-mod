@@ -211,7 +211,7 @@ public static partial class ServerFrames
     private static DateTime _lastGameTime;
     /// <summary>A new world (WorldReset): its game clock starts again (a game time earlier than the last world's read as
     /// paused - no server step until it caught up).</summary>
-    internal static void ResetClock() { System.Threading.Interlocked.Exchange(ref _lastTickStamp, 0); _lastGameTime = default; }
+    internal static void ResetClock() { System.Threading.Interlocked.Exchange(ref _lastTickStamp, 0); _lastGameTime = default; _frameClaim.Reset(); }
     private static int _tick;
 
     /// <summary>Server-side view of the player character's position.</summary>
@@ -263,23 +263,32 @@ public static partial class ServerFrames
         finally { System.Threading.Volatile.Write(ref _stepping, 0); }
     }
 
+    // (2026-10-15: claimed by GAME time - FrameClaim, as WarpBill. The 8 ms wall gate let a planet's job starting >8 ms after
+    //  the winner run the step's head again in the same frame - SpawnGuard, WarmBerths, AsteroidBridge, the sweeps, the
+    //  settings poll, the tick-rate count (the locked step itself then stopped at its "paused" return, game dt 0))
+    static readonly SEAerospace.Time.FrameClaim _frameClaim = new SEAerospace.Time.FrameClaim();
     static void TickClaimed(Keen.VRage.Core.Game.Systems.Session session)
     {
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
-        // once per frame - claimed atomically: the planet beacons' jobs call this in parallel, and two could both pass a
-        // plain check and run the whole frame step twice
         long last = System.Threading.Interlocked.Read(ref _lastTickStamp);
         double dt = (now - last) / (double)System.Diagnostics.Stopwatch.Frequency;
-        // (half a server tick: a planet's job starting more than 4 ms after the winner claimed the frame step again - and ran
-        //  the drain, the fold and the warp steering twice)
-        if (last != 0 && dt < 0.008) return;
+        Keen.VRage.Core.Game.GameSystems.GameTimes.IGameTime gt = null;
+        try { gt = session?.Get<Keen.VRage.Core.Game.GameSystems.GameTimes.IGameTime>(); } catch { gt = null; }
+        if (gt != null)
+        {
+            // one claim per game frame however late a job starts. The game time standing still (paused): the head - settings
+            // poll, sweeps - still runs, at most every 0.1 s of wall time (the locked step stops at its "paused" return)
+            if (!_frameClaim.TryClaim(gt.CurrentGameTime.Ticks, 0.25, out _) && last != 0 && dt < 0.1) return;
+        }
+        // (no game time: the wall gate as before - half a server tick)
+        else if (last != 0 && dt < 0.008) return;
         if (System.Threading.Interlocked.CompareExchange(ref _lastTickStamp, now, last) != last) return;
         // (the section timers are per thread: an overlapping second job keeps its own)
         _slow.Clear();
-        try { TickBody(session, now, dt); } finally { LastSlow = _slow.ToString(); }
+        try { TickBody(session, gt, now, dt); } finally { LastSlow = _slow.ToString(); }
     }
 
-    static void TickBody(Keen.VRage.Core.Game.Systems.Session session, long now, double dt)
+    static void TickBody(Keen.VRage.Core.Game.Systems.Session session, Keen.VRage.Core.Game.GameSystems.GameTimes.IGameTime gt, long now, double dt)
     {
         TickRate.Server.Count();
         if (!ReferenceEquals(session, _noticeSession)) { _noticeSession = session; _arrivalNoticed.Clear(); }   // (frame ids restart in a new world)
@@ -296,7 +305,6 @@ public static partial class ServerFrames
         // changes must use game-time dt too; the wall-clock dt above only gates once-per-frame.
         try
         {
-            var gt = session.Get<Keen.VRage.Core.Game.GameSystems.GameTimes.IGameTime>();
             if (gt != null)
             {
                 DateTime g = gt.CurrentGameTime;

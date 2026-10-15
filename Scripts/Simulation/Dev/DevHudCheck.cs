@@ -23,9 +23,14 @@ public static class DevHudCheck
         if (ch == null) return "no character";
         Vector3D pos = ch.Data.GetWorldTransform().Position;
         double n = Math.Max(1.0, SystemHost.Timescale), t = SystemHost.Now;
-        // the truth, from the server's side
-        ProximityFrame f = null; Vector3D off = Vector3D.Zero, vel = Vector3D.Zero; string what;
-        if (FrameHost.Seated)
+        // the truth, from the server's side - worked out ON the server thread (2026-10-15: the seat search below ran on the
+        // harness's thread - the client's frame job - and the game asserted 'Scene.IsCurrentThreadDCS()' in GetEntitiesOfType)
+        ProximityFrame f = null; Vector3D off = Vector3D.Zero, vel = Vector3D.Zero; string what = null, refused = null;
+        bool seatedNow = FrameHost.Seated; long playerId = FrameHost.PlayerId;
+        Vector3D chVel = !seatedNow && ch.Data.TryGet<Keen.VRage.Physics.Data.RigidBodyData>(out var crb) ? (Vector3D)crb.LinearVelocity : Vector3D.Zero;
+        string ran = GridGen.OnServerThread(() =>
+        {
+        if (seatedNow)
         {
             // (the seat's own grid, from the server: the seat whose pilot is your server character, and that block's grid - the
             //  grid nearest you was a different sub-grid of a big ship whose cockpit sits 65 m from its origin)
@@ -46,7 +51,7 @@ public static class DevHudCheck
             catch { }
             if (g == null)
                 foreach (var x in GridMembers.All()) { if (!x.IsServer) continue; double d = (GridMembers.Position(x) - pos).Length(); if (d < bd) { bd = d; g = x; } }
-            if (g == null) return "seated, no server grid within 100 m";
+            if (g == null) { refused = "seated, no server grid within 100 m"; return "ok"; }
             lock (ServerFrames.FramesLock)
             {
                 f = SystemHost.Frames?.FindByMember(g.Id);
@@ -71,7 +76,7 @@ public static class DevHudCheck
             //  HUD's own frame, which made this check say "none is none" while you floated in no frame beside your ship)
             lock (ServerFrames.FramesLock)
             {
-                f = SystemHost.Frames?.FindByMember(FrameHost.PlayerId);
+                f = SystemHost.Frames?.FindByMember(playerId);
                 if (f == null && !VoxelBerthRegistry.TryCellContaining(pos, SystemHost.Registry, out _, out _))
                 {
                     double fd = PlayerOrbit.FrameReach;
@@ -85,8 +90,12 @@ public static class DevHudCheck
                 }
             }
             what = "on foot";
-            if (f != null) { off = pos - f.BerthCenter; vel = (ch.Data.TryGet<Keen.VRage.Physics.Data.RigidBodyData>(out var rb) ? (Vector3D)rb.LinearVelocity : Vector3D.Zero) / n; }
+            if (f != null) { off = pos - f.BerthCenter; vel = chVel / n; }
         }
+        return "ok";
+        });
+        if (ran != "ok") return "hudcheck: " + ran;
+        if (refused != null) return refused;
         sb.Append(what).Append(": ");
         var hudFrame = FrameHost.PlayerFrame;
         Line(hudFrame?.Id == f?.Id, $"the HUD's frame #{hudFrame?.Id.ToString() ?? "none"} is the truth's #{f?.Id.ToString() ?? "none"} ({FrameHost.SeatedWhy})");

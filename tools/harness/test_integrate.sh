@@ -22,7 +22,8 @@
 #   +12..35  C  structure: Strength STRENGTH, damage on, attitude hold radial-out; the "failed whole ... cracked across it" line
 #               polled (12 s; else turntest 90 z, 8 s more); the cracks finished (polled 12 s, the debris counter with them);
 #               counters before/after; Strength 7 back at once
-#   +30      D  warp: unseat, the player onto a 300 km Verdure orbit (polled 20 s), xWARP for WARPSECS: WarpBill's counters
+#   +30      D  warp: unseat (polled 8 s), 300 km up (clear of the debris), the player alone onto a 300 km Verdure orbit
+#               (polled 20 s: seated=False, its own frame, Pe/Ap ~300 km; else SKIP), xWARP for WARPSECS: WarpBill's counters
 #               against the rails clock (billed seconds) and the server's ticks (bills a tick)
 #   +3       E  settings UI (`settingsui`, when the verb exists)
 #   +3       F  the whole log since launch: our exceptions / faults, Havok, the game alive
@@ -215,9 +216,29 @@ fi
 
 # ---- D: warp billing once a frame -------------------------------------------------------------------------------------------
 echo "== D warp billing ($(el) s)"
-if budget $((40 + WARPSECS)); then
-    ask unseat "orbit Verdure 300 300" >/dev/null
-    poll 20 bash -c "grep -aq '^orbit frame #' \"$ST\"" || note "warp: the player's orbit line not seen (warping anyway)"
+# (2026-10-15: after C the player was still seated in the split SSTO in the air - `unseat` is async, so the `orbit` sent with it
+#  in one batch found the player seated and was dropped ("seated: on-foot requests ... dropped"); the player stayed materialized
+#  and warp fell back to x1 at once. Now: out of the seat (polled), 300 km straight up - clear of the debris, which a stow
+#  within ServerFrames.AttachRadius (5 km) takes along - then the orbit, polled until the player alone is on rails.)
+flightln() { ask flight | head -1; }
+unseated() { flightln | grep -q '^seated=False'; }
+# on rails: a frame of the player's own, its orbit card a ~300 km circle (the status's "orbit frame #N ... Pe X km  Ap Y km")
+onrails() { flightln | grep -q '^seated=False frame=#' && stat '^orbit frame #' | sed -n 's/.*Pe \([0-9.]*\) km  Ap \([0-9.]*\) km.*/\1 \2/p' | awk '{ ok = $1 >= 250 && $1 <= 350 && $2 >= 250 && $2 <= 350 } END { exit !ok }'; }
+if budget $((45 + WARPSECS)); then
+    ask unseat >/dev/null
+    railed=""; why=""
+    if ! poll 8 unseated; then
+        why="still seated 8 s after 'unseat' ($(flightln | cut -c1-100))"
+    else
+        r0=$(stat '^planet [0-9]* Verdure ' | sed -n 's/.* r0=\([0-9.]*\)km.*/\1/p')
+        if num "$r0" && ge "$r0" 1; then ask "view Verdure $(awk -v r="$r0" 'BEGIN{printf "%.0f", r + 300}')" >/dev/null; sleep 2
+        else note "warp: Verdure's radius not in the status ('$r0') - no hop away from the debris"; fi
+        ask "orbit Verdure 300 300" >/dev/null
+        if poll 20 onrails; then railed=1
+        else why="not on rails 20 s after 'orbit Verdure 300 300': $(flightln | cut -c1-60) | $(stat '^orbit frame #' | cut -c1-90) | $(stat '^lastEvent' | cut -c1-120)"; fi
+    fi
+fi
+if [ -n "$railed" ] && budget $((10 + WARPSECS)); then
     tline() { grep -a '^time ' "$ST"; }
     rails() { tline | sed -n 's/.* rails t=\([0-9.]*\).*/\1/p'; }
     wall() { tline | awk '{ split($2, h, ":"); printf "%.3f", h[1] * 3600 + h[2] * 60 + h[3] }'; }
@@ -240,6 +261,8 @@ if budget $((40 + WARPSECS)); then
         [ "${NPLANETS:-0}" -lt 2 ] && note "warp: only $NPLANETS planet beacon(s) here - the double bill needed two (the checks still measure the rate)"
     fi
     note "station keeping: $(val OrbitalMod.StationKeepCharge.Status)"
+elif [ -n "$why" ]; then
+    skip "warp: billed once a frame" "the player could not be put on rails alone: $why"
 else
     skip "warp: billed once a frame" "out of time ($(el) s)"; incomplete=1
 fi

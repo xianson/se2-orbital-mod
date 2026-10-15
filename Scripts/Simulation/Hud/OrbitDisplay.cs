@@ -1,7 +1,7 @@
 using Keen.VRage.Core;
 using Keen.VRage.Core.Render;
 using SEAerospace.Orbital;
-using static OrbitalMod.HudMath;
+using static OrbitalMod.Num;
 
 #pragma warning disable
 namespace OrbitalMod;

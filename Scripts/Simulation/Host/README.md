@@ -9,6 +9,6 @@
 - `OrbitalSettings.cs` - the mod's settings (world scope rides `SavedState`, client scope a file); `docs/API.md`.
 - `ModCost.cs` - `ModCost` / `TickRate`: what the mod's code costs per frame and the tick rates (the `modcost` status
   line, `[HITCH]`).
-- `Num.cs` - `Wall()` and `IsFinite`, shared (`using static OrbitalMod.Num;`).
+- `Num.cs` - `Wall()` and `IsFinite`, shared by server and client/HUD code (`using static OrbitalMod.Num;`).
 - `FrameMath.cs` (game-free: the offline FrameMathTests compile it), `PlayerCache.cs`, `Prewarm.cs`, `WarpControl.cs`
   (the warp keys).

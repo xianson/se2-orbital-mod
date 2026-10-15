@@ -222,7 +222,7 @@ public sealed class PlayerRequest
 {
     public bool? Dampeners;
     public Vector3D? Velocity;
-    /// <summary>HighSpeed step: set the character's world position (orientation kept).</summary>
+    /// <summary>Set the character's world position (orientation kept): a frame's berth shift (FrameHost).</summary>
     public Vector3D? Position;
 }
 

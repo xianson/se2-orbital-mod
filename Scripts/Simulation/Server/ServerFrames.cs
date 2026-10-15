@@ -430,11 +430,7 @@ public static partial class ServerFrames
         return "-";
     }
 
-    private static void Event(string s)
-    {
-        FrameHost.LastEvent = $"{DateTime.Now:HH:mm:ss} {s}";
-        Log.Default?.Info("[ORBIT-FRAME] " + s);
-    }
+    private static void Event(string s) => FrameHost.Event(s);   // (the same [ORBIT-FRAME] line and LastEvent)
 
 }
 

@@ -7,8 +7,9 @@ using Keen.Game2.Simulation.GameSystems;
 namespace OrbitalMod;
 
 /// <summary>
-/// The settings' STORE: the registry's lists and lock, the API (names, info, get, set), the "name = value" text, the world
-/// save (ServerPlanetBeacon's builder) and the two files. The settings themselves are registered in OrbitalSettings.cs.
+/// The settings' STORE: the registry's lists and lock, the API (names, info, get, set), who may change what (CanEditWorld,
+/// IsForced), the "name = value" text, the world save (ServerPlanetBeacon's builder) and the two files. The settings
+/// themselves are registered in OrbitalSettings.cs.
 /// </summary>
 public static partial class OrbitalSettings
 {
@@ -23,6 +24,30 @@ public static partial class OrbitalSettings
     internal static volatile bool SawServer, SawClient;
     /// <summary>World settings can be set here: the server runs in this process (or nothing is known yet).</summary>
     public static bool WorldWritable => SawServer || !SawClient;
+
+    /// <summary>
+    /// World settings may be changed from here (a menu, the API, the harness): the world is hosted in this process. THE one
+    /// place for an admin check once SE2 has real multiplayer; a dedicated server keeps world.cfg. (The world save and the
+    /// host's file are not edits: they always apply.)
+    /// </summary>
+    public static bool CanEditWorld() => WorldWritable && IsLocalHostOrSinglePlayer();
+    // (SE2 2.4: the server runs in the client's process - WorldWritable already says the server is here; no admins exist)
+    static bool IsLocalHostOrSinglePlayer() => true;
+
+    /// <summary>The world settings named by the host file's uncommented lines, as last applied (null: none). Replaced whole,
+    /// never changed in place: read without the lock.</summary>
+    static volatile HashSet<string> _forced;
+    /// <summary>A world setting the host file (OrbitalMod.world.cfg) forces: a menu or API change is refused (the file would
+    /// win again on the next world load).</summary>
+    public static bool IsForced(string name)
+    {
+        var f = _forced;
+        return name != null && f != null && f.Contains(name);
+    }
+
+    static volatile bool _worldUnsaved;
+    /// <summary>A world setting changed since the world was loaded or saved: it goes into the save on the world's next save.</summary>
+    public static bool WorldUnsaved => _worldUnsaved;
 
     // ── the API ──
 
@@ -39,6 +64,20 @@ public static partial class OrbitalSettings
         type = scope = doc = null; def = min = max = 0; reload = false;
         if (name == null || !_by.TryGetValue(name, out var s)) return false;
         type = s.Type; def = s.Default; min = s.Min; max = s.Max; scope = s.Scope; reload = s.Reload; doc = s.Doc;
+        return true;
+    }
+
+    /// <summary>A setting's menu metadata (see Setting): tier "basic", "advanced" or "hidden"; unit "" for none; choices
+    /// (cleared first) the labels of an int that is a choice, Min first, else left empty.</summary>
+    public static bool UiInfo(string name, out string label, out string group, out string tier, out string unit, out double step,
+        out int order, out bool clientVisible, List<string> choices)
+    {
+        label = group = tier = unit = null; step = 0; order = 0; clientVisible = false;
+        choices?.Clear();
+        if (name == null || !_by.TryGetValue(name, out var s)) return false;
+        label = s.Label; group = s.Group; unit = s.Unit ?? ""; step = s.Step; order = s.Order; clientVisible = s.ClientVisible;
+        tier = s.Tier == Tier.Basic ? "basic" : s.Tier == Tier.Advanced ? "advanced" : "hidden";
+        if (choices != null && s.Choices != null) choices.AddRange(s.Choices);
         return true;
     }
 
@@ -61,7 +100,8 @@ public static partial class OrbitalSettings
         if (s.Type != "float") value = Math.Round(value);
         if (s.Type == "bool" && value != 0 && value != 1) { why = "a bool is 0 or 1"; return false; }
         if (value < s.Min || value > s.Max) { why = "out of range " + s.Min.ToString(Inv) + ".." + s.Max.ToString(Inv); return false; }
-        if (s.Scope == "world" && !fromStorage && !WorldWritable) { why = "world settings are set by the host / server"; return false; }
+        if (s.Scope == "world" && !fromStorage && !CanEditWorld()) { why = "world settings are set by the host / server"; return false; }
+        if (s.Scope == "world" && !fromStorage && IsForced(s.Name) && s.Get() != value) { why = "forced by the host file " + WorldPath; return false; }
         lock (_lock)
         {
             if (s.Get() == value) return true;
@@ -69,6 +109,7 @@ public static partial class OrbitalSettings
             s.Set(value);
             System.Threading.Interlocked.Increment(ref _version);
             if (s.Scope == "client" && !fromStorage) _clientDirtyAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (s.Scope == "world") _worldUnsaved = true;
         }
         Log.Default?.Info($"[ORBIT] setting {s.Name} = {Fmt(s, value)}{(fromStorage ? " (loaded)" : "")}{(s.Reload ? " (applies after a world reload)" : "")}");
         return true;
@@ -96,8 +137,9 @@ public static partial class OrbitalSettings
         return sb.ToString();
     }
 
-    /// <summary>Apply "name = value" lines of a scope (others ignored). Returns the count applied.</summary>
-    internal static int Apply(string text, string scope)
+    /// <summary>Apply "name = value" lines of a scope (others ignored). Returns the count applied. named (optional): gets the
+    /// name of every line of the scope with a value (applied or refused).</summary>
+    internal static int Apply(string text, string scope, HashSet<string> named = null)
     {
         if (string.IsNullOrEmpty(text)) return 0;
         int n = 0;
@@ -113,6 +155,7 @@ public static partial class OrbitalSettings
             string name = line.Substring(0, eq).Trim(), val = line.Substring(eq + 1).Trim();
             if (!_by.TryGetValue(name, out var s) || s.Scope != scope) continue;
             if (!Parse(val, out double v)) { Log.Default?.Info($"[ORBIT] setting {name}: '{val}' is not a value"); continue; }
+            named?.Add(s.Name);
             if (Set(name, v, out string why, true)) n++;
             else (retry ??= new List<(string, double, string)>()).Add((name, v, val));
         }
@@ -143,6 +186,20 @@ public static partial class OrbitalSettings
             foreach (var s in _all) if (s.Scope == scope && s.Get() != s.Default) Set(s.Name, s.Default, out _, true);
     }
 
+    /// <summary>A menu's "reset to defaults": every setting of the scope and group (any tier) back to its default, as a
+    /// change from the menu - a world one only where CanEditWorld, none the host file forces. Returns how many changed.</summary>
+    public static int ResetGroup(string scope, string group)
+    {
+        int n = 0;
+        if (scope == null || group == null) return 0;
+        // (twice, as ResetScope: a default refused against a partner not yet reset goes in on the second)
+        for (int pass = 0; pass < 2; pass++)
+            foreach (var s in _all)
+                if (s.Scope == scope && string.Equals(s.Group, group, StringComparison.OrdinalIgnoreCase) && s.Get() != s.Default
+                    && Set(s.Name, s.Default, out _)) n++;
+        return n;
+    }
+
     // ── the world save (ServerPlanetBeacon's builder) ──
 
     internal const string SaveKey = "settings:";
@@ -159,6 +216,7 @@ public static partial class OrbitalSettings
             _worldApplied = true;
             ResetScope("world");
             int n = Apply(kv.Key.Substring(SaveKey.Length), "world");
+            _worldUnsaved = false;   // (what the save holds)
             Log.Default?.Info($"[ORBIT] world settings loaded: {n}");
             _worldFileAt = DateTime.MinValue;   // (the host's overrides again, over the save)
             return;
@@ -169,6 +227,7 @@ public static partial class OrbitalSettings
     internal static void Save(EntityNameSessionComponentObjectBuilder ob, Entity self)
     {
         string text = Text("world", false);
+        if (self != null) _worldUnsaved = false;   // (written now, or all at their defaults: nothing to write)
         if (text.Length == 0 || self == null) return;
         ob.NamedEntities ??= new Dictionary<string, Entity>();
         ob.NamedEntities[SaveKey + text] = self;
@@ -183,6 +242,7 @@ public static partial class OrbitalSettings
         _worldApplied = false;
         ResetScope("world");
         _worldFileAt = DateTime.MinValue;
+        _forced = null; _worldUnsaved = false;   // (the next world applies the host file again)
     }
 
     // ── the files (~2 s poll from the frame ticks; never a throw per tick: a failing file is left alone) ──
@@ -223,7 +283,13 @@ public static partial class OrbitalSettings
             {
                 if (!File.Exists(WorldPath)) File.WriteAllText(WorldPath, WorldHeader + Commented(Text("world", true)));
                 var at = File.GetLastWriteTimeUtc(WorldPath);
-                if (at != _worldFileAt && WorldWritable) { _worldFileAt = at; Apply(File.ReadAllText(WorldPath), "world"); }
+                if (at != _worldFileAt && WorldWritable)
+                {
+                    _worldFileAt = at;
+                    var named = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    Apply(File.ReadAllText(WorldPath), "world", named);
+                    _forced = named.Count > 0 ? named : null;
+                }
             }
             FileWhy = "";
         }

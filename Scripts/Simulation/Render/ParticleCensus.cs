@@ -79,7 +79,9 @@ public static class ParticleCensus
             // (its server grid: the nearest server copy to it - for 'cam grid <id>')
             long sid = 0; double sd = 200;
             var pos = e.Data.GetWorldTransform().Position;
-            foreach (var g in GridMembers.All()) { if (!g.IsServer) continue; double dd = (GridMembers.Position(g) - pos).Length(); if (dd < sd) { sd = dd; sid = g.Id; } }
+            // (the server grids' places as the server publishes them, ServerFrames.GridPositions - their entities read from here, the
+            //  client's frame, were the cross-thread read the game's DataGuard asserts on, 2026-10-15)
+            lock (ServerFrames.GridPositions) foreach (var kv in ServerFrames.GridPositions) { double dd = (kv.Value - pos).Length(); if (dd < sd) { sd = dd; sid = kv.Key; } }
             return $"'{e.DebugName}' {band}{(sid != 0 ? $" (server {sid})" : "")}";
         }
         catch (Exception ex) { return "gone (" + (ex.InnerException ?? ex).GetType().Name + ")"; }

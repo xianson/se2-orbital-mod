@@ -211,16 +211,21 @@ public static partial class ServerFrames
 
         // An anchor moved out of its berth by something else (the game's fast travel, an admin move): not this frame's any
         // more - out of it quietly (pinned back, it was dragged home; split, it got an orbit made of a berth-to-berth offset)
-        if (anchor != null && SEAerospace.Frames.PlayerOrbit.MovedOut(f, GridMembers.Position(anchor)))
+        // (a dead anchor - deleted, its Unregister not run yet - threw here, 2026-10-15. On its last place it would be pinned,
+        //  drained and folded and its riders re-pinned about a grid that is gone: no anchor this step. Its last acceleration
+        //  dropped too, as the Wait above does for one gone: it pushes no rider)
+        Vector3D anchorAt = default;
+        if (anchor != null && !GridMembers.TryPosition(anchor, out anchorAt)) { anchor = null; AnchorAccel.Remove(f.Id); }
+        if (anchor != null && SEAerospace.Frames.PlayerOrbit.MovedOut(f, anchorAt))
         {
             SystemHost.Frames.RemoveMember(anchor.Id);
-            Event($"frame #{f.Id}: anchor grid {anchor.Id} '{anchor.DisplayName}' left - {(GridMembers.Position(anchor) - f.BerthCenter).Length() / 1000:F0} km from the berth (moved by something else)");
+            Event($"frame #{f.Id}: anchor grid {anchor.Id} '{anchor.DisplayName}' left - {(anchorAt - f.BerthCenter).Length() / 1000:F0} km from the berth (moved by something else)");
             anchor = null;
         }
         if (anchor != null)
         {
             // Anchor owner = server: pin + drain + fold.
-            anchorPos = GridMembers.Position(anchor);
+            anchorPos = anchorAt;
             if ((anchorPos - f.BerthCenter).Length() > PinTolerance)
             {
                 // A NEW anchor (the old one destroyed, undocked, a handover from the player): the frame's orbit moves onto it
@@ -339,7 +344,9 @@ public static partial class ServerFrames
                 GridMembers.SetVelocity(g, Vector3D.Zero);
                 continue;
             }
-            Vector3D rRel = GridMembers.Position(g) - anchorPos;
+            // (a dead member - deleted, its Unregister not run yet: not steered, split or let go on its last place - 2026-10-15)
+            if (!GridMembers.TryPosition(g, out Vector3D gAt)) continue;
+            Vector3D rRel = gAt - anchorPos;
             if (_gridN.TryGetValue(g.Id, out double n0) && Math.Abs(n0 - N) > 1e-9)
             {
                 GridMembers.SetVelocity(g, GridMembers.Velocity(g) * (N / n0));
@@ -347,12 +354,12 @@ public static partial class ServerFrames
                 if (N <= 1.0 && n0 > 1.0) _settle[g.Id] = SettleTicks;   // (warp over: steer a moment longer)
             }
             _gridN[g.Id] = N;
-            if (SEAerospace.Frames.PlayerOrbit.MovedOut(f, GridMembers.Position(g)))
+            if (SEAerospace.Frames.PlayerOrbit.MovedOut(f, gAt))
             {
                 // moved out by something else (fast travel): out of the frame quietly, framed again where it now is
                 _gridN.Remove(g.Id); _trueRel.Remove(g.Id); _settle.Remove(g.Id);
                 SystemHost.Frames.RemoveMember(g.Id);
-                Event($"grid {g.Id} '{g.DisplayName}' left frame #{f.Id}: {(GridMembers.Position(g) - f.BerthCenter).Length() / 1000:F0} km from its berth (moved by something else)");
+                Event($"grid {g.Id} '{g.DisplayName}' left frame #{f.Id}: {(gAt - f.BerthCenter).Length() / 1000:F0} km from its berth (moved by something else)");
                 continue;
             }
             if (rRel.Length() > LeaveRadius(isStatic))

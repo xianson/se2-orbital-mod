@@ -199,7 +199,7 @@ public static partial class EncounterFrames
         foreach (var g in GridMembers.All())
         {
             if (!g.IsServer || SystemHost.Frames.FindByMember(g.Id) != null) continue;
-            Vector3D p = GridMembers.Position(g);
+            if (!GridMembers.TryPosition(g, out Vector3D p)) continue;   // (dead: seeds no site, joins none - 2026-10-15)
             if (VoxelBerthRegistry.TryCellContaining(p, reg, out _, out _)) continue;
             if (!IsEncounterGrid(g)) continue;
             cand.Add(g);
@@ -471,7 +471,7 @@ public static partial class EncounterFrames
         foreach (var g in GridMembers.All())
         {
             if (!g.IsServer || SystemHost.Frames.FindByMember(g.Id) != null) continue;
-            Vector3D p = GridMembers.Position(g);
+            if (!GridMembers.TryPosition(g, out Vector3D p)) continue;   // (dead: never adopted - 2026-10-15)
             var f = SiteContaining(p);
             if (f == null || VoxelBerthRegistry.TryCellContaining(p, reg, out _, out _)) continue;
             if (SystemHost.Frames.AddMember(f, g.Id))

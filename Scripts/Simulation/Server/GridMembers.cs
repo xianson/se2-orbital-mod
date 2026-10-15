@@ -16,6 +16,8 @@ public class OrbitalGridComponent : Component, IInSceneListener
 {
     /// <summary>GridMembers.IsDynamic's cache: the answer and when (Stopwatch ticks; 0 none).</summary>
     internal bool Dyn; internal long DynAt;
+    /// <summary>GridMembers.Position's last live read: its answer once this grid is dead (LastKnownPosition).</summary>
+    internal LastKnownPosition Pos;
     /// <summary>EncounterFrames.Kind's copy of this grid's entry (read without its lock).</summary>
     internal EncounterFrames.KindMemo KindMemo;
     [Keen.VRage.DCS.Annotations.Component]
@@ -108,7 +110,7 @@ public static class GridMembers
         if (g.IsServer)
         {
             string name = g.DisplayName; Vector3D at = default; bool hasAt = false;
-            try { at = g.Entity.Data.GetWorldTransform().Position; hasAt = true; } catch { }
+            try { at = g.Entity.Data.GetWorldTransform().Position; hasAt = true; g.Pos.Seen(at); } catch { }   // (seeded: one deleted before any Position read answers here, not the origin)
             lock (_lock)
             {
                 if (hasAt)
@@ -269,13 +271,22 @@ public static class GridMembers
     //  tick) threw from its data read, and an exception costs ~200 ms; these run per grid per tick. The try stays for one
     //  deleted between the check and the read: the scene changes concurrently with the simulation.)
 
-    /// <summary>Where a grid is, or where it is going this tick (a jointed group's move waits for the physics step).</summary>
-    public static Vector3D Position(OrbitalGridComponent g)
+    /// <summary>Where a grid is, or where it is going this tick (a jointed group's move waits for the physics step). A dead
+    /// grid (deleted, its Unregister not run yet): where it last was - never a throw, never a NaN (LastKnownPosition). Whoever
+    /// moves, frames or anchors on the answer asks <see cref="TryPosition"/>.</summary>
+    // (2026-10-15: no guard here - a dead grid threw, ~200 ms, into whatever handler each of ~70 callers had)
+    public static Vector3D Position(OrbitalGridComponent g) { TryPosition(g, out var p); return p; }
+
+    /// <summary>As Position; false for a dead grid (p then its last known place): the movers' and framers' question - a
+    /// dead grid is never moved, framed, anchored on or stowed by a stale place.</summary>
+    public static bool TryPosition(OrbitalGridComponent g, out Vector3D p)
     {
         // (no move queued - nearly always: no lock. A profile, 2026-10-14: this lock taken per grid per frame update was the
         //  server tick's single largest item)
-        if (Pending.Count > 0) lock (Pending) if (Pending.TryGetValue(g.Id, out var pm)) return pm.p;
-        return g.Entity.Data.GetWorldTransform().Position;
+        if (Pending.Count > 0) lock (Pending) if (Pending.TryGetValue(g.Id, out var pm)) return LastKnownPosition.Pick(true, pm.p, Alive(g.Entity), false, default, ref g.Pos, out p);
+        bool alive = Alive(g.Entity), read = false; Vector3D at = default;
+        if (alive) try { at = g.Entity.Data.GetWorldTransform().Position; read = true; } catch { }   // (deleted between the check and the read)
+        return LastKnownPosition.Pick(false, default, alive, read, at, ref g.Pos, out p);
     }
 
     /// <summary>Grids with a move queued for the next physics step (ServerFrames.MoveGrid): id -> target, velocity then.</summary>

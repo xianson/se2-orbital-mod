@@ -89,7 +89,10 @@ public static partial class ServerFrames
         foreach (var g in grids)
         {
             if (went.Contains(g.Id)) continue;
-            Vector3D off = GridMembers.Position(g) - anchorPos;
+            // (a dead one - deleted, its Unregister not run yet - threw here, 2026-10-15: it arrives nowhere. Past this a dead grid
+            //  reads as static: the static branch would read its transform (a throw) and give it a conic)
+            if (!GridMembers.TryPosition(g, out Vector3D gAt)) continue;
+            Vector3D off = gAt - anchorPos;
             Vector3D vRel = GridMembers.Velocity(g);
             Vector3D dest = cell + chart.FromInertial(cel.Position + off);   // berth offsets are inertial
             if (!GridMembers.IsDynamic(g))
@@ -99,7 +102,7 @@ public static partial class ServerFrames
                 if (GridMembers.IsConstrained(g))
                 {
                     var set = new List<Entity>();
-                    Vector3D d = dest - GridMembers.Position(g);
+                    Vector3D d = dest - gAt;
                     if (!GridMembers.MoveSet(g, set, out string why)) { set.Clear(); set.Add(g.Entity); Event($"arrival: grid {g.Id}'s joined set not movable ({why}): it moves alone"); }
                     lock (_deferred) foreach (var e in set) _deferred.Add((e, e.Data.GetWorldTransform().Position + d, Vector3D.Zero));
                 }

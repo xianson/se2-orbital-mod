@@ -19,7 +19,7 @@ public static partial class ServerFrames
         var g = GridMembers.Get(id);
         var reg = SystemHost.Registry;
         if (g == null || !g.IsServer || reg == null) { Event($"gridlevel: no server grid {id}"); return; }
-        Vector3D pos = GridMembers.Position(g);
+        if (!GridMembers.TryPosition(g, out Vector3D pos)) { Event($"gridlevel: grid {id} is gone"); return; }   // (dead: its orientation read threw - 2026-10-15)
         if (!VoxelBerthRegistry.TryCellContaining(pos, reg, out _, out Vector3D cell)) { Event("gridlevel: not at a planet"); return; }
         Vector3D up = Vector3D.Normalize(pos - cell);
         var q = g.Entity.Data.GetWorldTransform().Orientation;
@@ -39,7 +39,7 @@ public static partial class ServerFrames
         var g = GridMembers.Get(id);
         var reg = SystemHost.Registry;
         if (g == null || !g.IsServer || reg == null) { Event($"gridlaunch: no server grid {id}"); return; }
-        Vector3D pos = GridMembers.Position(g);
+        if (!GridMembers.TryPosition(g, out Vector3D pos)) { Event($"gridlaunch: grid {id} is gone"); return; }
         Vector3D cell;
         if (body != null) { if (!VoxelBerthRegistry.TryGetCell(body, reg, out cell)) { Event($"gridlaunch: no cell for {body}"); return; } }
         else if (!VoxelBerthRegistry.TryCellContaining(pos, reg, out body, out cell)) { Event("gridlaunch: not at a planet (name one: gridlaunch <id> <altKm> <planet>)"); return; }
@@ -64,7 +64,7 @@ public static partial class ServerFrames
         var g = GridMembers.Get(id);
         var reg = SystemHost.Registry;
         if (g?.Entity == null || !g.IsServer || reg == null) { OrbitalMod.FlyTest.Status = Event2($"flytest: no server grid {id}"); return; }
-        Vector3D pos = GridMembers.Position(g);
+        if (!GridMembers.TryPosition(g, out Vector3D pos)) { OrbitalMod.FlyTest.Status = Event2($"flytest: grid {id} is gone"); return; }
         if (!VoxelBerthRegistry.TryCellContaining(pos, reg, out string body, out Vector3D cell)) { OrbitalMod.FlyTest.Status = Event2("flytest: not at a planet"); return; }
         var def = reg.FindDefinition(body);
         if (def == null) return;

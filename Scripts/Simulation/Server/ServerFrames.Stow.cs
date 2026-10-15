@@ -23,7 +23,7 @@ public static partial class ServerFrames
         {
             if (!g.IsServer || !GridMembers.IsDynamic(g)) continue;
             if (SystemHost.Frames.FindByMember(g.Id) != null) continue;
-            Vector3D p = GridMembers.Position(g);
+            if (!GridMembers.TryPosition(g, out Vector3D p)) continue;   // (dead: never framed by its last place - 2026-10-15)
             if ((p - req.RefPos).Length() > AttachRadius) continue;
             if (EncounterFrames.IsNpc(g)) continue;   // NPCs keep their own world
             // only what flies with you: a ship landed on the ground below (a small moon's stow altitude is a few km) was taken
@@ -70,7 +70,7 @@ public static partial class ServerFrames
         {
             if (!g.IsServer || !GridMembers.IsDynamic(g)) continue;
             if (SystemHost.Frames.FindByMember(g.Id) != null) continue;
-            Vector3D pos = GridMembers.Position(g);
+            if (!GridMembers.TryPosition(g, out Vector3D pos)) continue;   // (dead: no frame made for it at its last place - 2026-10-15)
             // Grids near a player on foot go with the player's own stow. A seated player's stow does
             // not run: the ship they fly stows here (and they with it, as its child).
             if (!FrameHost.Seated && (pos - PlayerPosition).Length() <= AttachRadius) continue;
@@ -167,7 +167,7 @@ public static partial class ServerFrames
                 if (EncounterFrames.Enabled && EncounterFrames.IsEncounterGrid(g)) continue;
                 if (!GridMembers.IsDynamic(g) || GridMembers.Tombstoned(g.Id)) continue;
                 lock (GridMembers.Pending) if (GridMembers.Pending.ContainsKey(g.Id)) continue;
-                Vector3D pos = GridMembers.Position(g);
+                if (!GridMembers.TryPosition(g, out Vector3D pos)) continue;   // (dead: never adopted - 2026-10-15)
                 if (VoxelBerthRegistry.TryCellContaining(pos, SystemHost.Registry, out _, out _)) continue;   // (a planet's: its own stow)
                 ProximityFrame near = null; double d = SlotRadius;
                 foreach (var f in SystemHost.Frames.Frames)

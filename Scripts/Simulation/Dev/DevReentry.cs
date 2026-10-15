@@ -5,6 +5,7 @@ using SEAerospace.Entry;
 using SEAerospace.Frames;
 using SEAerospace.Orbital;
 using Keen.VRage.Core;
+using static OrbitalMod.Num;
 
 #pragma warning disable
 namespace OrbitalMod;
@@ -506,5 +507,4 @@ public static class DevReentry
         return 2 * Math.Acos(Math.Min(1.0, Math.Abs((double)d.W)));
     }
 
-    static double Wall() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
 }

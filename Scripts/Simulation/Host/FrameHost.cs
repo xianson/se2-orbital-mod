@@ -4,6 +4,7 @@ using SEAerospace;
 using SEAerospace.Frames;
 using SEAerospace.Orbital;
 using SEAerospace.SystemDef;
+using static OrbitalMod.Num;
 
 #pragma warning disable
 namespace OrbitalMod;
@@ -417,6 +418,4 @@ public static partial class FrameHost
         Log.Default?.Info("[ORBIT-FRAME] " + s);
     }
 
-    private static bool IsFinite(double x) => !double.IsNaN(x) && !double.IsInfinity(x);
-    private static bool IsFinite(Vector3D v) => IsFinite(v.X) && IsFinite(v.Y) && IsFinite(v.Z);
 }

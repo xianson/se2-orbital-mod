@@ -3,6 +3,7 @@ using Keen.Game2.Simulation.WorldObjects.CubeGrids;
 using Keen.VRage.Core;
 using Keen.VRage.Core.Game.Definitions;
 using Keen.VRage.Library.Mathematics;
+using static OrbitalMod.Num;
 
 #pragma warning disable
 namespace OrbitalMod;
@@ -41,7 +42,6 @@ public static class WarmBerths
     static double _next, _nextCold;
     static bool _adopted;
 
-    static double Wall() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
 
     /// <summary>Its place in a berth.</summary>
     public static Vector3D PlaceOf(Vector3D berthCentre) => berthCentre + new Vector3D(0, Offset, 0);

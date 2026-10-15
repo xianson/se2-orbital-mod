@@ -6,6 +6,7 @@ using SEAerospace;
 using SEAerospace.Frames;
 using SEAerospace.Orbital;
 using SEAerospace.Persistence;
+using static OrbitalMod.Num;
 
 #pragma warning disable
 namespace OrbitalMod;
@@ -151,7 +152,6 @@ public static class SavedState
     private static double _pendingSince = -1, _pendingAt;
     public static string LastRestore = "none";
 
-    static double Wall() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
 
     /// <summary>Server tick: the saved radar settings, onto their blocks once those have their components.</summary>
     public static void ApplyRadarSettings()

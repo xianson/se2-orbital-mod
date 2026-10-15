@@ -10,6 +10,7 @@ using SEAerospace;
 using SEAerospace.Frames;
 using SEAerospace.Orbital;
 using SEAerospace.SystemDef;
+using static OrbitalMod.Num;
 
 #pragma warning disable
 namespace OrbitalMod;
@@ -468,8 +469,6 @@ public static partial class AsteroidFrames
     }
     static double Unit(ref ulong s) => (Next(ref s) >> 11) * (1.0 / (1UL << 53));
 
-    static double Wall() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
-    static bool IsFinite(Vector3D v) => !double.IsNaN(v.X) && !double.IsInfinity(v.X) && !double.IsNaN(v.Y) && !double.IsInfinity(v.Y) && !double.IsNaN(v.Z) && !double.IsInfinity(v.Z);
 
     static void Warn(string key, string msg)
     {

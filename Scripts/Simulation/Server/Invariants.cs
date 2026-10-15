@@ -1,3 +1,4 @@
+using static OrbitalMod.Num;
 #pragma warning disable
 namespace OrbitalMod;
 
@@ -24,7 +25,6 @@ public static class Invariants
     static readonly List<string> _recent = new List<string>();
     public static int Total;
 
-    static double Wall() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
 
     /// <summary>A violation of <paramref name="rule"/>; <paramref name="key"/> names the case (rate limit: once per 10 s each).</summary>
     public static void Report(string rule, string key, string detail)

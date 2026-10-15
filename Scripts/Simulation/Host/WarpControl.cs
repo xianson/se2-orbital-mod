@@ -1,4 +1,5 @@
 using Keen.VRage.Core.Input;
+using static OrbitalMod.Num;
 
 #pragma warning disable
 namespace OrbitalMod;
@@ -61,5 +62,4 @@ public static class WarpControl
     public static Keen.VRage.Core.Game.Systems.Session Session;
     // (No toast over the map: its warp bar shows the level, and the toast sat on the close button.)
     public static void Say(string s) { Notice = s; _noticeUntil = Wall() + 5.0; if (Session != null && !MapView.Visible) GameUi.Toast(Session, "warp", "Time warp", s, 3); }
-    static double Wall() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
 }

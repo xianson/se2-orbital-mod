@@ -3,6 +3,7 @@ using Keen.Game2.Simulation.WorldObjects.CubeGrids;
 using Keen.VRage.Core;
 using Keen.VRage.Physics.Components;
 using Keen.VRage.Physics.Data;
+using static OrbitalMod.Num;
 
 #pragma warning disable
 namespace OrbitalMod;
@@ -90,7 +91,6 @@ public static class GridMembers
     public const double TombstoneSeconds = 60.0, RelinkMeters = 100.0;
     struct Tomb { public string Name; public Vector3D At; public double Wall; }
     private static readonly Dictionary<long, Tomb> _tombs = new Dictionary<long, Tomb>();
-    static double Wall() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
     /// <summary>A grid id that left the scene lately and may come back (frames keep it, anchors wait for it).</summary>
     // (no tombs - nearly always: no lock. _tombN is _tombs.Count, written under _lock after every change: a reader that sees 0
     //  ran before the tomb's lock was let go. Asked per member per second by Prune, the invariants and the loose-grid adoption)

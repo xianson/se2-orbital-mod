@@ -1,6 +1,7 @@
 using Keen.Game2.Simulation.WorldObjects.CubeBlocks.Pilotable;
 using Keen.Game2.Simulation.WorldObjects.Movement;
 using Keen.VRage.Core;
+using static OrbitalMod.Num;
 
 #pragma warning disable
 namespace OrbitalMod;
@@ -425,5 +426,4 @@ public static class DevFlight
         catch (Exception ex) { Status = "thrust: " + ex.Message; }
     }
 
-    static double Wall() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
 }

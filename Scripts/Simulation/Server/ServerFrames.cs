@@ -5,6 +5,7 @@ using SEAerospace.Frames;
 using SEAerospace.Orbital;
 using SEAerospace.Rendezvous;
 using SEAerospace.SystemDef;
+using static OrbitalMod.Num;
 
 #pragma warning disable
 namespace OrbitalMod;
@@ -76,7 +77,6 @@ public static partial class ServerFrames
 
     /// <summary>When each frame was first seen (wall seconds): a fresh frame may still move off a dirty slot.</summary>
     private static readonly Dictionary<long, double> _born = new Dictionary<long, double>(), _dirtySince = new Dictionary<long, double>();
-    static double Wall() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
 
     /// <summary>The anchor id of a frame anchored by an asteroid (not an entity we track by id).</summary>
     public const long AsteroidAnchorId = -2;
@@ -436,7 +436,5 @@ public static partial class ServerFrames
         Log.Default?.Info("[ORBIT-FRAME] " + s);
     }
 
-    private static bool IsFinite(double x) => !double.IsNaN(x) && !double.IsInfinity(x);
-    private static bool IsFinite(Vector3D v) => IsFinite(v.X) && IsFinite(v.Y) && IsFinite(v.Z);
 }
 

@@ -4,6 +4,7 @@ using Keen.Game2.Simulation.WorldObjects.CubeBlocks.Movement;
 using Keen.Game2.Simulation.WorldObjects.Movement;
 using Keen.VRage.Core;
 using Keen.VRage.Library.Mathematics;
+using static OrbitalMod.Num;
 
 #pragma warning disable
 namespace OrbitalMod;
@@ -84,7 +85,6 @@ public class StationKeepCharge : Component, IInSceneListener,
     void IInSceneListener.OnAddedToScene() { lock (All) { All.Add(this); _allVersion++; } }
     void IInSceneListener.OnBeforeRemovedFromScene() { lock (All) { All.Remove(this); _allVersion++; } }
 
-    static double Wall() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
 
     /// <summary>The last charge, for the harness: text made when read (2026-10-15: a new string per holding grid per tick before).
     /// (Its three parts written apart: a read racing a charge may mix two charges' numbers - diagnostics only.)</summary>

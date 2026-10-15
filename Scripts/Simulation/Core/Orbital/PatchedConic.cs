@@ -128,21 +128,53 @@ namespace SEAerospace.Orbital
                     return (craft - childPos).Length() - cc.SoiRadius;
                 };
 
-                double prevT = t0, prevF = soiGap(t0);
+                double prevT = t0, prevF = soiGap(t0), prev2F = double.PositiveInfinity;
                 for (int k = 1; k <= n; k++)
                 {
                     double tau = t0 + dt * k;
                     double f = soiGap(tau);
+                    // A sampled closest approach outside the sphere: the pass may dip inside BETWEEN samples (2026-10-15:
+                    // a fly-through of Kemik's 1714 km sphere fell between the live callers' ~3400 s samples - no
+                    // encounter, no warp stop). Refine the minimum over its two neighbouring intervals.
+                    if (prevF > 0.0 && f > 0.0 && prevF < prev2F && prevF <= f)
+                    {
+                        double root = DipEntry(soiGap, Math.Max(t0, prevT - dt), tau);
+                        if (!double.IsNaN(root)) { if (root < tEncounter) { tEncounter = root; child = cc; } break; }
+                    }
                     if (prevF > 0.0 && f <= 0.0) // crossing inward = entering the SOI
                     {
                         double root = Bisect(soiGap, prevT, tau, 64);
                         if (root < tEncounter) { tEncounter = root; child = cc; }
                         break; // earliest entry for this child
                     }
+                    prev2F = prevF;
                     prevT = tau;
                     prevF = f;
                 }
+                // (the window's last sample a minimum still falling: its interval is probed too)
+                if (child != cc && prevF > 0.0 && prevF < prev2F)
+                {
+                    double root = DipEntry(soiGap, Math.Max(t0, prevT - dt), prevT);
+                    if (!double.IsNaN(root) && root < tEncounter) { tEncounter = root; child = cc; }
+                }
             }
+        }
+
+        // A between-samples dip of the SOI gap over [lo, hi] (both ends outside): ternary search for the minimum,
+        // and where it goes inside, the entry bisected from lo. NaN: the pass stays outside.
+        private static double DipEntry(Func<double, double> gap, double lo, double hi)
+        {
+            double a = lo, b = hi;
+            for (int k = 0; k < 60 && b - a > 1e-3; k++)
+            {
+                double m1 = a + (b - a) / 3.0, m2 = b - (b - a) / 3.0;
+                double g1 = gap(m1), g2 = gap(m2);
+                if (double.IsNaN(g1) || double.IsNaN(g2)) return double.NaN;
+                if (g1 <= 0.0) return Bisect(gap, lo, m1, 64);
+                if (g2 <= 0.0) return Bisect(gap, lo, m2, 64);
+                if (g1 < g2) b = m2; else a = m1;
+            }
+            return double.NaN;
         }
 
         private static double Bisect(Func<double, double> f, double lo, double hi, int iters)

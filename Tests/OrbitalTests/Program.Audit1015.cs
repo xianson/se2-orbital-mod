@@ -13,6 +13,7 @@ namespace Orbital.Tests
         private static void AuditFixes1015()
         {
             ImpactOnLowPeriapsisPass();   // O15
+            EncounterFlyThroughBetweenSamples();   // O16
         }
 
         // O15: an arrival whose periapsis is below a small body's surface. The map's CutAtImpact sampled the
@@ -54,6 +55,42 @@ namespace Orbital.Tests
             Ok("elliptic impact is the first after the start", he >= 100.0 + 2.5 * P && he < 100.0 + 3.5 * P);
             Ok("elliptic impact inbound", Vector3D.Dot(OrbitPropagation.StateAt(ee, he).Position, OrbitPropagation.StateAt(ee, he).Velocity) < 0);
             Ok("periapsis above the radius: none", !OrbitPropagation.TryFirstInboundCrossing(ee, 0.5 * R, 0, 10 * P, out _));
+        }
+
+        // O16: PatchedConic only saw an SOI entry when a SAMPLE landed inside the child's sphere; the live callers use 256
+        // samples over up to 10 days, so a quick fly-through of a small moon's sphere fell between two samples: no
+        // encounter on the map, NextSoiChange NaN, warp did not stop.
+        private static void EncounterFlyThroughBetweenSamples()
+        {
+            Section("O16: a fly-through of a child SOI between two samples is still an encounter");
+            double muP = 1.0e14;
+            double rp = 2.0e7, ra = 2.0e8, a = (rp + ra) / 2.0;
+            double vp = Math.Sqrt(muP * (2.0 / rp - 1.0 / a));
+            var craft = new StateVector(new Vector3D(rp, 0, 0), new Vector3D(0, vp, 0));
+            var el = OrbitalMath.ToElements(craft, muP, 0.0);
+            double H = el.Period;
+            const int n = 256;
+            double t0 = 1e-3, dt = (H - t0) / n, tm = t0 + dt * 20.5;   // the pass mid-way between samples 20 and 21
+            var sm = OrbitPropagation.StateAt(el, tm);
+            Vector3D side = Vector3D.Normalize(Vector3D.Cross(Vector3D.UnitZ, sm.Velocity));
+            double soi = 1.0e6;
+            Vector3D moonPos = sm.Position + side * (0.6 * soi);   // a pass 0.6 SOI off its centre: a ~1600 s chord
+            var planet = GravityBody.Root("Planet", muP);
+            var moon = planet.AddChild("Moon", 1.0e10, soi, new FixedEphemeris(moonPos));
+            double d20 = (OrbitPropagation.StateAt(el, t0 + dt * 20).Position - moonPos).Length();
+            double d21 = (OrbitPropagation.StateAt(el, t0 + dt * 21).Position - moonPos).Length();
+            Ok($"premise: both neighbouring samples are outside the sphere ({d20 / soi:F2}, {d21 / soi:F2} SOI; {dt:F0} s apart)", d20 > soi && d21 > soi);
+
+            var arcs = PatchedConic.Propagate(planet, craft, 0.0, H, 8, n);
+            Ok("encounter found", arcs.Count >= 2 && arcs[0].EndReason == PatchType.Encounter && arcs[0].NextBody == moon);
+            if (arcs.Count >= 2)
+            {
+                Near("patch on the Moon's SOI", (OrbitPropagation.StateAt(arcs[0].Elements, arcs[0].EndTime).Position - moonPos).Length(), soi, 100.0);
+                Ok("patch before the closest approach", arcs[0].EndTime < tm + 100.0 && arcs[0].EndTime > t0 + dt * 20);
+            }
+            // the same miss in the unified scan's kernel (no live caller; it mirrors FindEarliestEncounter)
+            Ok("EncounterScan kernel finds it too", EncounterScan.TryFindEarliest(el, 0.0, H, EncounterTarget.FromBody(moon), n, out var ev)
+                && Math.Abs((OrbitPropagation.StateAt(el, ev.Time).Position - moonPos).Length() - soi) < 100.0);
         }
     }
 }

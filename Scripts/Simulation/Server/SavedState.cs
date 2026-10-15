@@ -77,11 +77,6 @@ public static class SavedState
                 sb.Append('\n');
                 foreach (long m in fs.MemberIds) Remember(ob, m);
             }
-            if (FrameHost.TryGetHighSpeed(out string pb, out KeplerianElements pel))
-            {
-                sb.Append("hs ").Append(FrameHost.PlayerId).Append(' ').Append(Esc(pb)).Append(' ').Append(El(pel)).Append('\n');
-                Remember(ob, FrameHost.PlayerId);
-            }
             foreach (var (id, body, el) in ServerFrames.GridHighSpeedEntries())
             {
                 sb.Append("hs ").Append(id).Append(' ').Append(Esc(body)).Append(' ').Append(El(el)).Append('\n');

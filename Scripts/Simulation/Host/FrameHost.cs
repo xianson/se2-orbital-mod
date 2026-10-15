@@ -675,13 +675,6 @@ public static class FrameHost
     public static Vector3D RiderOffset => _pub.RiderOffset;
     public static Vector3D RiderVelocity => _pub.RiderVelocity;
 
-    /// <summary>Save: the player's HighSpeed conic - never one now (the save's format keeps the entry: SavedState).</summary>
-    public static bool TryGetHighSpeed(out string body, out KeplerianElements el)
-    {
-        body = null; el = default;
-        return false;
-    }
-
     /// <summary>Load: back onto the saved HighSpeed conic (the saved position is already on it).</summary>
     public static void RestoreHighSpeed(string body, KeplerianElements el)
     {
@@ -1019,7 +1012,6 @@ public static class FrameHost
         return PlayerCache.Of(session);
     }
 
-    /// <summary>The frame of the grid a seated player sits in (a member grid within 300 m). Caller holds FramesLock.</summary>
     /// <summary>Why the seated player's frame is what it is (harness diagnostics).</summary>
     public static string SeatedWhy = "-";
     static readonly List<PlayerOrbit.GridState> _seatGrids = new List<PlayerOrbit.GridState>();
@@ -1119,9 +1111,6 @@ public static class FrameHost
     /// <summary>True when the local character sits in a seat.</summary>
     public static bool Seated => _pub.Seated;
 
-    /// <summary>A crossing between a planet's rotating chart and the inertial frames turns the grids (ServerFrames.MoveGrid);
-    /// the cockpit's target orientation - what the pilot steers to, held on the client's copy - must turn with them, or
-    /// the gyros swing the ship back toward the old one and the controls fight it. Every piloted grid within 300 m.</summary>
     // ── the first-person camera across a crossing ──
     // (FirstPersonCameraComponent springs the render camera toward the cockpit: Slerp(last render orientation, the
     //  cockpit's, stiffness). A crossing turns the ship by the chart's angle (~100 deg) in one tick: the view lagged 84 deg
@@ -1220,6 +1209,9 @@ public static class FrameHost
         }
     }
 
+    /// <summary>A crossing between a planet's rotating chart and the inertial frames turns the grids (ServerFrames.MoveGrid);
+    /// the cockpit's target orientation - what the pilot steers to, held on the client's copy - must turn with them, or
+    /// the gyros swing the ship back toward the old one and the controls fight it. Every piloted grid within 300 m.</summary>
     /// <summary>Client: the turns the server gave piloted grids (ServerFrames.TargetTurns) - each one's cockpit target turned
     /// with it, once: the piloted client grid nearest where that grid was or now is (within 300 m).</summary>
     private static void ApplyTargetTurns(Keen.VRage.Core.Game.Systems.Session session)
@@ -1296,11 +1288,6 @@ public static class FrameHost
         return abs;
     }
 
-    /// <summary>
-    /// Runs one part of the frame so that a fault in it is logged and skipped, not thrown into the
-    /// game's job (which would crash the game and send a crash report). Each fault is logged with its
-    /// stack the first few times, then counted.
-    /// </summary>
     /// <summary>What the guarded client systems need each frame (passed, not captured).</summary>
     public readonly struct TickArgs
     {
@@ -1308,6 +1295,11 @@ public static class FrameHost
         public TickArgs(Keen.VRage.Core.Game.Systems.Session s, WorldTransform c, double t) { Session = s; Camera = c; T = t; }
     }
 
+    /// <summary>
+    /// Runs one part of the frame so that a fault in it is logged and skipped, not thrown into the
+    /// game's job (which would crash the game and send a crash report). Each fault is logged with its
+    /// stack the first few times, then counted.
+    /// </summary>
     public static void Guard(string name, Action<TickArgs> a, in TickArgs args)
     {
         bool aw = AllocWatch;

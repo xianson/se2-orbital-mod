@@ -17,6 +17,7 @@
 | `UiThread.cs` | Avalonia by reflection: dispatcher, visual tree, bounds, held transforms. |
 
 **Entry points / threading.** Client only, from `FrameHost.Tick` (the planet frame job, once a frame): `FrameMarkers.Tick`,
-`OrbitHud.Draw`, `SpdIcon.Draw`, `CrossingFade.Tick`; `OrbitDisplay.DrawFrameOrbit` from `FrameHost` itself. Drawing goes
+`OrbitHud.Draw`, `SpdIcon.Draw`, `CrossingFade.Tick`; `OrbitDisplay.DrawFrameOrbit` from `FrameHost` itself, and
+`OrbitDisplay.Consider` from each planet's `PlanetFrameComponent` tick (in no frame, map closed). Drawing goes
 through `Render/MapPipeline` inside a `UiBegin`/`UiEnd` batch. `HudGeom`, `NativeHints` and anything touching a control run
-on the UI thread via `UiThread.Post`; `HudGeom`'s results are `volatile` arrays the draw reads.
+on the UI thread, inside the job `AlignButton` posts (`UiThread.Post`, its only caller); `HudGeom`'s results are `volatile` arrays the draw reads.

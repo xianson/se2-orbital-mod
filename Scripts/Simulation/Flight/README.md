@@ -13,6 +13,6 @@ Maneuver nodes and the things that fly them, plus the warp gauge.
 
 **Entry points / threading.** Everything ticks from `FrameHost.Tick` on the client (the planet frame job, once a frame,
 each system in its own `Guard`): `Maneuvers.HudTick`, `AutoBurn.Tick`, `AttitudeHold.ClientTick`, `AlignButton.Draw`,
-`WarpBar.DrawHud`, `HoldActions.ClientTick`. The map side of `Maneuvers` (`MapDraw`) runs inside the map's UI batch
+`WarpBar.DrawHud`; `HoldActions.Hook` / `ClientTick` are called directly (no `Guard`). The map side of `Maneuvers` (`MapDraw`) runs inside the map's UI batch
 (`Map/CleanMap`). `AlignButton` posts its control work to the Avalonia UI thread (`UiThread.Post`) and reads the result
 on a later tick. `HoldActions`' `[Button]` methods run on the server. `Maneuvers.Nodes` is locked (`lock (Nodes)`).

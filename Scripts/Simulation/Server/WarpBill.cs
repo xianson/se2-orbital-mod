@@ -9,7 +9,7 @@ namespace OrbitalMod;
 /// the grids at x1, so their batteries and tanks would age at x1: an hour of warp for a second of power.
 /// Every warped frame, each battery and tank on a grid ON RAILS (in a frame) is given the rest of that
 /// frame's time: its current flow (units per second, as the game's own container job integrates it)
-/// times the surplus (warp - 1) / 60 s. A draining store drains at the warp rate, one being filled (solar,
+/// times the surplus (warp - 1) x the frame's game time. A draining store drains at the warp rate, one being filled (solar,
 /// a generator) fills at it; the game's own clamps (empty, full) hold. When a store on YOUR frame's grids
 /// runs dry, warp drops to x1 with a notice. Grids off the rails (a base on a planet) run at x1 and are
 /// not billed, nor NPC grids. Runs in the pre-physics phase (ServerPlanetBeacon's teleport job), server side.
@@ -18,7 +18,9 @@ public static class WarpBill
 {
     public static bool Enabled = true;
     public static string Status = "";
-    private static long _last;
+    private static readonly SEAerospace.Time.FrameClaim _claim = new SEAerospace.Time.FrameClaim();
+    /// <summary>A new world: its game clock starts again.</summary>
+    internal static void ResetWorld() => _claim.Reset();
 
     /// <summary>Harness: every store on a railed grid: its grid, fill and flow.</summary>
     public static string Describe(Keen.VRage.Core.Game.Systems.Session session)
@@ -44,14 +46,16 @@ public static class WarpBill
 
     public static void Run(Keen.VRage.Core.Game.Systems.Session session)
     {
-        long now = System.Diagnostics.Stopwatch.GetTimestamp();
-        // once a frame, claimed atomically (every beacon's job runs this, in parallel: two read the old stamp and both billed)
-        long last = System.Threading.Interlocked.Read(ref _last);
-        if (last != 0 && (now - last) / (double)System.Diagnostics.Stopwatch.Frequency < 0.004) return;
-        if (System.Threading.Interlocked.CompareExchange(ref _last, now, last) != last) return;
+        // once a frame, claimed by the game's frame time (every beacon's job runs this, in parallel). (2026-10-15: a 4 ms wall
+        // gate let a planet's job starting 4-8 ms after the winner bill the same frame again - batteries drained 2x in warp,
+        // warp cut early - and the bill was a fixed 1/60 s while the clock advanced by the real frame time: FrameClaim.)
+        // No game time (never on a server scene): nothing billed.
+        Keen.VRage.Core.Game.GameSystems.GameTimes.IGameTime gt = null;
+        try { gt = session?.Get<Keen.VRage.Core.Game.GameSystems.GameTimes.IGameTime>(); } catch { gt = null; }
+        if (gt == null || !_claim.TryClaim(gt.CurrentGameTime.Ticks, 0.25, out double dt)) return;   // (0.25: SystemHost.AdvanceClock's stall clamp)
         double warp = SystemHost.Timescale;
-        if (!Enabled || session == null || !(warp > 1.0) || !SystemHost.Built || SystemHost.Frames == null) return;
-        double surplus = (warp - 1.0) / 60.0;   // s of game time this frame did not simulate
+        if (!Enabled || !(warp > 1.0) || !(dt > 0) || !SystemHost.Built || SystemHost.Frames == null) return;
+        double surplus = (warp - 1.0) * dt;   // s of game time this frame did not simulate
 
         // The grids on rails, and which of them are yours (in the player's frame).
         var railed = new Dictionary<Entity, (string name, bool yours)>();

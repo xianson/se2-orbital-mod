@@ -140,7 +140,6 @@ public static class ServerFrames
     /// <summary>Guards the frame registry and frame state across the client and server threads.</summary>
     public static readonly object FramesLock = new object();
 
-    /// <summary>Frame id -> the frame's acceleration A (m/s²) from the last fold (published by the anchor owner).</summary>
     // Members steered along their own orbits in warp: their true relative velocity, and ticks left after warp ends.
     private static readonly Dictionary<long, Vector3D> _trueRel = new Dictionary<long, Vector3D>();
     private static readonly Dictionary<long, int> _settle = new Dictionary<long, int>();
@@ -208,6 +207,7 @@ public static class ServerFrames
         }
         return to;
     }
+    /// <summary>Frame id -> the frame's acceleration A (m/s²) from the last fold (published by the anchor owner).</summary>
     public static readonly Dictionary<long, Vector3D> AnchorAccel = new Dictionary<long, Vector3D>();
 
     private static long _lastTickStamp;
@@ -1492,10 +1492,6 @@ public static class ServerFrames
     public static bool MoveGrid(OrbitalGridComponent g, Vector3D target, Vector3D? setVel, Vector3D addVel = default, Quaternion? rotate = null)
         => MoveGrid(g, target, setVel, out _, addVel, rotate);
 
-    /// <summary>As above; with: the other grids that move with it (its joined group), for the caller's frame bookkeeping.</summary>
-    /// <summary>rotate: turns the grid (its orientation and spin; a joined set rigidly, about this grid) - crossing between
-    /// a planet's rotating chart and the inertial frames, positions and velocities were turned and orientations not: the
-    /// ship arrived rotated against its own motion (and its cockpit's target, FrameHost, with it).</summary>
     /// <summary>
     /// A second move of a jointed group in the same tick (a re-pin, then an arrival, a merge or a split): added to the one
     /// already queued for the whole group - it returned "moved" and did nothing (the group stayed in the empty berth while
@@ -1530,6 +1526,10 @@ public static class ServerFrames
         return true;
     }
 
+    /// <summary>As above; with: the other grids that move with it (its joined group), for the caller's frame bookkeeping.</summary>
+    /// <summary>rotate: turns the grid (its orientation and spin; a joined set rigidly, about this grid) - crossing between
+    /// a planet's rotating chart and the inertial frames, positions and velocities were turned and orientations not: the
+    /// ship arrived rotated against its own motion (and its cockpit's target, FrameHost, with it).</summary>
     public static bool MoveGrid(OrbitalGridComponent g, Vector3D target, Vector3D? setVel, out List<OrbitalGridComponent> with, Vector3D addVel = default, Quaternion? rotate = null)
     {
         with = new List<OrbitalGridComponent>();
@@ -1582,7 +1582,6 @@ public static class ServerFrames
     private static readonly Dictionary<Entity, Quaternion> _deferredRot = new Dictionary<Entity, Quaternion>();
     private static long _deferredStamp;
 
-    /// <summary>The queued moves, all in one go (once a frame, whichever beacon's job comes first).</summary>
     /// <summary>Piloted grids the server just turned (crossing between a planet's rotating chart and the inertial frames): the
     /// client turns their cockpit's target with them (TargetControlData is the client's - what the mouse moves; left
     /// unturned, the gyros swung the ship back by the chart's angle: 80 deg within 2 s of the handover, seated - DevReentry).
@@ -1649,6 +1648,7 @@ public static class ServerFrames
     }
     static Action<Entity> _noteMoved; static long _noteMovedRetryAt;
 
+    /// <summary>The queued moves, all in one go (once a frame, whichever beacon's job comes first).</summary>
     public static void RunDeferredMoves()
     {
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -2412,7 +2412,6 @@ public static class ServerFrames
     private static bool IsFinite(Vector3D v) => IsFinite(v.X) && IsFinite(v.Y) && IsFinite(v.Z);
 }
 
-/// <summary>Ticks per second over the last second (harness diagnostics).</summary>
 /// <summary>What the mod's own code costs per frame (ms): the average and the worst over the last full second.</summary>
 public sealed class ModCost
 {
@@ -2479,6 +2478,7 @@ public sealed class ModCost
     }
 }
 
+/// <summary>Ticks per second over the last second (harness diagnostics).</summary>
 public sealed class TickRate
 {
     public static readonly TickRate Client = new TickRate();

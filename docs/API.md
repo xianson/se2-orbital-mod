@@ -1,6 +1,6 @@
 # Orbital Mod API
 
-The Orbital Mod exposes its data to other mods through one class, `OrbitalMod.OrbitalApi` (`Scripts/Simulation/Frames/OrbitalApi.cs`), and its settings through the same class (`Scripts/Simulation/Frames/OrbitalSettings.cs`).
+The Orbital Mod exposes its data to other mods through one class, `OrbitalMod.OrbitalApi` (`Scripts/Simulation/Api/OrbitalApi.cs`), and its settings through the same class (`Scripts/Simulation/Host/OrbitalSettings.cs`).
 
 ## How to call it
 

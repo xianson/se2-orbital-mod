@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # test_perf.sh — what the mod's own code costs per frame (ms, average / worst over a second) in its heaviest
-# scenes; FAIL when the average passes a budget. Reads the 'modcost' status line (ModCost in ServerFrames.cs).
+# scenes; FAIL when the average passes a budget. Reads the 'modcost' status line (ModCost in Host/ModCost.cs).
 source "$(dirname "$0")/testlib.sh"
 [ "$1" = "--no-relaunch" ] || { echo "== relaunch"; "$SP/relaunch.sh" 2>&1 | tail -1; hold 15
 # (a stand-in telescope where you are: the harness world has no sensor block built; eyes alone see 20 km)

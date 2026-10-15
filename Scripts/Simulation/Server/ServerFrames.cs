@@ -250,7 +250,18 @@ public static partial class ServerFrames
         if (ms > 2) _slow.Append(name).Append(' ').Append(ms.ToString("F0")).Append(" ms, ");
     }
 
+    // (one step at a time, 2026-10-15: a second planet's job through the 8 ms claim while the first still ran stepped
+    //  TickBody alongside it, on the same unlocked lists - "Collection was modified", the views and snapshot interleaved.
+    //  A job finding a step running leaves the frame to it)
+    static int _stepping;
     public static void Tick(Keen.VRage.Core.Game.Systems.Session session)
+    {
+        if (System.Threading.Interlocked.CompareExchange(ref _stepping, 1, 0) != 0) return;
+        try { TickClaimed(session); }
+        finally { System.Threading.Volatile.Write(ref _stepping, 0); }
+    }
+
+    static void TickClaimed(Keen.VRage.Core.Game.Systems.Session session)
     {
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
         // once per frame - claimed atomically: the planet beacons' jobs call this in parallel, and two could both pass a

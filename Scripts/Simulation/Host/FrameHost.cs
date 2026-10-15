@@ -320,6 +320,7 @@ public static partial class FrameHost
         Guard("OrbitHud.Draw", static a => OrbitHud.Draw(a.Session), ta);
         Guard("BuildHints.Draw", static a => BuildHints.Draw(a.Session), ta);   // (holding a block: the aimed ship's stability, top speed)
         Guard("SpdIcon.Draw", static a => SpdIcon.Draw(a.Session), ta);   // (seated: the cockpit SPD box's missing speedometer)
+        Guard("StructureAlerts.Tick", static a => StructureAlerts.Tick(a.Session), ta);   // (seated: aero's structure failures on your ship, a toast)
         Guard("AlignButton.Draw", static a => AlignButton.Draw(a.Session), ta);   // (seated: the attitude hold's toggle after the dampeners, its hint)
         Guard("EffectCull.Tick", static a => EffectCull.Tick(a.Session, a.Camera.Position), ta);   // (far grids' looping block effects hidden: drawn on the sky past the far plane)
         Guard("WarpBar", static a => WarpBar.DrawHud(a.Session), ta);

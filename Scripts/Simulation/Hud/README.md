@@ -12,12 +12,13 @@
 | `Targets.cs` | What can be targeted and where it is (the key in `Maneuvers.Target`). |
 | `CrossingFade.cs` | The fade across a seated arrival into a planet frame. |
 | `SpdIcon.cs` | The speedometer icon in the cockpit's SPD box. |
+| `StructureAlerts.cs` | The Aerodynamics Mod's structure failures on the ship you fly (AeroApi v7 `ReadStructureEvents`, through `AeroLink`), as a toast. |
 | `HudGeom.cs` | The game's HUD places, read off its controls (UI thread). |
 | `NativeHints.cs` | Our key hints as the game's own hint line (UI thread). |
 | `UiThread.cs` | Avalonia by reflection: dispatcher, visual tree, bounds, held transforms. |
 
 **Entry points / threading.** Client only, from `FrameHost.Tick` (the planet frame job, once a frame): `FrameMarkers.Tick`,
-`OrbitHud.Draw`, `SpdIcon.Draw`, `CrossingFade.Tick`; `OrbitDisplay.DrawFrameOrbit` from `FrameHost` itself, and
+`OrbitHud.Draw`, `SpdIcon.Draw`, `StructureAlerts.Tick`, `CrossingFade.Tick`; `OrbitDisplay.DrawFrameOrbit` from `FrameHost` itself, and
 `OrbitDisplay.Consider` from each planet's `PlanetFrameComponent` tick (in no frame, map closed). Drawing goes
 through `Render/MapPipeline` inside a `UiBegin`/`UiEnd` batch. `HudGeom`, `NativeHints` and anything touching a control run
 on the UI thread, inside the job `AlignButton` posts (`UiThread.Post`, its only caller); `HudGeom`'s results are `volatile` arrays the draw reads.

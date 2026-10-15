@@ -112,7 +112,7 @@ How the names are reached:
 | `settingsui` | test_integrate.sh (not a verb yet - the settings UI branch adds it; until then SKIP. The script wants a reply naming the tab with "found" (or true/yes/shown) and "N rows") |
 | `sensornopower` | test_save.sh, test_smoke.sh |
 | `setting` | settingsui.sh |
-| `settingsui` | settingsui.sh (`open`, `select`, `flip <setting>`, `close`, `report`) |
+| `settingsui` | settingsui.sh (`open`, `select`, `flip <setting>`, `close`, `report`); by hand for screenshots: `expand all\|none\|section\|advanced`, `scroll top\|bottom\|<px>\|<setting>` |
 | `shot` | experiments/fxlook.sh, experiments/herctrail.sh, experiments/tipab.sh, experiments/tipsweep.sh, experiments/wings.sh, holdcharge.sh, orb.sh, trails.sh |
 | `shotui` | 22 scripts (contactsave.sh, contactshot.sh, experiments/ascentshot.sh, experiments/cullab.sh, ...) |
 | `sites` | map_compare.sh, rv_cases.sh, rv_views.sh |

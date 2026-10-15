@@ -40,26 +40,9 @@ public static class GameUi
         catch (Exception e) { LastError = "card: " + (e.InnerException ?? e).Message; return null; }
     }
 
-    /// <summary>Change the card's text in place (only when it changed).</summary>
-    public static void UpdateCard(Card c, string title, string content)
-    {
-        if (c?.Vm == null) return;
-        try
-        {
-            if (title != c.Title) { c.Vm.GetType().GetProperty("Title").SetValue(c.Vm, title); c.Title = title; }
-            if (content != c.Content) { c.Vm.GetType().GetProperty("Content").SetValue(c.Vm, content); c.Content = content; }
-        }
-        catch (Exception e) { LastError = "card update: " + (e.InnerException ?? e).Message; }
-    }
-
     public static void CloseCard(Card c)
     {
         try { (c?.Vm as IDisposable)?.Dispose(); } catch { }
-    }
-
-    public static bool IsOpen(Card c)
-    {
-        try { return c?.Vm != null && c.Vm.GetType().GetProperty("ScreenViewModel")?.GetValue(c.Vm) != null; } catch { return false; }
     }
 
     // ── toasts ──

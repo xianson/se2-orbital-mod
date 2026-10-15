@@ -501,14 +501,14 @@ public static class PlanetMesh
         }
         const float extent = 1f;
         object rmd = Activator.CreateInstance(_tRmd);
-        SetField(rmd, "_vertexStream0", vs0);
-        SetField(rmd, "_vertexStream1", vs1);
-        SetField(rmd, "_vertexStream2", NewBuffer(typeof(Keen.VRage.Core.Render.Data.VertexFormatNull)));
-        SetField(rmd, "_indices", idx);
-        SetField(rmd, "_subParts", subs);
-        SetField(rmd, "_meshSections", sections);
-        SetField(rmd, "_bones", NewBuffer(typeof(Keen.VRage.Core.Model.ModelBone)));
-        SetField(rmd, "_debugName", "OrbitalPlanetGlobe_" + info.Name);
+        PlanetRenderBridge.SetBoxedField(rmd, "_vertexStream0", vs0);
+        PlanetRenderBridge.SetBoxedField(rmd, "_vertexStream1", vs1);
+        PlanetRenderBridge.SetBoxedField(rmd, "_vertexStream2", NewBuffer(typeof(Keen.VRage.Core.Render.Data.VertexFormatNull)));
+        PlanetRenderBridge.SetBoxedField(rmd, "_indices", idx);
+        PlanetRenderBridge.SetBoxedField(rmd, "_subParts", subs);
+        PlanetRenderBridge.SetBoxedField(rmd, "_meshSections", sections);
+        PlanetRenderBridge.SetBoxedField(rmd, "_bones", NewBuffer(typeof(Keen.VRage.Core.Model.ModelBone)));
+        PlanetRenderBridge.SetBoxedField(rmd, "_debugName", "OrbitalPlanetGlobe_" + info.Name);
         _tRmd.GetProperty("AABB").SetValue(rmd, new BoundingBox(new Vector3(-extent), new Vector3(extent)));
 
         object contracts = PlanetRenderBridge.Contracts;
@@ -521,16 +521,6 @@ public static class PlanetMesh
             if (NormalMaps && info.NTex[k].HasValue) info.Mesh.Textures.Add(info.NTex[k].Value);
         }
         return null;
-    }
-
-    private static void SetField(object boxed, string name, object value)
-    {
-        for (Type t = boxed.GetType(); t != null; t = t.BaseType)
-        {
-            var f = t.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-            if (f != null) { f.SetValue(boxed, value); return; }
-        }
-        throw new MissingFieldException(boxed.GetType().Name, name);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

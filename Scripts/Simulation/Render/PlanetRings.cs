@@ -398,9 +398,9 @@ public static class PlanetRings
 
         // As the game: RuntimeMeshData(name, counts) then its streams; ours replace the empty ones.
         object rmd = Activator.CreateInstance(_tRmd, new object[] { "OrbitalProxyRing_" + r.Name, 0, 0, -1, -1, Allocator.Heap });
-        SetField(rmd, "_vertexStream0", vs0);
-        SetField(rmd, "_indices", idx);
-        SetField(rmd, "_subParts", subs);
+        PlanetRenderBridge.SetBoxedField(rmd, "_vertexStream0", vs0);
+        PlanetRenderBridge.SetBoxedField(rmd, "_indices", idx);
+        PlanetRenderBridge.SetBoxedField(rmd, "_subParts", subs);
         _tRmd.GetProperty("AABB").SetValue(rmd, bb);
 
         object contracts = PlanetRenderBridge.Contracts;
@@ -489,16 +489,6 @@ public static class PlanetRings
         x.KBuilt = -1;
         x.LastK = -1;
         x.Shown = false;
-    }
-
-    private static void SetField(object boxed, string name, object value)
-    {
-        for (Type t = boxed.GetType(); t != null; t = t.BaseType)
-        {
-            var f = t.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-            if (f != null) { f.SetValue(boxed, value); return; }
-        }
-        throw new MissingFieldException(boxed.GetType().Name, name);
     }
 
     public static string Status()

@@ -150,6 +150,10 @@ public static class PlanetMesh
         }
     }
 
+    /// <summary>A new world (WorldReset.ClientSession): the last world's planets' globes retired (each disposed once no proxy
+    /// uses it) and forgotten - kept, every world's planets stayed in memory (2026-10-15).</summary>
+    internal static void ResetWorld() { Invalidate(); lock (_sync) _infos.Clear(); }
+
     /// <summary>The planet's hi-res globe for this generation (built on first use), or null.</summary>
     public static Built Get(PlanetRenderBridge.PlanetHandles h)
     {

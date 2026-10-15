@@ -113,6 +113,7 @@ public partial class ServerPlanetBeacon : Component, IInSceneListener
         // (this world's server session, every load: set once per process, a second world loaded kept the first one's dead
         //  session, and IsServer was false for every grid in it - nothing framed)
         ServerSession = Entity.GetSession();
+        WorldReset.ServerSession(ServerSession);   // (another world's session, its unload not seen: the last world's statics dropped)
         OrbitalSettings.BeaconAdded();   // (the world's settings: the host's overrides file, the server side seen)
         _beacon = new PlanetBeacon
         {
@@ -146,6 +147,7 @@ public partial class ServerPlanetBeacon : Component, IInSceneListener
         OrbitalSettings.BeaconRemoved();   // (the last one: world settings back to defaults for the next world)
         if (_beacon != null) PlanetBeacons.Remove(_beacon);
         _beacon = null;
+        if (PlanetBeacons.Count == 0) WorldReset.Unloaded();   // (the last planet: every per-world static dropped)
     }
 
     internal static string Fmt(Vector3D v) => $"({v.X / 1000:F1}, {v.Y / 1000:F1}, {v.Z / 1000:F1}) km";

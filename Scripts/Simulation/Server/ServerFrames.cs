@@ -207,6 +207,9 @@ public static partial class ServerFrames
 
     private static long _lastTickStamp;
     private static DateTime _lastGameTime;
+    /// <summary>A new world (WorldReset): its game clock starts again (a game time earlier than the last world's read as
+    /// paused - no server step until it caught up).</summary>
+    internal static void ResetClock() { System.Threading.Interlocked.Exchange(ref _lastTickStamp, 0); _lastGameTime = default; }
     private static int _tick;
 
     /// <summary>Server-side view of the player character's position.</summary>
@@ -247,7 +250,18 @@ public static partial class ServerFrames
         if (ms > 2) _slow.Append(name).Append(' ').Append(ms.ToString("F0")).Append(" ms, ");
     }
 
+    // (one step at a time, 2026-10-15: a second planet's job through the 8 ms claim while the first still ran stepped
+    //  TickBody alongside it, on the same unlocked lists - "Collection was modified", the views and snapshot interleaved.
+    //  A job finding a step running leaves the frame to it)
+    static int _stepping;
     public static void Tick(Keen.VRage.Core.Game.Systems.Session session)
+    {
+        if (System.Threading.Interlocked.CompareExchange(ref _stepping, 1, 0) != 0) return;
+        try { TickClaimed(session); }
+        finally { System.Threading.Volatile.Write(ref _stepping, 0); }
+    }
+
+    static void TickClaimed(Keen.VRage.Core.Game.Systems.Session session)
     {
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
         // once per frame - claimed atomically: the planet beacons' jobs call this in parallel, and two could both pass a
@@ -386,8 +400,9 @@ public static partial class ServerFrames
         }
 
         { long _s0 = Sw(); if (_tick % 30 == 0) { BuildSnapshot(); AdoptLooseGrids(); } Sec("snapshot", _s0); }
-        { long _s0 = Sw(); if (_tick % 5 == 0) BuildViews();
-        else RefreshGridPositions(); Sec("views", _s0); }   // (every tick: a seated player's grid is matched against them - PlayerOrbit)
+        // (the positions EVERY tick: a seated player's grid is matched against them - PlayerOrbit. 2026-10-15: every 5th tick
+        //  the views were built INSTEAD, and the positions were a tick stale)
+        { long _s0 = Sw(); RefreshGridPositions(); if (_tick % 5 == 0) BuildViews(); Sec("views", _s0); }
         DevStress.Tick();
         if (DevFreeGrids)
         {
@@ -411,9 +426,21 @@ public static partial class ServerFrames
     internal static void Forget(long gridId)
     {
         // (all per-grid state: _gridN, _trueRel and _settle outlived their grid - a stale _gridN rescaled a later joiner)
-        lock (FramesLock) { Holding.Remove(gridId); _gridHighSpeed.Remove(gridId); _gridN.Remove(gridId); _trueRel.Remove(gridId); _settle.Remove(gridId); _vSet.Remove(gridId); }
+        // (and _joinedOf - its HashSet of entities kept a deleted anchor's joined grids alive - and the invariants' grid sets, 2026-10-15)
+        lock (FramesLock) { Holding.Remove(gridId); _gridHighSpeed.Remove(gridId); _gridN.Remove(gridId); _trueRel.Remove(gridId); _settle.Remove(gridId); _vSet.Remove(gridId); _joinedOf.Remove(gridId); _everFramed.Remove(gridId); _unframedSince.Remove(gridId); }
         lock (GridPositions) GridPositions.Remove(gridId);
         EncounterFrames.ForgetKind(gridId);
+    }
+
+    /// <summary>A frame leaves the registry (FrameRegistry.Retiring - every Dissolve, a merge's incomer; FramesLock held): its
+    /// per-frame state goes with it. (2026-10-15: AnchorAccel was dropped at 4 of the 8 dissolve sites - a stale acceleration
+    /// could push a reused frame id; the entry state at none, EntryHost.Forget had no caller.)</summary>
+    internal static void FrameRetiring(ProximityFrame f, bool merged)
+    {
+        long id = f.Id;
+        AnchorAccel.Remove(id);
+        _rockOf.Remove(id); _rebasePending.Remove(id); _lastSteerNow.Remove(id); _arrivalNoticed.Remove(id); _born.Remove(id); _dirtySince.Remove(id);
+        EntryHost.Retire(f, merged);
     }
 
     // ───────────────────────────── helpers ─────────────────────────────

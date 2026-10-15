@@ -228,7 +228,7 @@ public static partial class PlanetRenderBridge
         if (renderComponent == null || !ResolveRender()) return;
         // Only on a change, and only on a valid model: the call is replayed on the render thread,
         // where a bad id is fatal (seen in game: a root entity behind a render component crashed it).
-        if (_rcVisible.TryGetValue(renderComponent, out bool was) && was == visible) return;
+        if (_rcVisible.TryGetValue(renderComponent, out var was) && was.Value == visible) return;
         try
         {
             object model = GetMember(renderComponent, "RenderModelEntity");
@@ -236,14 +236,16 @@ public static partial class PlanetRenderBridge
             string modelType = model.GetType().Name;
             if (modelType != "ModelEntity") { WarnOnce("rc-type", "render component model is " + modelType + "; not toggled"); return; }
             model.GetType().GetMethod("SetRenderFlagsState")?.Invoke(model, new[] { Enum.ToObject(_renderFlagsType, 0x1), (object)visible });
-            _rcVisible[renderComponent] = visible;
+            _rcVisible.GetValue(renderComponent, _ => new StrongBox<bool>()).Value = visible;
         }
         catch (Exception e) { WarnOnce("rc-vis", $"render component visibility failed: {Inner(e)}"); }
     }
 
-    private static readonly Dictionary<object, bool> _rcVisible = new Dictionary<object, bool>();
+    // (weak, both: keyed by the game's render objects, they held every world's alive in the process - 2026-10-15. Weak, not
+    //  cleared per world: a map object of the next world hidden before a clear would read its hide scale back as its own)
+    private static readonly ConditionalWeakTable<object, StrongBox<bool>> _rcVisible = new ConditionalWeakTable<object, StrongBox<bool>>();
 
-    private static readonly Dictionary<object, float> _origScale = new Dictionary<object, float>(ReferenceEqualityComparer.Instance);
+    private static readonly ConditionalWeakTable<object, StrongBox<float>> _origScale = new ConditionalWeakTable<object, StrongBox<float>>();
 
     /// <summary>
     /// Scale a colonization-map object (MapObjectRenderComponent.UpdateScale, the engine's own path).
@@ -260,8 +262,8 @@ public static partial class PlanetRenderBridge
             if (model == null || !(GetMember(model, "IsValid") is bool ok) || !ok || model.GetType().Name != "ModelEntity") return;
             // Its own scale, remembered before the first change (UpdateScale overwrites _scale, so reading
             // it back to restore re-applied the tiny hide scale).
-            if (!_origScale.ContainsKey(mapObject)) _origScale[mapObject] = GetMember(mapObject, "_scale") is float s0 && s0 > 0 ? s0 : 1f;
-            float m = multiplier > 0 ? multiplier : _origScale[mapObject];
+            if (!_origScale.TryGetValue(mapObject, out var orig)) { orig = new StrongBox<float>(GetMember(mapObject, "_scale") is float s0 && s0 > 0 ? s0 : 1f); _origScale.AddOrUpdate(mapObject, orig); }
+            float m = multiplier > 0 ? multiplier : orig.Value;
             if (!(m > 0) || float.IsInfinity(m)) return;
             mapObject.GetType().GetMethod("UpdateScale")?.Invoke(mapObject, new object[] { m });
         }

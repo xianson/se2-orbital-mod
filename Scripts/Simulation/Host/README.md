@@ -6,6 +6,11 @@
   the server half's requests), `.Teleport`, `.Seat` (the seated player's orbit), `.Crossing` (camera / shake / cockpit
   target across a chart crossing), `.Guard` (faults logged and skipped, per-system cost, the DEV allocation watch).
 - `SystemHost.cs` - builds and owns the system from the world: registry, universe clock (`AdvanceClock`, warp), frames.
+- `WorldReset.cs` - THE per-world reset (statics outlive a world: the assembly stays loaded). Run once per world change:
+  the last server planet leaving the scene (`Unloaded`), or a server planet joining in a session not the last world's
+  with no unload seen (`ServerSession`; the new world's pending save is kept). Every per-world static goes through it -
+  a new one is added to its list, not given a reset of its own. `ResetSystem` is the system's part, also run by every
+  `SystemHost.Build`.
 - `OrbitalSettings.cs` - the mod's settings (world scope rides `SavedState`, client scope a file); `docs/API.md`.
 - `ModCost.cs` - `ModCost` / `TickRate`: what the mod's code costs per frame and the tick rates (the `modcost` status
   line, `[HITCH]`).

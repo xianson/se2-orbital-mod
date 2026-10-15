@@ -152,30 +152,22 @@ public static partial class ServerFrames
 
     static void CallNoteMoved(Entity e)
     {
-        var fn = System.Threading.Volatile.Read(ref _noteMoved);
-        if (fn == null)
+        // (bound once per aero assembly - AeroLink, the last loaded copy: an aero mod that loads later or is reloaded is bound
+        //  again; bound once for good, a reload kept the stale copy, 2026-10-15. A typed delegate: no argument array, no
+        //  Invoke per move)
+        int gen = AeroLink.Generation;
+        if (gen != System.Threading.Volatile.Read(ref _noteMovedGen))
         {
-            // (looked up again every few seconds until found - the aero mod can load later; the LAST loaded assembly that has
-            //  the method wins: an older or stale copy may be loaded too. Bound once as a typed delegate: no argument array,
-            //  no Invoke per move)
-            long now = System.Diagnostics.Stopwatch.GetTimestamp();
-            if (now < System.Threading.Volatile.Read(ref _noteMovedRetryAt)) return;
-            System.Threading.Volatile.Write(ref _noteMovedRetryAt, now + 5 * System.Diagnostics.Stopwatch.Frequency);
-            System.Reflection.MethodInfo mi = null;
-            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                Type t; try { t = asm.GetType("AeroMod.AeroApi"); } catch { continue; }
-                var m = t?.GetMethod("NoteMoved", new[] { typeof(Entity) });   // (explicit parameter types: a later overload must not make it ambiguous)
-                if (m != null) mi = m;
-            }
-            if (mi == null) return;
-            fn = (Action<Entity>)Delegate.CreateDelegate(typeof(Action<Entity>), mi, false);
-            if (fn == null) return;   // (an unexpected signature: as absent)
-            System.Threading.Volatile.Write(ref _noteMoved, fn);
+            var m = AeroLink.Find("AeroMod.AeroApi")?.GetMethod("NoteMoved", new[] { typeof(Entity) });   // (explicit parameter types: a later overload must not make it ambiguous)
+            var bound = m == null ? null : (Action<Entity>)Delegate.CreateDelegate(typeof(Action<Entity>), m, false);   // (an unexpected signature: as absent)
+            System.Threading.Volatile.Write(ref _noteMoved, bound);
+            System.Threading.Volatile.Write(ref _noteMovedGen, gen);
         }
+        var fn = System.Threading.Volatile.Read(ref _noteMoved);
+        if (fn == null) return;
         try { fn(e); } catch { }
     }
-    static Action<Entity> _noteMoved; static long _noteMovedRetryAt;
+    static Action<Entity> _noteMoved; static int _noteMovedGen = -1;
 
     /// <summary>The queued moves, all in one go (once a frame, whichever beacon's job comes first).</summary>
     public static void RunDeferredMoves()

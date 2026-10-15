@@ -122,11 +122,8 @@ public static partial class DevHarness
 
             case "fxcheck":   // fxcheck [reset]: the aero mod's effect consistency since the last reset (every drawn frame judged)
             {
-                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-                {
-                    var t = asm.GetType("AeroMod.AeroApi"); var m = t?.GetMethod("GetFxConsistency", new[] { typeof(bool) }); if (m == null) continue;
-                    return (string)m.Invoke(null, new object[] { a.Length > 1 && a[1] == "reset" });
-                }
+                var t = AeroLink.Find("AeroMod.AeroApi"); var m = t?.GetMethod("GetFxConsistency", new[] { typeof(bool) });
+                if (m != null) return (string)m.Invoke(null, new object[] { a.Length > 1 && a[1] == "reset" });
                 return "fxcheck: the aero mod has no GetFxConsistency";
             }
 

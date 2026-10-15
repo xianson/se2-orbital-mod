@@ -17,8 +17,11 @@ public static class EntryHost
     public static bool Enabled = true;
     /// <summary>The world's speed cap (m/s): what the band slows you to.</summary>
     public static double Cap => double.IsNaN(TestCap) ? FrameHost.SpeedCap : TestCap;   // (the arrival's cap: a hair under the world's)
-    /// <summary>Harness: a lower cap for the reentry rules only (NaN: the world's).</summary>
+    /// <summary>Harness: a lower cap for the reentry rules only (NaN: the world's) - the band, an airless border's clamp, and
+    /// the arrival's cap (client and server: <see cref="OverCap"/>).</summary>
     public static double TestCap = double.NaN;
+    /// <summary>An arrival's speed over <see cref="Cap"/> (the one margin: Reentry.CapSlack).</summary>
+    public static bool OverCap(double speed) => Reentry.OverCap(speed, Cap);
     /// <summary>Warp stops this long before the braking starts.</summary>
     public const double WarpLead = 30.0;
 
@@ -49,12 +52,12 @@ public static class EntryHost
     public const int AeroEntryContract = 2;
     const string AeroOwner = "OrbitalMod";
     static System.Reflection.MethodInfo _aeroRegister, _aeroHas;
-    static int _aeroAsmCount = -1;
+    static int _aeroGen = -1;
     static Func<Entity, ValueTuple<Vector3, float>> _glowSource;
     /// <summary>Diagnostics: why the aero hook is not set ("" when it is).</summary>
     public static string GlowWhy = "not tried";
 
-    /// <summary>Register with the aero mod (about every 10 s): found once per change of the loaded assemblies (no scan
+    /// <summary>Register with the aero mod (about every 10 s): bound once per change of the aero assembly (AeroLink; no scan
     /// otherwise - the aero mod absent costs nothing), then a cheap "still registered?" (a new session or a reloaded
     /// aero mod re-registers).</summary>
     static void HookAero()
@@ -62,15 +65,15 @@ public static class EntryHost
         _glowSource ??= Glow;
         try
         {
-            var asms = AppDomain.CurrentDomain.GetAssemblies();
-            if (asms.Length != _aeroAsmCount)
+            // (bound again whenever the aero assembly changes - AeroLink, the last loaded copy: bound to the first, a hot-reloaded
+            //  aero mod's glow went into its stale copy and still read as hooked, 2026-10-15)
+            int gen = AeroLink.Generation;
+            if (gen != _aeroGen)
             {
-                _aeroAsmCount = asms.Length; _aeroRegister = _aeroHas = null; _glowHooked = false;
-                foreach (var a in asms)
+                _aeroGen = gen; _aeroRegister = _aeroHas = _aeroPredict = _aeroAtmoAt = _aeroRequestTable = null; _glowHooked = false;
+                var t = AeroLink.Find("AeroMod.AeroApi");
+                if (t != null)
                 {
-                    Type t;
-                    try { t = a.GetType("AeroMod.AeroApi"); } catch { continue; }
-                    if (t == null) continue;
                     // (every lookup with its parameter types: an overload added on aero's side must never make one
                     //  ambiguous - AmbiguousMatchException - or bind the wrong one; API.md: public members are never overloaded)
                     var vr = typeof(Vector3).MakeByRefType(); var fr = typeof(float).MakeByRefType();
@@ -79,7 +82,6 @@ public static class EntryHost
                     _aeroPredict = t.GetMethod("PredictHullForces", new[] { typeof(Entity), typeof(Vector3), typeof(float), typeof(float), vr, vr, fr });   // (aerobraking: each ship's drag area)
                     _aeroAtmoAt = t.GetMethod("TryGetAtmosphereAt", new[] { typeof(Vector3D), fr, fr, fr, fr });   // (the border's density: the rails' drag matched to aero's)
                     _aeroRequestTable = t.GetMethod("RequestForceTable", new[] { typeof(Entity) });   // (a railed grid has none until asked)
-                    break;
                 }
                 if (_aeroRegister == null || _aeroHas == null) { GlowWhy = "aero mod not loaded (or older than contract " + AeroEntryContract + ")"; return; }
             }
@@ -89,7 +91,7 @@ public static class EntryHost
             _glowHooked = c == AeroEntryContract;
             GlowWhy = _glowHooked ? "" : $"aero mod speaks contract {c}, this build {AeroEntryContract}";
         }
-        catch (Exception e) { _glowHooked = false; _aeroRegister = null; _aeroAsmCount = -1; GlowWhy = "hook failed: " + e.GetType().Name; }
+        catch (Exception e) { _glowHooked = false; _aeroRegister = null; _aeroGen = -1; GlowWhy = "hook failed: " + e.GetType().Name; }
     }
 
     // ── the ENTRY STATE (OrbitalApi.TryGetEntryState / TryGetEntryState2, 2026-10-14): per grid, written on EVERY tick its
@@ -397,7 +399,19 @@ public static class EntryHost
         Prediction = null; Airless = null;
     }
 
-    public static void Forget(long frameId) { lock (_heat) { _last.Remove(frameId); _heat.Remove(frameId); _braking.Remove(frameId); _inPass.Remove(frameId); } lock (_beta) _beta.Remove(frameId); }
+    public static void Forget(long frameId) { lock (_heat) { _last.Remove(frameId); _heat.Remove(frameId); _braking.Remove(frameId); _inPass.Remove(frameId); _jolted.Remove(frameId); } lock (_beta) _beta.Remove(frameId); }
+
+    /// <summary>A frame leaves the registry (ServerFrames.FrameRetiring, FramesLock held): its per-frame state goes (Forget
+    /// had no caller: heat, braking, the ballistic coefficient grew per frame for good, _inPass stayed true after an
+    /// arrival); dissolved (not merged), its members' entry ends too - their wear and plasma (2026-10-15: an arrival kept
+    /// a grid's spent wear, upTo = MaxValue, so it took no heat wear again for the world).</summary>
+    internal static void Retire(ProximityFrame f, bool merged)
+    {
+        Forget(f.Id);
+        if (merged) return;   // (its grids go on in the host: their entry with them)
+        lock (_heat) foreach (long id in f.Members) _wear.Remove(id);
+        ForgetGlow(f);
+    }
 
     /// <summary>Server tick (FramesLock held): brake every railed frame inside a band. Calls no aero member (the ballistic
     /// coefficients and the border's air it needs are measured after the lock: ServerAfterLock).</summary>
@@ -483,6 +497,25 @@ public static class EntryHost
             done.Clear();
         }
         _stBraking = braking; _stCap = Cap; _stTicked = true;
+        if (++_pruneTick % 60 == 0) PruneFaded();
+    }
+
+    // (a grid deleted mid-entry is no member any more - ForgetGlow finds it by its id: its glow and state, keyed by its Entity,
+    //  held it for good. Faded to nothing, an entry answers exactly as none: dropped, once a second - 2026-10-15)
+    static readonly List<Entity> _faded = new List<Entity>();
+    static int _pruneTick;
+    static void PruneFaded()
+    {
+        lock (_glow)
+        {
+            var dead = _faded; dead.Clear();
+            foreach (var kv in _glow) if (!(Fade(kv.Value.t) > 0)) dead.Add(kv.Key);
+            foreach (var e in dead) _glow.Remove(e);
+            dead.Clear();
+            foreach (var kv in _state) if (!(Fade(kv.Value.t) > 0)) dead.Add(kv.Key);
+            foreach (var e in dead) _state.Remove(e);
+            dead.Clear();
+        }
     }
 
     /// <summary>

@@ -36,6 +36,7 @@ namespace TimeTest
                 TestEffectiveTimescale();
                 TestPocoRoundTrip();
                 TestApplyClampsAndNull();
+                TestFrameClaim();             // O1: warp billed once a frame, for the frame's game time
             }
             catch (Exception ex)
             {
@@ -81,6 +82,37 @@ namespace TimeTest
             // which is why only the GRADED caps needed the seam-sized margin.
             Ok(WarpPolicy.HoldsRealtime(stamp + 1.0 * (seam + 1) / 60.0, stamp, hold, 1.0, 1.0 / 60.0),
                 "at x1 (hard-lock case) a one-tick margin still holds across a seam");
+        }
+
+        // O1 (2026-10-15): WarpBill's once-a-frame gate was 4 ms of WALL time - several planets' jobs of ONE frame starting
+        // 4-8 ms apart billed warp twice - and each bill was a fixed 1/60 s whatever the frame's length. The claim is the
+        // game's frame time: one claim per frame however late a job starts, and the game seconds since the last claim.
+        private static void TestFrameClaim()
+        {
+            Console.WriteLine();
+            Console.WriteLine("[frame claim: once per game frame, billed for its game time]");
+            var c = new FrameClaim();
+            long t0 = 1000 * TimeSpan.TicksPerSecond;
+            double dt;
+            Ok(c.TryClaim(t0, 0.25, out dt) && dt == 0, "the first claim wins, with nothing to bill yet");
+            Ok(!c.TryClaim(t0, 0.25, out dt), "a second planet's job in the same frame (however late on the wall clock) does not claim");
+            long t1 = t0 + TimeSpan.TicksPerSecond / 30;   // a 30 fps frame
+            Ok(c.TryClaim(t1, 0.25, out dt), "the next frame claims");
+            Approx(dt, 1.0 / 30.0, 1e-6, "a 30 fps frame bills its 1/30 s (a fixed 1/60 billed half)");
+            Ok(!c.TryClaim(t1, 0.25, out dt), "...once");
+            Ok(!c.TryClaim(t1, 0.25, out dt), "paused (game time standing still): nothing claimed");
+            Ok(c.TryClaim(t1 + 10 * TimeSpan.TicksPerSecond, 0.25, out dt) && dt == 0.25, "a stall bills at most maxDt");
+            Ok(c.TryClaim(t0 - TimeSpan.TicksPerSecond, 0.25, out dt) && dt == 0, "a new session's earlier clock claims afresh (not held until it caught up)");
+            c.Reset();
+            Ok(c.TryClaim(t1, 0.25, out dt) && dt == 0, "after Reset the first claim bills nothing");
+            // parallel: N jobs per frame, one claim each frame
+            var claims = 0; var fc = new FrameClaim();
+            for (int f = 1; f <= 100; f++)
+            {
+                long g = f * TimeSpan.TicksPerSecond / 60;
+                System.Threading.Tasks.Parallel.For(0, 8, _ => { double d; if (fc.TryClaim(g, 0.25, out d)) System.Threading.Interlocked.Increment(ref claims); });
+            }
+            Ok(claims == 100, "8 parallel jobs a frame over 100 frames: 100 claims (got " + claims + ")");
         }
 
         private static void Approx(double actual, double expected, double absTol, string msg)

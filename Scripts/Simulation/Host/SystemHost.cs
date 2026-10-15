@@ -113,6 +113,16 @@ public static class SystemHost
     private static long _lastClockTicks;
 
     private static DateTime _lastGameTime;
+    /// <summary>The world unloaded (WorldReset): no system until the next world's planets settle (the server gates on Built),
+    /// and the universe clock and warp from zero - a world loaded without a saved state started at the last one's time
+    /// (2026-10-15).</summary>
+    internal static void ResetWorld()
+    {
+        lock (_lock) { Built = false; _lastCount = 0; }   // (under the build's lock: never between a build's start and its end)
+        Now = 0; Timescale = 1.0; WarpStopAt = double.NaN; SpinNow = double.NaN;
+        _lastGameTime = default; _lastClockTicks = 0;
+    }
+
     /// <summary>A new session: its game clock starts again (an earlier game time than the last world's stopped the mod
     /// until it caught up: dt &lt;= 0 every frame).</summary>
     public static void ResetClock() { _lastGameTime = default; }
@@ -301,8 +311,7 @@ public static class SystemHost
         // Stable order: the known planets first (Verdure inside Kemik), then by name, so every build agrees.
         int Rank(PlanetBeacon p) { int i = Array.IndexOf(PlanetOrder, DevHarness.PlanetName(p)); return i < 0 ? PlanetOrder.Length : i; }
         beacons.Sort((a, b) => { int r = Rank(a).CompareTo(Rank(b)); return r != 0 ? r : string.CompareOrdinal(DevHarness.PlanetName(a), DevHarness.PlanetName(b)); });
-        AsteroidFrames.Reset();   // the belts' asteroid frames are built afresh for this system
-        lock (ServerFrames.FramesLock) { EncounterFrames.ResetWorld(); ServerFrames.ResetWorld(); }   // (and the sites and the frames' server state: another world's - under the lock, the server reads them)
+        WorldReset.ResetSystem(build: true);   // (the last system's state: every per-world static is in WorldReset)
 
         var def = new SystemDefinition { Name = "SE2World", EpochSeconds = 0.0 };
         def.Bodies.Add(new BodyDefinition
@@ -377,13 +386,6 @@ public static class SystemHost
         foreach (var b in beacons) far = Math.Max(far, b.Center.Length());
         PlanetBerths.CurrentBerth = new Vector3D(0, far + 2.0e6, 0);
 
-        // (a new world: the last one's berth rules and entry state must not apply - the planet slots are reserved below,
-        //  before this world's zones are set)
-        BerthAllocator.IsForbidden = null; BerthAllocator.IsClear = null;
-        EntryHost.ResetWorld();
-        GridEdits.Clear();   // (what we wrote into the last world's grids: OrbitalApi.TryGetGridEdits)
-        Maneuvers.ResetWorld(); GameMap.ResetWorld(); CleanMap.Reset(); CleanMap.ResetView(); MapGlobes.ResetWorld();
-        VoxelBerthRegistry.Clear();
         SystemBuildResult res = SystemRegistry.Build(def);
         if (!res.Ok)
         {
@@ -415,7 +417,7 @@ public static class SystemHost
             foreach (var z in planetZones) if ((c - z.c).Length() < z.r + r) return true;
             return false;
         };
-        FrameRegistry.Publish(new FrameRegistry(alloc));
+        FrameRegistry.Publish(new FrameRegistry(alloc) { Retiring = ServerFrames.FrameRetiring });   // (per-frame state dropped as a frame goes)
 
         // Inverse-square gravity in each planet cell, reaching across the cell.
         foreach (var kv in BeaconOf)

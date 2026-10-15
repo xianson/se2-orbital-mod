@@ -84,17 +84,20 @@ public static class SavedState
             foreach (var nl in Maneuvers.SaveLines()) sb.Append(nl).Append((char)10);
             // The target: a body, site or rock by name; a ship by its grid (its id mapped on load as members are).
             // The Contacts tab: what you pinned to the HUD, and your names for things (ships by grid, mapped on load).
-            foreach (var pk in ContactsTab.Pinned)
+            // (copied under its lock: the client changes them while a save runs - enumerated live, the save threw)
+            List<string> pinned, hidden; List<KeyValuePair<string, string>> names;
+            lock (ContactsTab.Sync) { pinned = new List<string>(ContactsTab.Pinned); hidden = new List<string>(ContactsTab.HiddenKeys); names = new List<KeyValuePair<string, string>>(ContactsTab.Names); }
+            foreach (var pk in pinned)
             {
                 if (Targets.GridOf(pk, out long pid)) { sb.Append("pingrid ").Append(pid).Append((char)10); Remember(ob, pid); }
                 else sb.Append("pin ").Append(Esc(pk)).Append((char)10);
             }
-            foreach (var hk in ContactsTab.HiddenKeys)
+            foreach (var hk in hidden)
             {
                 if (Targets.GridOf(hk, out long hid)) { sb.Append("chidegrid ").Append(hid).Append((char)10); Remember(ob, hid); }
                 else sb.Append("chide ").Append(Esc(hk)).Append((char)10);
             }
-            foreach (var kv in ContactsTab.Names)
+            foreach (var kv in names)
             {
                 if (Targets.GridOf(kv.Key, out long nid)) { sb.Append("namegrid ").Append(nid).Append(' ').Append(Esc(kv.Value)).Append((char)10); Remember(ob, nid); }
                 else sb.Append("name ").Append(Esc(kv.Key)).Append(' ').Append(Esc(kv.Value)).Append((char)10);
@@ -119,7 +122,7 @@ public static class SavedState
             lock (SensorBlocks.Radars)
                 foreach (var r in SensorBlocks.Radars)
                 {
-                    if (r.Entity == null || !(r.Power < 0.999f)) continue;
+                    if (!Alive(r.Entity) || !(r.Power < 0.999f)) continue;
                     Vector3D at;
                     try { at = r.Entity.Data.GetWorldTransform().Position; } catch { continue; }
                     sb.Append("radarpower ").Append(D(at.X)).Append(' ').Append(D(at.Y)).Append(' ').Append(D(at.Z))
@@ -147,7 +150,7 @@ public static class SavedState
     /// <summary>Radar settings from the save (where the block was, its power), set once a radar is there.</summary>
     private static readonly List<(Vector3D at, float power, double since)> _radarPower = new List<(Vector3D, float, double)>();
     private static Pending _pending;
-    private static double _pendingSince = -1, _pendingAt;
+    private static double _pendingSince = -1;
     public static string LastRestore = "none";
 
 
@@ -165,6 +168,7 @@ public static class SavedState
                     foreach (var r in SensorBlocks.Radars)
                     {
                         double d;
+                        if (!Alive(r.Entity)) continue;   // (every server tick while a setting waits: a deleted radar threw each time, ~200 ms)
                         try { d = (r.Entity.Data.GetWorldTransform().Position - at).Length(); } catch { continue; }
                         if (d < bd) { bd = d; best = r; }
                     }
@@ -178,6 +182,13 @@ public static class SavedState
                 Log.Default?.Info($"[ORBIT-FRAME] radar setting restored: transmit power {pw:P0}");
             }
         }
+    }
+
+    /// <summary>The world unloaded (WorldReset): its state, if still waiting, and its radar settings are not the next world's.</summary>
+    internal static void ResetWorld()
+    {
+        _pending = null; _pendingSince = -1;
+        lock (_radarPower) _radarPower.Clear();
     }
 
     /// <summary>No saved state waiting to be applied (frame ids are safe to hand out).</summary>
@@ -200,14 +211,14 @@ public static class SavedState
         else Maneuvers.Restore(nt, np, nn, nr, auto: auto);
     }
 
-    /// <summary>Called from the planets' [Init] on load (both planets carry the same state; first wins).</summary>
+    /// <summary>Called from the planets' [Init] on load (every planet carries the same state; the newest load wins).</summary>
     public static void OnLoaded(EntityNameSessionComponentObjectBuilder b)
     {
-        // (a state left pending from another world - quit before it was applied - is not this world's: replaced, its clock with it)
-        double wallNow = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
-        if (_pending != null && wallNow - _pendingAt > 120) { _pending = null; _pendingSince = -1; }
-        if (b?.NamedEntities == null || b.NamedEntities.Count == 0 || _pending != null) return;
-        _pendingAt = wallNow; _pendingSince = -1;
+        // (the NEWEST load's state wins: every planet of one world carries the same state, so within a load it is the same
+        //  text; a state left pending from another world - quit before it was applied - is replaced, its clock with it.
+        //  2026-10-15: kept while under 120 s old, the last world's clock, frames and contacts were applied to a world loaded
+        //  within 2 min of quitting it. WorldReset drops it at the unload too)
+        if (b?.NamedEntities == null || b.NamedEntities.Count == 0) return;
         var ob = new Pending();
         foreach (var kv in b.NamedEntities)
         {
@@ -218,6 +229,8 @@ public static class SavedState
         }
         if (string.IsNullOrEmpty(ob.State)) return;
         if (!ob.State.StartsWith(Magic)) { Log.Default?.Info("[ORBIT-FRAME] saved state: unknown format, ignored"); return; }
+        if (_pending != null && _pending.State == ob.State) return;   // (the same load's next planet: its copy)
+        _pendingSince = -1;
         _pending = ob;
         Log.Default?.Info($"[ORBIT-FRAME] saved state found: {ob.State.Split('\n').Length - 1} lines, {ob.Entities?.Count ?? 0} grid entities");
     }
@@ -314,30 +327,30 @@ public static class SavedState
                         Maneuvers.Target = Unesc(p[1]);
                         break;
                     case "pin":
-                        ContactsTab.Pinned.Add(Unesc(p[1]));
+                        lock (ContactsTab.Sync) ContactsTab.Pinned.Add(Unesc(p[1]));
                         break;
                     case "pingrid":
                     {
                         long pg = Map(long.Parse(p[1], Inv));
-                        if (pg != 0) ContactsTab.Pinned.Add(Targets.OfGrid(pg));
+                        if (pg != 0) { string pk = Targets.OfGrid(pg); lock (ContactsTab.Sync) ContactsTab.Pinned.Add(pk); }
                         break;
                     }
                     case "chide":
-                        ContactsTab.HiddenKeys.Add(Unesc(p[1]));
+                        lock (ContactsTab.Sync) ContactsTab.HiddenKeys.Add(Unesc(p[1]));
                         break;
                     case "chidegrid":
                     {
                         long hg = Map(long.Parse(p[1], Inv));
-                        if (hg != 0) ContactsTab.HiddenKeys.Add(Targets.OfGrid(hg));
+                        if (hg != 0) { string hk = Targets.OfGrid(hg); lock (ContactsTab.Sync) ContactsTab.HiddenKeys.Add(hk); }
                         break;
                     }
                     case "name":
-                        ContactsTab.Names[Unesc(p[1])] = Unesc(p[2]);
+                        lock (ContactsTab.Sync) ContactsTab.Names[Unesc(p[1])] = Unesc(p[2]);
                         break;
                     case "namegrid":
                     {
                         long ng = Map(long.Parse(p[1], Inv));
-                        if (ng != 0) ContactsTab.Names[Targets.OfGrid(ng)] = Unesc(p[2]);
+                        if (ng != 0) { string nk = Targets.OfGrid(ng); lock (ContactsTab.Sync) ContactsTab.Names[nk] = Unesc(p[2]); }
                         break;
                     }
                     case "targetgrid":

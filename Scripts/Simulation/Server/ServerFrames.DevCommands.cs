@@ -58,7 +58,7 @@ public static partial class ServerFrames
     /// <summary>DEV (FlyTest, Ctrl+T seated): a grid AltitudeM over the ground under it, level on its cockpit's heading, flying
     /// along its nose at cruise speed. nose, top: the cockpit's forward and up in the grid's axes.</summary>
     public static readonly System.Collections.Concurrent.ConcurrentQueue<(long id, Vector3 nose, Vector3 top)> FlyTest = new System.Collections.Concurrent.ConcurrentQueue<(long, Vector3, Vector3)>();
-    static System.Reflection.MethodInfo _ftGround, _ftTop; static bool _ftResolved;
+    static System.Reflection.MethodInfo _ftGround, _ftTop; static int _ftGen = -1;
     static void DoFlyTest(long id, Vector3 noseL, Vector3 topL)
     {
         var g = GridMembers.Get(id);
@@ -68,18 +68,17 @@ public static partial class ServerFrames
         if (!VoxelBerthRegistry.TryCellContaining(pos, reg, out string body, out Vector3D cell)) { OrbitalMod.FlyTest.Status = Event2("flytest: not at a planet"); return; }
         var def = reg.FindDefinition(body);
         if (def == null) return;
-        // the aero mod's ground ray and cruise speed (AeroApi; found once)
-        if (!_ftResolved)
+        // the aero mod's ground ray and cruise speed (AeroApi; bound again when the aero assembly changes - AeroLink)
+        int ftGen = AeroLink.Generation;
+        if (ftGen != _ftGen)
         {
-            _ftResolved = true;
-            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            _ftGen = ftGen; _ftGround = _ftTop = null;
+            var t = AeroLink.Find("AeroMod.AeroApi");
+            if (t != null)
             {
-                var t = asm.GetType("AeroMod.AeroApi");
-                if (t == null) continue;
                 // (explicit parameter types throughout: an aero overload added later must not make a lookup ambiguous - API.md)
                 _ftGround = t.GetMethod("TryGetGroundHeight", new[] { typeof(Entity), typeof(float).MakeByRefType() });
                 _ftTop = t.GetMethod("GetTopSpeedAt", new[] { typeof(Entity), typeof(Vector3), typeof(float) });
-                break;
             }
         }
         double rNow = (pos - cell).Length(), rGround = def.RadiusMeters; string over = "sea level";

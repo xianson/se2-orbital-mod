@@ -14,6 +14,10 @@ client half (`Host/FrameHost`) under `ServerFrames.FramesLock`; nothing calls in
   `.Moves` (every long grid move, deferred to the teleport phase; `AeroApi.NoteMoved`), `.Forces` (spin's fictitious
   forces, station keeping), `.Views` (what the client may read: `GridView`, sensor views, positions, the harness
   snapshot), `.Invariants`, `.DevCommands` (harness requests).
+- Per-frame and per-grid state: a frame leaving the registry (every `Dissolve`, a merge's incomer) runs
+  `ServerFrames.FrameRetiring` (wired as `FrameRegistry.Retiring` in `SystemHost.Build`) - anchor acceleration, entry
+  state, a dissolved frame's members' entry wear; a grid gone for good runs `ServerFrames.Forget`. Per-WORLD state goes
+  through `Host/WorldReset`, never a reset of its own.
 - `GridMembers.cs` - `OrbitalGridComponent` (injected into server grids) and the grid registry: positions, velocity
   writes (recorded for `Api/GridEdits`), joined sets.
 - `SavedState.cs` - the orbital state in the world save (carried by the planets' name-map builder).

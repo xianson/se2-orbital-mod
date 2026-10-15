@@ -160,7 +160,7 @@ public static class DevReentry
                 Check(moved, "handover: moved into the planet's frame (off its berth)");
                 Check(pe < 2 + v.Length() / 60.0 * 2, $"handover: placed where the arrival sent it ({pe:F1} m off, its motion since included)");
                 Check(ve < 2, $"handover: at the arrival's velocity ({ve:F2} m/s off)");
-                Check(_handSpeed <= FrameHost.SpeedCap * 1.02 + 1, $"handover: at or under the cap ({_handSpeed:F0} m/s, cap {FrameHost.SpeedCap:F0})");
+                Check(_handSpeed <= EntryHost.Cap * 1.02 + 1, $"handover: at or under the cap ({_handSpeed:F0} m/s, cap {EntryHost.Cap:F0})");   // (the arrival's cap: TestCap honoured)
                 if (_joined.Count > 0)
                 {
                     int with = 0; double worst = 0;
@@ -445,7 +445,7 @@ public static class DevReentry
     static bool Flight(Entity e, out float mach)
     {
         mach = 0;
-        if (_flight == null) Lookup();
+        Lookup();
         if (_flight == null) return false;
         var a = new object[] { e, null, null, null, null, null };
         if (!(bool)_flight.Invoke(null, a)) return false;
@@ -456,7 +456,7 @@ public static class DevReentry
     static bool Plasma(Entity e, out float s)
     {
         s = 0;
-        if (_entry == null) Lookup();
+        Lookup();
         if (_entry == null) return false;
         var a = new object[] { e, null, null };
         if (!(bool)_entry.Invoke(null, a)) return false;
@@ -464,16 +464,22 @@ public static class DevReentry
         return true;
     }
 
+    // (bound once per aero assembly - AeroLink: bound to the first copy for good, an aero reload kept the stale one, and with
+    //  the aero mod absent every call scanned the assemblies, 2026-10-15)
+    static int _lookGen = -1;
     static void Lookup()
     {
-        foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+        int gen = AeroLink.Generation;
+        if (gen == _lookGen) return;
+        _lookGen = gen; _flight = _entry = _atmo = _forces = null;
+        var t = AeroLink.Find("AeroMod.AeroApi");
+        if (t != null)
         {
-            var t = asm.GetType("AeroMod.AeroApi"); if (t == null) continue;
             // (explicit parameter types: an aero overload added later must not make a lookup ambiguous)
             _flight = t.GetMethod("TryGetFlight", new[] { typeof(Entity), typeof(Vector3).MakeByRefType(), typeof(float).MakeByRefType(), typeof(float).MakeByRefType(), typeof(float).MakeByRefType(), typeof(float).MakeByRefType() });
             _entry = t.GetMethod("TryGetEntry", new[] { typeof(Entity), typeof(float).MakeByRefType(), typeof(bool).MakeByRefType() });
             _atmo = t.GetMethod("TryGetAtmosphere", new[] { typeof(Entity), typeof(float).MakeByRefType(), typeof(float).MakeByRefType(), typeof(float).MakeByRefType(), typeof(float).MakeByRefType() });
-            _forces = t.GetMethod("TryGetForces", new[] { typeof(Entity), typeof(Vector3).MakeByRefType(), typeof(Vector3).MakeByRefType(), typeof(float).MakeByRefType(), typeof(float).MakeByRefType(), typeof(float).MakeByRefType() }); break;
+            _forces = t.GetMethod("TryGetForces", new[] { typeof(Entity), typeof(Vector3).MakeByRefType(), typeof(Vector3).MakeByRefType(), typeof(float).MakeByRefType(), typeof(float).MakeByRefType(), typeof(float).MakeByRefType() });
         }
     }
 
@@ -481,7 +487,7 @@ public static class DevReentry
     static bool Forces(Entity e, out Vector3 forceLocal, out float drag)
     {
         forceLocal = default; drag = 0;
-        if (_forces == null) Lookup();
+        Lookup();
         if (_forces == null) return false;
         var a = new object[] { e, null, null, null, null, null };
         if (!(bool)_forces.Invoke(null, a)) return false;
@@ -494,7 +500,7 @@ public static class DevReentry
     /// <summary>The air density at the grid as the aero mod has it (kg/m3; 0 none or unknown).</summary>
     static float Density(Entity e)
     {
-        if (_atmo == null) Lookup();
+        Lookup();
         if (_atmo == null) return 0f;
         var a = new object[] { e, null, null, null, null };
         return (bool)_atmo.Invoke(null, a) ? (float)a[1] : 0f;

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The settings menu's model (Scripts/Simulation/Ui/SettingsModel.cs, shared with the Aerodynamics Mod) over the REAL
+       registry through this mod's adapter (Ui/SettingsTab.Mod.cs): the registry and store as SettingsTests compiles them,
+       over its stand-ins (Mirrors.cs). No Avalonia, no game. -->
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\Scripts\Simulation\Host\OrbitalSettings.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\Scripts\Simulation\Host\OrbitalSettings.Store.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\Scripts\Simulation\Ui\SettingsModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\Scripts\Simulation\Ui\SettingsTab.Mod.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\SettingsTests\Mirrors.cs" />
+  </ItemGroup>
+</Project>

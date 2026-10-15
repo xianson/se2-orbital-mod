@@ -144,6 +144,7 @@ public static partial class FrameHost
         if (!ReferenceEquals(session, _session)) { _session = session; WorldReset.ClientSession(); }
         if (!OrbitalSettings.SawClient) OrbitalSettings.SawClient = true;
         OrbitalSettings.Poll();   // (the settings files, every ~2 s)
+        SettingsTab.Tick(session);   // (the Options screen's Mods tab, Ui/SettingsTab.cs: a timestamp compare; 4 Hz a UI-thread check)
         if (!SystemHost.Built)
         {
             try

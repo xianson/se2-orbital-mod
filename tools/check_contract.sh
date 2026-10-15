@@ -174,7 +174,8 @@ if grep -q 'public string Label, Group;' "$ASET"; then
   done
   for m in TryGetSettingUi IsSettingForced CanEditWorldSettings ResetSettingsGroup AreWorldSettingsUnsaved \
            GetSettings TryGetSettingInfo TryGetSetting SetSetting GetSettingsVersion; do
-    x=$(sig "$api" "$m"); y=$(sig "$OAPI" "$m")
+    x=$(sig "$m" "${APIS[@]}"); y=$(sig "$m" "${OAPIS[@]}")
+    grep -qE "public static [^(=]* $m[(]" "${APIS[@]}" && grep -qE "public static [^(=]* $m[(]" "${OAPIS[@]}" || bad "settings API $m missing (aero or orbital)"
     [ "$x" = "$y" ] || bad "settings API $m: AeroApi($x), OrbitalApi($y)"
   done
 else

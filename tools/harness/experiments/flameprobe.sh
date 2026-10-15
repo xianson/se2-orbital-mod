@@ -3,7 +3,7 @@
 # thruster, the eased value, what was written, the override the game's thruster actually holds) through a scripted flight
 # of the Hercules in space (5 minutes or less; RELAUNCHES the game unless NOLAUNCH=1: not while someone plays).
 # Phases (marked in the output with their wall times): idle, thrust forward 4 s, released, hold retrograde (a turn), off.
-H="$(cd "$(dirname "$0")" && pwd)"; O="$H/orb.sh"; T0=$(date +%s)
+H="$(cd "$(dirname "$0")/.." && pwd)"; O="$H/orb.sh"; T0=$(date +%s)
 q() { timeout 20 "$O" "$@" | grep -a "=>" | tail -1 | sed 's/.*=>  //'; }
 LOG() { ls -t "$APPDATA/SpaceEngineers2/Temp/Logs/"SpaceEngineers2_*[0-9].log | grep -v "Render\|Mission\|Stats" | head -1; }
 until_() { local n=$1; shift; for i in $(seq 1 $n); do eval "$@" && return 0; sleep 0.5; done; return 1; }
@@ -12,7 +12,7 @@ mark() { echo "PHASE $(date +%H:%M:%S) $1"; }
 
 if [ "$NOLAUNCH" != 1 ]; then
 powershell -NoProfile -Command "Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Stop-Process -Force"; sleep 2
-. "$(dirname "$0")/launch.sh"; launch
+. "$(dirname "$0")/../launch.sh"; launch
 until_ 300 "grep -aq 'beacon Root Entity\|Loading Failed' \"\$(LOG)\" 2>/dev/null"; until_ 60 "q 'findgrids' | grep -q '='"
 echo "loaded in $(( $(date +%s) - T0 )) s"
 fi

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # hintshot2.sh - the build hints on a Blue Fighter seen by the spectator camera (clear of the station), overlay off /
 # Mach 0.5 / Mach 2 (5 minutes or less; RELAUNCHES the game - the Steam launch, never saved - and closes it after)
-source "$(dirname "$0")/testlib.sh"
+source "$(dirname "$0")/../testlib.sh"
 T0=$(date +%s)
 LOGF() { ls -t "$LOGDIR"/SpaceEngineers2_*[0-9].log | grep -v "Render\|Mission\|Stats" | head -1; }
 shot() { send "shotui on"; local f; f=$(timeout 40 "$SP/orb.sh" --eshot 3 "$1" | grep -a -o "[A-Za-z]:[^ ]*\.png" | tail -1)

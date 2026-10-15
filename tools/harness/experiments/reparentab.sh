@@ -2,7 +2,7 @@
 # reparentab.sh - stranded block effects, before and after EffectReparent (5 minutes or less; RELAUNCHES the game - the
 # Steam launch, its last world, never saved - and closes it after): loaded, a census (particles) and a screenshot; then
 # 'reparent' (each pooled effect parented to its owner's render root again), a census and a screenshot.
-source "$(dirname "$0")/testlib.sh"
+source "$(dirname "$0")/../testlib.sh"
 T0=$(date +%s); OUT=/c/Users/slob/AppData/Local/Temp/OrbitalMod; mkdir -p "$OUT"
 LOGF() { ls -t "$LOGDIR"/SpaceEngineers2_*[0-9].log | grep -v "Render\|Mission\|Stats" | head -1; }
 shot() { send "shotui on"; timeout 40 "$SP/orb.sh" --eshot 3 "$1" | grep -a -o "[A-Za-z]:[^ ]*\.png" | tail -1; }

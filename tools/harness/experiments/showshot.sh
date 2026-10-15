@@ -4,7 +4,7 @@
 #  1. the build hints where the player stands (holding a block): overlay off, Mach 0.5, Mach 2
 #  2. seated in a Blue Fighter on a 300 km orbit: the orbit plot with its captions
 #  3. the Contacts tab (no Edit / Remove), and F2's rename dialog
-source "$(dirname "$0")/testlib.sh"
+source "$(dirname "$0")/../testlib.sh"
 T0=$(date +%s)
 LOGF() { ls -t "$LOGDIR"/SpaceEngineers2_*[0-9].log | grep -v "Render\|Mission\|Stats" | head -1; }
 shot() { send "shotui on"; timeout 40 "$SP/orb.sh" --eshot 3 "$1" | grep -a -o "[A-Za-z]:[^ ]*\.png" | tail -1; }

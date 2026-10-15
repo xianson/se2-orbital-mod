@@ -4,7 +4,7 @@
 #  1. its blocks exported for AeroBench (aeroexport on; aero cycled off/on: every grid rebuilds and writes its .boxes)
 #  2. hands off at speeds over Mach 1 (gridlaunch: altitude, speed), its attitude and spin sampled 4 times a second for 10 s
 #     into %TEMP%/OrbitalMod/damp_<km>_<speed>.txt (q and world spin: the pitch rate offline, damp_sum.py)
-source "$(dirname "$0")/testlib.sh"
+source "$(dirname "$0")/../testlib.sh"
 T0=$(date +%s); OUT=/c/Users/slob/AppData/Local/Temp/OrbitalMod; mkdir -p "$OUT"
 LOGF() { ls -t "$LOGDIR"/SpaceEngineers2_*[0-9].log | grep -v "Render\|Mission\|Stats" | head -1; }
 launch

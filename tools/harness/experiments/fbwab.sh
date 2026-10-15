@@ -2,7 +2,7 @@
 # fbwab.sh - the F-7's pitch at speed, the aero-aware attitude law off (the game's gyros) then on (5 minutes or less; RELAUNCHES the game - the Steam launch,
 # never saved - and closes it after): seated, put at ALT km and SPEED m/s (default 8 km, 550 m/s: ~Mach 1.7), hands off; the
 # aero mod's [AERO-PITCH] line (10 a second) for 8 s each; the pitch rate's spread summarised by fbw_sum.py
-source "$(dirname "$0")/testlib.sh"
+source "$(dirname "$0")/../testlib.sh"
 T0=$(date +%s); OUT=/c/Users/slob/AppData/Local/Temp/OrbitalMod; mkdir -p "$OUT"
 LOGF() { ls -t "$LOGDIR"/SpaceEngineers2_*[0-9].log | grep -v "Render\|Mission\|Stats" | head -1; }
 launch
@@ -19,7 +19,7 @@ for mode in off on; do
   hold 8
   since | grep -a "\[AERO-PITCH\]" | sed 's/.*\[AERO-PITCH\] //' > "$OUT/fbw_$mode.txt"
   echo "      $(wc -l < "$OUT/fbw_$mode.txt") lines"
-  python "$(cygpath -w "$SP/fbw_sum.py")" "$(cygpath -w "$OUT/fbw_$mode.txt")" "aware $mode"
+  python "$(cygpath -w "$(dirname "$0")/fbw_sum.py")" "$(cygpath -w "$OUT/fbw_$mode.txt")" "aware $mode"
 done
 send "pitchlog off" "aeroaware on"
 MARK=0; never "no mod fault" "\[ORBIT-FAULT\]\|\[AERO-FAULT\]"

@@ -5,7 +5,7 @@
 #  P  the panel's figures come (top speed, cruise, thrust, mass)
 #  O  the drag overlay finds the faces the camera sees, at Mach 0.5 and at Mach 2
 #  plus engine shots (overlay off / subsonic / supersonic) and no mod fault
-source "$(dirname "$0")/testlib.sh"
+source "$(dirname "$0")/../testlib.sh"
 T0=$(date +%s); G=f7a663bd
 LOGF() { ls -t "$LOGDIR"/SpaceEngineers2_*[0-9].log | grep -v "Render\|Mission\|Stats" | head -1; }
 powershell -NoProfile -Command "Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Stop-Process -Force"; sleep 2

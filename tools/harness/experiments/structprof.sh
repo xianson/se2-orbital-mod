@@ -4,7 +4,7 @@
 # the last second: the simulation thread's time in it (us per second, every grid; and its worst single tick), the
 # background's (ms per second), evaluations per second and grids evaluated. Seated in the Tu-134 at once (the world's
 # Tu-134 glides from load and crashes within minutes): flying (flytest), pulling; then unseated, the world idle.
-source "$(dirname "$0")/testlib.sh"
+source "$(dirname "$0")/../testlib.sh"
 T0=$(date +%s)
 LOGF() { ls -t "$LOGDIR"/SpaceEngineers2_*[0-9].log | grep -v "Render\|Mission\|Stats" | head -1; }
 get() { reply "aeroget StructureLoads.$1" | sed 's/.*=//'; }

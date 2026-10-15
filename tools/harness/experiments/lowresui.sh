@@ -4,7 +4,7 @@
 #  1. seated as loaded (in air): the align button, its hints, the flight boxes, the SPD icon - alignbtn's HudGeom line
 #  2. the align hold on (Level), a mode cycled (Ctrl+; by the dev key), the warp bar idle fade
 #  3. the Blue Fighter on a 300 km orbit: the orbit plot, warp 10x (the warp bar back), the map
-source "$(dirname "$0")/testlib.sh"
+source "$(dirname "$0")/../testlib.sh"
 T0=$(date +%s)
 LOGF() { ls -t "$LOGDIR"/SpaceEngineers2_*[0-9].log | grep -v "Render\|Mission\|Stats" | head -1; }
 shot() { send "shotui on"; timeout 40 "$SP/orb.sh" --eshot 3 "$1" | grep -a -o "[A-Za-z]:[^ ]*\.png" | tail -1; }

@@ -4,7 +4,7 @@
 #  A1 the Blue Fighter (a brick): no tips
 #  A2..: the Jetliner and the UNSC Pelican: their tips (or why not)
 #  B  the first ship with tips: screenshots with the effect time rewritten every 0.1 s (old) and only on change (new)
-H="$(cd "$(dirname "$0")" && pwd)"; O="$H/orb.sh"; T0=$(date +%s)
+H="$(cd "$(dirname "$0")/.." && pwd)"; O="$H/orb.sh"; T0=$(date +%s)
 q() { timeout 20 "$O" "$@" | grep -a "=>" | tail -1 | sed 's/.*=>  //'; }
 LOG() { ls -t "$APPDATA/SpaceEngineers2/Temp/Logs/"SpaceEngineers2_*[0-9].log | grep -v "Render\|Mission\|Stats" | head -1; }
 until_() { local n=$1; shift; for i in $(seq 1 $n); do eval "$@" && return 0; sleep 0.5; done; return 1; }
@@ -16,7 +16,7 @@ shots() { for i in 1 2; do s=$(q "shot" | grep -o "[A-Z]:[^ ]*png" | tr "\\\\" "
 fly() { q "griddamp $1 off" >/dev/null; q "gridlaunch $1 3 Verdure 150" >/dev/null; sleep 4; }
 
 powershell -NoProfile -Command "Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Stop-Process -Force"; sleep 2
-. "$(dirname "$0")/launch.sh"; launch
+. "$(dirname "$0")/../launch.sh"; launch
 until_ 300 "grep -aq 'beacon Root Entity\|Loading Failed' \"\$(LOG)\" 2>/dev/null"; until_ 60 "q 'findgrids' | grep -q '='"
 echo "loaded in $(( $(date +%s) - T0 )) s: $(LOG)"
 G=$(q "findgrids"); id() { echo "$G" | tr ' ' '\n' | grep "=$1\$" | head -1 | cut -d= -f1; }

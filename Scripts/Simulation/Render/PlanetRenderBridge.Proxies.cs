@@ -86,8 +86,9 @@ public static partial class PlanetRenderBridge
                 p.LastScale = scale;
             }
             // World proxies only: on the map the globes' atmospheres hid Delfos's star model.
-            if (ProxyAtmospheres && p.Visible && !p.MapOnly) UpdateAtmosphere(h, p, center, radius);
-            else if (!ProxyAtmospheres && (p.Atmo != null || p.AtmoNext != null || p.AtmoRetiring.Count > 0)) DisposeAtmosphere(p);   // (switched off: none left behind)
+            bool atmos = ProxyAtmospheres && ProxyAtmospheresWork;
+            if (atmos && p.Visible && !p.MapOnly) UpdateAtmosphere(h, p, center, radius);
+            else if (!atmos && (p.Atmo != null || p.AtmoNext != null || p.AtmoRetiring.Count > 0)) DisposeAtmosphere(p);   // (switched off: none left behind)
         }
         catch (Exception e) { WarnOnce("proxy-update", $"proxy update failed for {h.Name}: {Inner(e)}"); }
     }
@@ -122,7 +123,11 @@ public static partial class PlanetRenderBridge
     // radii scaled by the proxy's size (the definition's heights are fractions of the radius). Its
     // position is fixed at creation: it is made again as soon as the proxy has moved; a size
     // change goes through SetParameters. Any failure turns them off for the session.
+    /// <summary>Wanted: the setting Proxy.Atmospheres (the player's, saved). Never written by the code itself.</summary>
     public static bool ProxyAtmospheres = true;
+    /// <summary>Working: false after a failure, for the session (2026-10-15: the failure used to clear ProxyAtmospheres
+    /// itself - as a setting that would have saved "off" for good).</summary>
+    public static bool ProxyAtmospheresWork = true;
     /// <summary>The proxy atmosphere's inner sphere (the radius with the highest hills) laid on the globe's surface.</summary>
     public static bool AtmoOnHills = false;
     /// <summary>The proxy atmosphere spherized as the planet's (its shell pulled down to the ground at a distance).</summary>
@@ -213,7 +218,7 @@ public static partial class PlanetRenderBridge
                 if (_createEnv == null)
                     foreach (var m in _contracts.GetType().GetMethods())
                         if (m.Name == "CreatePlanetEnvironmentEntity" && m.GetParameters().Length == 12) _createEnv = m;
-                if (_createEnv == null) { DisposeAtmosphere(p); ProxyAtmospheres = false; WarnOnce("proxy-atmo", "no CreatePlanetEnvironmentEntity: proxy atmospheres off"); return; }
+                if (_createEnv == null) { DisposeAtmosphere(p); ProxyAtmospheresWork = false; WarnOnce("proxy-atmo", "no CreatePlanetEnvironmentEntity: proxy atmospheres off"); return; }
                 var ps = _createEnv.GetParameters();
                 float F(object o) => (float)(Convert.ToDouble(o) * k);
                 p.AtmoNext = _createEnv.Invoke(_contracts, new object[]
@@ -246,7 +251,7 @@ public static partial class PlanetRenderBridge
         }
         catch (Exception e)
         {
-            ProxyAtmospheres = false;
+            ProxyAtmospheresWork = false;
             DisposeAtmosphere(p);
             WarnOnce("proxy-atmo", $"proxy atmosphere failed for {h.Name} (off for this session): {Inner(e)}");
         }

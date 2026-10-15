@@ -40,6 +40,10 @@ public static partial class OrbitalSettings
         public Func<double> Get;
         public Action<double> Set;
         public Func<double, string> Check;   // (a cross-setting rule: why not, or null)
+        /// <summary>The player's value: the last one set through the store (Set, a file, the save) - what the files and the
+        /// world save write. A field written directly (a harness command, a dev override) is live but never this, so it is
+        /// never persisted by a later, unrelated Set (2026-10-15: a dev override could become the saved setting).</summary>
+        public double Stored;
 
         // ── the UI metadata (the same fields as the Aerodynamics Mod's AeroSettings.Setting) ──
         /// <summary>The player-facing name, and the menu section it shows in.</summary>
@@ -131,6 +135,10 @@ public static partial class OrbitalSettings
         B("Proxy.HideAtmosphere", "client", false, () => OrbitalConfig.HideAtmosphere, v => OrbitalConfig.HideAtmosphere = v,
             "Hide the real planet's atmosphere and clouds with its terrain.")
             .Ui("Hide far atmospheres with terrain", GPlanets, Tier.Advanced);
+        // (the wanted flag only: a failure clears PlanetRenderBridge.ProxyAtmospheresWork, never this)
+        B("Proxy.Atmospheres", "client", false, () => PlanetRenderBridge.ProxyAtmospheres, v => PlanetRenderBridge.ProxyAtmospheres = v,
+            "The distant globes' own atmosphere (the game's, scaled to the globe). Off: bare globes. (If the game refuses to make one, they are off for the session; this stays as set.)")
+            .Ui("Atmospheres on distant globes", GPlanets, Tier.Advanced);
         B("Proxy.Rings", "client", false, () => PlanetRings.ProxyRings, v => PlanetRings.ProxyRings = v,
             "Planetary rings around the distant globes.")
             .Ui("Planet rings", GPlanets, Tier.Basic);
@@ -243,7 +251,7 @@ public static partial class OrbitalSettings
     static Setting Add(string name, string type, string scope, double min, double max, bool reload, Func<double> get, Action<double> set, string doc)
     {
         var s = new Setting { Name = name, Type = type, Scope = scope, Min = min, Max = max, Reload = reload, Get = get, Set = set, Doc = doc };
-        s.Default = get();   // (the field's own initial value)
+        s.Default = s.Stored = get();   // (the field's own initial value)
         s.Order = _all.Count;
         if (type != "float") s.Step = 1;
         _all.Add(s); _by[name] = s;

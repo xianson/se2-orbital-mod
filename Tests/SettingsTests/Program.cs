@@ -45,7 +45,10 @@ namespace OrbitalTests.Settings
                 WorldEditRefused();
                 HostFileForces();
                 WorldSave();
+                Persistence();
+                BackgroundPoll();
                 Denylist();
+                NoCodeWrites();
             }
             finally { try { Directory.Delete(Dir, true); } catch { } }
             Console.WriteLine($"\n{_passed} passed, {_failed} failed");
@@ -353,6 +356,122 @@ namespace OrbitalTests.Settings
             OrbitalSettings.Save(empty, new Entity());
             Ok("all defaults: nothing saved", empty.NamedEntities == null || empty.NamedEntities.Count == 0);
             OrbitalSettings.ResetScope("client");
+        }
+
+        // ── a direct field write (the DevHarness's crossfade, cleanmap, contacts on/off ...) is never persisted ──
+
+        static void Persistence()
+        {
+            Console.WriteLine("-- a direct field write is never saved (2026-10-15)");
+            OrbitalSettings.ResetScope("client"); OrbitalSettings.ResetScope("world");
+            string client = Path.Combine(Dir, "OrbitalMod.client.cfg");
+            bool fade = CrossingFade.Enabled, map = CleanMap.Enabled, rocks = AsteroidFrames.Enabled;
+            CrossingFade.Enabled = !fade; CleanMap.Enabled = !map;   // (as the harness writes them: the fields, not Set)
+            Ok("the direct writes are live", Val("Fx.ArrivalFade") == (fade ? 0 : 1) && Val("Map.Orbital") == (map ? 0 : 1));
+            Ok("an unrelated client set", OrbitalSettings.Set("Hud.ShowOrbit", 0, out _));
+            string text = OrbitalSettings.Text("client", true);
+            Ok("the client text keeps the player's values", text.Contains("\nFx.ArrivalFade = " + (fade ? "true" : "false") + "\n")
+                && text.Contains("\nMap.Orbital = " + (map ? "true" : "false") + "\n") && text.Contains("\nHud.ShowOrbit = false\n"), text);
+            // the file itself: the set made it dirty; a poll a second later writes it
+            typeof(OrbitalSettings).GetField("_clientDirtyAt", Any).SetValue(null, System.Diagnostics.Stopwatch.GetTimestamp() - 2 * System.Diagnostics.Stopwatch.Frequency);
+            PollBackground();
+            string file = File.Exists(client) ? File.ReadAllText(client) : "";
+            Ok("client.cfg rewritten without the direct writes", file.Contains("\nHud.ShowOrbit = false\n") && file.Contains("\nFx.ArrivalFade = " + (fade ? "true" : "false") + "\n")
+                && file.Contains("\nMap.Orbital = " + (map ? "true" : "false") + "\n"), OrbitalSettings.FileWhy);
+            Ok("the live fields keep the harness's values (the file's own time was recorded, not re-read)", CrossingFade.Enabled == !fade && CleanMap.Enabled == !map);
+            AsteroidFrames.Enabled = !rocks;
+            Ok("an unrelated world set", OrbitalSettings.Set("Warp.MaxLevel", 2, out _));
+            var ob = new Keen.Game2.Simulation.GameSystems.EntityNameSessionComponentObjectBuilder();
+            OrbitalSettings.Save(ob, new Entity());
+            string saved = ob.NamedEntities?.Keys.First() ?? "";
+            Ok("the world save holds only the set value", saved == OrbitalSettings.SaveKey + "Warp.MaxLevel = 2\n", saved);
+            Ok("a Set of the live value makes it the player's", OrbitalSettings.Set("Fx.ArrivalFade", fade ? 0 : 1, out _)
+                && OrbitalSettings.Text("client", true).Contains("\nFx.ArrivalFade = " + (fade ? "false" : "true") + "\n"));
+            OrbitalSettings.ResetScope("world");
+            Ok("a world reset restores the directly written field", AsteroidFrames.Enabled == rocks && OrbitalSettings.Text("world", false) == "");
+            CleanMap.Enabled = map;
+            OrbitalSettings.ResetScope("client");
+            Ok("back at the defaults", OrbitalSettings.Text("client", false) == "" && CrossingFade.Enabled == fade);
+        }
+
+        // ── the poll: files off the tick thread, applied on it ──
+
+        /// <summary>A tick's poll as if 2 s had passed: starts the background file task and waits for it (not applied yet).</summary>
+        static bool PollBackground()
+        {
+            typeof(OrbitalSettings).GetField("_pollAt", Any).SetValue(null, 0L);
+            typeof(OrbitalSettings).GetField("_localNext", Any).SetValue(null, 0L);   // (this thread's 1/4 s gate)
+            OrbitalSettings.Poll();
+            var polling = typeof(OrbitalSettings).GetField("_polling", Any);
+            var until = DateTime.UtcNow.AddSeconds(10);
+            while ((int)polling.GetValue(null) != 0 && DateTime.UtcNow < until) System.Threading.Thread.Sleep(5);
+            return (int)polling.GetValue(null) == 0;
+        }
+
+        static void BackgroundPoll()
+        {
+            Console.WriteLine("-- the poll reads the files in the background, a tick applies them (2026-10-15)");
+            OrbitalSettings.ResetScope("client");
+            string client = Path.Combine(Dir, "OrbitalMod.client.cfg");
+            Ok("a poll's file task finishes", PollBackground(), OrbitalSettings.FileWhy);
+            double was = Val("Map.TextScale");
+            File.WriteAllText(client, "Map.TextScale = 2.5\n");   // (edited by hand)
+            File.SetLastWriteTimeUtc(client, DateTime.UtcNow.AddSeconds(20));
+            Ok("the background read finishes", PollBackground(), OrbitalSettings.FileWhy);
+            Ok("read, not applied off the tick", Val("Map.TextScale") == was);
+            typeof(OrbitalSettings).GetField("_localNext", Any).SetValue(null, 0L);
+            OrbitalSettings.Poll();   // (the next tick: not due for the files, but applies what was read)
+            Ok("the next tick applies it", Val("Map.TextScale") == 2.5, Val("Map.TextScale").ToString(Inv));
+            Ok("not again", OrbitalSettings.Set("Map.TextScale", 1.5, out _) && PollBackground() && Val("Map.TextScale") == 1.5);
+            // the host file the same way, its names forced when applied
+            string world = Path.Combine(Dir, "OrbitalMod.world.cfg");
+            File.WriteAllText(world, "Warp.CostsEnergy = off\n");
+            File.SetLastWriteTimeUtc(world, DateTime.UtcNow.AddSeconds(30));
+            Ok("the host file read", PollBackground() && !OrbitalSettings.IsForced("Warp.CostsEnergy"));
+            typeof(OrbitalSettings).GetField("_localNext", Any).SetValue(null, 0L);
+            OrbitalSettings.Poll();
+            Ok("applied on the tick: forced", OrbitalSettings.IsForced("Warp.CostsEnergy") && Val("Warp.CostsEnergy") == 0);
+            File.WriteAllText(world, "# nothing forced\n");
+            File.SetLastWriteTimeUtc(world, DateTime.UtcNow.AddSeconds(40));
+            PollBackground();
+            OrbitalSettings.BeaconAdded(); OrbitalSettings.BeaconRemoved();   // (the world gone: nothing forced, defaults)
+            Ok("unloaded: nothing forced", !OrbitalSettings.IsForced("Warp.CostsEnergy") && Val("Warp.CostsEnergy") == 1);
+            OrbitalSettings.ResetScope("client");
+            PollBackground();
+            Ok("no file problem", OrbitalSettings.FileWhy == "", OrbitalSettings.FileWhy);
+        }
+
+        // ── the code never switches a setting itself (2026-10-15: PlanetRenderBridge cleared ProxyAtmospheres on a failure -
+        //    as a setting it would have saved "off" for good; such a runtime state is a separate flag) ──
+
+        static void NoCodeWrites()
+        {
+            Console.WriteLine("-- no code outside the harness writes a setting's field");
+            string reg = File.ReadAllText(Path.Combine(Root(), "Scripts", "Simulation", "Host", "OrbitalSettings.cs"));
+            var targets = Regex.Matches(reg, @"v\s*=>\s*\{?\s*([A-Z]\w*)\.([A-Z]\w*)\s*=(?![=>])").Cast<Match>()
+                .Select(m => (cls: m.Groups[1].Value, field: m.Groups[2].Value)).Distinct().ToList();
+            Ok($"{targets.Count} setting fields found", targets.Count > 40);
+            int files = 0;
+            foreach (var f in Directory.GetFiles(Path.Combine(Root(), "Scripts", "Simulation"), "*.cs", SearchOption.AllDirectories))
+            {
+                string rel = Path.GetRelativePath(Path.Combine(Root(), "Scripts", "Simulation"), f).Replace('\\', '/');
+                if (rel.StartsWith("Dev/") || Path.GetFileName(f).StartsWith("OrbitalSettings")) continue;   // (the harness: dev overrides, never saved)
+                files++;
+                string src = Regex.Replace(File.ReadAllText(f), @"//.*", "");
+                var lines = src.Split('\n');
+                foreach (var (cls, field) in targets)
+                {
+                    bool own = Regex.IsMatch(src, @"\b(class|struct)\s+" + cls + @"\b");
+                    var write = new Regex((own ? @"(?<![\w.])(" + cls + @"\.)?" : @"\b" + cls + @"\.") + field + @"\s*(=(?![=>])|\|=|&=|\^=)");
+                    for (int i = 0; i < lines.Length; i++)
+                    {
+                        string l = lines[i];
+                        if (!write.IsMatch(l) || Regex.IsMatch(l, @"\bstatic\b") || l.Contains("case \"")) continue;   // (its declaration; a harness verb's switch)
+                        Ok($"{rel}:{i + 1}: the code writes {cls}.{field} (a setting): keep a runtime flag of its own", false, l.Trim());
+                    }
+                }
+            }
+            Ok($"{files} files scanned", files > 50);
         }
 
         // ── never a dev knob ──

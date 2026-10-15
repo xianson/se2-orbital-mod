@@ -66,7 +66,7 @@ planet. `PatchedConic` already previews the result.
 
 ## Built: the manual editor (milestone 2)
 
-`Frames/Maneuvers.cs`, `Frames/MapInput.cs`.
+`Flight/Maneuvers.cs` (and its partials: `.Trajectory`, `.MapEditor`, `.Hud`...), `Map/MapInput.cs`.
 
 - **Input**: the mouse device from `VRageCore.Instance.Engine.Single<IPlatformInput>()`, polled
   each frame (`GetDigitalState(MouseInputs.Left/Right)`), edges tracked; the position is the

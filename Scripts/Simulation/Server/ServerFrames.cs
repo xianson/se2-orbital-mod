@@ -46,8 +46,9 @@ public static partial class ServerFrames
         if (f.AnchorEntityId == AsteroidAnchorId) return true;
         if (!GridMembers.IsGridId(f.AnchorEntityId)) return false;
         var g = GridMembers.Get(f.AnchorEntityId);
-        if (g == null || GridMembers.IsDynamic(g)) return false;
-        pos = GridMembers.Position(g);
+        // (a dead one - deleted, its Unregister not run yet - reads as static: no anchor, as once it is gone - 2026-10-15)
+        if (g == null || GridMembers.IsDynamic(g) || !GridMembers.TryPosition(g, out var at)) return false;
+        pos = at;
         return true;
     }
 
@@ -98,16 +99,17 @@ public static partial class ServerFrames
             if (!GridMembers.IsGridId(m)) continue;
             var g = GridMembers.Get(m);
             double reach = f.AnchorEntityId == m ? CaptureRadius : CaptureEnterRadius;
-            if (g != null && g.IsServer && !GridMembers.IsDynamic(g) && (GridMembers.Position(g) - f.BerthCenter).Length() <= reach)
-            { id = m; pos = GridMembers.Position(g); return true; }
+            // (TryPosition: a dead grid reads as static - never the anchor at its last place, 2026-10-15)
+            if (g != null && g.IsServer && !GridMembers.IsDynamic(g) && GridMembers.TryPosition(g, out var gAt) && (gAt - f.BerthCenter).Length() <= reach)
+            { id = m; pos = gAt; return true; }
         }
         // a static grid in no frame within the frame: it joins it, and anchors it (the world's static grids only)
         foreach (var g in GridMembers.Statics())
         {
             if (!g.IsServer || g.Entity == null || GridMembers.IsDynamic(g)) continue;
-            if ((GridMembers.Position(g) - f.BerthCenter).Length() > CaptureEnterRadius) continue;
+            if (!GridMembers.TryPosition(g, out var gAt) || (gAt - f.BerthCenter).Length() > CaptureEnterRadius) continue;   // (a dead one: never joined)
             if (SystemHost.Frames.FindByMember(g.Id) != null) continue;
-            if (SystemHost.Frames.AddMember(f, g.Id)) { Event($"frame #{f.Id}: static grid {g.Id} '{g.DisplayName}' in it joins it"); id = g.Id; pos = GridMembers.Position(g); return true; }
+            if (SystemHost.Frames.AddMember(f, g.Id)) { Event($"frame #{f.Id}: static grid {g.Id} '{g.DisplayName}' in it joins it"); id = g.Id; pos = gAt; return true; }
         }
         // a rock - only on a stable orbit (MembershipRules.StaticAnchorKind, tested offline): a static grid on a decaying orbit
         // is made a ship, a rock cannot be - nor moved. Unstable, the rock is left out: the frame's grids or the player anchor

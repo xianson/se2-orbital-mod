@@ -31,7 +31,8 @@ public static partial class EncounterFrames
             if (handled.Contains(id)) continue;
             var g = GridMembers.Get(id);
             if (g == null || !g.IsServer || SystemHost.Frames.FindByMember(id) != null) continue;
-            Vector3D pos = GridMembers.Position(g);
+            // (dead - deleted in its settle time, its Unregister not run yet: no frame, no cluster about its last place - 2026-10-15)
+            if (!GridMembers.TryPosition(g, out Vector3D pos)) continue;
             if (VoxelBerthRegistry.TryCellContaining(pos, reg, out _, out _)) continue;   // planet cells are world space
 
             // The frame whose berth it spawned near.
@@ -53,7 +54,7 @@ public static partial class EncounterFrames
             // grid): it cannot move without it, so it stays where it spawned, in this frame.
             bool anchored = false;
             foreach (var o in GridMembers.All())
-                if (o.IsServer && SystemHost.Frames.FindByMember(o.Id) == null && (GridMembers.Position(o) - pos).Length() <= ClusterRadius
+                if (o.IsServer && SystemHost.Frames.FindByMember(o.Id) == null && GridMembers.TryPosition(o, out var oAt) && (oAt - pos).Length() <= ClusterRadius   // (a dead one reads as static: it anchors nothing)
                     && IsEncounterGrid(o) && !GridMembers.IsDynamic(o)) { anchored = true; break; }
             // Never on a planet's border: a frame orbiting low about a planet (periapsis under its keep
             // radius, where frames hand over to the planet's space) takes no encounter; the encounter goes
@@ -64,7 +65,7 @@ public static partial class EncounterFrames
                 foreach (var o in GridMembers.All())
                 {
                     if (!o.IsServer || SystemHost.Frames.FindByMember(o.Id) != null) continue;
-                    if ((GridMembers.Position(o) - pos).Length() > ClusterRadius || !IsEncounterGrid(o)) continue;
+                    if (!GridMembers.TryPosition(o, out var oAt) || (oAt - pos).Length() > ClusterRadius || !IsEncounterGrid(o)) continue;   // (a dead one: in no cluster)
                     cl.Add(o); handled.Add(o.Id);
                 }
                 int gone = SpawnGuard.DeleteEncountersNear(pos, ClusterRadius);
@@ -88,7 +89,7 @@ public static partial class EncounterFrames
                     foreach (var o in GridMembers.All())
                     {
                         if (!o.IsServer || SystemHost.Frames.FindByMember(o.Id) != null) continue;
-                        if (o != g && ((GridMembers.Position(o) - pos).Length() > ClusterRadius || !IsEncounterGrid(o))) continue;
+                        if (o != g && (!GridMembers.TryPosition(o, out var oAt) || (oAt - pos).Length() > ClusterRadius || !IsEncounterGrid(o))) continue;   // (a dead one: in no cluster)
                         cl2.Add(o); handled.Add(o.Id);
                     }
                     AsteroidBridge.RequestDeleteNear(pos, ClusterRadius);
@@ -106,7 +107,7 @@ public static partial class EncounterFrames
             foreach (var o in GridMembers.All())
             {
                 if (!o.IsServer || SystemHost.Frames.FindByMember(o.Id) != null) continue;
-                if ((GridMembers.Position(o) - pos).Length() > ClusterRadius || !IsEncounterGrid(o)) continue;
+                if (!GridMembers.TryPosition(o, out var oAt) || (oAt - pos).Length() > ClusterRadius || !IsEncounterGrid(o)) continue;   // (a dead one: in no cluster)
                 cluster.Add(o); handled.Add(o.Id);
             }
             FarFrame(F, cluster, t);

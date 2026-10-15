@@ -10,7 +10,7 @@ using static OrbitalMod.Num;
 namespace OrbitalMod;
 
 /// <summary>
-/// The SE2 port of SE-Aerospace's FrameManager, v1: the local player's conjunction frame.
+/// The SE2 port of SE-Aerospace's FrameManager: the local player's conjunction frame.
 ///
 /// Same design (docs/architecture-proximity-frames.md, proxy-rendering-frames.md in SE-Aerospace):
 ///  - STOW: leaving a planet's keep envelope on an escaping arc, the player's state is converted

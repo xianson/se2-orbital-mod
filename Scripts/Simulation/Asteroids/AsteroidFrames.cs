@@ -42,7 +42,7 @@ namespace OrbitalMod;
 /// </summary>
 public static partial class AsteroidFrames
 {
-    /// <summary>Off by default: not yet run in the game (see "roids on" in the harness).</summary>
+    /// <summary>On by default ("roids on|off" in the harness; a world setting).</summary>
     public static bool Enabled = true;   // verified in game: rocks come out at an Oblivara cluster
     public static string Status = "not built";
 

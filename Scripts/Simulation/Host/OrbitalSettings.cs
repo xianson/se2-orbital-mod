@@ -14,9 +14,12 @@ namespace OrbitalMod;
 /// Reached by other mods through OrbitalApi; documented in docs/API.md. The same design as the Aerodynamics Mod's
 /// AeroSettings (the two mods compile separately, so the code is not shared).
 ///
-/// Each setting also carries what an in-game settings menu needs (Ui / Pick / Visible below): a player-facing label, a
-/// group, a tier (Basic: on the menu; Advanced: under the group's "Advanced"; Hidden: the files and the API only), a
-/// unit, a slider step, labels for an int that is a choice, and an order. Doc is the tooltip (and the files' comment).
+/// THE UI METADATA (2026-10-15, settings DESIGN.md W2): each setting also carries what a generated settings menu needs
+/// (Ui / SeenByClients below) - a player-facing Label, its Group (the menu section; registration order is the menu's
+/// order: Order), a Tier (Basic: always shown; Advanced: a collapsed section; Hidden: the files and the API only), a Unit
+/// and Step for numbers, Choices (labels for an int's Min..Max values) and ClientVisible (a world value clients draw from
+/// too). Doc is the tooltip (and the files' comment). The Aerodynamics Mod's AeroSettings.Setting has the same fields with
+/// the same names and types.
 /// Never registered: a Dev*, Test*, Debug*, Probe*, *Log or Trace* field (Tests/SettingsTests scans for it).
 /// The registry is here; the store (the API, the text, the world save, the files) is OrbitalSettings.Store.cs.
 ///
@@ -38,26 +41,30 @@ public static partial class OrbitalSettings
         public Action<double> Set;
         public Func<double, string> Check;   // (a cross-setting rule: why not, or null)
 
-        // ── for a settings menu ──
-        public string Label, Group, Unit;     // (Unit: "" for none)
-        public Tier Tier = Tier.Hidden;       // (until Ui says otherwise)
-        public double Step;                   // a slider's step (0: the menu picks; a bool has none)
-        public string[] Choices;              // an int that is a choice: the label of each value, Min first (null: a number)
-        public int Order;                     // its place in its group (the registration order unless Ui gives one)
-        public bool ClientVisible;            // a world value a client also draws from (the plasma, the warp bar). Nothing
-                                              // replicates yet: a remote client would draw from its own copy.
+        // ── the UI metadata (the same fields as the Aerodynamics Mod's AeroSettings.Setting) ──
+        /// <summary>The player-facing name, and the menu section it shows in.</summary>
+        public string Label, Group;
+        public Tier Tier;
+        /// <summary>A number's unit ("" none) and a slider's step (0: the UI picks; an int's is 1).</summary>
+        public string Unit = "";
+        public double Step;
+        /// <summary>For an int shown as a choice: a label for each value Min..Max (null: a number).</summary>
+        public string[] Choices;
+        /// <summary>The menu's order (registration order).</summary>
+        public int Order;
+        /// <summary>A world value clients also draw from (the warp bar, the entry prediction): nothing replicates it yet - a
+        /// remote client would draw from its own copy.</summary>
+        public bool ClientVisible;
 
-        /// <summary>The menu's label, group and tier (and unit, slider step, order).</summary>
-        public Setting Ui(string label, string group, Tier tier, string unit = "", double step = 0, int order = 0)
+        /// <summary>The UI metadata, fluently after B / I / F.</summary>
+        public Setting Ui(string label, string group, Tier tier, string unit = "", double step = 0, string[] choices = null)
         {
-            Label = label; Group = group; Tier = tier; Unit = unit ?? ""; Step = step;
-            if (order != 0) Order = order;
+            Label = label; Group = group; Tier = tier; Unit = unit ?? ""; Choices = choices;
+            if (step > 0) Step = step;
             return this;
         }
-        /// <summary>An int that is a choice: one label per value, Min first.</summary>
-        public Setting Pick(params string[] choices) { Choices = choices; return this; }
-        /// <summary>A world value clients also draw from.</summary>
-        public Setting Visible() { ClientVisible = true; return this; }
+        /// <summary>Marks a world setting clients draw from too.</summary>
+        public Setting SeenByClients() { ClientVisible = true; return this; }
     }
 
     // The groups (a menu's sections; the world's first).
@@ -69,7 +76,7 @@ public static partial class OrbitalSettings
         // ── WORLD ──
         F("Orbit.PlanetDaySeconds", "world", -1, 1e7, true, () => OrbitalConfig.PlanetDaySeconds, v => OrbitalConfig.PlanetDaySeconds = v,
             "Planet day (sidereal, s): -1 the world's own sun period, 0 planets do not spin, more: that period.")
-            .Ui("Planet day length", GWorld, Tier.Basic, "s", 60).Visible();   // (clients draw the spin)
+            .Ui("Planet day length", GWorld, Tier.Basic, "s", 60).SeenByClients();   // (clients draw the spin)
         B("Orbit.CaptureLegacySpace", "world", false, () => OrbitalConfig.CaptureLegacySpace, v => OrbitalConfig.CaptureLegacySpace = v,
             "Put the space outside every planet cell (e.g. the spawn area) on orbits too. Off: it stays as the game has it (things there would fall into the planet).")
             .Ui("Orbits in the spawn area", GWorld, Tier.Advanced);
@@ -81,10 +88,10 @@ public static partial class OrbitalSettings
             .Ui("Spin forces above altitude", GWorld, Tier.Hidden, "m", 100);
         B("Entry.Enabled", "world", false, () => EntryHost.Enabled, v => EntryHost.Enabled = v,
             "Reentry: frames on orbit are braked through a planet's air (heat, wear, the plasma) before they arrive. Off: they arrive at orbital speed.")
-            .Ui("Re-entry", GWorld, Tier.Basic).Visible();   // (the client's entry prediction and plasma)
+            .Ui("Re-entry", GWorld, Tier.Basic).SeenByClients();   // (the client's entry prediction and plasma)
         F("Entry.DragDensity", "world", 0, 0.1, false, () => SEAerospace.Entry.Reentry.DragDensity, v => SEAerospace.Entry.Reentry.DragDensity = v,
             "Aerobraking: the outer atmosphere's density at the planet frame's border (kg/m3; falls off above it). Orbits dipping into the band lose speed by drag (each ship's own ballistic coefficient). 0: off - only speed over the world cap is braked.")
-            .Ui("Aerobraking strength", GWorld, Tier.Advanced, "kg/m³", 1e-4).Visible();   // (the client's entry prediction)
+            .Ui("Aerobraking strength", GWorld, Tier.Advanced, "kg/m³", 1e-4).SeenByClients();   // (the client's entry prediction)
         B("World.Asteroids", "world", true, () => AsteroidFrames.Enabled, v => AsteroidFrames.Enabled = v,
             "Asteroid belts and their rocks on orbits.")
             .Ui("Orbiting asteroid belts", GWorld, Tier.Basic);
@@ -103,13 +110,13 @@ public static partial class OrbitalSettings
 
         I("Warp.MaxLevel", "world", 0, WarpControl.Levels.Length - 1, false, () => WarpControl.MaxLevel, v => WarpControl.MaxLevel = (int)v,
             "The highest time warp the keys, the warp bar and other mods can ask for (a level of the warp bar; warp above it drops to it).")
-            .Ui("Maximum time warp", GWarp, Tier.Basic).Pick(WarpChoices()).Visible();   // (the client's keys and warp bar)
+            .Ui("Maximum time warp", GWarp, Tier.Basic, choices: WarpChoices()).SeenByClients();   // (the client's keys and warp bar)
         B("Warp.CostsEnergy", "world", false, () => WarpBill.Enabled, v => WarpBill.Enabled = v,
             "Warping drains your ship's batteries and tanks: what its systems would have used in the time skipped.")
             .Ui("Warp uses energy", GWarp, Tier.Basic);
         F("Warp.StopLead", "world", 5, 120, false, () => Maneuvers.WarpLead, v => { Maneuvers.WarpLead = v; EntryHost.WarpLead = v; },
             "Warp drops to x1 this long (s) before a maneuver burn or a planet's air.")
-            .Ui("Warp stops before events", GWarp, Tier.Advanced, "s", 1).Visible();   // (the client's map menu)
+            .Ui("Warp stops before events", GWarp, Tier.Advanced, "s", 1).SeenByClients();   // (the client's map menu)
         F("Warp.SafetySpeed", "world", 100, 5000, false, () => ServerFrames.WarpMemberSpeed, v => ServerFrames.WarpMemberSpeed = v,
             "Warp is held so that no ship moving in your frame is carried faster than 0.75 x this (m/s; the physics' speed cap).")
             .Ui("Warp limit speed", GWarp, Tier.Hidden, "m/s", 50);
@@ -117,7 +124,7 @@ public static partial class OrbitalSettings
         // ── CLIENT ──
         I("Proxy.Mode", "client", 0, 3, false, () => (int)OrbitalConfig.Mode, v => OrbitalConfig.Mode = (ProxyMode)(int)v,
             "Planets far away: 0 = a proxy globe outside the planet's frame (normal), 1 = always the proxy, 2 = never (the real planet), 3 = alternate (comparison).")
-            .Ui("Distant planets", GPlanets, Tier.Hidden).Pick("A globe outside its space", "Always the globe", "Never (the real planet)", "Alternate");
+            .Ui("Distant planets", GPlanets, Tier.Hidden, choices: new[] { "A globe outside its space", "Always the globe", "Never (the real planet)", "Alternate" });
         B("Proxy.HideRealPlanets", "client", false, () => OrbitalConfig.HideRealPlanets, v => OrbitalConfig.HideRealPlanets = v,
             "Hide the real planet where the proxy stands in. Off: real planets are never touched.")
             .Ui("Distant planets as globes", GPlanets, Tier.Basic);
@@ -130,7 +137,7 @@ public static partial class OrbitalSettings
         // (SetNormals with the current values: the mesh's public rebuild - the globes take the new model on their next update)
         I("Proxy.GlobeDetail", "client", 0, 3, false, GlobeDetail, v => { PlanetMesh.Quads = 16 << (int)v; PlanetMesh.SetNormals(PlanetMesh.NormalMaps, PlanetMesh.TangentSign); },
             "The distant globes' mesh: quads per cube-face edge, 16 x 2^this (more: rounder, slower to build).")
-            .Ui("Distant globe detail", GPlanets, Tier.Advanced).Pick("Low (16)", "Medium (32)", "High (64)", "Very high (128)");
+            .Ui("Distant globe detail", GPlanets, Tier.Advanced, choices: new[] { "Low (16)", "Medium (32)", "High (64)", "Very high (128)" });
         B("Proxy.NormalMaps", "client", false, () => PlanetMesh.NormalMaps, v => PlanetMesh.SetNormals(v, PlanetMesh.TangentSign),
             "The globes' baked surface relief (normal maps). Off: flat shading.")
             .Ui("Globe surface relief", GPlanets, Tier.Advanced);
@@ -237,7 +244,8 @@ public static partial class OrbitalSettings
     {
         var s = new Setting { Name = name, Type = type, Scope = scope, Min = min, Max = max, Reload = reload, Get = get, Set = set, Doc = doc };
         s.Default = get();   // (the field's own initial value)
-        s.Order = (_all.Count + 1) * 10;
+        s.Order = _all.Count;
+        if (type != "float") s.Step = 1;
         _all.Add(s); _by[name] = s;
         return s;
     }

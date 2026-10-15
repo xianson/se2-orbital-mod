@@ -244,7 +244,7 @@ namespace Orbital.ApiTests
         static readonly HashSet<string> Allowed = new HashSet<string>
         {
             "bool", "int", "long", "float", "double", "string", "void", "Vector3", "Vector3D", "Entity", "Delegate",
-            "List<string>", "List<long>", "double[]", "long[]",
+            "List<string>", "List<long>", "double[]", "long[]", "string[]",   // (string[]: TryGetSettingUi's choices, v3 - as AeroApi's)
         };
 
         static void ApiShape()
@@ -293,6 +293,13 @@ namespace Orbital.ApiTests
             var ver = Regex.Match(string.Join("\n", files.Select(File.ReadAllText)), @"public const int Version = (\d+);");
             Ok("Version is a const int", ver.Success);
             Ok("docs/API.md has a section for the current version", ver.Success && doc.Contains("## Version " + ver.Groups[1].Value));
+            Ok("Version is 3 (the settings' UI metadata and authority)", ver.Success && ver.Groups[1].Value == "3");
+            // version 3: the settings members a settings screen binds (the same names and shapes as AeroApi version 8)
+            foreach (var want in new[] {
+                "bool TryGetSettingUi(string name, out string label, out string group, out string tier, out string unit, out double step, out string[] choices)",
+                "bool IsSettingForced(string name)", "bool CanEditWorldSettings()",
+                "int ResetSettingsGroup(string scope, string group, out string why)", "bool AreWorldSettingsUnsaved()" })
+                Ok($"v3: public static {want}", files.Any(f => File.ReadAllText(f).Contains("public static " + want)));
         }
 
         static IEnumerable<string> SplitTop(string s)

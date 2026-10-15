@@ -46,7 +46,8 @@ public static partial class OrbitalSettings
     }
 
     static volatile bool _worldUnsaved;
-    /// <summary>A world setting changed since the world was loaded or saved: it goes into the save on the world's next save.</summary>
+    /// <summary>A world setting changed (the API, a menu) since the world was loaded or last saved: it goes into the save on the
+    /// world's next save (nothing is written now). A menu's "saved with this world" hint.</summary>
     public static bool WorldUnsaved => _worldUnsaved;
 
     // ── the API ──
@@ -67,17 +68,15 @@ public static partial class OrbitalSettings
         return true;
     }
 
-    /// <summary>A setting's menu metadata (see Setting): tier "basic", "advanced" or "hidden"; unit "" for none; choices
-    /// (cleared first) the labels of an int that is a choice, Min first, else left empty.</summary>
-    public static bool UiInfo(string name, out string label, out string group, out string tier, out string unit, out double step,
-        out int order, out bool clientVisible, List<string> choices)
+    /// <summary>A setting's UI metadata (see Setting): tier "basic", "advanced" or "hidden"; unit "" for none; choices a
+    /// copy of an int choice's labels, Min first (null: a number).</summary>
+    public static bool UiInfo(string name, out string label, out string group, out string tier, out string unit, out double step, out string[] choices)
     {
-        label = group = tier = unit = null; step = 0; order = 0; clientVisible = false;
-        choices?.Clear();
+        label = group = tier = unit = null; step = 0; choices = null;
         if (name == null || !_by.TryGetValue(name, out var s)) return false;
-        label = s.Label; group = s.Group; unit = s.Unit ?? ""; step = s.Step; order = s.Order; clientVisible = s.ClientVisible;
+        label = s.Label; group = s.Group; unit = s.Unit; step = s.Step;
         tier = s.Tier == Tier.Basic ? "basic" : s.Tier == Tier.Advanced ? "advanced" : "hidden";
-        if (choices != null && s.Choices != null) choices.AddRange(s.Choices);
+        choices = s.Choices == null ? null : (string[])s.Choices.Clone();
         return true;
     }
 
@@ -99,9 +98,16 @@ public static partial class OrbitalSettings
         if (double.IsNaN(value) || double.IsInfinity(value)) { why = "not a number"; return false; }
         if (s.Type != "float") value = Math.Round(value);
         if (s.Type == "bool" && value != 0 && value != 1) { why = "a bool is 0 or 1"; return false; }
+        // (a float field at a bound reads back a hair past it - (double)0.05f is 0.0500000007 - and its own client file then
+        //  refused it: within float precision of a bound is the bound)
+        if (s.Type == "float")
+        {
+            if (value > s.Max && value - s.Max <= Math.Abs(s.Max) * 1e-6) value = s.Max;
+            else if (value < s.Min && s.Min - value <= Math.Abs(s.Min) * 1e-6) value = s.Min;
+        }
         if (value < s.Min || value > s.Max) { why = "out of range " + s.Min.ToString(Inv) + ".." + s.Max.ToString(Inv); return false; }
         if (s.Scope == "world" && !fromStorage && !CanEditWorld()) { why = "world settings are set by the host / server"; return false; }
-        if (s.Scope == "world" && !fromStorage && IsForced(s.Name) && s.Get() != value) { why = "forced by the host file " + WorldPath; return false; }
+        if (s.Scope == "world" && !fromStorage && IsForced(s.Name)) { why = "forced by the host file " + WorldPath; return false; }
         lock (_lock)
         {
             if (s.Get() == value) return true;
@@ -109,7 +115,7 @@ public static partial class OrbitalSettings
             s.Set(value);
             System.Threading.Interlocked.Increment(ref _version);
             if (s.Scope == "client" && !fromStorage) _clientDirtyAt = System.Diagnostics.Stopwatch.GetTimestamp();
-            if (s.Scope == "world") _worldUnsaved = true;
+            if (s.Scope == "world" && !fromStorage) _worldUnsaved = true;
         }
         Log.Default?.Info($"[ORBIT] setting {s.Name} = {Fmt(s, value)}{(fromStorage ? " (loaded)" : "")}{(s.Reload ? " (applies after a world reload)" : "")}");
         return true;
@@ -186,17 +192,23 @@ public static partial class OrbitalSettings
             foreach (var s in _all) if (s.Scope == scope && s.Get() != s.Default) Set(s.Name, s.Default, out _, true);
     }
 
-    /// <summary>A menu's "reset to defaults": every setting of the scope and group (any tier) back to its default, as a
-    /// change from the menu - a world one only where CanEditWorld, none the host file forces. Returns how many changed.</summary>
-    public static int ResetGroup(string scope, string group)
+    /// <summary>Every setting of a group (any tier; and scope - null: either) back to its default, through Set (so a world
+    /// group needs CanEditWorld, and a forced name stays). Returns how many changed; why: the first refusal, or no such group.</summary>
+    public static int ResetGroup(string scope, string group, out string why)
     {
-        int n = 0;
-        if (scope == null || group == null) return 0;
+        why = null;
+        int n = 0; bool any = false;
         // (twice, as ResetScope: a default refused against a partner not yet reset goes in on the second)
         for (int pass = 0; pass < 2; pass++)
             foreach (var s in _all)
-                if (s.Scope == scope && string.Equals(s.Group, group, StringComparison.OrdinalIgnoreCase) && s.Get() != s.Default
-                    && Set(s.Name, s.Default, out _)) n++;
+            {
+                if (!string.Equals(s.Group, group, StringComparison.OrdinalIgnoreCase) || (scope != null && s.Scope != scope)) continue;
+                any = true;
+                if (s.Get() == s.Default) continue;
+                if (Set(s.Name, s.Default, out string w)) n++;
+                else if (pass == 1) why ??= s.Name + ": " + w;
+            }
+        if (!any) why = "no group " + group + (scope != null ? " in " + scope : "");
         return n;
     }
 

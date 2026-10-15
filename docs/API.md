@@ -286,15 +286,15 @@ in-game "Mods" tab) to list, group, lock and reset the settings without knowing 
 `AeroApi` gives the same shape for its settings.
 
 Threads: any. Lock: none (the metadata is fixed once registered; `ResetSettingsGroup` takes the settings' lock as
-`SetSetting` does). Allocation: none, except `ResetSettingsGroup` through what each setting's change does.
+`SetSetting` does). Allocation: `TryGetSettingUi`'s choices (a copy); otherwise none beyond what a setting's change does.
 
 | Member | What it gives |
 |---|---|
-| `bool TryGetSettingUi(string name, out string label, out string group, out string tier, out string unit, out double step, out int order, out bool clientVisible, List<string> choices)` | A setting's player-facing **label**; its **group** (a menu section: `Orbits and world`, `Time warp`, `Planets`, `Flight HUD`, `Map`, `Autopilot`); its **tier** (`basic`: on the menu; `advanced`: under the group's "Advanced"; `hidden`: the files and the API only); its **unit** (`""` none); a slider **step** (0: pick one; none for a bool); its **order** within the group (ascending); **clientVisible**: a world value that clients also draw from (nothing replicates yet); and into `choices` (cleared first; may be `null`) the label of each value of an int that is a choice, `Min` first, left empty for a plain number. The tooltip is `TryGetSettingInfo`'s description. |
+| `bool TryGetSettingUi(string name, out string label, out string group, out string tier, out string unit, out double step, out string[] choices)` | A setting's player-facing **label**; its **group** (a screen section: `Orbits and world`, `Time warp`, `Planets`, `Flight HUD`, `Map`, `Autopilot`; `GetSettings` lists the settings in screen order); its **tier** (`basic`: always shown; `advanced`: a collapsed section; `hidden`: the files and the API only); a number's **unit** (`""` none) and slider **step** (0: pick one; an int's is 1); and for an int shown as a choice, a label per value `Min..Max` (`null`: a number; a copy). The tooltip is `TryGetSettingInfo`'s description. The same shape as the Aerodynamics Mod's `AeroApi.TryGetSettingUi`. |
 | `bool IsSettingForced(string name)` | A world setting the host's `OrbitalMod.world.cfg` forces (an uncommented line): `SetSetting` refuses to change it ("forced by the host file ..."). Show it locked. |
 | `bool CanEditWorldSettings()` | World settings may be changed from here: this process hosts the world (single player, a host). `false` on a remote client: show world settings read-only. `SetSetting` refuses world settings where it is `false`. |
-| `int ResetSettingsGroup(string scope, string group)` | A menu's "reset to defaults": every setting of the scope (`world` / `client`) and group, any tier, back to its default as `SetSetting` would (a world one only where `CanEditWorldSettings`; never a forced one). Returns how many changed. |
-| `bool IsWorldSettingsUnsaved()` | A world setting changed since the world was loaded or last saved: it goes into the save on the world's next save. |
+| `int ResetSettingsGroup(string scope, string group, out string why)` | A screen's "reset to defaults": every setting of the group (any tier; scope `world`, `client` or `null` for either) back to its default as `SetSetting` would (a world one only where `CanEditWorldSettings`; never a forced one). Returns how many changed; `why`: the first refusal, or no such group. |
+| `bool AreWorldSettingsUnsaved()` | A world setting changed (the API, a screen) since the world was loaded or last saved: it is saved with the world on its next save. |
 
 Changed: `GetWarpLevels` and `RequestTimescale` stop at the world's maximum warp (`Warp.MaxLevel`, the top level by default,
 so nothing changes unless a world lowers it).

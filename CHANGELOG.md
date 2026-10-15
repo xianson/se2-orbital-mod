@@ -143,5 +143,6 @@ bug fixes (warp billing, orbit prediction, world changes, threading).
   `tools/harness/experiments/`, a shared `testlib.sh` (`LOGF`, `waitloaded`), `README.md`, `COMMANDS.md` (every name the
   scripts depend on), `RUNBOOK.md`, `test_integrate.sh` (one <= 5 min in-game run over a whole batch, not yet run),
   `settingsui.sh`; `WarpBill` counters for it.
-- **Removed** (approved 2026-10-15): `docs/screenshots/` (65 old proxy / map JPEGs nothing linked to).
+- **Removed** (approved 2026-10-15): `docs/screenshots/` (65 old proxy / map JPEGs nothing linked to);
+  `Hud/HudMath.cs` (a forwarder to `Host/Num.cs` with no callers; HUD files take `using static OrbitalMod.Num`).
 - **Docs**: `docs/ARCHITECTURE.md` (new), `docs/API.md` versions 2-3, folder READMEs, this changelog.

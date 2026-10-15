@@ -413,7 +413,6 @@ Exception noted by the contract check: `Frames/BuildHints.cs` (owned by other wo
 The 2026-10-15 list (CW in the comments, a 20 km frame size, `SunDriver` "off", the arriving-grid HighSpeed, a drifted
 `_trueRel` summary, the unused `RockReach`) was fixed in the reorg (4885b94, 9320e68, 90525c4). Still true:
 
-- `Hud/HudMath.cs` is a forwarder with no callers (the shared helpers are `Host/Num.cs`).
 - The harness's `hsfold` sets `FrameHost.HsThrustFold`, which nothing reads since the player HighSpeed went (inert).
 - `Flight/HoldActions.cs` is a disabled prototype whose `Hook` / `ClientTick` still run (its `[BlockDetailProvider]` was
   removed 2026-10-08).

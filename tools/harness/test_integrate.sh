@@ -246,7 +246,10 @@ fi
 
 # ---- E: settings UI ----------------------------------------------------------------------------------------------------------
 echo "== E settings UI ($(el) s)"
-su=$(ask settingsui | tail -1)
+# (the verb needs the screen open first: open, select the tab, then report - settingsui.sh's sequence; closed after)
+ask "settingsui open" >/dev/null; sleep 3; ask "settingsui select" >/dev/null; sleep 2; ask "settingsui report" >/dev/null; sleep 1
+su=$(ask "settingsui report" | tail -1)
+ask "settingsui close" >/dev/null
 if [ -z "$su" ] || [ "$su" = "unknown command" ]; then
     skip "settings UI: the tab and its rows" "no 'settingsui' harness verb in this build (the settings UI branch not merged)"
 else

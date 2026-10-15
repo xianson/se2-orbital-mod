@@ -124,9 +124,13 @@ public static partial class Maneuvers
             else if (FrameHost.Seated)
             {
                 OrbitalGridComponent best = null; double bd = 300;
+                // (the grids of this session's own scene - the client's, this thread's: GridMembers holds both scenes' copies,
+                //  and the server copies' alive / transform / mass read from here were the cross-thread read the game's
+                //  DataGuard asserts on - StationKeepCharge, in game, 2026-10-15. The client copy has the same thrust and mass)
+                var scene = session?.Scene;
                 foreach (var g in GridMembers.All())
                 {
-                    if (!g.IsServer) continue;
+                    if (g.Entity == null || !ReferenceEquals(g.Entity.Data.Scene, scene)) continue;
                     double d = (GridMembers.Position(g) - FrameHost.PlayerPosition).Length();
                     if (d < bd) { bd = d; best = g; }
                 }

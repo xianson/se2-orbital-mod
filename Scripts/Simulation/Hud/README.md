@@ -12,7 +12,7 @@
 | `Targets.cs` | What can be targeted and where it is (the key in `Maneuvers.Target`). |
 | `CrossingFade.cs` | The fade across a seated arrival into a planet frame. |
 | `SpdIcon.cs` | The speedometer icon in the cockpit's SPD box. |
-| `StructureAlerts.cs` | The Aerodynamics Mod's structure failures on the ship you fly (AeroApi v7 `ReadStructureEvents`, through `AeroLink`), as a toast. |
+| `StructureAlerts.cs` | The Aerodynamics Mod's structure failures on the ship you fly (AeroApi v7 `ReadStructureEvents`, through `AeroLink`), as a toast and an `[ORBIT-STRUCT]` line. Asks aero only while you are seated (asking starts aero's recording); reset per world (`WorldReset.ClientSession`). |
 | `HudGeom.cs` | The game's HUD places, read off its controls (UI thread). |
 | `NativeHints.cs` | Our key hints as the game's own hint line (UI thread). |
 | `UiThread.cs` | Avalonia by reflection: dispatcher, visual tree, bounds, held transforms. |

@@ -2,7 +2,7 @@
 
 The Orbital Mod exposes its data to other mods through one class, `OrbitalMod.OrbitalApi`: a `partial` class whose version 1 members are in `Scripts/Simulation/Api/OrbitalApi.cs` and whose version 2 members are in `Scripts/Simulation/Api/OrbitalApi.<Area>.cs` (version 3 added settings members to `OrbitalApi.cs`) (`Peek`, `World`, `Grids`, `Orbits`, `Time`, `Player`, `Sites`), with their engine-free parts in `Scripts/Simulation/Api/Core/` (tested offline: `Tests/ApiTests`). Its settings go through the same class (`Scripts/Simulation/Host/OrbitalSettings.cs`, the registry; `OrbitalSettings.Store.cs`, the store).
 
-**At a glance (version 2):** the solar system (bodies, their states, orbits, spin and where their planets sit in the world), the frames (lock-free `Peek*` reads), any grid's own orbit and status, the conversion between world positions and body-relative states, orbit math on any element set (propagate, convert, apsides and times, sampled paths into your buffer), time warp (levels, ask for a factor, a stop time), the local player's plan (orbit, maneuver nodes, the next burn, attitude hold, target, closest approach), sites and contacts, reentry, and the settings.
+**At a glance (version 3):** the solar system (bodies, their states, orbits, spin and where their planets sit in the world), the frames (lock-free `Peek*` reads), any grid's own orbit and status, the conversion between world positions and body-relative states, orbit math on any element set (propagate, convert, apsides and times, sampled paths into your buffer), time warp (levels, ask for a factor, a stop time), the local player's plan (orbit, maneuver nodes, the next burn, attitude hold, target, closest approach), sites and contacts, reentry, and the settings (with their menu labels, groups and who may change them).
 
 ## How to call it
 
@@ -78,7 +78,7 @@ Threads: any; no lock (the bodies are fixed once the system is built).
 
 | Member | What it gives |
 |---|---|
-| `const int Version` | The API contract: 1, then 2 since version 2 (check `>= 1` for these members). |
+| `const int Version` | The API contract: 3 now (1, then 2, then 3; check `>= 1` for these members - members are only added). |
 | `bool IsReady()` | The solar system is built. `false` early in a session. |
 | `double GetTime()` / `double GetTimescale()` | The universe clock (s) and the time warp factor (1: none). |
 | `int GetBodies(List<string> names)` | The bodies: the star first, then planets and moons. |
@@ -280,8 +280,8 @@ if (peekOrbit(frame, out var a, out var e, out var i, out var raan, out var w, o
 
 ## Version 3
 
-The settings' menu metadata, and who may change what: enough for a generic settings screen (another mod's, or a later
-in-game "Mods" tab) to list, group, lock and reset the settings without knowing them. Members in `OrbitalApi.cs`
+The settings' menu metadata, and who may change what: enough for a generic settings screen (another mod's, or the
+in-game "Mods" tab both mods share - see Settings) to list, group, lock and reset the settings without knowing them. Members in `OrbitalApi.cs`
 (the settings section); the store in `Scripts/Simulation/Host/OrbitalSettings.Store.cs`. The Aerodynamics Mod's
 `AeroApi` gives the same shape for its settings.
 
@@ -329,64 +329,66 @@ Both files are read again within ~2 s of an edit, so they can be changed while p
 
 **In game:** pause menu → Settings → **Mods** (inside a world: mods do not run in the main menu). One tab for every mod - this mod's section ("Orbital") beside the Aerodynamics Mod's, generated from the registry: Basic settings shown, each group's Advanced ones in a collapsed "Advanced", hidden ones never; a switch, a choice or a slider (with its value and unit) per setting, its description in the screen's description panel, "Reset to defaults" per group. World settings are editable only where `CanEditWorldSettings` holds (read-only otherwise, with the reason), and a host-file-forced one is locked with the file's path. The tab is `Scripts/Simulation/Ui/SettingsTab*.cs` (written once here and copied into the Aerodynamics Mod by `tools/sync_settings_ui.sh`). **Another mod can add its own section** the same way, with no code shared: in the game's `OptionsScreen.PART_TabControl.Items`, find the `TabItem` whose `Tag` is `"ModSettings/v1"` (or add it: `Header` "Mods", `Content` a `ScrollViewer` whose `Content` is a `StackPanel` tagged `"ModSettings/v1/host"`), and add an `Expander` tagged `"ModSettings/v1/<YourModId>"` to that panel's `Children` if it is not there. Where it cannot be added, a toast once per session points to the files.
 
-A world setting the host file names is **forced**: a change through the API is refused with the file's path (`IsSettingForced`). Each setting also has a menu label, group and tier (`TryGetSettingUi`, Version 3); *hidden* ones below are for the files and the API only.
+A world setting the host file names is **forced**: a change through the API is refused with the file's path (`IsSettingForced`). Each setting also has a menu label, group and tier (`TryGetSettingUi`, Version 3; the table's *On the settings screen*, in screen order, checked against the registry 2026-10-15); *hidden* ones are for the files and the API only.
 
-| Setting | Scope | Type | Default | Range | What it does |
-|---|---|---|---|---|---|
-| `Orbit.PlanetDaySeconds` | world | float | −1 | −1..10⁷ | Planet day (sidereal, s): −1 the world's own sun period, 0 no spin. **Reload.** |
-| `Orbit.CaptureLegacySpace` | world | bool | false | | Put the space outside every planet cell (the spawn area) on orbits too. |
-| `Orbit.FictitiousMinSpeed` | world | float | 20 | 0..1000 | In a spinning planet's cell, the spin's fictitious forces apply above this speed (m/s)... |
-| `Orbit.FictitiousMinAltitude` | world | float | 5000 | 0..10⁶ | ... or above this altitude (m). |
-| `Entry.Enabled` | world | bool | true | | Reentry braking, heat and wear. Off: frames arrive at orbital speed. |
-| `Entry.DragDensity` | world | float | 0.002 | 0..0.1 | Aerobraking: the outer atmosphere's density at the planet frame's border (kg/m³). 0: off. |
-| `World.Asteroids` | world | bool | true | | Asteroid belts on orbits. **Reload.** |
-| `World.Encounters` | world | bool | true | | Encounter sites on orbits. **Reload.** |
-| `World.RingRocks` | world | bool | true | | Rocks in planetary rings. **Reload.** |
-| `World.SectorAnchors` | world | bool | true | | An encounter site on orbit at every deep-space sector's centre. **Reload.** |
-| `World.RingRocksPerRing` | world | int | 120 | 0..1000 | Rocks per ring. |
-| `Warp.MaxLevel` | world | int | 6 | 0..6 | The highest time warp (a level: ×1, ×5, ×10, ×50, ×100, ×1,000, ×10,000). Warp above it drops to it. |
-| `Warp.CostsEnergy` | world | bool | true | | Warping drains batteries and tanks. |
-| `Warp.StopLead` | world | float | 30 | 5..120 | Warp drops to ×1 this long (s) before a maneuver burn or a planet's air. |
-| `Warp.SafetySpeed` | world | float | 800 | 100..5000 | Hidden. Warp is held so no ship moving in your frame is carried faster than 0.75 × this (m/s). |
-| `Proxy.Mode` | client | int | 0 | 0..3 | 0 a proxy globe outside the planet's frame, 1 always the proxy, 2 never, 3 alternate. |
-| `Proxy.HideRealPlanets` | client | bool | true | | Hide the real planet where the proxy stands in. |
-| `Proxy.HideAtmosphere` | client | bool | true | | Hide its atmosphere and clouds with it. |
-| `Proxy.Atmospheres` | client | bool | true | | The distant globes' own atmosphere (the game's, scaled). A failure turns them off for the session; the setting stays as set. |
-| `Proxy.Rings` | client | bool | true | | Planetary rings around the distant globes. |
-| `Proxy.GlobeDetail` | client | int | 2 | 0..3 | The distant globes' mesh: 16 × 2^this quads per cube-face edge (Low, Medium, High, Very high). |
-| `Proxy.NormalMaps` | client | bool | true | | The globes' baked surface relief. |
-| `Proxy.WarmBeforeShow` | client | bool | true | | Keep the globe up until the real planet's terrain has loaded (no pop-in). |
-| `Fx.ArrivalFade` | client | bool | false | | A short fade to black on arriving in or leaving a planet's space. |
-| `Proxy.ClampDistance` | client | float | 0 | 0..10⁹ | Draw proxies no further than this (m), keeping their angular size. 0: true distance. |
-| `Proxy.FrameEnterFactor` / `Proxy.FrameExitFactor` | client | float | 1 / 1.1 | 0.1..10 | Outside the frames model: the real planet shows inside gravity reach × enter, hides past × exit. Enter must stay under exit. |
-| `Proxy.MinFrameRadii` | client | float | 1.5 | 1..20 | The smallest frame sphere, in planet radii. |
-| `Proxy.AlternateSeconds` | client | float | 10 | 1..600 | Mode 3's switching period. |
-| `Hud.ShowOrbit` | client | bool | true | | The predicted orbit line and the orbit card. |
-| `Hud.OrbitLineThickness` | client | float | 0.0025 | 0.0005..0.05 | The orbit line's width per metre of distance. |
-| `Map.BodyMarkers` / `Map.FrameMarkers` | client | bool | true | | Planet and moon markers; markers on other frames. |
-| `Hud.FrameOrigin` | client | bool | true | | A marker at the centre of the frame you ride in. |
-| `Hud.AlignButton` | client | bool | true | | The align button on the cockpit HUD. |
-| `Hud.SpeedIcon` | client | bool | true | | The orbital speed icon. |
-| `Hud.BuildHints` | client | bool | true | | Build and aero hints while building (O cycles the overlay). |
-| `Hud.ContactsNeedDetection` | client | bool | true | | Other ships and rocks show only once your sensors have seen them. Off: everything is known. |
-| `Map.Orbital` | client | bool | true | | The orbital map in place of the game's map. |
-| `Map.TextScale` | client | float | 1.3 | 0.5..3 | The map's text size. |
-| `Map.FreeCamera` | client | bool | true | | The map's free camera (right-drag orbits, drag pans). |
-| `Map.HideGameSectors` | client | bool | true | | Hide the game's own sector grid on the map. |
-| `Map.Rings` | client | bool | true | | Planetary rings on the map. |
-| `Map.ContactsTab` | client | bool | true | | The contacts tab in place of the GPS tab. **Reload.** |
-| `Map.LineWidth` | client | float | 0.003 | 0.0005..0.05 | Hidden; no longer drawn (kept so that old files still parse). |
-| `Map.ZoomOutFactor` | client | float | 6 | 1..100 | How far the map zooms out, × the game's own limit. |
-| `Map.ManeuverEditor` | client | bool | true | | Maneuver nodes on the map. |
-| `Map.OrbitPatches` | client | int | 3 | 0..10 | Conic patches drawn ahead. |
-| `Autopilot.HoldTurnRate` | client | float | 30 | 5..180 | How fast attitude hold turns the ship (°/s). |
-| `Autopilot.BurnAlignLead` | client | float | 30 | 5..120 | An auto-burn starts turning to its burn this long (s) before it. |
+| Setting | Scope | Type | Default | Range | On the settings screen | What it does |
+|---|---|---|---|---|---|---|
+| `Orbit.PlanetDaySeconds` | world | float | −1 | −1..10⁷ | Planet day length · Orbits and world · basic | Planet day (sidereal, s): −1 the world's own sun period, 0 no spin. **Reload.** |
+| `Orbit.CaptureLegacySpace` | world | bool | false |  | Orbits in the spawn area · Orbits and world · advanced | Put the space outside every planet cell (the spawn area) on orbits too. |
+| `Orbit.FictitiousMinSpeed` | world | float | 20 | 0..1000 | Spin forces above speed · Orbits and world · hidden | In a spinning planet's cell, the spin's fictitious forces apply above this speed (m/s)... |
+| `Orbit.FictitiousMinAltitude` | world | float | 5000 | 0..10⁶ | Spin forces above altitude · Orbits and world · hidden | ... or above this altitude (m). |
+| `Entry.Enabled` | world | bool | true |  | Re-entry · Orbits and world · basic | Reentry braking, heat and wear. Off: frames arrive at orbital speed. |
+| `Entry.DragDensity` | world | float | 0.002 | 0..0.1 | Aerobraking strength · Orbits and world · advanced | Aerobraking: the outer atmosphere's density at the planet frame's border (kg/m³). 0: off. |
+| `World.Asteroids` | world | bool | true |  | Orbiting asteroid belts · Orbits and world · basic | Asteroid belts on orbits. **Reload.** |
+| `World.Encounters` | world | bool | true |  | Orbiting encounters · Orbits and world · basic | Encounter sites on orbits. **Reload.** |
+| `World.SectorAnchors` | world | bool | true |  | Encounters near sectors · Orbits and world · advanced | An encounter site on orbit at every deep-space sector's centre. **Reload.** |
+| `World.RingRocks` | world | bool | true |  | Ring rocks · Orbits and world · basic | Rocks in planetary rings. **Reload.** |
+| `World.RingRocksPerRing` | world | int | 120 | 0..1000 | Rocks per ring · Orbits and world · advanced | Rocks per ring. |
+| `Warp.MaxLevel` | world | int | 6 | 0..6 | Maximum time warp · Time warp · basic | The highest time warp (a level: ×1, ×5, ×10, ×50, ×100, ×1,000, ×10,000). Warp above it drops to it. |
+| `Warp.CostsEnergy` | world | bool | true |  | Warp uses energy · Time warp · basic | Warping drains batteries and tanks. |
+| `Warp.StopLead` | world | float | 30 | 5..120 | Warp stops before events · Time warp · advanced | Warp drops to ×1 this long (s) before a maneuver burn or a planet's air. |
+| `Warp.SafetySpeed` | world | float | 800 | 100..5000 | Warp limit speed · Time warp · hidden | Warp is held so no ship moving in your frame is carried faster than 0.75 × this (m/s). |
+| `Proxy.Mode` | client | int | 0 | 0..3 | Distant planets · Planets · hidden | 0 a proxy globe outside the planet's frame, 1 always the proxy, 2 never, 3 alternate. |
+| `Proxy.HideRealPlanets` | client | bool | true |  | Distant planets as globes · Planets · basic | Hide the real planet where the proxy stands in. |
+| `Proxy.HideAtmosphere` | client | bool | true |  | Hide far atmospheres with terrain · Planets · advanced | Hide its atmosphere and clouds with it. |
+| `Proxy.Atmospheres` | client | bool | true |  | Atmospheres on distant globes · Planets · advanced | The distant globes' own atmosphere (the game's, scaled). A failure turns them off for the session; the setting stays as set. |
+| `Proxy.Rings` | client | bool | true |  | Planet rings · Planets · basic | Planetary rings around the distant globes. |
+| `Proxy.GlobeDetail` | client | int | 2 | 0..3 | Distant globe detail · Planets · advanced | The distant globes' mesh: 16 × 2^this quads per cube-face edge (Low, Medium, High, Very high). |
+| `Proxy.NormalMaps` | client | bool | true |  | Globe surface relief · Planets · advanced | The globes' baked surface relief. |
+| `Proxy.WarmBeforeShow` | client | bool | true |  | Wait for terrain before swapping · Planets · advanced | Keep the globe up until the real planet's terrain has loaded (no pop-in). |
+| `Proxy.ClampDistance` | client | float | 0 | 0..10⁹ | Globe draw distance limit · Planets · hidden | Draw proxies no further than this (m), keeping their angular size. 0: true distance. |
+| `Proxy.FrameEnterFactor` | client | float | 1 | 0.1..10 | Real planet shows within · Planets · hidden | Outside the frames model: the real planet shows inside gravity reach × this. Must stay under `Proxy.FrameExitFactor`. |
+| `Proxy.FrameExitFactor` | client | float | 1.1 | 0.1..10 | Real planet hides past · Planets · hidden | Outside the frames model: the real planet hides past gravity reach × this. |
+| `Proxy.MinFrameRadii` | client | float | 1.5 | 1..20 | Smallest planet space · Planets · hidden | The smallest frame sphere, in planet radii. |
+| `Proxy.AlternateSeconds` | client | float | 10 | 1..600 | Alternate every · Planets · hidden | Mode 3's switching period. |
+| `Fx.ArrivalFade` | client | bool | false |  | Fade on arrival · Planets · advanced | A short fade to black on arriving in or leaving a planet's space. |
+| `Hud.ShowOrbit` | client | bool | true |  | Orbit line and card · Flight HUD · basic | The predicted orbit line and the orbit card. |
+| `Hud.OrbitLineThickness` | client | float | 0.0025 | 0.0005..0.05 | Orbit line width · Flight HUD · advanced | The orbit line's width per metre of distance. |
+| `Map.BodyMarkers` | client | bool | true |  | Planet and moon markers · Flight HUD · basic | Planet and moon markers in flight. |
+| `Map.FrameMarkers` | client | bool | true |  | Orbiting ship markers · Flight HUD · basic | Markers on other frames (orbiting ships). |
+| `Hud.FrameOrigin` | client | bool | true |  | Frame origin marker · Flight HUD · advanced | A marker at the centre of the frame you ride in. |
+| `Hud.AlignButton` | client | bool | true |  | Align button on the cockpit HUD · Flight HUD · basic | The align button on the cockpit HUD. |
+| `Hud.SpeedIcon` | client | bool | true |  | Orbital speed icon · Flight HUD · advanced | The orbital speed icon. |
+| `Hud.BuildHints` | client | bool | true |  | Build and aero hints · Flight HUD · basic | Build and aero hints while building (O cycles the overlay). |
+| `Hud.ContactsNeedDetection` | client | bool | true |  | Contacts must be detected · Flight HUD · advanced | Other ships and rocks show only once your sensors have seen them. Off: everything is known. |
+| `Map.Orbital` | client | bool | true |  | Orbital map · Map · basic | The orbital map in place of the game's map. |
+| `Map.ManeuverEditor` | client | bool | true |  | Maneuver nodes · Map · basic | Maneuver nodes on the map. |
+| `Map.OrbitPatches` | client | int | 3 | 0..10 | Predicted orbit segments · Map · basic | Conic patches drawn ahead. |
+| `Map.TextScale` | client | float | 1.3 | 0.5..3 | Map text size · Map · basic | The map's text size. |
+| `Map.ZoomOutFactor` | client | float | 6 | 1..100 | Map zoom-out limit · Map · advanced | How far the map zooms out, × the game's own limit. |
+| `Map.FreeCamera` | client | bool | true |  | Free map camera · Map · advanced | The map's free camera (right-drag orbits, drag pans). |
+| `Map.HideGameSectors` | client | bool | true |  | Hide the game's sector grid · Map · advanced | Hide the game's own sector grid on the map. |
+| `Map.Rings` | client | bool | true |  | Planet rings on the map · Map · advanced | Planetary rings on the map. |
+| `Map.ContactsTab` | client | bool | true |  | Contacts tab · Map · basic | The contacts tab in place of the GPS tab. **Reload.** |
+| `Map.LineWidth` | client | float | 0.003 | 0.0005..0.05 | Map line width (unused) · Map · hidden | No longer drawn (kept so that old files still parse). |
+| `Autopilot.HoldTurnRate` | client | float | 30 | 5..180 | Attitude hold turn rate · Autopilot · basic | How fast attitude hold turns the ship (°/s). |
+| `Autopilot.BurnAlignLead` | client | float | 30 | 5..120 | Align before auto-burn · Autopilot · advanced | An auto-burn starts turning to its burn this long (s) before it. |
 
 **Multiplayer:** SE2 2.4 runs its server in the same process as the client (its networking is a mock), so world values are the server's. A process that has only seen a client tick refuses world sets (`CanEditWorldSettings`: the one place an admin check will go).
 
 ## Reaching orbital from a script
 
-SE2 2.4 has the engine side of programmable blocks (`InGameScriptingComponent`, compiled against the same whitelist as mods), but no vanilla block uses it, so there is no player script yet. A script, once there is one, could reach this API the same way a mod does: by reflection, if its whitelist keeps `System.Reflection`. SE2 has no mod-to-mod message channel and no mod settings screen; this API and the settings files are the way in.
+SE2 2.4 has the engine side of programmable blocks (`InGameScriptingComponent`, compiled against the same whitelist as mods), but no vanilla block uses it, so there is no player script yet. A script, once there is one, could reach this API the same way a mod does: by reflection, if its whitelist keeps `System.Reflection`. SE2 has no mod-to-mod message channel and no mod settings screen of its own (the mods add a "Mods" tab to its Options screen, see Settings); this API and the settings files are the way in.
 
 ## The Aerodynamics Mod
 

@@ -1,16 +1,19 @@
 # Api/ - what other mods may call
 
-- `OrbitalApi.cs` - the public API (`docs/API.md`): the system, frames and their orbits, a grid's frame, reentry, the
-  settings. Other mods reach it by reflection; member names and signatures are a contract (`tools/check_contract.sh`
+- `OrbitalApi.cs` - the public API (`docs/API.md`, `Version` 3): the system, frames and their orbits, a grid's frame,
+  reentry, the settings (version 3: the settings screen's members - `TryGetSettingUi`, `IsSettingForced`,
+  `CanEditWorldSettings`, `ResetSettingsGroup`, `AreWorldSettingsUnsaved`). Other mods reach it by reflection; member names and signatures are a contract (`tools/check_contract.sh`
   checks both directions against the aero mod). Never rename; add a new name for a new shape.
 - `GridEdits.cs` - what this mod wrote into each grid's physics velocity (`OrbitalApi.TryGetGridEdits`), recorded at every
   write.
 - `AeroLink.cs` - the one rule for finding the aero mod's types (`AeroMod.AeroApi` and the dev ones): the last loaded
-  assembly that has it, re-found when the loaded assemblies change; `Generation` tells a binding site to bind again.
+  assembly that has it, re-found when the loaded assemblies change (at most every 5 s, one thread at a time:
+  `Monitor.TryEnter`); `Generation` tells a binding site to bind again. The only way this mod reaches aero (one link each
+  way, `tools/check_contract.sh`; `Frames/BuildHints.cs` is the noted exception).
 
-## Version 2
+## Versions 2 and 3
 
-`OrbitalMod.OrbitalApi` is one `partial` class: version 1's members are in `OrbitalApi.cs`, version 2's in `OrbitalApi.<Area>.cs`, one file per area. Other mods reach it by reflection; the contract (no overloads, allowed types, every member in `docs/API.md`) is checked by `Tests/ApiTests` and `tools/check_contract.sh`.
+`OrbitalMod.OrbitalApi` is one `partial` class: version 1's (and version 3's settings) members are in `OrbitalApi.cs`, version 2's in `OrbitalApi.<Area>.cs`, one file per area. Other mods reach it by reflection; the contract (no overloads, allowed types, every member in `docs/API.md`) is checked by `Tests/ApiTests` and `tools/check_contract.sh`.
 
 - `OrbitalApi.Peek.cs` - the frames without the frame lock (the snapshot, refreshed by readers with `Monitor.TryEnter`).
 - `OrbitalApi.World.cs` - bodies (system state, orbit, spin, cell) and world <-> body-relative conversion.
@@ -19,6 +22,6 @@
 - `OrbitalApi.Time.cs` - warp levels, request, stop time.
 - `OrbitalApi.Player.cs` - the local player's orbit, maneuver nodes, next burn, attitude hold, target, closest approach.
 - `OrbitalApi.Sites.cs` - sites and contacts.
-- `Core/` - engine-free parts, compiled offline by `Tests/ApiTests`: `FrameTable` (the Peek snapshot, a sequence lock) and `OrbitQueries` (the pure orbit math).
+- `Core/` - engine-free parts, compiled offline by `Tests/ApiTests`: `FrameTable` (the Peek snapshot, a sequence lock: the writer always restores an even sequence, a reader gives up after 64 tries and answers "no data") and `OrbitQueries` (the pure orbit math).
 
 Threads: every member may be called from any thread; which lock each takes is in its summary and in `docs/API.md`. Nothing here is called by the mod itself.

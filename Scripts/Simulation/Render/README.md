@@ -16,7 +16,6 @@ listed in `docs/REFLECTION_AND_WHITELIST.md`.
 | `SunDriver.cs` | One sun, consistent across frames (on: `SunDriver.Enabled`). |
 | `EffectCull.cs` | Far looping block effects hidden (off by default). |
 | `SpecCam.cs`, `ParticleCensus.cs` | DEV: spectator camera, particle census. |
-| `SpawnGuard.cs`, `AsteroidBridge.cs` | Spawn control (owned with the server code). |
 
 **Entry points / threading.** `PlanetFrameComponent`'s `[OnPlanetFrame]` job (client; it may run on a worker thread) takes
 `PlanetRenderBridge.Lock`, runs `FrameHost.Tick`, then its own planet's proxy logic: every client render-side call is under

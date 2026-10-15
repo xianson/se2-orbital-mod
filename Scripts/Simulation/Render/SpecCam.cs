@@ -76,9 +76,11 @@ public static class SpecCam
             case Target.Player: look = playerPos; break;
             case Target.Grid:
             {
-                var g = GridMembers.Get(_grid);
-                if (g?.Entity == null) { Status = "no grid " + _grid; return; }
-                var gw = g.Entity.Data.GetWorldTransform();
+                // (the grid as this client draws it - its client copy: the server copy's transform and box read from here, every
+                //  frame, were the cross-scene read the game's DataGuard asserts on - the 2026-10-15 scene audit)
+                var ge0 = ClientCopy(session, _grid);
+                if (ge0 == null) { Status = "no grid " + _grid; return; }
+                var gw = ge0.Data.GetWorldTransform();
                 Vector3D gf = Vector3D.Normalize(WorldTransform.TransformDirection(Vector3.Forward, gw));
                 Vector3D gu = Vector3D.Normalize(WorldTransform.TransformDirection(Vector3.Up, gw));
                 Vector3D gr = Vector3D.Cross(gf, gu);
@@ -86,7 +88,7 @@ public static class SpecCam
                 // (round the hull's middle - its box centre - not the grid's origin: on the Hercules that sat 40-60 m off the
                 //  hull, and the ship drifted out of the frame or behind the camera)
                 Vector3D mid = gw.Position;
-                var gbox = Keen.VRage.Core.Game.Data.BoundingBoxData.TryGetWorldAABB(g.Entity.Data);
+                var gbox = Keen.VRage.Core.Game.Data.BoundingBoxData.TryGetWorldAABB(ge0.Data);
                 if (gbox.HasValue) mid = gbox.Value.Center;
                 Vector3D gpos = mid + (gf * Math.Cos(gb) + gr * Math.Sin(gb)) * Math.Cos(ge) * _dist + gu * Math.Sin(ge) * _dist;
                 Vector3 gfwd = (Vector3)Vector3D.Normalize(mid - gpos);
@@ -122,6 +124,32 @@ public static class SpecCam
     }
 
     public static CameraComponent CameraOf(Keen.VRage.Core.Game.Systems.Session session) => Camera(session);
+
+    private static Entity _gridCopy; private static long _gridCopyOf;
+    /// <summary>Grid <paramref name="id"/> in this session's own scene (the client's): the id's own entity when it is a client
+    /// copy's, else the client grid nearest the server grid's published place (ServerFrames.GridPositions) - of its name when
+    /// the snapshot has it - within 100 m. Kept while it and the grid live.</summary>
+    static Entity ClientCopy(Keen.VRage.Core.Game.Systems.Session session, long id)
+    {
+        var scene = session?.Scene;
+        var g = GridMembers.Get(id);
+        if (g?.Entity == null) return null;
+        if (_gridCopyOf == id && Num.Alive(_gridCopy) && ReferenceEquals(_gridCopy.Data.Scene, scene)) return _gridCopy;
+        _gridCopy = null; _gridCopyOf = id;
+        if (ReferenceEquals(g.Entity.Data.Scene, scene)) return _gridCopy = g.Entity;
+        Vector3D at;
+        lock (ServerFrames.GridPositions) if (!ServerFrames.GridPositions.TryGetValue(id, out at)) return null;
+        string name = ServerFrames.View(id, out var v) ? v.Name : null;
+        double bd = 100;
+        foreach (var c in GridMembers.All())
+        {
+            if (c.Entity == null || !ReferenceEquals(c.Entity.Data.Scene, scene)) continue;
+            if (name != null && c.DisplayName != name) continue;
+            double d = (GridMembers.Position(c) - at).Length();
+            if (d < bd) { bd = d; _gridCopy = c.Entity; }
+        }
+        return _gridCopy;
+    }
 
     private static CameraComponent Camera(Keen.VRage.Core.Game.Systems.Session session)
     {

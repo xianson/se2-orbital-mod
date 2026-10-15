@@ -101,6 +101,23 @@ public static class Contacts
     static Keen.VRage.Core.Game.Systems.Session _session;
 
     /// <summary>Client tick (twice a second): what is in sight now becomes known.</summary>
+    // (a ring's rock labels and their watch keys, made once per ring - every rock's two strings were remade twice a second:
+    //  most of this system's garbage, 2026-10-14)
+    static readonly Dictionary<string, (int[] numbers, string[] labels, string[] keys)> _rockLabels = new();
+    static readonly Dictionary<long, string> _gridKeys = new();
+    // (the tick's working collections, reused: ~300 grids in a world - a list and a dictionary of them twice a second)
+    static readonly List<SensorModel.Body> _bodies = new();
+    static readonly Dictionary<long, bool> _yours = new();
+    static readonly List<SensorModel.Looker> _obs = new();
+    static (string[] labels, string[] keys) RockLabels(string belt, int[] numbers)
+    {
+        if (_rockLabels.TryGetValue(belt, out var c) && ReferenceEquals(c.numbers, numbers)) return (c.labels, c.keys);
+        var labels = new string[numbers.Length]; var keys = new string[numbers.Length];
+        for (int i = 0; i < numbers.Length; i++) { labels[i] = $"{belt} #{numbers[i]}"; keys[i] = "r:" + labels[i]; }
+        _rockLabels[belt] = (numbers, labels, keys);
+        return (labels, keys);
+    }
+
     public static void Tick(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera, double t)
     {
         _session = session;
@@ -113,7 +130,7 @@ public static class Contacts
         lock (ServerFrames.FramesLock) if (!FrameMarkers.ModelOf(camera.Position, t, out eye, out _, out _)) return;
 
         // What can stand in the way: every body (the star too); where the light comes from.
-        var bodies = new List<SensorModel.Body>();
+        var bodies = _bodies; bodies.Clear();
         foreach (var b in reg.Bodies)
         {
             double r = b.IsRoot ? SystemHost.StarRadius : reg.FindDefinition(b.Name)?.RadiusMeters ?? 0;
@@ -123,10 +140,10 @@ public static class Contacts
 
         // Who is looking: your eyes (where the camera is), and every working sensor on your grids.
         // (the server's snapshot - its grids and its sensor blocks - not its entities: ServerFrames.View / SensorViews)
-        var views = ServerFrames.AllViews();
-        var yours = new Dictionary<long, bool>();
+        var views = ServerFrames.ViewValues;   // (the snapshot's own collection: no copy - it is replaced whole, never changed)
+        var yours = _yours; yours.Clear();
         foreach (var v in views) yours[v.Id] = !IsContact(v);
-        var obs = new List<SensorModel.Looker> { new SensorModel.Looker { At = eye, Kind = SensorModel.Kind.Eyes } };
+        var obs = _obs; obs.Clear(); obs.Add(new SensorModel.Looker { At = eye, Kind = SensorModel.Kind.Eyes });
         foreach (var sv in ServerFrames.SensorViews)
         {
             if (!sv.Working || !yours.TryGetValue(sv.Grid, out bool mine) || !mine) continue;
@@ -154,7 +171,7 @@ public static class Contacts
         //  capped so one clock jump does not track everything at once)
         double simNow = SystemHost.Now, watchDt = double.IsNaN(_lastWatchT) ? TickSeconds : Math.Max(0, Math.Min(60, simNow - _lastWatchT));
         _lastWatchT = simNow;
-        var newlyTracked = new List<string>();
+        var newlyTracked = _newlyTracked; newlyTracked.Clear();   // (the tick's lists, reused: cleared here, read only below)
         void Watch(string key, string name, SensorModel.Kind k)
         {
             bool targeted = target != null && (name == target || key.StartsWith("g:", StringComparison.Ordinal) && target == Targets.GridPrefix + key.Substring(2));
@@ -170,8 +187,8 @@ public static class Contacts
         }
 
 
-        var newGrids = new List<(string name, double dist, string by)>();
-        var newRocks = new Dictionary<string, int>();
+        var newGrids = _newGrids; newGrids.Clear();
+        var newRocks = _newRocks; newRocks.Clear();
         // Grids that are not yours.
         foreach (var g in views)
         {
@@ -183,7 +200,7 @@ public static class Contacts
             if (!ok) continue;
             var k = SeenKind(m, GridSize, GridAlbedo, GridTempK);
             if (k == null) continue;
-            Watch("g:" + g.Id, GroupName(g), k.Value);
+            Watch(GridKey(g.Id), GroupName(g), k.Value);
             if (known) continue;
             lock (_grids) _grids.Add(g.Id);
             newGrids.Add((g.Name, (m - eye).Length(), Name(k.Value)));
@@ -192,14 +209,15 @@ public static class Contacts
         foreach (var b in RingRocks.Belts())
         {
             Vector3D o = b.Body.OriginInRoot(t).Position;
+            var (labels, keys) = RockLabels(b.Name, b.Number);
             for (int i = 0; i < b.R.Length; i++)
             {
-                string label = $"{b.Name} #{b.Number[i]}";
+                string label = labels[i];
                 bool known = KnownRock(label);
-                if (known && TrackedRock(label)) continue;
+                if (known && TrackedKey(keys[i])) continue;   // (its watch key, made once: TrackedRock built "r:" + label anew for every known rock)
                 var k = SeenKind(o + RingRocks.At(b, i, t), b.Cluster[i] ? 2600 : 1500, RockAlbedo, RockTempK);
                 if (k == null) continue;
-                Watch("r:" + label, label, k.Value);
+                Watch(keys[i], label, k.Value);
                 if (known) continue;
                 lock (_rocks) _rocks.Add(label);
                 newRocks.TryGetValue(b.Name, out int n); newRocks[b.Name] = n + 1;
@@ -211,7 +229,7 @@ public static class Contacts
             if (known && TrackedRock(label)) continue;
             var k = SeenKind(SectorHomes.Where(home, reg, t), cluster ? 2600 : 1500, RockAlbedo, RockTempK);
             if (k == null) continue;
-            Watch("r:" + label, label, k.Value);
+            Watch(RockKey(label), label, k.Value);
             if (known) continue;
             lock (_rocks) _rocks.Add(label);
             newRocks.TryGetValue(belt, out int n); newRocks[belt] = n + 1;
@@ -240,7 +258,8 @@ public static class Contacts
         }
         int ng; lock (_grids) ng = _grids.Count;
         int nr; lock (_rocks) nr = _rocks.Count;
-        int nt = obs.FindAll(o => o.Kind == SensorModel.Kind.Telescope).Count, nrad = obs.FindAll(o => o.Kind == SensorModel.Kind.Radar).Count;
+        int nt = 0, nrad = 0;   // (counted: FindAll made two lists to count them)
+        foreach (var o in obs) { if (o.Kind == SensorModel.Kind.Telescope) nt++; else if (o.Kind == SensorModel.Kind.Radar) nrad++; }
         int ntr; lock (_dwell) { ntr = 0; foreach (var kv in _dwell) if (kv.Value >= Tracking.PassiveSeconds) ntr++; }
         Status = $"known: {ng} grid(s), {nr} rock(s), {ntr} tracked; looking: eyes, {nt} telescope(s), {nrad} radar(s){(lidar ? ", lidar on the target" : "")}{(Loud ? " (loud)" : "")}";
     }
@@ -250,8 +269,24 @@ public static class Contacts
     /// <summary>A telescope of yours is ranging your target with its laser (lidar): it gives you away.</summary>
     public static bool Lidar;
     static double DwellOf(string key) { if (!Enabled) return Tracking.PassiveSeconds; lock (_dwell) return _dwell.TryGetValue(key, out double d) ? d : 0; }
-    public static bool TrackedRock(string label) => !Enabled || label == null || DwellOf("r:" + label) >= Tracking.PassiveSeconds;
-    public static bool TrackedGrid(long id) => !Enabled || DwellOf("g:" + id) >= Tracking.PassiveSeconds || !IsContactId(id);
+    public static bool TrackedRock(string label) => !Enabled || label == null || DwellOf(RockKey(label)) >= Tracking.PassiveSeconds;
+    static bool TrackedKey(string key) => !Enabled || DwellOf(key) >= Tracking.PassiveSeconds;
+    /// <summary>A rock's watch key ("r:" + label), made once per label: the map asks for hundreds of rocks a frame.</summary>
+    static string RockKey(string label)
+    {
+        lock (_rockKeys)
+        {
+            if (!_rockKeys.TryGetValue(label, out var k)) { if (_rockKeys.Count > 100000) _rockKeys.Clear(); _rockKeys[label] = k = "r:" + label; }
+            return k;
+        }
+    }
+    static readonly Dictionary<string, string> _rockKeys = new Dictionary<string, string>();
+    static readonly List<string> _newlyTracked = new List<string>();
+    static readonly List<(string name, double dist, string by)> _newGrids = new List<(string, double, string)>();
+    static readonly Dictionary<string, int> _newRocks = new Dictionary<string, int>();
+    public static bool TrackedGrid(long id) => !Enabled || DwellOf(GridKey(id)) >= Tracking.PassiveSeconds || !IsContactId(id);
+    /// <summary>A grid's watch key ("g:" + id), made once per grid.</summary>
+    static string GridKey(long id) { lock (_gridKeys) { if (!_gridKeys.TryGetValue(id, out var k)) _gridKeys[id] = k = "g:" + id; return k; } }
     /// <summary>A rock target's tracking: null when it is not a rock contact (a sector, a body) or tracking is off.</summary>
     public static double? RockProgress(string label)
     {
@@ -259,7 +294,7 @@ public static class Contacts
         bool isRock = false;
         foreach (var b in RingRocks.Belts()) if (label.StartsWith(b.Name + " #")) isRock = true;
         if (!isRock) foreach (var r in AsteroidFrames.All()) if (r.label == label) isRock = true;
-        return isRock ? Tracking.Progress(DwellOf("r:" + label)) : (double?)null;
+        return isRock ? Tracking.Progress(DwellOf(RockKey(label))) : (double?)null;
     }
     /// <summary>The name a grid is targeted and marked by: its site's label, else its own.</summary>
     static string GroupName(ServerFrames.GridView g)

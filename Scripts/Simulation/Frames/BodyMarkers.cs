@@ -41,6 +41,8 @@ public static class BodyMarkers
     internal static Keen.VRage.Core.Game.Systems.Session _session;
     static readonly Dictionary<string, GPSMarker> _markers = new Dictionary<string, GPSMarker>();
     struct Item { public GPSMarker M; public Vector3D World; public double Surface; public bool Moon, Contact; public string Key; }
+    static readonly List<Vector2> _placed = new List<Vector2>();
+    static double _statusAt;
     static readonly List<Item> _items = new List<Item>();
 
     /// <summary>Client tick, from FrameMarkers (the camera's true place known): which bodies to mark, and where.</summary>
@@ -61,8 +63,10 @@ public static class BodyMarkers
             }
         }
         int hidden = 0;
-        foreach (var b in reg.Bodies)
+        var regBodies = reg.Bodies;   // (by index: a foreach over the IReadOnlyList boxed an enumerator every frame)
+        for (int bi = 0; bi < regBodies.Count; bi++)
         {
+            var b = regBodies[bi];
             if (b.IsRoot || !SystemHost.BeaconOf.ContainsKey(b.Name)) continue;
             double radius = reg.FindDefinition(b.Name)?.RadiusMeters ?? 0;
             Vector3D d = b.OriginInRoot(t).Position - camModel;
@@ -78,7 +82,7 @@ public static class BodyMarkers
         int bodies = _items.Count;
         CollectContacts(camera, camModel, camChart, t, FrameMarkers.GameMarked(_session));
         bool origin = CollectOrigin(camera);
-        Status = $"bodies: {bodies} marked, {hidden} too close to need one; contacts: {_items.Count - bodies - (origin ? 1 : 0)} marked{(origin ? "; frame origin marked" : "")}";
+        if (FrameMarkers.StatusDue(ref _statusAt)) Status = $"bodies: {bodies} marked, {hidden} too close to need one; contacts: {_items.Count - bodies - (origin ? 1 : 0)} marked{(origin ? "; frame origin marked" : "")}";
     }
 
     /// <summary>
@@ -91,7 +95,17 @@ public static class BodyMarkers
     {
         var f = FrameHost.PlayerFrame;
         if (!ShowOrigin || f == null || FrameHost.RiderFrame != f.Id) return false;
-        Vector3D at; lock (ServerFrames.FramesLock) at = f.BerthCenter;   // (the frame's centre in this world: the berth)
+        Vector3D at; int grids = 0;
+        lock (ServerFrames.FramesLock)
+        {
+            at = f.BerthCenter;   // (the frame's centre in this world: the berth)
+            // (a ship with rotors / hinges counts once: its subgrids are joined to the frame's anchor - the published view's
+            //  AnchorJoined; the anchor itself counts)
+            foreach (long id in f.Members)
+                if (GridMembers.IsGridId(id) && !(ServerFrames.View(id, out var v) && v.AnchorJoined)) grids++;
+        }
+        // (only your own grid in the frame - 2026-10-14, the user: nothing to hold station by, so no marker)
+        if (grids <= 1) return false;
         double dist = (at - camera.Position).Length();
         if (!(dist > 50)) return false;
         if (_origin == null)
@@ -137,7 +151,7 @@ public static class BodyMarkers
             // detected, not yet tracked: '≈' and a rough distance (a bearing and a rough range, no orbit yet)
             bool tracked = e.Tracked;
             string name = ContactsTab.Names.TryGetValue(e.Key, out var nn) ? nn : e.Name;
-            var mk = ContactOf(id, tracked ? name : "\u2248 " + name);
+            var mk = ContactOf(id, tracked ? name : Approx(id, name));
             if (mk == null) continue;
             _items.Add(new Item { M = mk, World = camera.Position + camChart.FromInertial(d) * (System.Math.Min(dist, 5e4) / dist),
                                   Surface = tracked ? dist : SEAerospace.Sensing.Tracking.Rough(dist), Contact = true, Key = e.Key });
@@ -151,13 +165,13 @@ public static class BodyMarkers
     public static void Draw(Keen.VRage.Core.Game.Systems.Session session)
     {
         var size = MapPipeline.ScreenSize;
-        float mx = size.X * 0.06f, my = size.Y * 0.08f, u = System.Math.Max(1f, size.Y / 1080f);
+        float mx = size.X * 0.06f, my = size.Y * 0.08f, u = MapPipeline.UiScale(size.Y);
         // Planets before moons, then nearest first; one whose marker would land on an earlier one's is left
         // out (two bodies in one direction printed their names over each other). Far off, a planet and its
         // moon are one place: the planet names it.
         // (contacts first: a station in front of a planet is what you are looking for)
         _items.Sort((a, b) => a.Contact != b.Contact ? (a.Contact ? -1 : 1) : a.Moon != b.Moon ? (a.Moon ? 1 : -1) : a.Surface.CompareTo(b.Surface));
-        var placed = new List<Vector2>();
+        var placed = _placed; placed.Clear();
         foreach (var it in _items)
         {
             // Bodies on the screen only (the game's own clamp would pin every body to an edge); contacts may
@@ -185,12 +199,26 @@ public static class BodyMarkers
                 MapPipeline.ScreenLine(k, k - new Vector2(sx * a, 0), TargetColor, 2f * u);
                 MapPipeline.ScreenLine(k, k - new Vector2(0, sy * a), TargetColor, 2f * u);
             }
-            MapPipeline.TextScreen(ts + new Vector2(0, r + 12f * u), $"Target  {_tgtName}  {HudPanel.Km(System.Math.Max(0, _tgtDist))}", TargetColor, 0.45f);
+            MapPipeline.TextScreen(ts + new Vector2(0, r + 12f * u), TargetText(), TargetColor, (0.45f) * MapPipeline.MapText);
         }
         TargetKey(session, size);
     }
 
     static Vector3D _tgtWorld; static bool _tgtOn; static double _tgtDist; static string _tgtName;
+    // (the target's line made again only when what it shows changes: its name, or its distance at the precision HudPanel.Km
+    //  prints it - whole km from 10 km, tenths under; it was two new strings every frame while a target was set)
+    static string _tgtText, _tgtTextName; static long _tgtTextKey = long.MinValue;
+    static string TargetText()
+    {
+        double m = System.Math.Max(0, _tgtDist);
+        long key = m >= 1e4 ? (long)System.Math.Round(m / 1000) * 2 : (long)System.Math.Round(m / 100) * 2 + 1;
+        if (_tgtText == null || key != _tgtTextKey || _tgtName != _tgtTextName)
+        {
+            _tgtText = $"Target  {_tgtName}  {HudPanel.Km(m)}";
+            _tgtTextKey = key; _tgtTextName = _tgtName;
+        }
+        return _tgtText;
+    }
     static readonly ColorSRGB TargetColor = new ColorSRGB(0.95f, 0.45f, 0.85f, 1f);
 
     /// <summary>N in flight: target the marked body or contact nearest the crosshair (within ~12% of the screen); on the
@@ -214,6 +242,16 @@ public static class BodyMarkers
     }
 
     static readonly Dictionary<long, GPSMarker> _contacts = new Dictionary<long, GPSMarker>();
+    // (an untracked contact's "≈ name", made again only when its name changes - it was a new string every frame for each)
+    static readonly Dictionary<long, (string name, string approx)> _approx = new Dictionary<long, (string, string)>();
+    static string Approx(long group, string name)
+    {
+        if (_approx.TryGetValue(group, out var a) && a.name == name) return a.approx;
+        if (_approx.Count > 1024) _approx.Clear();   // (bounded)
+        string s = "≈ " + name;
+        _approx[group] = (name, s);
+        return s;
+    }
     static GPSMarker ContactOf(long group, string name)
     {
         if (_contacts.TryGetValue(group, out var m)) { if (m.Name != name) m.Name = name; return m; }

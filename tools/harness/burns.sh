@@ -16,7 +16,7 @@ waitdone() {   # waitdone <max s>: until the auto-burn says complete
   for i in $(seq 1 $(( $1 / 3 ))); do fl=$(q "flight"); echo "$fl" | grep -q "auto: burn complete" && return 0; sleep 3; done; return 1; }
 
 powershell -NoProfile -Command "Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Stop-Process -Force"; sleep 4
-powershell -NoProfile -Command "Start-Process 'steam://rungameid/1133870'"; sleep 15
+. "$(dirname "$0")/launch.sh"; launch
 for i in $(seq 1 80); do L=$(LOG); grep -aq "beacon Root Entity\|Loading Failed" "$L" 2>/dev/null && break; sleep 3; done
 sleep 15; echo "log $(LOG)"
 scan; bf=$(ids | head -1); echo "ship: Blue Fighter $bf"

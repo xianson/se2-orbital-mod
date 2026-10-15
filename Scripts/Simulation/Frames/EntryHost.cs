@@ -28,19 +28,23 @@ public static class EntryHost
     static readonly HashSet<long> _inPass = new HashSet<long>();
     // per grid, this entry: its tolerance (shielded or not), the heat it has been worn up to, and how much worn
     static readonly Dictionary<long, (double limit, double upTo, double worn)> _wear = new Dictionary<long, (double, double, double)>();
-    public static string Status = "-";
+    /// <summary>For the harness: made when read from the last tick's numbers (a new string every server tick before, 2026-10-15).</summary>
+    public static string Status => _stTicked ? $"{_stBraking} frame(s) braking, cap {_stCap:F0} m/s" : "-";
+    static volatile bool _stTicked; static int _stBraking; static double _stCap;
+    /// <summary>ServerTick's kept pass log (reset per frame: nothing keeps it past its step) and list. Under FramesLock.</summary>
+    static readonly Pass _tickLog = new Pass();
+    static readonly List<long> _tickDone = new List<long>();
 
     // ── the aero mod's entry plasma: grids on rails sit still in their frame while the frame is braked through the
     //    air, so the aero mod cannot see their speed; it is told, per grid, the air past it (world axes are the
     //    inertial axes here) and how hard it burns. Its public API's ENTRY SOURCE (AeroMod.AeroApi, version 2 or
     //    later; the source's own contract is 2 - checked across both repos by tools/check_contract.sh): we register
     //    Glow under "OrbitalMod"; while registered our strength owns the grid's plasma ──
-    static readonly Dictionary<Entity, (Vector3D air, double strength, double t)> _glow = new Dictionary<Entity, (Vector3D, double, double)>();
+    static readonly Dictionary<Entity, (Vector3D air, double strength, double t, double rho)> _glow = new Dictionary<Entity, (Vector3D, double, double, double)>();
     static bool _glowHooked;
     /// <summary>Diagnostics: the hook is set; grid glows written; asked for / answered.</summary>
     public static bool GlowHooked => _glowHooked;
     public static int GlowWrites, GlowAsks, GlowAnswers;
-    static int _glowTries;
     /// <summary>The entry-source contract this build speaks (= AeroMod.AeroEntryFx.EntrySourceContract, what
     /// RegisterEntrySource returns; aero's API version, AeroApi.Version, may be higher - members are only added).</summary>
     public const int AeroEntryContract = 2;
@@ -68,11 +72,14 @@ public static class EntryHost
                     Type t;
                     try { t = a.GetType("AeroMod.AeroApi"); } catch { continue; }
                     if (t == null) continue;
+                    // (every lookup with its parameter types: an overload added on aero's side must never make one
+                    //  ambiguous - AmbiguousMatchException - or bind the wrong one; API.md: public members are never overloaded)
+                    var vr = typeof(Vector3).MakeByRefType(); var fr = typeof(float).MakeByRefType();
                     _aeroRegister = t.GetMethod("RegisterEntrySource", new[] { typeof(string), typeof(Delegate) });
                     _aeroHas = t.GetMethod("HasEntrySource", new[] { typeof(string), typeof(Delegate) });
-                    _aeroPredict = t.GetMethod("PredictHullForces");   // (aerobraking: each ship's drag area)
-                    _aeroAtmoAt = t.GetMethod("TryGetAtmosphereAt");   // (the border's density: the rails' drag matched to aero's)
-                    _aeroRequestTable = t.GetMethod("RequestForceTable");   // (a railed grid has none until asked)
+                    _aeroPredict = t.GetMethod("PredictHullForces", new[] { typeof(Entity), typeof(Vector3), typeof(float), typeof(float), vr, vr, fr });   // (aerobraking: each ship's drag area)
+                    _aeroAtmoAt = t.GetMethod("TryGetAtmosphereAt", new[] { typeof(Vector3D), fr, fr, fr, fr });   // (the border's density: the rails' drag matched to aero's)
+                    _aeroRequestTable = t.GetMethod("RequestForceTable", new[] { typeof(Entity) });   // (a railed grid has none until asked)
                     break;
                 }
                 if (_aeroRegister == null || _aeroHas == null) { GlowWhy = "aero mod not loaded (or older than contract " + AeroEntryContract + ")"; return; }
@@ -84,6 +91,70 @@ public static class EntryHost
             GlowWhy = _glowHooked ? "" : $"aero mod speaks contract {c}, this build {AeroEntryContract}";
         }
         catch (Exception e) { _glowHooked = false; _aeroRegister = null; _aeroAsmCount = -1; GlowWhy = "hook failed: " + e.GetType().Name; }
+    }
+
+    // ── the ENTRY STATE (OrbitalApi.TryGetEntryState / TryGetEntryState2, 2026-10-14): per grid, written on EVERY tick its
+    //    frame is braked - not only while the plasma shows (the glow is for the eye; the state is the physics: a gentle
+    //    aerobraking pass heats and loads too) - and FADED as the glow is once no longer refreshed (held GlowHold, then
+    //    down to nothing over GlowFade: it returned full density for 1.75 s after the braking had stopped) ──
+    //    travel: the TRUE air velocity, v - w x r (the frame's inertial velocity less the planet's turning air at that
+    //    point; world axes = inertial axes on rails): the direction the grid TRAVELS INTO the air, at its real speed - not
+    //    the wind (the wind it feels is the opposite). rho: the band's density there (kg/m3). tempK: the band's air
+    //    temperature (K; the border's - the band's envelope is exponential in height, i.e. isothermal; 0 unknown). brake:
+    //    the frame's braking acceleration (world, m/s2: -travel x the tick's peak deceleration - the drag and the cap rule).
+    static readonly Dictionary<Entity, (Vector3D air, double rho, double tempK, Vector3D brake, double t)> _state = new Dictionary<Entity, (Vector3D, double, double, Vector3D, double)>();
+    public static int StateWrites;
+
+    /// <summary>The share (0..1) a state or glow written at t still holds now: 1 for GlowHold, then down to 0 over GlowFade.</summary>
+    static double Fade(double t)
+    {
+        double age = SystemHost.Now - t;
+        if (age > GlowHold + GlowFade) return 0;
+        return age <= GlowHold ? 1.0 : Math.Clamp(1.0 - (age - GlowHold) / GlowFade, 0.0, 1.0);
+    }
+
+    /// <summary>A grid's server copy (the key of the glow and the state): itself, or - a client copy in the same process -
+    /// the server grid matched by OrbitalApi.GetMemberId (nearest within 20 m). Null: none. Takes no lock of ours but
+    /// GridPositions' (never call it under _glow).</summary>
+    static Entity ServerCopy(Entity grid)
+    {
+        if (grid == null) return null;
+        long id = OrbitalApi.GetMemberId(grid);
+        var g = id >= 0 ? GridMembers.Get(id) : null;
+        return g != null && g.IsServer ? g.Entity : null;
+    }
+
+    static bool TryState(Entity grid, out (Vector3D air, double rho, double tempK, Vector3D brake, double t) s)
+    {
+        s = default;
+        if (grid == null) return false;
+        lock (_glow)
+        {
+            if (_state.Count == 0) return false;   // (no entry anywhere: no client-copy search either)
+            if (_state.TryGetValue(grid, out s)) return true;
+        }
+        var server = ServerCopy(grid);   // (a client copy: by its server grid - outside _glow)
+        if (server == null || ReferenceEquals(server, grid)) return false;
+        lock (_glow) return _state.TryGetValue(server, out s);
+    }
+
+    /// <summary>A grid's re-entry STATE (OrbitalApi.TryGetEntryState): its true air velocity (world, m/s: the travel) and the
+    /// band's density there (kg/m3, faded as the glow once the braking stops). False: none.</summary>
+    public static bool StateOf(Entity grid, out Vector3 airWorld, out float density)
+        => State2Of(grid, out airWorld, out density, out _, out _) && density > 0f;
+
+    /// <summary>The fuller state (OrbitalApi.TryGetEntryState2): the travel (world, m/s), density (kg/m3), the air's temperature
+    /// (K; 0 unknown) and the braking acceleration (world, m/s2) - density and braking faded as the glow is.</summary>
+    public static bool State2Of(Entity grid, out Vector3 travelWorld, out float density, out float temperature, out Vector3 brakingWorld)
+    {
+        travelWorld = brakingWorld = default; density = temperature = 0f;
+        if (!TryState(grid, out var s)) return false;
+        double k = Fade(s.t);
+        if (!(k > 0)) return false;
+        travelWorld = new Vector3((float)s.air.X, (float)s.air.Y, (float)s.air.Z);
+        density = (float)(s.rho * k); temperature = (float)s.tempK;
+        brakingWorld = new Vector3((float)(s.brake.X * k), (float)(s.brake.Y * k), (float)(s.brake.Z * k));
+        return density > 0f || brakingWorld.LengthSquared() > 0f;
     }
 
     /// <summary>The entry source: a grid's air velocity (world, m/s) and strength (0..1, 0 none) while its frame is braked.</summary>
@@ -103,18 +174,26 @@ public static class EntryHost
     public const double GlowHold = 0.25, GlowFade = 1.5;
     public static Vector4 GlowOf(Entity grid)
     {
+        (Vector3D air, double strength, double t, double rho) g;
         lock (_glow)
         {
             GlowAsks++;
             // (no longer refreshed - the pass over, the braking under the edge: it FADES, held 0.25 s then down to 0 over
             //  1.5 s; it was full strength until 1 s stale, then gone - a hard cut of the plasma at the end of every pass)
-            if (grid == null || !_glow.TryGetValue(grid, out var g)) return default;
-            double age = SystemHost.Now - g.t;
-            if (age > GlowHold + GlowFade) return default;
-            GlowAnswers++;
-            double k = age <= GlowHold ? 1.0 : Math.Clamp(1.0 - (age - GlowHold) / GlowFade, 0.0, 1.0);
-            return new Vector4((float)g.air.X, (float)g.air.Y, (float)g.air.Z, (float)(g.strength * k));
+            if (grid == null || _glow.Count == 0) return default;
+            if (!_glow.TryGetValue(grid, out g)) g.t = double.NaN;
         }
+        if (double.IsNaN(g.t))
+        {
+            // (a client copy in the same process: by its server grid, matched outside _glow - OrbitalApi accepts either copy)
+            var server = ServerCopy(grid);
+            if (server == null || ReferenceEquals(server, grid)) return default;
+            lock (_glow) if (!_glow.TryGetValue(server, out g)) return default;
+        }
+        double k = Fade(g.t);
+        if (!(k > 0)) return default;
+        lock (_glow) GlowAnswers++;
+        return new Vector4((float)g.air.X, (float)g.air.Y, (float)g.air.Z, (float)(g.strength * k));
     }
 
     // ── aerobraking: each frame's ballistic coefficient ──
@@ -153,9 +232,18 @@ public static class EntryHost
         if (f == null) return Reentry.DefaultBeta;
         double wall = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
         lock (_beta) if (_beta.TryGetValue(f.Id, out var c) && wall - c.wall < BetaRefresh) return c.beta;
-        double mass = 0, area = 0; bool measured = false, asked = false;
         // (the member list is the server's: copied under its lock - the client calls this too)
         long[] ids; lock (ServerFrames.FramesLock) ids = f.Members.ToArray();
+        // (under FramesLock - the server's frame step: aero is not called here (the lock rule, API.md): the frame is measured
+        //  right after the lock is let go, this tick (ServerAfterLock); until then its last value, or the default)
+        if (AeroCallsDeferred) { lock (_aeroWork) _betaWork[f.Id] = ids; lock (_beta) return _beta.TryGetValue(f.Id, out var c2) ? c2.beta : Reentry.DefaultBeta; }
+        return MeasureBeta(f.Id, ids, wall);
+    }
+
+    /// <summary>The ballistic coefficient measured from aero's force tables (BetaOf's work; never under FramesLock).</summary>
+    static double MeasureBeta(long frameId, long[] ids, double wall)
+    {
+        double mass = 0, area = 0; bool measured = false, asked = false;
         foreach (long id in ids)
         {
             if (!GridMembers.IsGridId(id) || !(GridMembers.Get(id) is OrbitalGridComponent g) || g.Entity == null) continue;
@@ -185,7 +273,7 @@ public static class EntryHost
         }
         double beta = measured ? Reentry.Beta(mass, area) : Reentry.DefaultBeta;
         // (any table asked for: measured again in ~1 s, not BetaRefresh - until every grid has one)
-        lock (_beta) _beta[f.Id] = (beta, asked ? wall - BetaRefresh + 1 : wall);
+        lock (_beta) _beta[frameId] = (beta, asked ? wall - BetaRefresh + 1 : wall);
         LastBetaMeasured = measured;
         return beta;
     }
@@ -201,27 +289,81 @@ public static class EntryHost
     }
 
     static System.Reflection.MethodInfo _aeroAtmoAt;
-    static readonly Dictionary<string, (double rho, double wall)> _borderRho = new Dictionary<string, (double, double)>();
+    static readonly Dictionary<string, (double rho, double tempK, double wall)> _borderRho = new Dictionary<string, (double, double, double)>();
 
     /// <summary>Aero's air density at a body's border (kg/m3; 0: unknown - the setting's DragDensity is used), sampled in
     /// the planet's cell every 30 s: the rails' drag ends where the physics' begins, at the same density (they stepped ~3x
-    /// at the handover: the rails' fixed 2e-3 against aero's tail there).</summary>
+    /// at the handover: the rails' fixed 2e-3 against aero's tail there). Under FramesLock (the server's frame step) aero is
+    /// not called: the sample is taken right after the lock (ServerAfterLock), the last one (or 0) used until then.</summary>
     static double BorderDensity(string body, double borderRadius)
     {
         double wall = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
         lock (_borderRho) if (_borderRho.TryGetValue(body, out var c) && wall - c.wall < 30) return c.rho;
-        double rho = 0;
+        if (AeroCallsDeferred) { lock (_aeroWork) _rhoWork[body] = borderRadius; lock (_borderRho) return _borderRho.TryGetValue(body, out var c2) ? c2.rho : 0; }
+        return SampleBorder(body, borderRadius, wall);
+    }
+
+    /// <summary>The border's air from aero (TryGetAtmosphereAt): density, and its temperature - the band's (its envelope is
+    /// exponential in height: an isothermal one). Never under FramesLock.</summary>
+    static double SampleBorder(string body, double borderRadius, double wall)
+    {
+        double rho = 0, tempK = 0;
         try
         {
             if (_aeroAtmoAt != null && VoxelBerthRegistry.TryGetCell(body, SystemHost.Registry, out Vector3D cell))
             {
                 var args = new object[] { cell + new Vector3D(borderRadius, 0, 0), 0f, 0f, 0f, 0f };
-                if ((bool)_aeroAtmoAt.Invoke(null, args)) { double d = (float)args[1]; if (d > 0 && d < 1) rho = d; }
+                if ((bool)_aeroAtmoAt.Invoke(null, args))
+                {
+                    double d = (float)args[1]; if (d > 0 && d < 1) rho = d;
+                    double tk = (float)args[3]; if (tk > 3 && tk < 2000) tempK = tk;
+                }
             }
         }
-        catch { rho = 0; }
-        lock (_borderRho) _borderRho[body] = (rho, wall);
+        catch { rho = 0; tempK = 0; }
+        lock (_borderRho) _borderRho[body] = (rho, tempK, wall);
         return rho;
+    }
+
+    /// <summary>The band's air temperature at a body (K; 0: not sampled yet, or no aero) - its border's, as last sampled.</summary>
+    public static double BorderTemperature(string body)
+    {
+        if (body == null) return 0;
+        lock (_borderRho) return _borderRho.TryGetValue(body, out var c) ? c.tempK : 0;
+    }
+
+    // ── calls into the aero mod: NEVER under FramesLock (the lock rule, both API.md files: never call the other mod while
+    //    holding your own lock - its answer may wait on a lock of its own, and a frame step holds FramesLock for its whole
+    //    length). The server's locked step collects what it needs (a frame's ballistic coefficient, a border's air); they
+    //    are measured right after the lock, this same tick (ServerAfterLock); the hook is kept up before it
+    //    (ServerBeforeLock) ──
+    static readonly object _aeroWork = new object();
+    static readonly Dictionary<long, long[]> _betaWork = new Dictionary<long, long[]>();
+    static readonly Dictionary<string, double> _rhoWork = new Dictionary<string, double>();
+    static int _hookTicks;
+    /// <summary>This thread holds FramesLock: calls into aero wait for ServerAfterLock.</summary>
+    static bool AeroCallsDeferred => System.Threading.Monitor.IsEntered(ServerFrames.FramesLock);
+
+    /// <summary>Server, before FramesLock is taken: the aero hook kept (about every 10 s: found, then kept registered).</summary>
+    public static void ServerBeforeLock()
+    {
+        if (Enabled && _hookTicks++ % 600 == 0) HookAero();
+    }
+
+    /// <summary>Server, after FramesLock is let go: the aero calls the locked step asked for (border air, ballistic
+    /// coefficients), made now.</summary>
+    public static void ServerAfterLock()
+    {
+        List<KeyValuePair<string, double>> rho = null; List<KeyValuePair<long, long[]>> beta = null;
+        lock (_aeroWork)
+        {
+            if (_rhoWork.Count > 0) { rho = new List<KeyValuePair<string, double>>(_rhoWork); _rhoWork.Clear(); }
+            if (_betaWork.Count > 0) { beta = new List<KeyValuePair<long, long[]>>(_betaWork); _betaWork.Clear(); }
+        }
+        if (rho == null && beta == null) return;
+        double wall = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+        if (rho != null) foreach (var kv in rho) SampleBorder(kv.Key, kv.Value, wall);
+        if (beta != null) foreach (var kv in beta) MeasureBeta(kv.Key, kv.Value, wall);
     }
 
     /// <summary>A body's spin (axis x rate, inertial): the air turns with it.</summary>
@@ -250,17 +392,20 @@ public static class EntryHost
     {
         lock (_heat) { _last.Clear(); _heat.Clear(); _braking.Clear(); _inPass.Clear(); _wear.Clear(); _jolted.Clear(); }
         lock (_beta) _beta.Clear();
-        lock (_glow) _glow.Clear();
+        lock (_glow) { _glow.Clear(); _state.Clear(); }
+        lock (_borderRho) _borderRho.Clear();
+        lock (_aeroWork) { _betaWork.Clear(); _rhoWork.Clear(); }
         Prediction = null; Airless = null;
     }
 
     public static void Forget(long frameId) { lock (_heat) { _last.Remove(frameId); _heat.Remove(frameId); _braking.Remove(frameId); _inPass.Remove(frameId); } lock (_beta) _beta.Remove(frameId); }
 
-    /// <summary>Server tick (FramesLock held): brake every railed frame inside a band.</summary>
+    /// <summary>Server tick (FramesLock held): brake every railed frame inside a band. Calls no aero member (the ballistic
+    /// coefficients and the border's air it needs are measured after the lock: ServerAfterLock).</summary>
     public static void ServerTick(List<ProximityFrame> frames, double t)
     {
         if (!Enabled) return;
-        if (_glowTries++ % 600 == 0) HookAero();   // (about every 10 s: found, then kept registered)
+        // (the aero hook: ServerBeforeLock, outside FramesLock - this runs under it)
         int braking = 0;
         foreach (var f in frames)
         {
@@ -282,7 +427,7 @@ public static class EntryHost
                 Wear(f, t, heat);
                 continue;
             }
-            var log = new Pass();
+            var log = _tickLog; log.Reset();
             double beta = 0;
             if (Reentry.DragDensity > 0 && f.Elements.PeriapsisRadius < b.Top)
             {
@@ -309,15 +454,23 @@ public static class EntryHost
             // (hysteresis: on at GlowMinDecel, off only under half of it - at the band's edge it flickered on and off)
             bool inPass; lock (_heat) inPass = _inPass.Contains(f.Id);
             bool visible = log.PeakDecel >= (inPass ? 0.5 * GlowMinDecel : GlowMinDecel) || log.Shed > log.DragShed;
-            if (visible)
             {
+                // the STATE on every braked tick (heating, structural loads: any braking is physics), the GLOW only while it
+                // shows (a whisper of drag makes no plasma)
                 var s = OrbitPropagation.StateAt(el, t);
                 Vector3D air = Reentry.AirVelocity(s.Position, s.Velocity, SpinOf(f.ParentBodyName));
                 double strength = Math.Clamp(Math.Sqrt(log.PeakDecel / GlowFullDecel), 0.15, 1.0);
+                double rho = Reentry.Density(b, s.Position.Length());   // (the band's air there: the aero mod's hull heats in it)
+                double va = air.Length();
+                Vector3D brake = va > 1 && log.PeakDecel > 0 ? air * (-log.PeakDecel / va) : Vector3D.Zero;   // (against the travel)
+                double tempK = BorderTemperature(f.ParentBodyName);
                 lock (_glow)
                     foreach (long id in f.Members)
                         if (GridMembers.IsGridId(id) && GridMembers.Get(id) is OrbitalGridComponent gm && gm.Entity != null)
-                        { _glow[gm.Entity] = (air, strength, t); GlowWrites++; }
+                        {
+                            _state[gm.Entity] = (air, rho, tempK, brake, t); StateWrites++;
+                            if (visible) { _glow[gm.Entity] = (air, strength, t, rho); GlowWrites++; }
+                        }
             }
             Wear(f, t, heat);
             bool first = false; if (visible) lock (_heat) first = _inPass.Add(f.Id);
@@ -325,11 +478,12 @@ public static class EntryHost
         }
         lock (_heat)
         {
-            var done = new List<long>();
+            var done = _tickDone; done.Clear();
             foreach (var kv in _jolted) if (t - kv.Value > 60) done.Add(kv.Key);
             foreach (long id in done) { _jolted.Remove(id); var fr = SystemHost.Frames?.Get(id); if (fr != null) foreach (long m in fr.Members) _wear.Remove(m); }
+            done.Clear();
         }
-        Status = $"{braking} frame(s) braking, cap {Cap:F0} m/s";
+        _stBraking = braking; _stCap = Cap; _stTicked = true;
     }
 
     /// <summary>
@@ -409,12 +563,13 @@ public static class EntryHost
         }
     }
 
-    /// <summary>The frame's members' plasma directions forgotten (an arrival turned them into the planet's chart).</summary>
+    /// <summary>The frame's members' plasma directions and entry states forgotten (an arrival turned them into the planet's
+    /// chart; a pass over).</summary>
     public static void ForgetGlow(ProximityFrame f)
     {
         lock (_glow)
             foreach (long id in f.Members)
-                if (GridMembers.IsGridId(id) && GridMembers.Get(id) is OrbitalGridComponent gm && gm.Entity != null) _glow.Remove(gm.Entity);
+                if (GridMembers.IsGridId(id) && GridMembers.Get(id) is OrbitalGridComponent gm && gm.Entity != null) { _glow.Remove(gm.Entity); _state.Remove(gm.Entity); }
     }
 
     static void EndPass(ProximityFrame f, double heat)

@@ -31,3 +31,6 @@ send() { "$SP/orb.sh" "$@" >/dev/null; }
 reply() { "$SP/orb.sh" "$@" | grep -a " => " | tail -1; }
 stat() { grep -a -- "$1" "$ST" | head -1; }
 summary() { echo; echo "== summary: $pass passed, $fail failed"; for r in "${results[@]}"; do echo "  $r"; done; [ "$fail" -eq 0 ]; }
+
+# launch(): the game started once - launch.sh
+source "$(dirname "${BASH_SOURCE[0]}")/launch.sh"

@@ -379,22 +379,22 @@ public static class OrbitHud
         // Pe / Ap tags on the drawn orbit (world HUD annotations, like the game's markers).
         if (r == null || MapView.Visible)
         {
-            if (_info != null && FrameMarkers.BeginHud(session)) { try { DrawInfo(Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f)); } finally { MapPipeline.UiEnd(); } }
+            if (_info != null && FrameMarkers.BeginHud(session)) { try { DrawInfo(MapPipeline.UiScale(MapPipeline.ScreenSize.Y)); } finally { MapPipeline.UiEnd(); } }
             return;
         }
         if (!FrameMarkers.BeginHud(session)) return;
         try
         {
-            // (the readout's own block only with no plot to carry it: on foot with the jetpack off, or the plot hidden)
-            if (!(FrameHost.Seated || JetpackOn(session)) || EntryHidden) DrawInfo(Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f));
-            else _infoShown = true;
+            // (no side block in flight any more - 2026-10-13, the user, on it showing up in place of the plot: "that kind of gui
+            //  is unacceptable": on foot with the jetpack off, or with the seat or the jetpack not detected, it took the plot's
+            //  place. The plot, with its captions, is the orbit display everywhere in flight.)
+            _infoShown = true;
             HudPanel.BeginLabels();
             HudPanel.ReserveGameHud();
-            float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+            float u = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
             // No orbit line in the world (first or third person): the orbit disc shows it,
             // and the markers show its directions.
-            // In your suit with the jetpack off (walking, floating about): no disc, plot or markers.
-            if (FrameHost.Seated || JetpackOn(session))
+            // (seated, jetpacking or floating in your suit: the same display - Walking, slow and low, has no orbit at all)
             {
                 DrawMarkers(r, u);
                 // your motion about your target, or about the anchor you ride away from; else the disc (RendezvousPlot.Choose)
@@ -504,6 +504,10 @@ public static class OrbitHud
                 else if (now - _shrinkSince > ShrinkHold) { _target = Nice(need * Margin); _shrinkSince = 0; }
             }
             else _shrinkSince = 0;
+            // (content past the drawn extent: snapped out at once - eased, a frame drawing the overflow (a dotted circle
+            //  millions of px round) took 10 s, dt is clamped to 0.25 s a frame, and the ease crept: minutes frozen, 36 GB
+            //  of UI commands, 2026-10-12. Only the way in is eased.)
+            if (need > _shown) { _shown = _target; return _shown; }
             double a = dt > 0 ? 1 - Math.Exp(-dt / Tau) : 1;
             _shown = Math.Exp(Math.Log(_shown) + (Math.Log(_target) - Math.Log(_shown)) * a);
             return _shown;
@@ -521,6 +525,10 @@ public static class OrbitHud
         // Just left of the game's speed box: measured on screen at 0.409 screen-heights left of centre
         // (the game's HUD keeps its offsets in screen heights from the centre), level with its middle.
         var c = new Vector2(scr.X * 0.5f - scr.Y * 0.43f - R, scr.Y * 0.493f);
+        // the game's own SPD box when known (HudGeom: any size and shape of screen - at 640x480 the disc sat on the build
+        // boxes): sized to it (its height 0.052 screen-heights at 16:9), a small gap left of it, level with its middle
+        var gs = HudGeom.Spd;
+        if (gs != null && gs[3] > 4f) { R = gs[3] * (0.085f / 0.052f); c = new Vector2(gs[0] - gs[3] * 0.12f - R, gs[1] + gs[3] * 0.5f); }
         Vector3D n = r.Nor;
         Vector3D fwd = (QuaternionD)MapPipeline.CameraOrientation * Vector3D.Forward;
         Vector3D up = fwd - n * Vector3D.Dot(fwd, n);

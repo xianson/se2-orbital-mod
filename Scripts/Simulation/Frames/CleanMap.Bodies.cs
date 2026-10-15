@@ -94,19 +94,19 @@ public static partial class CleanMap
                         MapPipeline.Line(W(Lv(pts[i])), W(Lv(pts[(i + 1) % pts.Length])), You, 2f);
             }
             Vector3D yl = Lv(playerRel);
-            float yu = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
-            if (!(MapPipeline.ToScreen(W(yl), out var yic) && MapPipeline.ScreenIcon("PlayerIcon", yic, 10f * yu, You))) MapPipeline.Text(W(yl), "+", You, 1.2f);
+            float yu = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
+            if (!(MapPipeline.ToScreen(W(yl), out var yic) && MapPipeline.ScreenIcon("PlayerIcon", yic, 10f * yu, You))) MapPipeline.Text(W(yl), "+", You, (1.2f) * MapPipeline.MapText);
             // Beside the mark on screen (a map-space offset lands far away when zoomed in).
             if (MapPipeline.ToScreen(W(yl), out var ys) && InOpenArea(ys))
             {
-                float uu = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+                float uu = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
             }
             // Pe / Ap on your orbit (as KSP), plan or not; after 'you', which has the first claim.
             if (!Planning && !OrbitHud.Walking && playerOrbit.HasValue && IsFinite(playerOrbit.Value.SemiMajorAxis)
                 && (!(_pxPerV > 0) || playerOrbit.Value.PeriapsisRadius * Sigma * _pxPerV > 30))
             {
                 var po = playerOrbit.Value; double pr = reg.FindDefinition(planet.Name)?.RadiusMeters ?? 0;
-                float u2 = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+                float u2 = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
                 if (MapPipeline.ToScreen(W(Lv(OrbitSampler.PositionAtTrueAnomaly(po, 0))), out var pes) && InOpenArea(pes))
                     HudPanel.TagAt(pes, "Pe " + HudPanel.Km(po.PeriapsisRadius - pr), You, u2);
                 if (po.IsElliptic && po.Eccentricity > 0.002 && MapPipeline.ToScreen(W(Lv(OrbitSampler.PositionAtTrueAnomaly(po, Math.PI))), out var aps) && InOpenArea(aps))
@@ -132,7 +132,7 @@ public static partial class CleanMap
         // scaling up or down with zoom). The game's star object is parked out of view.
         StarWorld = null;
         {
-            float su = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+            float su = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
             double rWorld = SystemHost.StarRadius * SolarRadius / outer * _wscale;
             MapGlobes.Use(root.Name, W(Vector3D.Zero), rWorld, globes);
             if (!globes.Contains(root.Name) && MapPipeline.ToScreen(W(Vector3D.Zero), out var sunS) && InOpenArea(sunS))
@@ -212,8 +212,8 @@ public static partial class CleanMap
             var now = OrbitPropagation.StateAt(playerOrbit.Value, t);
             if (MapPipeline.ToScreen(W(S(now.Position)), out var ys) && InOpenArea(ys))
             {
-                float uu = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
-                if (!MapPipeline.ScreenIcon("PlayerIcon", ys, 10f * uu, You)) MapPipeline.ScreenText(ys - new Vector2(6f * uu, 12f * uu), "+", You, 1.2f);
+                float uu = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
+                if (!MapPipeline.ScreenIcon("PlayerIcon", ys, 10f * uu, You)) MapPipeline.ScreenText(ys - new Vector2(6f * uu, 12f * uu), "+", You, 1.2f * MapPipeline.MapText);
             }
         }
         MapPipeline.PickName = null;
@@ -225,11 +225,12 @@ public static partial class CleanMap
     /// </summary>
     static void BodyLabel(Func<Vector3D, Vector3D> W, Vector3D c, double r, float ringPx, string name, ColorSRGB col, float scale)
     {
+        scale *= MapPipeline.MapText;   // (the map's text: its 4K look at any size)
         if (!MapPipeline.ToScreen(W(c), out var sc)) return;
         float rpx = 0;
         foreach (var ax in new[] { new Vector3D(r, 0, 0), new Vector3D(0, r, 0), new Vector3D(0, 0, r) })
             if (MapPipeline.ToScreen(W(c + ax), out var se)) rpx = Math.Max(rpx, (se - sc).Length());
-        float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        float u = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
         float h = MapPipeline.MeasureText(name, scale).Y;
         MapPipeline.TextScreen(sc + new Vector2(0, Math.Max(rpx, ringPx * u) + 6f * u + h * 0.5f), name, col, scale);
     }
@@ -240,7 +241,7 @@ public static partial class CleanMap
     static readonly List<Vector2> _ownRing = new List<Vector2>(64);   // (reused: drawn at once; OccludeArea and LensHit copy)
     static void OwnSector(Func<Vector3D, Vector3D> W, double r, Band b, Vector3D centre = default, bool faint = false)
     {
-        float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        float u = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
         var col = faint ? HudPanel.Alpha(Dim, 0.3f) : b.Selected ? HudPanel.Alpha(LineSel, 0.85f) : b.Name == Hovered ? HudPanel.Alpha(StateColor(b), 0.8f) : HudPanel.Alpha(StateColor(b), 0.45f);
         const int n = 64;
         Vector2 top = default; bool haveTop = false;
@@ -265,8 +266,8 @@ public static partial class CleanMap
         if (!haveTop || top.Y < MapLayout.Y(0.2f) || top.X < MapLayout.X(0.26f) || top.X > MapLayout.X(0.77f)) return;
         if (b.Home?.Kind == SectorHomes.Kind.Body || faint) return;   // the body's own label names it (a faint zone: its mark does)
         string nm = Label(b);
-        var sz = MapPipeline.MeasureText(nm, 0.8f);
-        MapPipeline.TextScreen(new Vector2(top.X, top.Y - sz.Y * 0.5f - 4f * u), nm, b.Selected ? LineSel : Dim, 0.8f);   // clear of the title lines
+        var sz = MapPipeline.MeasureText(nm, 0.8f * MapPipeline.MapText);
+        MapPipeline.TextScreen(new Vector2(top.X, top.Y - sz.Y * 0.5f - 4f * u), nm, b.Selected ? LineSel : Dim, (0.8f) * MapPipeline.MapText);   // clear of the title lines
     }
 
     private static double si_own_outer(SectorHomes.Home h) => h.A + h.Size * 0.5 * SystemHost.SectorOrbitScale;
@@ -280,7 +281,7 @@ public static partial class CleanMap
     {
         if (!MapPipeline.ToScreen(W(centre), out var sc) || !InOpenArea(sc)) return;
         float rpx = MapPipeline.ToScreen(W(centre + new Vector3D(radiusLocal, 0, 0)), out var se) ? (se - sc).Length() : 0f;
-        float uu = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        float uu = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
         if (rpx < 4f * uu) MapPipeline.ScreenDisc(sc, 4f * uu, col);
     }
 

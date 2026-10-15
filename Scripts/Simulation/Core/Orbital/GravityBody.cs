@@ -58,7 +58,48 @@ namespace SEAerospace.Orbital
 
         /// <summary>This body's state in its parent's frame at time t (zero for the root).</summary>
         public StateVector StateInParentAt(double t)
-            => (Parent == null || ParentRelative == null) ? StateVector.Zero : ParentRelative.StateAt(t);
+        {
+            if (Parent == null || ParentRelative == null) return StateVector.Zero;
+            // THE OTHER THREADS' MEMO (2026-10-15): the server's tick asks the same body at the same time over and over - a
+            // Lagrange region set up per frame and per site (each a Kepler solve of the body, its parent's chain, its orbit
+            // radius twice), every frame's parent's origin - and OriginInRoot's memo belongs to the client thread, so every
+            // other thread solved each anew. A thread other than the memo's owner keeps the last MemoSlots answers per body,
+            // keyed by the ephemeris object and the exact bits of t: the same solve on the same inputs, so the same answer.
+            // The owner (the client: its map samples hundreds of times a frame) is untouched.
+            var eph = ParentRelative;
+            if (System.Environment.CurrentManagedThreadId == _memoThread) return eph.StateAt(t);
+            var m = ThreadMemoOf();
+            long bits = BitConverter.DoubleToInt64Bits(t);
+            if (ReferenceEquals(m.Eph, eph))
+            {
+                for (int i = 0; i < MemoSlots; i++) if (m.Has[i] && m.Bits[i] == bits) return m.State[i];
+            }
+            else { m.Eph = eph; for (int i = 0; i < MemoSlots; i++) m.Has[i] = false; }
+            var s = eph.StateAt(t);
+            int k = m.Next; m.Bits[k] = bits; m.State[k] = s; m.Has[k] = true; m.Next = (k + 1) % MemoSlots;
+            return s;
+        }
+
+        const int MemoSlots = 4;
+        sealed class ThreadMemo
+        {
+            public IEphemeris Eph; public int Next;
+            public readonly long[] Bits = new long[MemoSlots]; public readonly bool[] Has = new bool[MemoSlots];
+            public readonly StateVector[] State = new StateVector[MemoSlots];
+        }
+        [ThreadStatic] static Dictionary<GravityBody, ThreadMemo> _threadMemo;
+        ThreadMemo ThreadMemoOf()
+        {
+            var d = _threadMemo ?? (_threadMemo = new Dictionary<GravityBody, ThreadMemo>());
+            ThreadMemo m;
+            if (!d.TryGetValue(this, out m))
+            {
+                if (d.Count >= 256) d.Clear();   // (bodies of past worlds: let go now and then)
+                m = new ThreadMemo();
+                d[this] = m;
+            }
+            return m;
+        }
 
         /// <summary>Lift a state from THIS body's frame up into the parent's frame.</summary>
         public StateVector ToParent(StateVector s, double t) => StateInParentAt(t) + s;

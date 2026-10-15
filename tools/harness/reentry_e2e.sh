@@ -9,7 +9,7 @@ APO=${1:-1000}; PERI=${2:-3}; CAP=${3:-off}; SHIP=${4:-SZ1 - Hercules}; SEAT=${5
 q() { timeout 30 "$O" "$@" | grep -a "=>" | tail -1 | sed 's/.*=>  //'; }
 LOG() { ls -t "$APPDATA/SpaceEngineers2/Temp/Logs/"SpaceEngineers2_*[0-9].log | grep -v "Render\|Mission\|Stats" | head -1; }
 powershell -NoProfile -Command "Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Stop-Process -Force"; sleep 4
-powershell -NoProfile -Command "Start-Process 'steam://rungameid/1133870'"; sleep 15
+. "$(dirname "$0")/launch.sh"; launch
 for i in $(seq 1 80); do L=$(LOG); grep -aq "beacon Root Entity\|Loading Failed" "$L" 2>/dev/null && break; sleep 3; done
 sleep 15; L=$(LOG); echo "log $L failures $(grep -a -c 'Loading Failed' "$L")"
 cmds=(); for i in $(seq 1000000000 1000000300); do cmds+=("gridinfo $i"); done

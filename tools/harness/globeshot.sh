@@ -15,7 +15,7 @@ ok() { if [ "$2" = 1 ]; then P=$((P+1)); echo "PASS $1"; else F=$((F+1)); echo "
 shot() { timeout 40 "$O" --eshot 3 "$1" | grep -a -o "[A-Za-z]:[^ ]*\.png" | tail -1; }
 
 powershell -NoProfile -Command "Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Stop-Process -Force"; sleep 2
-powershell -NoProfile -Command "Start-Process 'steam://rungameid/1133870'"
+. "$(dirname "$0")/launch.sh"; launch
 until_ 300 "grep -aq 'beacon Root Entity\|Loading Failed' \"\$(LOG)\" 2>/dev/null"; until_ 60 "q 'findgrids' | grep -q '='"
 echo "loaded in $(( $(date +%s) - T0 )) s: $(LOG)"
 q "encon off" >/dev/null; q "unseat" >/dev/null

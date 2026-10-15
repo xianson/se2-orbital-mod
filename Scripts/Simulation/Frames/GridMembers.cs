@@ -14,6 +14,10 @@ namespace OrbitalMod;
 /// </summary>
 public class OrbitalGridComponent : Component, IInSceneListener
 {
+    /// <summary>GridMembers.IsDynamic's cache: the answer and when (Stopwatch ticks; 0 none).</summary>
+    internal bool Dyn; internal long DynAt;
+    /// <summary>EncounterFrames.Kind's copy of this grid's entry (read without its lock).</summary>
+    internal EncounterFrames.KindMemo KindMemo;
     [Keen.VRage.DCS.Annotations.Component]
     private readonly CubeGridComponent _grid;
 
@@ -29,11 +33,40 @@ public class OrbitalGridComponent : Component, IInSceneListener
         if (DisplayName == WarmBerths.Name) { Id = 0; return; }
         Id = GridMembers.Register(this);
     }
-    void IInSceneListener.OnBeforeRemovedFromScene() { if (Id != 0) GridMembers.Unregister(this); }
+    void IInSceneListener.OnBeforeRemovedFromScene()
+    {
+        GridEdits.Forget(Entity);   // (what we wrote into its physics: OrbitalApi.TryGetGridEdits - a warm berth's placeholder too)
+        if (Id != 0) GridMembers.Unregister(this);
+    }
 
+    /// <summary>The evaluated name, the raw text it came from and when - one object, swapped whole (both threads read it).</summary>
+    sealed class NameMemo { public string Raw, Name; public long At; }
+    NameMemo _nameMemo;
+    /// <summary>Seconds the evaluated name is kept while the grid's own text is unchanged (a rename shows at once: it is a new
+    /// text, compared by reference - LocalizableText.RawText).</summary>
+    public static double NameSeconds = 5.0;
+    /// <summary>The name evaluated now (not the cache): what a tombstone keeps to relink by.</summary>
+    internal string LiveName() { System.Threading.Volatile.Write(ref _nameMemo, null); return DisplayName; }
     internal string DisplayName
     {
-        get { try { return _grid?.DisplayName.EvaluateText() ?? "grid"; } catch { return "grid"; } }
+        // (the game's text evaluated at most once a second - a renamed grid shows within it: asked several times per grid per
+        //  tick - kinds, encounters, events - each a fresh string and builder, 0.7 MB/s in a profile, 2026-10-14)
+        // (2026-10-15: still 78 KB/s - every grid evaluated once a second by the views' snapshot. Now kept NameSeconds while the
+        //  grid's raw text is the same string object: a rename sets a new one (CubeGridComponent.DisplayName's setter), seen on
+        //  the next read - sooner than the second before. What the same raw text evaluates to changes only with the language:
+        //  within NameSeconds.)
+        get
+        {
+            long now = System.Diagnostics.Stopwatch.GetTimestamp();
+            string raw = null;
+            try { raw = _grid?.DisplayName.RawText; } catch { }
+            var m = System.Threading.Volatile.Read(ref _nameMemo);
+            if (m != null && ReferenceEquals(raw, m.Raw) && now - m.At < (long)(NameSeconds * System.Diagnostics.Stopwatch.Frequency)) return m.Name;
+            string n;
+            try { n = _grid?.DisplayName.EvaluateText() ?? "grid"; } catch { n = "grid"; }
+            System.Threading.Volatile.Write(ref _nameMemo, new NameMemo { Raw = raw, Name = n, At = now });
+            return n;
+        }
     }
 }
 
@@ -59,7 +92,11 @@ public static class GridMembers
     private static readonly Dictionary<long, Tomb> _tombs = new Dictionary<long, Tomb>();
     static double Wall() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
     /// <summary>A grid id that left the scene lately and may come back (frames keep it, anchors wait for it).</summary>
-    public static bool Tombstoned(long id) { lock (_lock) return _tombs.ContainsKey(id); }
+    // (no tombs - nearly always: no lock. _tombN is _tombs.Count, written under _lock after every change: a reader that sees 0
+    //  ran before the tomb's lock was let go. Asked per member per second by Prune, the invariants and the loose-grid adoption)
+    public static bool Tombstoned(long id) { if (System.Threading.Volatile.Read(ref _tombN) == 0) return false; lock (_lock) return _tombs.ContainsKey(id); }
+    static int _tombN;
+    static void TombsChanged() => System.Threading.Volatile.Write(ref _tombN, _tombs.Count);
     public static int Relinked;
 
     internal static long Register(OrbitalGridComponent g)
@@ -81,12 +118,12 @@ public static class GridMembers
                         double d = (kv.Value.At - at).Length();
                         if (d <= bd) { bd = d; best = kv.Key; }
                     }
-                    if (best != 0) { nid = best; _tombs.Remove(best); _byId[nid] = g; Relinked++; relinked = $"{bd:F0} m"; }
+                    if (best != 0) { nid = best; _tombs.Remove(best); TombsChanged(); _byId[nid] = g; _allSnap = null; System.Threading.Volatile.Write(ref _byIdSnap, null); Relinked++; relinked = $"{bd:F0} m"; }
                 }
             }
         }
         if (nid != 0) { Log.Default?.Info($"[ORBIT-FRAME] grid {nid} '{g.DisplayName}' back in the scene ({relinked} from where it left): its old id kept"); return nid; }
-        lock (_lock) { nid = ++_next; _byId[nid] = g; }
+        lock (_lock) { nid = ++_next; _byId[nid] = g; _allSnap = null; System.Threading.Volatile.Write(ref _byIdSnap, null); }
         EncounterFrames.OnGridRegistered(nid);
         return nid;
     }
@@ -95,8 +132,19 @@ public static class GridMembers
     {
         bool tomb = false;
         if (g.IsServer)
-            try { var at = g.Entity.Data.GetWorldTransform().Position; lock (_lock) _tombs[g.Id] = new Tomb { Name = g.DisplayName, At = at, Wall = Wall() }; tomb = true; } catch { }
-        lock (_lock) { _byId.Remove(g.Id); }
+            try
+            {
+                var at = g.Entity.Data.GetWorldTransform().Position;
+                lock (_lock)
+                {
+                    string n = g.LiveName(); double w = Wall();
+                    _tombs[g.Id] = new Tomb { Name = n, At = at, Wall = w }; TombsChanged();
+                    if (w + TombstoneSeconds < _tombDue) System.Threading.Volatile.Write(ref _tombDue, w + TombstoneSeconds);
+                }
+                tomb = true;
+            }
+            catch { }
+        lock (_lock) { _byId.Remove(g.Id); _allSnap = null; System.Threading.Volatile.Write(ref _byIdSnap, null); }
         lock (GridMembers.Pending) GridMembers.Pending.Remove(g.Id);
         if (!tomb) ServerFrames.Forget(g.Id);   // (per-grid state dies with the grid - after its tombstone, if it may come back)
     }
@@ -107,13 +155,26 @@ public static class GridMembers
     {
         double now = Wall();
         List<long> dead = null;
-        foreach (var kv in _tombs) if (now - kv.Value.Wall > TombstoneSeconds) (dead ??= new List<long>()).Add(kv.Key);
-        if (dead != null) foreach (long id in dead) _tombs.Remove(id);
+        double due = double.PositiveInfinity;
+        foreach (var kv in _tombs)
+        {
+            if (now - kv.Value.Wall > TombstoneSeconds) (dead ??= new List<long>()).Add(kv.Key);
+            else if (kv.Value.Wall + TombstoneSeconds < due) due = kv.Value.Wall + TombstoneSeconds;
+        }
+        if (dead != null) { foreach (long id in dead) _tombs.Remove(id); TombsChanged(); }
+        System.Threading.Volatile.Write(ref _tombDue, due);
         return dead;
     }
+    // THE SWEEP, ONLY WHEN A TOMB IS DUE (2026-10-15, a profile: SweepTombs took _lock every tick to walk the tombs - 1.3 ms/s,
+    // most of it waiting on the lock Get took thousands of times a tick). _tombDue is the earliest wall time any tomb can expire
+    // (its Wall + TombstoneSeconds; +inf: none): lowered as a tomb is made, recomputed by each sweep - never later than the
+    // true earliest (a relink removing the earliest only leaves it early: one walk that expires nothing). A tomb is "past its
+    // time" only when now - Wall > TombstoneSeconds, i.e. now > its due: nothing expires before _tombDue.
+    static double _tombDue = double.PositiveInfinity;
     /// <summary>From the server tick: grids gone for good forgotten.</summary>
     public static void SweepTombs()
     {
+        if (!(Wall() > System.Threading.Volatile.Read(ref _tombDue))) return;
         List<long> dead; lock (_lock) dead = ExpireTombs();
         if (dead != null) foreach (long id in dead) ServerFrames.Forget(id);
     }
@@ -134,14 +195,58 @@ public static class GridMembers
         catch { }
     }
 
+    /// <summary>
+    /// Every grid - a SHARED SNAPSHOT, rebuilt only when grids come or go: never change it (AllCopy for a list of your own).
+    /// (A profile, 2026-10-14: a new list per call - ~50 callers, several per tick and per frame - was 5.8 MB/s, more than half
+    /// of everything the game allocated, and the 2.5 GB heap's full collections pause it 230-400 ms.)
+    /// </summary>
     public static List<OrbitalGridComponent> All()
     {
-        lock (_lock) return new List<OrbitalGridComponent>(_byId.Values);
+        var s = System.Threading.Volatile.Read(ref _allSnap);
+        if (s != null) return s;
+        lock (_lock)
+        {
+            s = _allSnap;
+            if (s == null) { s = new List<OrbitalGridComponent>(_byId.Values); System.Threading.Volatile.Write(ref _allSnap, s); }
+            return s;
+        }
     }
+    /// <summary>The server's static grids (stations, grids on rocks) - a shared snapshot, at most DynamicCacheSeconds old
+    /// (StaticAnchor asked every grid of the world, per frame, per update: a profile, 2026-10-14). Never change it.</summary>
+    public static List<OrbitalGridComponent> Statics()
+    {
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        var s = System.Threading.Volatile.Read(ref _statics);
+        if (s != null && now - System.Threading.Volatile.Read(ref _staticsAt) < (long)(DynamicCacheSeconds * System.Diagnostics.Stopwatch.Frequency)
+            && ReferenceEquals(_staticsOf, System.Threading.Volatile.Read(ref _allSnap))) return s;
+        var all = All(); var l = new List<OrbitalGridComponent>();
+        foreach (var g in all) if (g.IsServer && g.Entity != null && !IsDynamic(g)) l.Add(g);
+        _staticsOf = all; System.Threading.Volatile.Write(ref _statics, l); System.Threading.Volatile.Write(ref _staticsAt, now);
+        return l;
+    }
+    private static List<OrbitalGridComponent> _statics, _staticsOf; private static long _staticsAt;
+    /// <summary>A grid's motion switched by the mod: the statics list is built anew.</summary>
+    static void StaticsStale() => System.Threading.Volatile.Write(ref _staticsAt, 0L);
 
+    /// <summary>Every grid, in a list of the caller's own (to sort or filter).</summary>
+    public static List<OrbitalGridComponent> AllCopy() => new List<OrbitalGridComponent>(All());
+    private static List<OrbitalGridComponent> _allSnap;
+
+    // GET WITHOUT THE LOCK (2026-10-15, a profile: Get was 5.6 ms/s of the server tick on its own, and its lock held up
+    // SweepTombs and the client's readers). A copy of _byId, published whole and never changed after, rebuilt on the first Get
+    // after a grid comes or goes (each change, under _lock, drops it). A reader holding the old copy answers as it would have
+    // had it taken the lock just before the change.
+    private static Dictionary<long, OrbitalGridComponent> _byIdSnap;
     public static OrbitalGridComponent Get(long id)
     {
-        lock (_lock) return _byId.TryGetValue(id, out var g) ? g : null;
+        var s = System.Threading.Volatile.Read(ref _byIdSnap);
+        if (s == null)
+            lock (_lock)
+            {
+                s = _byIdSnap;
+                if (s == null) { s = new Dictionary<long, OrbitalGridComponent>(_byId); System.Threading.Volatile.Write(ref _byIdSnap, s); }
+            }
+        return s.TryGetValue(id, out var g) ? g : null;
     }
 
     // ── physics (server thread) ──
@@ -149,14 +254,31 @@ public static class GridMembers
     /// <summary>Where a grid is, or where it is going this tick (a jointed group's move waits for the physics step).</summary>
     public static Vector3D Position(OrbitalGridComponent g)
     {
-        lock (Pending) if (Pending.TryGetValue(g.Id, out var pm)) return pm.p;
+        // (no move queued - nearly always: no lock. A profile, 2026-10-14: this lock taken per grid per frame update was the
+        //  server tick's single largest item)
+        if (Pending.Count > 0) lock (Pending) if (Pending.TryGetValue(g.Id, out var pm)) return pm.p;
         return g.Entity.Data.GetWorldTransform().Position;
     }
 
     /// <summary>Grids with a move queued for the next physics step (ServerFrames.MoveGrid): id -> target, velocity then.</summary>
     public static readonly Dictionary<long, (Vector3D p, Vector3D v)> Pending = new Dictionary<long, (Vector3D, Vector3D)>();
 
+    /// <summary>Dynamic (a ship) or not (a station, a grid on a rock), as of at most DynamicCacheSeconds ago: asked ~30 places
+    /// per grid per tick, and each answer was two component lookups and an interface cast (a profile, 2026-10-14). Whoever
+    /// switches a grid's motion calls ForgetMotion.</summary>
     public static bool IsDynamic(OrbitalGridComponent g)
+    {
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        long at = System.Threading.Volatile.Read(ref g.DynAt);
+        if (at != 0 && now - at < (long)(DynamicCacheSeconds * System.Diagnostics.Stopwatch.Frequency)) return g.Dyn;
+        bool d = IsDynamicNow(g);
+        g.Dyn = d; System.Threading.Volatile.Write(ref g.DynAt, now);
+        return d;
+    }
+    public static double DynamicCacheSeconds = 0.25;
+    public static void ForgetMotion(OrbitalGridComponent g) { if (g != null) { System.Threading.Volatile.Write(ref g.DynAt, 0L); StaticsStale(); } }
+
+    internal static bool IsDynamicNow(OrbitalGridComponent g)
     {
         try
         {
@@ -177,7 +299,8 @@ public static class GridMembers
 
     public static Vector3D Velocity(OrbitalGridComponent g)
     {
-        lock (Pending) if (Pending.TryGetValue(g.Id, out var pm)) return pm.v;
+        // (no move queued - nearly always: no lock, as Position)
+        if (Pending.Count > 0) lock (Pending) if (Pending.TryGetValue(g.Id, out var pm)) return pm.v;
         try { return g.Entity.Data.TryGet<RigidBodyData>(out var rb) ? (Vector3D)rb.LinearVelocity : Vector3D.Zero; }
         catch { return Vector3D.Zero; }
     }
@@ -193,7 +316,9 @@ public static class GridMembers
         {
             ref RigidBodyData rb = ref g.Entity.Data.TryGetWritePtr<RigidBodyData>();
             if (Unsafe.IsNullRef(in rb)) return false;
+            var was = rb.LinearVelocity;
             rb.LinearVelocity = (Vector3)v;
+            GridEdits.Wrote(g, rb.LinearVelocity - was);   // (OrbitalApi.TryGetGridEdits: written after the physics step - no force)
             return true;
         }
         catch { return false; }
@@ -206,7 +331,9 @@ public static class GridMembers
         {
             ref RigidBodyData rb = ref g.Entity.Data.TryGetWritePtr<RigidBodyData>();
             if (Unsafe.IsNullRef(in rb)) return false;
-            rb.LinearVelocity = rb.LinearVelocity + (Vector3)dv;
+            var was = rb.LinearVelocity;
+            rb.LinearVelocity = was + (Vector3)dv;
+            GridEdits.Wrote(g, rb.LinearVelocity - was);
             return true;
         }
         catch { return false; }
@@ -301,6 +428,7 @@ public static class GridMembers
         {
             var wt = e.Data.GetWorldTransform();
             e.Data.SetWorldTransform(new WorldTransform(wt.Position, Quaternion.Normalize(rot * wt.Orientation)));
+            ServerFrames.AeroNoteMoved(e);
             ref var rb = ref e.Data.TryGetWritePtr<Keen.VRage.Physics.Data.RigidBodyData>();
             if (!System.Runtime.CompilerServices.Unsafe.IsNullRef(in rb)) rb.AngularVelocity = Vector3.Transform(rb.AngularVelocity, rot);
         }
@@ -315,6 +443,7 @@ public static class GridMembers
         {
             var wt = g.Entity.Data.GetWorldTransform();
             g.Entity.Data.SetWorldTransform(new WorldTransform(p, wt.Orientation));
+            ServerFrames.AeroNoteMoved(g.Entity);
             return true;
         }
         catch { return false; }

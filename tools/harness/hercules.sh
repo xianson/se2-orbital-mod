@@ -22,7 +22,7 @@ seat() { q "tpgrid $1 15" >/dev/null; sleep 4; q "seatid $1" >/dev/null; sleep 6
 seatherc() { local g r; for g in "${herc[@]}" "${subs[@]}"; do q "tpgrid $g 15" >/dev/null; sleep 4; r=$(q "seatid $g"); if echo "$r" | grep -q "seating in"; then sleep 6; cockpit=$g; return 0; fi; done; return 1; }
 
 powershell -NoProfile -Command "Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Stop-Process -Force"; sleep 4
-powershell -NoProfile -Command "Start-Process 'steam://rungameid/1133870'"; sleep 15
+. "$(dirname "$0")/launch.sh"; launch
 for i in $(seq 1 80); do L=$(LOG); grep -aq "beacon Root Entity\|Loading Failed" "$L" 2>/dev/null && break; sleep 3; done
 sleep 20; echo "log $(LOG)"
 scan

@@ -21,8 +21,15 @@ namespace OrbitalMod;
 ///
 /// Where it answers: where the frame registry lives - the machine that runs the server (single player, a host). The
 /// player calls (GetPlayerFrame, TryGetEntryPrediction) answer where that player's client runs.
-/// Threads: any. Frame answers are copied under the frame lock (one consistent tick).
-/// Stability: members are only ADDED within a version; a change to an existing one bumps <see cref="Version"/>.
+/// Threads: any. Frame answers are copied under the frame lock (one consistent tick) - and that lock is held for a whole
+/// server frame step (milliseconds; longer in a hitch), so a member that takes it (GetFrames, TryGetFrame, GetFrameMembers,
+/// TryGetFrameOrbit / Summary, TryGetFrameState, GetFrameOf) can BLOCK the caller that long: never call those from a
+/// per-frame render path, nor while holding a lock of your own. The per-grid members (TryGetGridEdits, the entry state
+/// and glow, GetMemberId) take only small locks of their own, never the frame lock.
+/// Stability: members are only ADDED within a version; a change to an existing one bumps <see cref="Version"/>. A public
+/// member is NEVER OVERLOADED (a second member of the same name): reflection callers find members by name (and should pass
+/// the parameter types too) - an overload makes a name-only lookup throw AmbiguousMatchException. A new shape gets a new
+/// name (TryGetEntryState2).
 /// Documented in docs/API.md (the same text, with an example).
 /// </summary>
 public static class OrbitalApi
@@ -209,8 +216,25 @@ public static class OrbitalApi
 
     // ── reentry ──
 
-    /// <summary>The world's speed cap (m/s): what reentry slows a frame to before it enters a planet's cell.</summary>
+    /// <summary>The ARRIVAL cap (m/s; 990 - a hair under the physics' cap): what reentry slows a frame to before it enters a
+    /// planet's cell, and what an arrival is capped to. Not the physics' own limit: <see cref="GetPhysicsSpeedCap"/>.</summary>
     public static double GetSpeedCap() => EntryHost.Cap;
+
+    /// <summary>(added 2026-10-14) The PHYSICS' speed cap (m/s): the engine's linear velocity limit for grids
+    /// (VelocityLimitProvider.LinearVelocityLimit - the world definition's Physics.MaximumSpeedLinear, which the physics
+    /// world clamps every body's speed to; 1000 with this mod's injector). Read from the server session's service;
+    /// the injector's value when neither has the service yet.</summary>
+    public static double GetPhysicsSpeedCap()
+    {
+        try
+        {
+            var s = ServerPlanetBeacon.ServerSession;
+            var vlp = s?.Get<Keen.Game2.Simulation.GameSystems.Movement.IVelocityLimitProvider>();
+            if (vlp != null && vlp.LinearVelocityLimit > 0) return vlp.LinearVelocityLimit;
+        }
+        catch { }
+        return SpeedLimitInjector.SpeedCap;
+    }
 
     /// <summary>A body's braking band: radii (m) of its bottom (the planet cell's border, where the game's physics
     /// takes over) and its top (the entry interface). False: no band (no atmosphere, or not built).</summary>
@@ -243,13 +267,44 @@ public static class OrbitalApi
     }
 
     /// <summary>The plasma orbital tells the Aerodynamics Mod about for a grid (its entry source): the air past the grid
-    /// (world, m/s) and how hard it burns (0..1). False: not burning now.</summary>
+    /// (world, m/s: its TRAVEL into the air, v - w x r) and how hard it burns (0..1). False: not burning now. The grid's server
+    /// copy, or a client copy in the same process (matched as GetMemberId).</summary>
     public static bool TryGetEntryGlow(Entity grid, out Vector3 airWorld, out float strength)
     {
         var v = EntryHost.GlowOf(grid);
         airWorld = new Vector3(v.X, v.Y, v.Z); strength = v.W;
         return strength > 0;
     }
+
+    /// <summary>A grid's re-entry as the air sees it (added 2026-10-14): its TRUE air velocity (world, m/s - its real speed
+    /// through the band, not the physics' capped one: the frame's velocity less the planet's turning air there, v - w x r -
+    /// the direction it TRAVELS INTO the air; the wind it feels is the opposite) and the air's density there (kg/m3). For
+    /// heating models: the Aerodynamics Mod's hull heat steps at these. Published on every tick the frame is braked (not only
+    /// while the plasma shows), then faded as the glow is (held 0.25 s, the density down to 0 over 1.5 s). False: not in a
+    /// re-entry now. The grid's server copy, or a client copy in the same process (matched as GetMemberId).</summary>
+    public static bool TryGetEntryState(Entity grid, out Vector3 trueAirWorld, out float density) => EntryHost.StateOf(grid, out trueAirWorld, out density);
+
+    /// <summary>(added 2026-10-14) The fuller re-entry state: the travel (as TryGetEntryState: world, m/s, v - w x r, into the
+    /// air), the air's density (kg/m3) and TEMPERATURE there (K: the band's - its border's, sampled from the Aerodynamics Mod's
+    /// atmosphere; 0 unknown: use your own model at the density) and the frame's BRAKING acceleration (world, m/s2: against the
+    /// travel, this tick's peak deceleration - the rails apply no physical force, so this is what the ship's structure would
+    /// feel). Density and braking fade as the glow does. False: not in a re-entry now.</summary>
+    public static bool TryGetEntryState2(Entity grid, out Vector3 travelWorld, out float density, out float temperature, out Vector3 brakingAccelWorld)
+        => EntryHost.State2Of(grid, out travelWorld, out density, out temperature, out brakingAccelWorld);
+
+    // ── what orbital writes into a grid's physics ──
+
+    /// <summary>(added 2026-10-14) What this mod has WRITTEN into a grid's physics, for mods that balance the physics' own
+    /// velocity change (the Aerodynamics Mod's contact loads: m dv less the known forces): the running sum (world, m/s,
+    /// double) of every velocity change orbital wrote into its rigid body (new - old at each write: a frame anchor's motion
+    /// drained into the rails every tick, warp's rescale and steering, the N^2 differential gravity, a spinning planet's
+    /// fictitious forces, the HighSpeed exit, arrivals, moves) - take its CHANGE between two of your reads and subtract it
+    /// (x mass) from the velocity's change: these writes are no force. And a stamp that changes on every teleport or turn
+    /// in place (as AeroApi.NoteMoved is called) - a changed stamp: the step is no load, re-baseline. The writes land after
+    /// the physics step (and a deferred move's before it), so between two reads made before the step. The server copy only
+    /// (a client copy: false). False: orbital never wrote into it (the sum and stamp 0). Its own small lock, never the frame
+    /// lock.</summary>
+    public static bool TryGetGridEdits(Entity grid, out Vector3D velocityWrittenSum, out long moveStamp) => GridEdits.TryGet(grid, out velocityWrittenSum, out moveStamp);
 
     /// <summary>The local player's next pass through a braking band, predicted: the body, when it starts (universe
     /// time, s), the peak braking (m/s2) and heat (J/kg), when it reaches the band's bottom and at what air speed

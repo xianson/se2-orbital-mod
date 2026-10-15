@@ -12,7 +12,7 @@ shot() { timeout 30 "$O" --eshot 0 "fxcheck" | grep -a -o "[A-Za-z]:[^ ]*\.png\|
 
 if [ "$NOLAUNCH" != 1 ]; then
 powershell -NoProfile -Command "Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Stop-Process -Force"; sleep 2
-powershell -NoProfile -Command "Start-Process 'steam://rungameid/1133870'"
+. "$(dirname "$0")/launch.sh"; launch
 until_ 300 "grep -aq 'beacon Root Entity\|Loading Failed' \"\$(LOG)\" 2>/dev/null"; until_ 60 "q 'findgrids' | grep -q '='"
 fi
 G=$(q "findgrids"); h=$(echo "$G" | tr ' ' '\n' | grep "=SZ1_-_Hercules\$" | head -1 | cut -d= -f1)

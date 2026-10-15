@@ -269,7 +269,7 @@ public static class GameMap
         try
         {
             if (!TryMouse(map, out var mouse)) return;
-            string name = Maneuvers.ClaimsMouse || MapCamera.Dragging ? null : MapPipeline.ResolvePick(mouse, 14f * Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f));   // (14 px at 1080p: as wide on any screen)
+            string name = Maneuvers.ClaimsMouse || MapCamera.Dragging ? null : MapPipeline.ResolvePick(mouse, 14f * MapPipeline.UiScale(MapPipeline.ScreenSize.Y));   // (14 px at 1080p: as wide on any screen)
             CleanMap.Hovered = name;
             int idx = -1;
             if (name != null && PlanetRenderBridge.GetMember(PlanetRenderBridge.GetMember(map, "SectorsRenderer"), "SectorIds") is System.Collections.IList ids)
@@ -299,6 +299,34 @@ public static class GameMap
     /// back whenever the map is not ours to draw, or the game has switched the renderer on again (its
     /// ShowMap does; its UpdateMarkers job dereferences the controller unguarded).
     /// </summary>
+    /// <summary>
+    /// THE MAP'S GLOBES OUT OF FLIGHT (2026-10-13, the user: a second Delfos in the sky, "in both frames"). The colonization
+    /// map is a diorama in the world: its star and its discovered planets are globe models hung off a map entity the game
+    /// spawns at your position - by its colonization tab too, the map itself never opened - and its Deactivate stops only
+    /// their glow and labels: the models stay, drawn in flight wherever the map entity was left (seen with our own Delfos
+    /// hidden: the stray stayed). While the map is closed, once a second, their models are hidden; opened, shown again.
+    /// </summary>
+    public static void HideMapObjectsInFlight(Keen.VRage.Core.Game.Systems.Session session)
+    {
+        double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+        if (now < _strayNext) return;
+        _strayNext = now + 1.0;
+        try
+        {
+            var map = MapView.Map(session);
+            if (map == null) return;
+            bool open = map.IsVisible;
+            if (open == !_strayHidden) return;   // (closed and hidden, or open and shown: nothing to change)
+            var star = PlanetRenderBridge.GetMember(map, "_mainStar");
+            if (star != null) PlanetRenderBridge.SetRenderComponentVisible(star, open);
+            if (PlanetRenderBridge.GetMember(map, "_discoveredPlanets") is System.Collections.IDictionary planets)
+                foreach (var v in planets.Values) if (v != null) PlanetRenderBridge.SetRenderComponentVisible(v, open);
+            _strayHidden = !open;
+        }
+        catch { }
+    }
+    static double _strayNext; static bool _strayHidden;
+
     public static void Safety(Keen.VRage.Core.Game.Systems.Session session)
     {
         if (_stashedController == null) return;
@@ -393,14 +421,27 @@ public static class GameMap
                 var ent = PlanetRenderBridge.GetMember(star, "Entity") as Entity;
                 if (ent != null)
                 {
+                    bool open = map.IsVisible;
                     if (!visible)
                     {
                         if (!_starMoved) { _starRel = ent.Data.GetRelativeTransform(); _starMoved = true; }
                         ent.Data.Set(new RelativeTransform(_starRel.Position + new Vector3(0, 1e5f, 0), _starRel.Orientation));   // straight up: the map camera always looks down
+                        PlanetRenderBridge.SetRenderComponentVisible(star, true);   // (PlaceStar draws it on our map)
+                    }
+                    else if (!open)
+                    {
+                        // Given back with the map CLOSED: the globe stays parked and its model hidden. Its Deactivate stops
+                        // only the glow and the label - the model is drawn in flight, under the map's root, which follows
+                        // you: put back in place it was a second Delfos beside the ship, ours at the true place (2026-10-13,
+                        // the user: "two delfos"). The game shows it again when its map opens (our hide above).
+                        if (!_starMoved) { _starRel = ent.Data.GetRelativeTransform(); _starMoved = true; }
+                        ent.Data.Set(new RelativeTransform(_starRel.Position + new Vector3(0, 1e5f, 0), _starRel.Orientation));
+                        PlanetRenderBridge.SetRenderComponentVisible(star, false);
                     }
                     else if (_starMoved)
                     {
-                        ent.Data.Set(_starRel);
+                        ent.Data.Set(_starRel);   // (the game's own map, open: its star where it keeps it)
+                        PlanetRenderBridge.SetRenderComponentVisible(star, true);
                         _starMoved = false;
                     }
                 }

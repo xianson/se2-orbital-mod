@@ -36,10 +36,26 @@ public static class FrameMarkers
     public static void Tick(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera, double t)
     {
         _proxies.Clear();
+        long a0 = GC.GetAllocatedBytesForCurrentThread();
         Prewarm.Tick();
+        long a1 = GC.GetAllocatedBytesForCurrentThread();
         try { Contacts.Tick(session, camera, t); } catch (Exception ex) { FrameHost.Fault("Contacts", ex); }
+        long a2 = GC.GetAllocatedBytesForCurrentThread();
         try { ContactsTab.Tick(session); } catch (Exception ex) { FrameHost.Fault("ContactsTab", ex); }
-        var markers = LocalMarkers(session);
+        long a3 = GC.GetAllocatedBytesForCurrentThread();
+        AllocParts[0] += a1 - a0; AllocParts[1] += a2 - a1; AllocParts[2] += a3 - a2;
+        var markers = LocalMarkers(session, _tickMarkers);
+        AllocParts[3] += GC.GetAllocatedBytesForCurrentThread() - a3;
+        try { TickRest(session, camera, t, markers); }
+        finally { AllocParts[4] += GC.GetAllocatedBytesForCurrentThread() - a3; }
+    }
+    /// <summary>(diagnostics, harness aeroget OrbitalMod.FrameMarkers.AllocParts: bytes allocated since load by prewarm,
+    /// contacts, contacts tab, the marker list, the rest; and of the rest, the body/contact markers' collect and the draw)</summary>
+    public static long[] AllocParts = new long[7];
+    public static string AllocPartsText => $"prewarm {AllocParts[0] >> 10} contacts {AllocParts[1] >> 10} tab {AllocParts[2] >> 10} markers {AllocParts[3] >> 10} rest {(AllocParts[4] - AllocParts[3]) >> 10} (collect {AllocParts[5] >> 10} draw {AllocParts[6] >> 10}) KB";
+
+    static void TickRest(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera, double t, List<GPSMarker> markers)
+    {
         if (markers == null) return;
 
         if (_restoreKeys.Count > 0)
@@ -77,13 +93,23 @@ public static class FrameMarkers
             _proxies.Add(new Proxy { World = at, Name = m.Name, Distance = dist, Color = m.Color, Marker = m });
             moved++;
         }
-        // Forget markers that no longer exist.
-        _hidden.RemoveWhere(h => !markers.Contains(h));
-        Status = $"gps {markers.Count} marker(s), {moved} frame-transferred{(MapPipeline.GpsError.Length > 0 ? " (game draw: " + MapPipeline.GpsError + ")" : "")}";
+        // Forget markers that no longer exist. (a loop, not RemoveWhere with a lambda: it captured the list - a closure and a
+        //  delegate every frame, made on entry to this method even when it returned early)
+        if (_hidden.Count > 0)
+        {
+            var gone = _gone; gone.Clear();
+            foreach (var h in _hidden) if (!markers.Contains(h)) gone.Add(h);
+            for (int i = 0; i < gone.Count; i++) _hidden.Remove(gone[i]);
+            gone.Clear();
+        }
+        if (StatusDue(ref _statusAt)) Status = $"gps {markers.Count} marker(s), {moved} frame-transferred{(MapPipeline.GpsError.Length > 0 ? " (game draw: " + MapPipeline.GpsError + ")" : "")}";
 
         BodyMarkers._session = session;
+        long b0 = GC.GetAllocatedBytesForCurrentThread();
         if (camOk) BodyMarkers.Collect(camera, camModel, camChart, t); else BodyMarkers.Clear();
+        long b1 = GC.GetAllocatedBytesForCurrentThread();
         if ((_proxies.Count > 0 || BodyMarkers.Any) && !MapView.Visible) Draw(session);
+        AllocParts[5] += b1 - b0; AllocParts[6] += GC.GetAllocatedBytesForCurrentThread() - b1;
     }
 
     /// <summary>Open a HUD draw batch in the map's font (the caller ends it with MapPipeline.UiEnd).</summary>
@@ -124,50 +150,85 @@ public static class FrameMarkers
     /// </summary>
     public static List<Vector3D> GameMarked(Keen.VRage.Core.Game.Systems.Session session)
     {
-        var l = new List<Vector3D>();
-        var markers = LocalMarkers(session);
+        // (reused: called every frame by BodyMarkers - its own list, as the tick's markers have theirs)
+        var l = _gameMarked; l.Clear();
+        var markers = LocalMarkers(session, _gmMarkers);
         if (markers != null) foreach (var m in markers) if (m != null && !m.Hidden) l.Add(m.Position);
         foreach (var m in _hidden) if (m != null) l.Add(m.Position);   // (frame-transferred: still the game's marker)
         try
         {
             var comp = session.SessionComponents.TryGet<Keen.Game2.Client.GameSystems.GPS.GPSMarkerRenderSessionComponent>();
             var ant = comp != null ? PlanetRenderBridge.GetMember(comp, "_antennas") : null;
-            if (ant != null && PlanetRenderBridge.GetMember(ant, "ActiveMarkers") is System.Collections.IEnumerable active)
-                foreach (var o in active) if (o is GPSMarker gm) l.Add(gm.Position);
+            var active = ant != null ? PlanetRenderBridge.GetMember(ant, "ActiveMarkers") : null;
+            if (active is System.Collections.IList al) { for (int i = 0; i < al.Count; i++) if (al[i] is GPSMarker gm) l.Add(gm.Position); }   // (by index: no enumerator)
+            else if (active is System.Collections.IEnumerable ae) foreach (var o in ae) if (o is GPSMarker gm) l.Add(gm.Position);
         }
         catch { }
         return l;
     }
 
     /// <summary>The local player's GPS markers: their own list, their groups, and contract HUD markers.</summary>
-    private static List<GPSMarker> LocalMarkers(Keen.VRage.Core.Game.Systems.Session session)
+    private static List<GPSMarker> LocalMarkers(Keen.VRage.Core.Game.Systems.Session session) => LocalMarkers(session, new List<GPSMarker>());
+
+    // (the per-frame callers' own lists, reused - no list a frame: 2026-10-14, Orbital's client allocated ~0.9 MB/s and the
+    //  game's 2.5 GB heap paid for it in 230-400 ms full collections)
+    static readonly List<GPSMarker> _tickMarkers = new List<GPSMarker>(), _gmMarkers = new List<GPSMarker>();
+    static readonly List<Vector3D> _gameMarked = new List<Vector3D>();
+    static readonly List<GPSMarker> _gone = new List<GPSMarker>();
+    static double _statusAt;
+    /// <summary>A status line rebuilt at most once a second (its string is garbage every frame otherwise).</summary>
+    internal static bool StatusDue(ref double at)
     {
+        double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+        if (now < at) return false;
+        at = now + 1.0; return true;
+    }
+
+    private static List<GPSMarker> LocalMarkers(Keen.VRage.Core.Game.Systems.Session session, List<GPSMarker> list)
+    {
+        list.Clear();
         try
         {
             var players = session.Get<ClientPlayersSessionComponent>();
             var data = session.Get<IPerPlayerData>();
             if (players == null || data == null) return null;
             var id = players.LocalPlayerIdentity;
-            var list = new List<GPSMarker>();
-            var gps = data.GetPerPlayerData<GPSMarkersData>(id);
+            // (the player's two data objects looked up twice a second, not on every call - two or three calls a frame: the
+            //  game's lookup walks its observable list (an enumerator each time) and, when a type is stored under its
+            //  instantiation type (GPSMarkersData's is GPSMarkersServerData), reads the type's attribute again; the
+            //  marker lists themselves are still read from them every call)
+            double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+            if (!ReferenceEquals(session, _pdSession) || !ReferenceEquals(data, _pdData) || !id.Equals(_pdId) || now - _pdAt > 0.5 || now < _pdAt)
+            {
+                _pdGps = data.GetPerPlayerData<GPSMarkersData>(id);
+                _pdContracts = data.GetPerPlayerData<ContractPerPlayerData>(id);
+                _pdSession = session; _pdData = data; _pdId = id; _pdAt = now;
+            }
+            var gps = _pdGps;
             // ObservableList derives from a framework type mod code cannot reference: read the lists as
             // plain enumerables.
             if (gps != null)
             {
                 Add(list, PlanetRenderBridge.GetMember(gps, "GPSMarkers"));
-                if (PlanetRenderBridge.GetMember(gps, "MarkersGroups") is System.Collections.IEnumerable groups)
-                    foreach (var g in groups) Add(list, PlanetRenderBridge.GetMember(g, "Markers"));
+                var groups = PlanetRenderBridge.GetMember(gps, "MarkersGroups");
+                if (groups is System.Collections.IList gl) { for (int i = 0; i < gl.Count; i++) Add(list, PlanetRenderBridge.GetMember(gl[i], "Markers")); }
+                else if (groups is System.Collections.IEnumerable ge) foreach (var g in ge) Add(list, PlanetRenderBridge.GetMember(g, "Markers"));
             }
-            var contracts = data.GetPerPlayerData<ContractPerPlayerData>(id);
+            var contracts = _pdContracts;
             if (contracts != null) Add(list, PlanetRenderBridge.GetMember(contracts, "HUDMarkers"));
             return list;
         }
         catch { return null; }
     }
+    static object _pdSession, _pdData; static Keen.Game2.Simulation.GameSystems.Ownership.IdentityId _pdId; static double _pdAt;
+    static GPSMarkersData _pdGps; static ContractPerPlayerData _pdContracts;
 
     private static void Add(List<GPSMarker> list, object enumerable)
     {
-        if (enumerable is System.Collections.IEnumerable e) foreach (var o in e) if (o is GPSMarker m) list.Add(m);
+        // (the game's lists are ObservableLists - Collections, IList: read by index; walked as IEnumerable each boxed an
+        //  enumerator, several a frame)
+        if (enumerable is System.Collections.IList l) { for (int i = 0; i < l.Count; i++) if (l[i] is GPSMarker m) list.Add(m); }
+        else if (enumerable is System.Collections.IEnumerable e) foreach (var o in e) if (o is GPSMarker m) list.Add(m);
     }
 
     /// <summary>
@@ -184,19 +245,42 @@ public static class FrameMarkers
         {
             chart = Chart.Of(body, t);
             model = b.OriginInRoot(t).Position + chart.ToInertial(world - cell);
-            window = "cell:" + body;
+            window = CellWindow(body);
             return IsFinite(model);
         }
         ProximityFrame best = null; double bd = ServerFrames.SlotRadius;
-        foreach (var f in SystemHost.Frames.Frames)
-        {
-            double d = (world - f.BerthCenter).Length();
-            if (d <= bd) { bd = d; best = f; }
-        }
+        // (the registry's own dictionary walked with its struct enumerator: through IEnumerable each call boxed one - this
+        //  runs for every marker, contact and sensor, every frame)
+        var frames = SystemHost.Frames.Frames;
+        if (frames is Dictionary<long, ProximityFrame>.ValueCollection vc)
+            foreach (var f in vc) { double d = (world - f.BerthCenter).Length(); if (d <= bd) { bd = d; best = f; } }
+        else
+            foreach (var f in frames) { double d = (world - f.BerthCenter).Length(); if (d <= bd) { bd = d; best = f; } }
         if (best == null || !(reg.Find(best.ParentBodyName) is GravityBody parent)) return false;
         model = parent.OriginInRoot(t).Position + OrbitPropagation.StateAt(best.Elements, t).Position + (world - best.BerthCenter);
-        window = "frame:" + best.Id;
+        window = FrameWindow(best.Id);
         return IsFinite(model);
+    }
+
+    // The windows' names ("cell:<body>", "frame:<id>"), made once each: ModelOf ran for every marker and contact every frame,
+    // and each call built its name anew (2026-10-14). Compared by value (==), as before.
+    static readonly Dictionary<string, string> _cellWindows = new Dictionary<string, string>();
+    static readonly Dictionary<long, string> _frameWindows = new Dictionary<long, string>();
+    static string CellWindow(string body)
+    {
+        lock (_cellWindows) { if (!_cellWindows.TryGetValue(body, out var w)) _cellWindows[body] = w = "cell:" + body; return w; }
+    }
+    static string FrameWindow(long id)
+    {
+        lock (_frameWindows)
+        {
+            if (!_frameWindows.TryGetValue(id, out var w))
+            {
+                if (_frameWindows.Count > 4096) _frameWindows.Clear();   // (frames come and go: bounded)
+                _frameWindows[id] = w = "frame:" + id;
+            }
+            return w;
+        }
     }
 
     /// <summary>Every visible local marker with its true (sun-centred) model position, for the map.</summary>

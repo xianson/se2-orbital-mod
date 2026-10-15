@@ -59,6 +59,16 @@ public static class FrameHost
     }
     private static double _footWall;
 
+    /// <summary>Seated: your place (the character in its seat) and the seat grid's own physics velocity - what planning
+    /// already flies from. (2026-10-12, the user: "the orbit propagation is wildly spazzy in drag on ascent" - the HUD's
+    /// orbit read the camera's position differenced over time: a chase camera lagging, shaking and swung by the mouse,
+    /// near orbital speed, where Ap and Pe swing with every m/s.)</summary>
+    public static bool SeatState(out Vector3D pos, out Vector3D vel)
+    {
+        pos = _lastPos; vel = _seatVel;
+        return Seated && !_hsActive && _seatVelOk && IsFinite(pos) && IsFinite(vel);
+    }
+
     /// <summary>The player's orbit about a planet while materialized in its cell (HighSpeed: its conic).</summary>
     public static bool TryGetLocalOrbit(string body, double t, out KeplerianElements el)
     {
@@ -134,6 +144,7 @@ public static class FrameHost
     public static void Tick(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera, double gravityMultiplier)
     {
         TickRate.Client.Count();
+        PlanetRenderBridge.CameraPos = camera.Position;
         if (!ReferenceEquals(session, _session)) { _session = session; NewSession(); }
         if (!OrbitalSettings.SawClient) OrbitalSettings.SawClient = true;
         OrbitalSettings.Poll();   // (the settings files, every ~2 s)
@@ -305,7 +316,7 @@ public static class FrameHost
         Guard("DevTurn.ClientTick", static a => DevTurn.ClientTick(a.Session), ta);
         Guard("DevReentry.ClientTick", static a => DevReentry.ClientTick(a.Session, a.Camera), ta);
         Guard("AttitudeHold.ClientTick", static a => AttitudeHold.ClientTick(a.Session), ta);
-        Guard("FlyTest.ClientTick", static a => FlyTest.ClientTick(a.Session), ta);   // (DEV: Ctrl+T seated - 1 km, level, cruise)
+        Guard("FlyTest.ClientTick", static a => FlyTest.ClientTick(a.Session), ta);   // (Ctrl+T seated - 1 km, level, cruise)
         WarpControl.Session = session;
         Guard("WarpControl.Tick", static a => WarpControl.Tick(), ta);
         Guard("MapView.Tick", static a => MapView.Tick(a.Session, a.Camera, a.T), ta);
@@ -314,7 +325,9 @@ public static class FrameHost
         Guard("AutoBurn.Tick", static a => AutoBurn.Tick(a.Session, a.T), ta);
         Guard("OrbitHud.Draw", static a => OrbitHud.Draw(a.Session), ta);
         Guard("BuildHints.Draw", static a => BuildHints.Draw(a.Session), ta);
-        Guard("SpdIcon.Draw", static a => SpdIcon.Draw(a.Session), ta);   // (seated: the cockpit SPD box's missing speedometer)   // (holding a block: the aimed ship's stability, top speed)
+        Guard("SpdIcon.Draw", static a => SpdIcon.Draw(a.Session), ta);
+        Guard("AlignButton.Draw", static a => AlignButton.Draw(a.Session), ta);
+        Guard("EffectCull.Tick", static a => EffectCull.Tick(a.Session, a.Camera.Position), ta);   // (far grids' looping block effects hidden: drawn on the sky past the far plane)   // (seated: the attitude hold's toggle after the dampeners, its hint)   // (seated: the cockpit SPD box's missing speedometer)   // (holding a block: the aimed ship's stability, top speed)
         Guard("WarpBar", static a => WarpBar.DrawHud(a.Session), ta);
         // On rails the game's SPD (your velocity in the frame) is 0: show your speed about the body.
         Guard("HudSpeed", static a => { if (_cur.Frame != null && OrbitHud.Current != null) GameUi.SetHudSpeed(a.Session, (float)OrbitHud.Current.Speed); }, ta);
@@ -1185,14 +1198,27 @@ public static class FrameHost
     {
         // the grid of the seat you are in (its pilot is you) - not the nearest grid: a big ship's origin is far from its
         // cockpit, a docked fighter's is near it
+        // (the seat found last tick first - still alive, you still its pilot: the scan below finds that same one. The scan, an
+        //  engine query over every seat of the world each frame, was most of SeatedOrbit's 12 ms/s - a profile, 2026-10-15)
         Entity seat = null;
-        foreach (var e in session.GetEntitiesOfType<Keen.Game2.Simulation.WorldObjects.CubeBlocks.Pilotable.SeatComponent>())
+        var last = _seatFound;
+        if (SeatAlive(last) && (last.TryGet<Keen.Game2.Simulation.WorldObjects.CubeBlocks.Pilotable.SeatComponent>() as Keen.Game2.Simulation.WorldObjects.CubeBlocks.Pilotable.ISeat)?.Pilot == _seatChar && _seatChar != null)
         {
-            var s = e.TryGet<Keen.Game2.Simulation.WorldObjects.CubeBlocks.Pilotable.SeatComponent>() as Keen.Game2.Simulation.WorldObjects.CubeBlocks.Pilotable.ISeat;
-            if (s?.Pilot != _seatChar) continue;
-            seat = e.TryGet<Keen.Game2.Simulation.WorldObjects.CubeBlocks.CubeBlockComponent>()?.Grid?.Entity;
-            SeatBlock = e;
-            break;
+            seat = last.TryGet<Keen.Game2.Simulation.WorldObjects.CubeBlocks.CubeBlockComponent>()?.Grid?.Entity;
+            SeatBlock = last;
+        }
+        else
+        {
+            _seatFound = null;
+            foreach (var e in session.GetEntitiesOfType<Keen.Game2.Simulation.WorldObjects.CubeBlocks.Pilotable.SeatComponent>())
+            {
+                var s = e.TryGet<Keen.Game2.Simulation.WorldObjects.CubeBlocks.Pilotable.SeatComponent>() as Keen.Game2.Simulation.WorldObjects.CubeBlocks.Pilotable.ISeat;
+                if (s?.Pilot != _seatChar) continue;
+                seat = e.TryGet<Keen.Game2.Simulation.WorldObjects.CubeBlocks.CubeBlockComponent>()?.Grid?.Entity;
+                SeatBlock = e;
+                _seatFound = e;
+                break;
+            }
         }
         _seatVelOk = false;
         SeatGrid = seat; SeatGridServerId = 0;
@@ -1224,6 +1250,16 @@ public static class FrameHost
         SeatGridServerId = sid;
         lock (ServerFrames.FramesLock)
             return PlayerOrbit.Seated(new PlayerOrbit.GridState(sid, sp, sv), _seatGrids, id => SystemHost.Frames?.FindByMember(id), SystemHost.Timescale);
+    }
+
+    /// <summary>The seat SeatedOrbit found last (client thread), and whether an entity is still in its scene (no throw: an
+    /// exception costs ~200 ms in SE2).</summary>
+    static Entity _seatFound;
+    static bool SeatAlive(Entity e)
+    {
+        if (e == null) return false;
+        var d = e.Data; var scene = d.Scene;
+        return scene != null && scene.IsEntityAlive(d.Entity);
     }
 
     /// <summary>True when the local character sits in a seat.</summary>
@@ -1420,22 +1456,51 @@ public static class FrameHost
 
     public static void Guard(string name, Action<TickArgs> a, in TickArgs args)
     {
-        long m0 = AllocWatch ? GC.GetAllocatedBytesForCurrentThread() : 0;
+        bool aw = AllocWatch;
+        long m0 = aw ? GC.GetAllocatedBytesForCurrentThread() : 0, o0 = _allocOverhead;
         long t0 = ModCost.Start();
         try { a(args); }
         catch (Exception ex) { Fault(name, ex); }
-        ModCost.Sec(name).Stop(t0);
-        if (AllocWatch) lock (_allocs) { _allocs.TryGetValue(name, out long b); _allocs[name] = b + GC.GetAllocatedBytesForCurrentThread() - m0; }
+        GuardEnd(name, t0, aw, m0, o0);
+    }
+
+    // (each guard's ModCost by its name's reference - the names are literals - kept per thread, in the order the frame runs
+    //  them: ModCost.Sec took a lock and hashed the name, ~30 times a frame. A name not seen yet, or one made anew each call,
+    //  goes to ModCost.Sec as before.)
+    [ThreadStatic] static string[] _gcNames; [ThreadStatic] static ModCost[] _gcCosts; [ThreadStatic] static int _gcNext;
+    static ModCost GuardCost(string name)
+    {
+        string[] names = _gcNames ??= new string[64]; ModCost[] costs = _gcCosts ??= new ModCost[64];
+        int i = _gcNext;
+        if (i < names.Length && ReferenceEquals(names[i], name)) { _gcNext = i + 1; return costs[i]; }
+        for (int k = 0; k < names.Length && names[k] != null; k++) if (ReferenceEquals(names[k], name)) { _gcNext = k + 1; return costs[k]; }
+        var c = ModCost.Sec(name);
+        for (int k = 0; k < names.Length; k++) if (names[k] == null) { names[k] = name; costs[k] = c; _gcNext = k + 1; break; }
+        return c;
     }
 
     public static void Guard(string name, Action a)
     {
-        long m0 = AllocWatch ? GC.GetAllocatedBytesForCurrentThread() : 0;
+        bool aw = AllocWatch;
+        long m0 = aw ? GC.GetAllocatedBytesForCurrentThread() : 0, o0 = _allocOverhead;
         long t0 = ModCost.Start();
         try { a(); }
         catch (Exception ex) { Fault(name, ex); }
-        ModCost.Sec(name).Stop(t0);   // (each guarded system's time: the status line's mapcost list)
-        if (AllocWatch) lock (_allocs) { _allocs.TryGetValue(name, out long b); _allocs[name] = b + GC.GetAllocatedBytesForCurrentThread() - m0; }
+        GuardEnd(name, t0, aw, m0, o0);
+    }
+
+    // (each guarded system's time: the status line's mapcost list). Its bytes are read BEFORE the timer stops: with allocs
+    // on, ModCost.Stop builds its "map:" + name key (a new string every call) - ~80 bytes a frame that was counted to every
+    // guarded system: the ~4 KB/s floor across all of them was this measuring, not the systems (2026-10-14). A guard nested
+    // in another (MapView.Sectorless in MapView.Tick) leaves its own measuring out of the outer one's bytes the same way.
+    [ThreadStatic] static long _allocOverhead;
+    static void GuardEnd(string name, long t0, bool aw, long m0, long o0)
+    {
+        if (!aw || !AllocWatch) { GuardCost(name).Stop(t0); return; }
+        long m1 = GC.GetAllocatedBytesForCurrentThread(), inner = _allocOverhead - o0;
+        GuardCost(name).Stop(t0);
+        _allocOverhead += GC.GetAllocatedBytesForCurrentThread() - m1;
+        lock (_allocs) { _allocs.TryGetValue(name, out long b); _allocs[name] = b + (m1 - m0) - inner; }
     }
 
     /// <summary>DEV (harness: allocs on|off|show): bytes allocated per guarded system, since the last show.</summary>

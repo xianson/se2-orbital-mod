@@ -21,7 +21,7 @@ seated() { q "exitcheck $1" | grep -q "seated True"; }
 sit() { q "tpgrid $1 15" >/dev/null; until_ 10 "q 'seatid $1' | grep -q 'seating in'" && until_ 12 "seated $1"; }
 
 powershell -NoProfile -Command "Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Stop-Process -Force"; sleep 2
-powershell -NoProfile -Command "Start-Process 'steam://rungameid/1133870'"
+. "$(dirname "$0")/launch.sh"; launch
 until_ 300 "grep -aq 'beacon Root Entity\|Loading Failed' \"\$(LOG)\" 2>/dev/null"; until_ 60 "q 'findgrids' | grep -q '='"
 echo "loaded in $(( $(date +%s) - T0 )) s: $(LOG)"
 G=$(q "findgrids")

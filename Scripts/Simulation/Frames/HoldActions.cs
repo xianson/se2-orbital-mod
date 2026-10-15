@@ -32,6 +32,7 @@ public class OrbitalHoldDetailModel : BlockDetailModel
     [Button(null)] [Label("Hold anti-normal")] public void HoldAntiNormal() => HoldActions.Request(AttitudeHold.Mode.AntiNormal);
     [Button(null)] [Label("Hold radial out")] public void HoldRadialOut() => HoldActions.Request(AttitudeHold.Mode.RadialOut);
     [Button(null)] [Label("Hold radial in")] public void HoldRadialIn() => HoldActions.Request(AttitudeHold.Mode.RadialIn);
+    [Button(null)] [Label("Hold level")] public void HoldLevel() => HoldActions.Request(AttitudeHold.Mode.Level);
     [Button(null)] [Label("Hold off")] public void HoldOff() => HoldActions.Request(AttitudeHold.Mode.Off);
 }
 
@@ -49,7 +50,7 @@ public static class HoldActions
         int p = System.Threading.Interlocked.Exchange(ref _pending, -1);
         if (p < 0) return;
         var m = (AttitudeHold.Mode)p;
-        AttitudeHold.Set(m != AttitudeHold.Mode.Off && AttitudeHold.Current == m ? AttitudeHold.Mode.Off : m);
+        AttitudeHold.Set(m != AttitudeHold.Mode.Off && AttitudeHold.Current == m ? AttitudeHold.Mode.Off : m);   // (a mode set is selected too)
     }
 
     static bool _hooked;

@@ -21,8 +21,11 @@ public static class SpdIcon
         try
         {
             var scr = MapPipeline.ScreenSize;
-            float H = scr.Y, u = Math.Max(1f, H / 1080f);
+            float H = scr.Y, u = MapPipeline.UiScale(H);
             float x1 = scr.X * 0.5f - 0.327f * H, hh = 0.026f * H, top = scr.Y * 0.5f - hh;
+            // (the game's own SPD box when known - HudGeom: any size and shape of screen; our sizes scaled to it)
+            var g = HudGeom.Spd;
+            if (g != null && g[3] > 4f) { x1 = g[0] + g[2]; hh = g[3] * 0.5f; top = g[1]; u = hh / (0.026f * 1080f); }
             float ts = 0.42f * u, padX = 4f * u;
             var lsz = MapPipeline.MeasureText("SPD", ts);
             float y = top + (2f * hh - 2f * lsz.Y) * 0.5f - 2.5f * u;   // (the label row as the game places it - measured at 4K)

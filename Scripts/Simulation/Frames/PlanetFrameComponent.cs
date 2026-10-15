@@ -226,8 +226,11 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
             DevHarness.Poll(session, camera); // rate-limited; whichever planet ticks first runs it
             if (SpecCam.Current.HasValue) camera = SpecCam.Current.Value; // DEV spectator: build proxies for its viewpoint
             double mult = 1;
-            try { mult = session.Get<Keen.VRage.Physics.IPhysics>().GravityMultiplier; } catch { }
+            // (the physics service looked up once a frame per planet, not twice; its multiplier read where it was)
+            Keen.VRage.Physics.IPhysics phys = null;
+            try { phys = session.Get<Keen.VRage.Physics.IPhysics>(); mult = phys.GravityMultiplier; } catch { }
             try { GameMap.Safety(session); } catch { }
+            try { GameMap.HideMapObjectsInFlight(session); } catch { }
             long c0 = ModCost.Start();
             try { FrameHost.Tick(session, camera, mult); } // once per frame (clock-deduped)
             catch (Exception ex) { FrameHost.Fault("FrameHost", ex); }
@@ -239,7 +242,7 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
             double distance = (center - camera.Position).Length();
 
             if (_beacon != null && _beacon.GravityReach > 0) { _law = _beacon.Gravity; _gravityReach = _beacon.GravityReach; }
-            try { _law.Multiplier = session.Get<Keen.VRage.Physics.IPhysics>().GravityMultiplier; } catch { }
+            try { if (phys != null) _law.Multiplier = phys.GravityMultiplier; } catch { }
             PlanetRenderBridge.TickTerrain(_handles);
             if (FrameHost.PlayerFrame == null && !MapView.Visible) OrbitDisplay.Consider(this, session, camera, center, _handles.Radius, _law, _planetName);
 

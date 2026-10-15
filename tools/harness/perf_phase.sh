@@ -3,6 +3,9 @@
 # print the phase's mean of the per-second worst gap, its max, and the mean tick (ms). For A/B load tests.
 ST=/c/Users/slob/AppData/Local/Temp/OrbitalMod/status.txt
 name="$1"; secs="${2:-20}"; ws=(); ms=()
+# (the status file is written only every 5 s when no command comes: every poll while sampling - 'statusfast')
+D=/c/Users/slob/AppData/Local/Temp/OrbitalMod
+printf 'statusfast on\n' > "$D/cmd.txt"; for i in $(seq 1 20); do [ -f "$D/cmd.txt" ] || break; sleep 0.5; done
 end=$(( $(date +%s) + secs ))
 until [ "$(date +%s)" -ge "$end" ]; do
     l=$(grep -a "^frame server" "$ST")
@@ -10,5 +13,6 @@ until [ "$(date +%s)" -ge "$end" ]; do
     [ -n "$w" ] && ws+=("$w") && ms+=("$m")
     sleep 2
 done
+printf 'statusfast off\n' > "$D/cmd.txt"
 printf '%s\n' "${ws[@]}" | awk -v n="$name" -v ms="${ms[*]}" '{s+=$1; if($1>mx)mx=$1; c++} END{split(ms,a," "); t=0; for(i in a)t+=a[i]; printf "%-28s worst avg %6.1f ms, max %5d ms, mean tick %5.2f ms (%d samples)\n", n, s/c, mx, t/length(a), c}'
 grep -a "^frame server" "$ST" | sed 's/.*| stress /   stress: /'

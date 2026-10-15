@@ -49,7 +49,8 @@ public static class WarmBerths
     /// <summary>Free warm berths' centres (SpawnGuard closes them to encounters; it holds FramesLock).</summary>
     public static List<(int slot, Vector3D at)> FreeWarm()
     {
-        var l = new List<(int, Vector3D)>();
+        // (one list, reused: its only caller is SpawnGuard's tick, on the server thread - a new list per tick before)
+        var l = _freeWarm; l.Clear();
         var alloc = SystemHost.Frames?.Allocator;
         if (alloc == null) return l;
         lock (ServerFrames.FramesLock)
@@ -171,8 +172,9 @@ public static class WarmBerths
         {
             var wt = e.Data.GetWorldTransform();
             e.Data.SetWorldTransform(new WorldTransform(p, wt.Orientation));
+            ServerFrames.AeroNoteMoved(e);
             ref var rb = ref e.Data.TryGetWritePtr<Keen.VRage.Physics.Data.RigidBodyData>();
-            if (!System.Runtime.CompilerServices.Unsafe.IsNullRef(in rb)) { rb.LinearVelocity = default; rb.AngularVelocity = default; }
+            if (!System.Runtime.CompilerServices.Unsafe.IsNullRef(in rb)) { var was = rb.LinearVelocity; rb.LinearVelocity = default; rb.AngularVelocity = default; GridEdits.Wrote(e, -was); }
         }
         catch { }
     }
@@ -194,9 +196,17 @@ public static class WarmBerths
     }
 
     /// <summary>A grid entity that is one of ours (by its name): never registered (OrbitalGridComponent).</summary>
+    static readonly List<(int slot, Vector3D at)> _freeWarm = new List<(int slot, Vector3D at)>();
+
     public static bool IsPlaceholder(Entity e)
     {
-        try { var g = e?.TryGet<CubeGridComponent>(); return g != null && g.DisplayName.EvaluateText() == Name; }
+        // (the grid's name as the frames keep it - evaluated at most once a second: every grid's text evaluated anew every
+        //  second was 76 KB/s - a profile, 2026-10-14)
+        try
+        {
+            var og = e?.TryGet<OrbitalGridComponent>(); if (og != null) return og.DisplayName == Name;
+            var g = e?.TryGet<CubeGridComponent>(); return g != null && g.DisplayName.EvaluateText() == Name;
+        }
         catch { return false; }
     }
 

@@ -41,7 +41,7 @@ public static class BuildHints
     /// <summary>DEV: show the hints for this grid without building (0: off) - the harness cannot hold a block.</summary>
     public static long DevGridId;
 
-    static MethodInfo _design, _top, _topAt, _thrust, _com, _mass, _pressures, _control, _flight, _forces; static bool _resolved;
+    static MethodInfo _design, _top, _topAt, _thrust, _com, _mass, _pressures, _control, _flight, _forces, _structure, _focus, _stall, _loac; static bool _resolved;
     static void Resolve()
     {
         if (_resolved) return; _resolved = true;
@@ -49,14 +49,26 @@ public static class BuildHints
         {
             Type t; try { t = asm.GetType("AeroMod.AeroApi"); } catch { continue; }
             if (t == null) continue;
-            _design = t.GetMethod("TryDesign"); _top = t.GetMethod("GetTopSpeed"); _thrust = t.GetMethod("GetThrustAlong");
-            _com = t.GetMethod("TryGetCenterOfMass"); _topAt = t.GetMethod("GetTopSpeedAt"); _mass = t.GetMethod("GetMass");
-            _pressures = t.GetMethod("GetDesignPressures"); _control = t.GetMethod("GetControlRatio");
-            _flight = t.GetMethod("TryGetFlight"); _forces = t.GetMethod("TryGetForces");
+            // (typed lookups: every cross-mod GetMethod names its parameters - docs/API.md, tools/check_contract.sh)
+            Type E = typeof(Entity), V = typeof(Vector3), F = typeof(float), I = typeof(int);
+            Type oV = V.MakeByRefType(), oF = F.MakeByRefType(), oI = I.MakeByRefType();
+            Type LV = typeof(System.Collections.Generic.List<Vector3>), LF = typeof(System.Collections.Generic.List<float>);
+            MethodInfo M(string n, params Type[] p) => t.GetMethod(n, BindingFlags.Public | BindingFlags.Static, null, p, null);
+            _design = M("TryDesign", E, V, F, oV, oV, oV, oF, oF, oF); _top = M("GetTopSpeed", E, V); _thrust = M("GetThrustAlong", E, V, F, oV);
+            _com = M("TryGetCenterOfMass", E, oV); _topAt = M("GetTopSpeedAt", E, V, F); _mass = M("GetMass", E);
+            _pressures = M("GetDesignPressures", E, V, F, LV, LV, LF, LF, I); _control = M("GetControlRatio", E, V, F);
+            _flight = M("TryGetFlight", E, oV, oF, oF, oF, oF); _forces = M("TryGetForces", E, oV, oV, oF, oF, oF);
+            _structure = M("TryGetStructure", E, oF, oF, oF); _focus = M("SetFocusGrid", E); _stall = M("TryGetStall", E, oI, oF, oF, oF);
+            _loac = M("TryGetLoac", E, oI, oF);
+            // (asked every frame seated: bound as a typed delegate - by Invoke it was an argument array and five boxed outs a
+            //  frame, most of this system's garbage, 2026-10-14; a signature that does not match leaves the Invoke)
+            try { _flightFn = _flight != null ? (FlightFn)Delegate.CreateDelegate(typeof(FlightFn), _flight, false) : null; } catch { _flightFn = null; }
             break;
         }
     }
 
+    delegate bool FlightFn(Entity grid, out Vector3 travelLocal, out float airspeed, out float mach, out float density, out float dynamicPressure);
+    static FlightFn _flightFn;
     static Entity _grid; static double _gridSeen;
     // the trails (grid-local centres of pressure, their state, their time): subsonic and supersonic
     static readonly List<(Vector3 cop, int state, double at)> _trail = new(), _trailSup = new();
@@ -141,6 +153,13 @@ public static class BuildHints
         else if (_grid != null && now - _gridSeen > 3) { _grid = null; ClearAll(); }   // (looked away for 3 s)
         var grid = _grid;
         if (grid == null || !(grid.Data.Scene?.IsEntityAlive(grid.Data.Entity) ?? false)) { Status = "building: aim at a ship"; return; }
+        // (a static grid - a station, a base - never flies: no hints, no overlay. 2026-10-14, the user. Static: no movable
+        //  mass, as the aero mod's AeroGridComponent.IsStatic)
+        if (!grid.Data.TryGet<Keen.VRage.Physics.Data.RigidBodyMassProperties>(out var mp) || mp.InvMass <= 0f)
+        {
+            if (_ovGrid != null || _trail.Count > 0) ClearAll();
+            Status = "static grid: no aero hints"; return;
+        }
 
         // (the HUD batch first: it is what sets the camera up)
         if (!FrameMarkers.BeginHud(session)) return;
@@ -181,7 +200,7 @@ public static class BuildHints
             }
             if (Overlay != 0 && _ovSmooth.Count > 0 && ReferenceEquals(_ovGrid, grid)) DrawOverlay3D(session, World);
 
-            float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+            float u = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
             // the trails, fading: subsonic dots, supersonic rings
             for (int i = 0; i < _trail.Count; i++)
             {
@@ -289,7 +308,9 @@ public static class BuildHints
     /// weight under it. Our own icons (MapIcons: speed, wing, balance, thrust). Sizes in the HUD's 1080p units x u.
     /// </summary>
     /// <summary>The boxes (DrawPanel's while building; DrawFlight's right pair in the air).</summary>
-    static void DrawBoxes(float u, bool left, string top, ColorSRGB topCol, string tw, string stabLabel, int st, string margin, string ld)
+    static readonly List<Vector2> _boxPts = new List<Vector2>(6);
+    static void DrawBoxes(float u, bool left, string top, ColorSRGB topCol, string tw, string stabLabel, int st, string margin, string ld,
+        string l1Icon = "speed", string l1Label = "TOP", string l2Icon = "thrust", string l2Label = "T/W", ColorSRGB? l2Col = null)
     {
         var scr = MapPipeline.ScreenSize;
         float cx = scr.X * 0.5f, cy = scr.Y * 0.5f, H = scr.Y;
@@ -297,6 +318,14 @@ public static class BuildHints
         float inner = 0.327f * H, outer = 0.424f * H, hh = 0.026f * H, gap = 0.008f * H;
         // (measured on the game's own at 4K: SPD spans 0.327-0.424 left of centre, ALT 0.3278-0.4194 right of it - narrower)
         float innerR = 0.3278f * H, outerR = 0.4194f * H;
+        float cyR = cy - 0.0028f * H;   // (ALT's middle sits 0.0028 screen-heights over the centre)
+        // the game's own boxes when they are known (HudGeom - any size, any shape of screen): ours the same width, height
+        // and line, and our sizes scaled to theirs (u: their height over the 4K measurement's)
+        var gs = HudGeom.Spd; var ga = HudGeom.Alt;
+        var gg = gs ?? ga;   // (either known: its height sets ours; on foot in space there is no ALT)
+        if (gg != null && gg[3] > 4f) { hh = gg[3] * 0.5f; gap = hh * (0.008f / 0.026f); u = hh / (0.026f * 1080f); }
+        if (gs != null && gs[3] > 4f) { outer = cx - gs[0]; inner = cx - (gs[0] + gs[2]); cy = gs[1] + gs[3] * 0.5f; }
+        if (ga != null && ga[3] > 4f) { innerR = ga[0] - cx; outerR = ga[0] + ga[2] - cx; cyR = ga[1] + ga[3] * 0.5f; }
         var fill = new ColorSRGB(0f, 12f / 255f, 16f / 255f, 0.70f);
         var white = new ColorSRGB(1f, 1f, 1f, 1f); var shadow = new ColorSRGB(0f, 0f, 0f, 0.85f);
         float bev = 5f * u, padX = 4f * u, ts = 0.42f * u;
@@ -309,9 +338,10 @@ public static class BuildHints
         {
             float x0 = right ? cx + innerR : cx - outer, x1 = right ? cx + outerR : cx - inner, y0 = top, y1 = top + 2f * hh;
             // the outline, bevelled on the outer side's two corners
-            var pts = right
-                ? new List<Vector2> { new(x0, y0), new(x1 - bev, y0), new(x1, y0 + bev), new(x1, y1 - bev), new(x1 - bev, y1), new(x0, y1) }
-                : new List<Vector2> { new(x0 + bev, y0), new(x1, y0), new(x1, y1), new(x0 + bev, y1), new(x0, y1 - bev), new(x0, y0 + bev) };
+            // (one list, refilled for each box - drawn at once; a new one per box every frame before)
+            var pts = _boxPts; pts.Clear();
+            if (right) { pts.Add(new(x0, y0)); pts.Add(new(x1 - bev, y0)); pts.Add(new(x1, y0 + bev)); pts.Add(new(x1, y1 - bev)); pts.Add(new(x1 - bev, y1)); pts.Add(new(x0, y1)); }
+            else { pts.Add(new(x0 + bev, y0)); pts.Add(new(x1, y0)); pts.Add(new(x1, y1)); pts.Add(new(x0 + bev, y1)); pts.Add(new(x0, y1 - bev)); pts.Add(new(x0, y0 + bev)); }
             MapPipeline.ScreenFill(pts, fill);
             for (int k = 0; k < pts.Count; k++) MapPipeline.ScreenLine(pts[k], pts[(k + 1) % pts.Count], white, 1f * u);
             float hl = MapPipeline.MeasureText("A", ts).Y;
@@ -352,12 +382,12 @@ public static class BuildHints
         }
         float above = cy - hh - gap - 2f * hh, below = cy + hh + gap;
         // (ALT's middle sits 0.0028 screen-heights over the centre - the gaps came out 15 and 25 px)
-        float cyR = cy - 0.0028f * H, aboveR = cyR - hh - gap - 2f * hh, belowR = cyR + hh + gap;
+        float aboveR = cyR - hh - gap - 2f * hh, belowR = cyR + hh + gap;
         // left, by SPD: the top speed, thrust to weight
         if (left)
         {
-            Box(false, above, "speed", "TOP", top, topCol);
-            Box(false, below, "thrust", "T/W", tw, white);
+            Box(false, above, l1Icon, l1Label, top, topCol);
+            Box(false, below, l2Icon, l2Label, tw, l2Col ?? white);
         }
         // right, by ALT: the stability, L/D
         Box(true, aboveR, "balance", stabLabel, StateWord(st), StateColor(st, 1f), margin, StateColor(st, 1f));
@@ -388,15 +418,42 @@ public static class BuildHints
     /// </summary>
     public static float FlightMinSpeed = 20f, FlightMinDensity = 0.01f; public static double FlightEvery = 0.25;
     static double _flAt; static Entity _flGrid; static int _flState = -9; static string _flMargin, _flLd = "-", _flLabel = "M0";
+    // the structure gauges (STRUCT: the worst joint's share of its yield; HEAT: the hottest skin, amber softening, red burning)
+    static string _flStruct, _flSkinText; static float _flUtil, _flSkin, _flHeat; static double _focusAt; static int _flStall, _flLoac;   // (_flSkinText: the HEAT box's text, made when read - not every frame)
+
+    /// <summary>THE STALL WARNING (2026-10-13): STALL over the reticle - red and large when pulling further only loses
+    /// lift, amber and smaller when close to it.</summary>
+    static void DrawStall(float u, bool stalled) =>
+        DrawWarning(u, "STALL", 0.30f, stalled ? 1.1f : 0.7f, stalled ? new ColorSRGB(1f, 0.15f, 0.1f, 1f) : HudPanel.Warn);
+
+    /// <summary>A warning over the reticle: text centred at this share of the screen's height, at this size, shadowed.</summary>
+    static void DrawWarning(float u, string t, float yShare, float size, ColorSRGB col)
+    {
+        var scr = MapPipeline.ScreenSize;
+        float ts = size * u;
+        var sz = MapPipeline.MeasureText(t, ts);
+        var at = new Vector2(scr.X * 0.5f - sz.X * 0.5f, scr.Y * yShare - sz.Y * 0.5f);
+        MapPipeline.ScreenText(at + new Vector2(2f * u, 2f * u), t, new ColorSRGB(0f, 0f, 0f, 0.85f), ts);
+        MapPipeline.ScreenText(at, t, col, ts);
+    }
     static void DrawFlight(Keen.VRage.Core.Game.Systems.Session session)
     {
         var grid = FrameHost.SeatGrid;
-        if (!FrameHost.Seated || grid == null || MapView.Visible) return;
+        if (!FrameHost.Seated || grid == null) return;
         Resolve();
+        // (the aero mod's structure: the seated grid evaluated at the full rate - once a second, map open or not)
+        double nowF = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+        if (_focus != null && nowF - _focusAt > 1.0) { _focusAt = nowF; _focus.Invoke(null, new object[] { grid }); }
+        if (MapView.Visible) return;
         if (_flight == null || _design == null) return;
-        var fa = new object[] { grid, null, null, null, null, null };
-        if (!(bool)_flight.Invoke(null, fa)) return;
-        var travel = (Vector3)fa[1]; float airspeed = (float)fa[2], mach = (float)fa[3], density = (float)fa[4];
+        Vector3 travel; float airspeed, mach, density;
+        if (_flightFn != null) { if (!_flightFn(grid, out travel, out airspeed, out mach, out density, out _)) return; }
+        else
+        {
+            var fa = new object[] { grid, null, null, null, null, null };
+            if (!(bool)_flight.Invoke(null, fa)) return;
+            travel = (Vector3)fa[1]; airspeed = (float)fa[2]; mach = (float)fa[3]; density = (float)fa[4];
+        }
         if (airspeed < FlightMinSpeed || density < FlightMinDensity || travel.LengthSquared() < 0.5f) return;
         double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
         if (now - _flAt > FlightEvery || !ReferenceEquals(grid, _flGrid))
@@ -421,9 +478,32 @@ public static class BuildHints
             }
             else { _flState = -9; _flMargin = null; }
             _flLabel = $"M{mach:0.00}";
+            // the stall warning (aero: StallWarning - the whole ship's best lift within reach)
+            _flStall = 0;
+            if (_stall != null) { var sa = new object[] { grid, null, null, null, null }; if ((bool)_stall.Invoke(null, sa)) _flStall = (int)sa[1]; }
+            // loss of attitude control (aero: Loac)
+            _flLoac = 0;
+            if (_loac != null) { var la = new object[] { grid, null, null }; if ((bool)_loac.Invoke(null, la)) _flLoac = (int)la[1]; }
+            // the structure and the hull's heat (aero: StructureServer)
+            _flStruct = null;
+            if (_structure != null)
+            {
+                var so = new object[] { grid, null, null, null };
+                if ((bool)_structure.Invoke(null, so)) { _flUtil = (float)so[1]; _flSkin = (float)so[2]; _flHeat = (float)so[3]; _flStruct = $"{100f * _flUtil:0}%"; _flSkinText = $"{_flSkin:0} K"; }
+            }
         }
         if (!FrameMarkers.BeginHud(session)) return;
-        try { DrawBoxes(Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f), false, null, default, null, _flLabel, _flState, _flMargin, _flLd); }
+        var warn = HudPanel.Warn; var whiteC = new ColorSRGB(1f, 1f, 1f, 1f); var red = new ColorSRGB(1f, 0.25f, 0.2f, 1f);
+        try
+        {
+            if (_flStruct != null)
+                DrawBoxes(MapPipeline.UiScale(MapPipeline.ScreenSize.Y), true, _flStruct, _flUtil >= 1f ? red : _flUtil >= 0.8f ? warn : whiteC, _flSkinText, _flLabel, _flState, _flMargin, _flLd,
+                    "wing", "STRUCT", "thrust", "HEAT", _flHeat >= 1f ? red : _flHeat > 0f ? warn : whiteC);
+            else DrawBoxes(MapPipeline.UiScale(MapPipeline.ScreenSize.Y), false, null, default, null, _flLabel, _flState, _flMargin, _flLd);
+            if (_flStall > 0) DrawStall(MapPipeline.UiScale(MapPipeline.ScreenSize.Y), _flStall == 2);
+            if (_flLoac == 2) DrawWarning(MapPipeline.UiScale(MapPipeline.ScreenSize.Y), "LOSS OF CONTROL", 0.36f, 0.8f, new ColorSRGB(1f, 0.15f, 0.1f, 1f));
+            else if (_flLoac == 1) DrawWarning(MapPipeline.UiScale(MapPipeline.ScreenSize.Y), "CONTROL LIMIT", 0.36f, 0.6f, HudPanel.Warn);
+        }
         finally { MapPipeline.UiEnd(); }
     }
 

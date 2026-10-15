@@ -18,9 +18,20 @@ namespace OrbitalMod;
 /// </summary>
 public static class SpawnGuard
 {
-    public static string Status = "-";
+    /// <summary>For the harness. The tick's own line is made when read (2026-10-15: a new string every tick before); a failure's
+    /// text is kept as it was set.</summary>
+    public static string Status
+    {
+        get { var e = _statusText; return e ?? $"spawn guard: {_stBorder} border berth(s) closed to encounters, {_stOther} berth(s) nobody is in"; }
+        set => _statusText = value;
+    }
+    static volatile string _statusText = "-";
+    static int _stBorder, _stOther;
+    /// <summary>Tick's kept list of the zones' keys (a new one every tick before). Server thread only.</summary>
+    static readonly List<long> _zoneKeys = new List<long>();
 
     /// <summary>frame id -> (zone leaf id, the centre it was placed at).</summary>
+    private static readonly Dictionary<long, (Vector3D at, double r, bool border)> _want = new Dictionary<long, (Vector3D at, double r, bool border)>();
     private static readonly Dictionary<long, (int leaf, Vector3D at, double r, bool border)> _zones = new Dictionary<long, (int, Vector3D, double, bool)>();
     private static MethodInfo _add, _remove;
     private static ProceduralGeneratorSessionComponent _gen;
@@ -75,7 +86,7 @@ public static class SpawnGuard
             // What should be closed is read from the frames under FramesLock; the zones are placed and taken away after it (the
             // generator's calls: the tick held the client's HUD and map for them). Server thread only (Tick, and Refresh from a
             // split or a warm berth - those already hold the lock, so nothing changes there).
-            var want = new Dictionary<long, (Vector3D at, double r, bool border)>();
+            var want = _want; want.Clear();   // (server thread only: kept - a new one per tick before)
             lock (ServerFrames.FramesLock)
             {
                 var reg = SystemHost.Frames;
@@ -96,7 +107,8 @@ public static class SpawnGuard
                 foreach (var w in WarmBerths.FreeWarm()) want[-1000L - w.slot] = (w.at, ServerFrames.SlotRadius, false);
             }
 
-            foreach (var id in new List<long>(_zones.Keys))
+            var keys = _zoneKeys; keys.Clear(); keys.AddRange(_zones.Keys);
+            foreach (var id in keys)
             {
                 var z = _zones[id];
                 if (want.TryGetValue(id, out var w) && (w.at - z.at).Length() < 1000 && Math.Abs(w.r - z.r) < 1) continue;
@@ -113,7 +125,7 @@ public static class SpawnGuard
                 if (kv.Value.border) Log.Default?.Info($"[ORBIT-ENC] spawn guard: frame #{kv.Key} is on a planet's border: no encounters within {kv.Value.r / 1000:F0} km of its berth (zone {leaf}, dyn test {gen.AnyPreventionZoneContains(kv.Value.at)}, box test {gen.CanSpawnInArea(new BoundingBoxD(kv.Value.at - new Vector3D(100), kv.Value.at + new Vector3D(100)))})");
             }
             int border = 0; foreach (var z in _zones.Values) if (z.border) border++;
-            Status = $"spawn guard: {border} border berth(s) closed to encounters, {_zones.Count - border} berth(s) nobody is in";
+            _stBorder = border; _stOther = _zones.Count - border; _statusText = null;   // (the line: Status, when read)
         }
         catch (System.Exception e) { Status = "spawn guard failed: " + (e.InnerException ?? e).Message; }
     }

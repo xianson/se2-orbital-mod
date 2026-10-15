@@ -5,7 +5,7 @@ H="$(cd "$(dirname "$0")" && pwd)"; O="$H/orb.sh"; E="$H/eshot.sh"
 q() { timeout 30 "$O" "$@" | grep -a "=>" | tail -1 | sed 's/.*=>  //'; }
 LOG() { ls -t "$APPDATA/SpaceEngineers2/Temp/Logs/"SpaceEngineers2_*[0-9].log | grep -v "Render\|Mission\|Stats" | head -1; }
 powershell -NoProfile -Command "Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Stop-Process -Force"; sleep 4
-powershell -NoProfile -Command "Start-Process 'steam://rungameid/1133870'"; sleep 15
+. "$(dirname "$0")/launch.sh"; launch
 for i in $(seq 1 80); do L=$(LOG); grep -aq "beacon Root Entity\|Loading Failed" "$L" 2>/dev/null && break; sleep 3; done
 sleep 15; echo "log $(LOG)"
 q "shotui on" >/dev/null

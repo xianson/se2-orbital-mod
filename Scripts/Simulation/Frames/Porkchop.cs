@@ -83,7 +83,7 @@ public static class Porkchop
         var a0 = new Vector2(min.X + padL, min.Y + padT);
         var a1 = new Vector2(max.X - padR, max.Y - padB);
         string toName = SystemHost.DisplayName(to.Name);
-        MapPipeline.ScreenText(new Vector2(min.X + 10f * u, min.Y + 6f * u), $"Transfer windows to {toName}" + (to.Name != targetName ? $" (for {targetName})" : "") + "  ·  total delta-v", new ColorSRGB(1f, 1f, 1f, 1f), 0.7f);
+        MapPipeline.ScreenText(new Vector2(min.X + 10f * u, min.Y + 6f * u), $"Transfer windows to {toName}" + (to.Name != targetName ? $" (for {targetName})" : "") + "  ·  total delta-v", new ColorSRGB(1f, 1f, 1f, 1f), 0.7f * MapPipeline.MapText);
         float cw = (a1.X - a0.X) / Nx, ch = (a1.Y - a0.Y) / Ny;
         double lo = _best, hi = 4 * _best;
         int hi_i = -1, hi_j = -1;
@@ -97,19 +97,19 @@ public static class Porkchop
                 if (mouse.X >= cmin.X && mouse.X < cmax.X && mouse.Y >= cmin.Y && mouse.Y < cmax.Y) { hi_i = i; hi_j = j; }
             }
         // Axes.
-        MapPipeline.ScreenText(new Vector2(a0.X, a1.Y + 8f * u), "now", dim, 0.55f);
-        MapPipeline.ScreenText(new Vector2(a1.X - 70f * u, a1.Y + 8f * u), "+" + Maneuvers.Clock(_span), dim, 0.55f);
-        MapPipeline.ScreenText(new Vector2(0.5f * (a0.X + a1.X) - 30f * u, a1.Y + 8f * u), "leave  →", dim, 0.55f);
-        MapPipeline.ScreenText(new Vector2(min.X + 6f * u, a1.Y - 14f * u), Maneuvers.Clock(_tof0), dim, 0.5f);
-        MapPipeline.ScreenText(new Vector2(min.X + 6f * u, a0.Y), Maneuvers.Clock(_tof1), dim, 0.5f);
-        MapPipeline.ScreenText(new Vector2(min.X + 6f * u, 0.5f * (a0.Y + a1.Y) - 8f * u), "flight ↑", dim, 0.5f);
+        MapPipeline.ScreenText(new Vector2(a0.X, a1.Y + 8f * u), "now", dim, 0.55f * MapPipeline.MapText);
+        MapPipeline.ScreenText(new Vector2(a1.X - 70f * u, a1.Y + 8f * u), "+" + Maneuvers.Clock(_span), dim, 0.55f * MapPipeline.MapText);
+        MapPipeline.ScreenText(new Vector2(0.5f * (a0.X + a1.X) - 30f * u, a1.Y + 8f * u), "leave  →", dim, 0.55f * MapPipeline.MapText);
+        MapPipeline.ScreenText(new Vector2(min.X + 6f * u, a1.Y - 14f * u), Maneuvers.Clock(_tof0), dim, 0.5f * MapPipeline.MapText);
+        MapPipeline.ScreenText(new Vector2(min.X + 6f * u, a0.Y), Maneuvers.Clock(_tof1), dim, 0.5f * MapPipeline.MapText);
+        MapPipeline.ScreenText(new Vector2(min.X + 6f * u, 0.5f * (a0.Y + a1.Y) - 8f * u), "flight ↑", dim, 0.5f * MapPipeline.MapText);
         Vector2 At(double dep, double tof) => new Vector2(a0.X + (float)((dep - _t0) / _span) * (a1.X - a0.X), a1.Y - (float)((tof - _tof0) / (_tof1 - _tof0)) * (a1.Y - a0.Y));
         // The cheapest (circled), your plan (a cross), the cell under the mouse.
         string Cell(int i, int j) => $"{_dv[i, j] / 1000:F2} km/s  ·  leave in {Maneuvers.Clock(Dep(i))}  ·  {Maneuvers.Clock(Tof(j))} flight";
         var white = new ColorSRGB(1f, 1f, 1f, 1f);
         if (_bi >= 0) MapPipeline.ScreenCircle(new Vector2(a0.X + (_bi + 0.5f) * cw, a1.Y - (_bj + 0.5f) * ch), 6f * u, white, 1.8f * u);
         float ly = max.Y + 6f * u;
-        if (_bi >= 0) { MapPipeline.ScreenText(new Vector2(min.X + 8f * u, ly), "Cheapest   " + Cell(_bi, _bj), new ColorSRGB(0.6f, 1f, 0.6f, 1f), 0.62f); ly += 22f * u; }
+        if (_bi >= 0) { MapPipeline.ScreenText(new Vector2(min.X + 8f * u, ly), "Cheapest   " + Cell(_bi, _bj), new ColorSRGB(0.6f, 1f, 0.6f, 1f), 0.62f * MapPipeline.MapText); ly += 22f * u; }
         var planCol = new ColorSRGB(0.45f, 0.85f, 1f, 1f);
         if (!double.IsNaN(planDep) && !double.IsNaN(planArr))
         {
@@ -125,12 +125,12 @@ public static class Porkchop
                 MapPipeline.ScreenLine(ps - new Vector2(r, 0), ps + new Vector2(r, 0), planCol, 2.6f * u);
                 MapPipeline.ScreenLine(ps - new Vector2(0, r), ps + new Vector2(0, r), planCol, 2.6f * u);
             }
-            MapPipeline.ScreenText(new Vector2(min.X + 8f * u, ly), $"Your plan  {planDv / 1000:F2} km/s so far  ·  leaves in {Maneuvers.Clock(Math.Max(0, planDep - t))}  ·  {toName} Entry after {Maneuvers.Clock(tof)}" + (planNote != null ? "  ·  " + planNote : "") + (inside ? "" : "  (off the chart)"), planCol, 0.62f);
+            MapPipeline.ScreenText(new Vector2(min.X + 8f * u, ly), $"Your plan  {planDv / 1000:F2} km/s so far  ·  leaves in {Maneuvers.Clock(Math.Max(0, planDep - t))}  ·  {toName} Entry after {Maneuvers.Clock(tof)}" + (planNote != null ? "  ·  " + planNote : "") + (inside ? "" : "  (off the chart)"), planCol, 0.62f * MapPipeline.MapText);
         }
-        else MapPipeline.ScreenText(new Vector2(min.X + 8f * u, ly), planNote ?? $"Your plan: no {toName} Entry yet", planCol, 0.62f);
+        else MapPipeline.ScreenText(new Vector2(min.X + 8f * u, ly), planNote ?? $"Your plan: no {toName} Entry yet", planCol, 0.62f * MapPipeline.MapText);
         ly += 22f * u;
         if (hi_i >= 0 && _dv[hi_i, hi_j] < double.PositiveInfinity)
-            MapPipeline.ScreenText(new Vector2(min.X + 8f * u, ly), "Here   " + Cell(hi_i, hi_j), dim, 0.62f);
+            MapPipeline.ScreenText(new Vector2(min.X + 8f * u, ly), "Here   " + Cell(hi_i, hi_j), dim, 0.62f * MapPipeline.MapText);
         Status = _next < Nx * Ny ? $"porkchop {_next * 100 / (Nx * Ny)}%" : $"porkchop best {_best:F0} m/s";
     }
 

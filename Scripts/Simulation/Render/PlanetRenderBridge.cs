@@ -88,6 +88,13 @@ public static class PlanetRenderBridge
         public Vector3D AtmoAt;
         public double AtmoK, AtmoMadeAt;
         public int AtmoGen;
+        /// <summary>The successor staged a frame ahead (UpdateAtmosphere's two-stage handover): where, at what scale, in
+        /// which client frame, for which generation.</summary>
+        public object AtmoNext; public Vector3D AtmoNextAt; public double AtmoNextK, AtmoNextWall; public long AtmoNextFrame; public int AtmoNextGen;
+        /// <summary>Those being retired (stripped of their air at stage 2, disposed at stage 3): env, at which update, when.</summary>
+        public readonly List<(object env, long upd, double wall)> AtmoRetiring = new List<(object env, long upd, double wall)>();
+        /// <summary>Its atmosphere's updates (UpdateAtmosphere: once a frame while it is shown) - the handover's frame count.</summary>
+        public long AtmoUpdates;
         /// <summary>The hi-res globe it draws (<see cref="PlanetMesh"/>), else the map model; the model's radius; for which PlanetMesh.Generation.</summary>
         public PlanetMesh.Built Mesh;
         public double ModelRadius = 1.0;
@@ -424,6 +431,18 @@ public static class PlanetRenderBridge
         catch (Exception e) { WarnOnce("proxy-create", $"proxy create failed for {h.Name}: {Inner(e)}"); return null; }
     }
 
+    // (UpdateProxy runs for every proxy every frame - the star's, the planets', the map's globes: its argument array and the
+    //  transform's box are kept per thread and the box's value written in place (Invoke copies it out for the call and keeps
+    //  nothing); a new array and box each call before, 2026-10-14)
+    [ThreadStatic] static object[] _xfArgs;
+    static object[] TransformArgs(WorldTransform xf)
+    {
+        var a = _xfArgs ??= new object[1];
+        if (a[0] is WorldTransform) System.Runtime.CompilerServices.Unsafe.Unbox<WorldTransform>(a[0]) = xf;
+        else a[0] = xf;
+        return a;
+    }
+
     public static void UpdateProxy(PlanetHandles h, Proxy p, Vector3D center, double radius, Quaternion? orient = null)
     {
         if (p == null) return;
@@ -432,7 +451,7 @@ public static class PlanetRenderBridge
         {
             _rootUpdateTransform ??= p.Root.GetType().GetMethod("UpdateTransform");
             // (turned as the planet is in the viewer's axes: its surface's axes through its spin, into the observer's window)
-            _rootUpdateTransform?.Invoke(p.Root, new object[] { orient.HasValue ? new WorldTransform(center, orient.Value) : new WorldTransform(center) });
+            _rootUpdateTransform?.Invoke(p.Root, TransformArgs(orient.HasValue ? new WorldTransform(center, orient.Value) : new WorldTransform(center)));
 
             if (p.MeshGeneration != PlanetMesh.Generation) SwapProxyModel(h, p);
             float scale = (float)(radius / p.ModelRadius);
@@ -445,6 +464,7 @@ public static class PlanetRenderBridge
             }
             // World proxies only: on the map the globes' atmospheres hid Delfos's star model.
             if (ProxyAtmospheres && p.Visible && !p.MapOnly) UpdateAtmosphere(h, p, center, radius);
+            else if (!ProxyAtmospheres && (p.Atmo != null || p.AtmoNext != null || p.AtmoRetiring.Count > 0)) DisposeAtmosphere(p);   // (switched off: none left behind)
         }
         catch (Exception e) { WarnOnce("proxy-update", $"proxy update failed for {h.Name}: {Inner(e)}"); }
     }
@@ -501,6 +521,29 @@ public static class PlanetRenderBridge
 
     /// <summary>A change of AtmoOnHills: the atmospheres made again.</summary>
     public static void ResetAtmospheres() { _atmoGen++; }
+    /// <summary>The camera this frame (FrameHost.Tick). (SetParent on a planet environment entity crashed the render thread,
+    /// 2026-10-13 - KeyNotFoundException ChildComponent in SceneManager.IChildEntity_SetParent: not used; see the reflection doc.)</summary>
+    public static Vector3D CameraPos;
+    public static int AtmoRemakes;
+    /// <summary>(diagnostics, harness aeroget OrbitalMod.PlanetRenderBridge.AtmoWhy: per proxy, the remakes started in the
+    /// last second and the last reason)</summary>
+    public static string AtmoWhy = "-";
+    static readonly Dictionary<string, (int n, string why)> _atmoWhy = new();
+    static double _atmoWhyAt;
+    static void AtmoDiag(string name, string why)
+    {
+        double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+        lock (_atmoWhy)
+        {
+            if (now - _atmoWhyAt > 1.0)
+            {
+                AtmoWhy = string.Join(" | ", _atmoWhy.Select(kv => $"{kv.Key}: {kv.Value.n}/s, {kv.Value.why}"));
+                _atmoWhy.Clear(); _atmoWhyAt = now;
+            }
+            _atmoWhy.TryGetValue(name ?? "?", out var c);
+            _atmoWhy[name ?? "?"] = (c.n + 1, why);
+        }
+    }
     static int _atmoGen;
     private static MethodInfo _createEnv;
 
@@ -518,42 +561,65 @@ public static class PlanetRenderBridge
         double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
         try
         {
-            // Remade as soon as the proxy has moved visibly (a throttle made it trail the globe in warp).
-            bool moved = p.Atmo != null && ((center - p.AtmoAt).Length() > radius * 0.002 || p.AtmoGen != _atmoGen);
+            p.AtmoUpdates++;
+            // the handover's later stages: the retired ones given back when due (alongside whatever else happens - a new
+            // handover may start meanwhile, so the atmosphere never waits on a retirement to follow its globe), and a staged
+            // successor promoted a frame and AtmoStageSeconds after it was made
+            if (p.AtmoRetiring.Count > 0) RetireAtmospheres(p, now);
+            if (p.AtmoNext != null) { PromoteAtmosphere(h, p, now); return; }
+            // Remade as soon as the proxy has moved VISIBLY from where its atmosphere was made: 0.2% of its radius, or
+            // AtmoMovePixels on screen at the camera's distance, whichever is more (a throttle in time made it trail the globe
+            // in warp; the radius alone remade a far globe - Kemik 2000 km off, swept by the planet's spin - 15 times a
+            // second for shifts of 1/40 px, 2026-10-14)
+            double camDist = (center - CameraPos).Length();
+            double pxRad = 2.0 * Math.Tan(AtmoFovDeg * Math.PI / 360.0) / Math.Max(480.0, MapPipeline.ScreenSize.Y);   // (rad per pixel)
+            double tol = Math.Max(radius * 0.002, camDist * pxRad * AtmoMovePixels);
+            bool moved = p.Atmo != null && ((center - p.AtmoAt).Length() > tol || p.AtmoGen != _atmoGen);
             if (p.Atmo == null || moved)
             {
-                DisposeAtmosphere(p);
+                AtmoDiag(h.Name, p.Atmo == null ? "none" : p.AtmoGen != _atmoGen ? "generation" : $"moved {(center - p.AtmoAt).Length():F0} m of r {radius:F0} m (k {k:F3})");
+                // STAGE 1: the successor made where the globe is now, with NO atmosphere and its spherize radius a hair smaller
+                // than the current's - it joins the renderer's planet list (at the end) and, sorted, lands right behind the
+                // current one: this frame draws exactly as the last. WHY in two stages (2026-10-13, the user: the sky flickering
+                // close to a planet in orbit; the cause found in the renderer by two independent reviews):
+                // SettingsGroup.CreateFrameSettings takes the skybox brightness from PlanetEnvironmentManager.SortedPlanets[0]
+                // BEFORE PlanetEnvironmentGroup sorts that list for the frame; AddPlanet appends and RemovePlanet removes, so a
+                // remake in one frame (dispose + create) left another planet's environment first for that frame - the sky
+                // undimmed (multiplier 1 against ~0.24 at 13 km) for a frame, 6-8 times a second where the proxy drifts fast.
+                // (Since 2026-10-11 the proxy carries the planet's skybox spherization: before, the multiplier was 1 anyway.)
                 if (_createEnv == null)
                     foreach (var m in _contracts.GetType().GetMethods())
                         if (m.Name == "CreatePlanetEnvironmentEntity" && m.GetParameters().Length == 12) _createEnv = m;
-                if (_createEnv == null) { ProxyAtmospheres = false; WarnOnce("proxy-atmo", "no CreatePlanetEnvironmentEntity: proxy atmospheres off"); return; }
+                if (_createEnv == null) { DisposeAtmosphere(p); ProxyAtmospheres = false; WarnOnce("proxy-atmo", "no CreatePlanetEnvironmentEntity: proxy atmospheres off"); return; }
                 var ps = _createEnv.GetParameters();
                 float F(object o) => (float)(Convert.ToDouble(o) * k);
-                p.Atmo = _createEnv.Invoke(_contracts, new object[]
+                p.AtmoNext = _createEnv.Invoke(_contracts, new object[]
                 {
-                    "OrbitalProxyAtmosphere_" + h.Name, h.EnvShowArgs[0], F(h.EnvShowArgs[1]), F(h.EnvShowArgs[2]),
+                    "OrbitalProxyAtmosphere_" + h.Name,
+                    null,                                         // no atmosphere yet (stage 2 gives it)
+                    F(h.EnvShowArgs[1]), F(h.EnvShowArgs[2]),
                     null,                                         // no clouds
                     // the planet's spherization, its distances scaled as the proxy is (AtmoSpherize: the atmosphere pulled
                     // down to the ground at a distance as the real one is; off: none - the proxy is already a sphere)
                     AtmoSpherize ? Sphere(h.EnvShowArgs[4], k, Plain(ps[5])) : Activator.CreateInstance(Plain(ps[5])),
                     AtmoSpherize ? Sphere(h.AtmoSphere, k, Plain(ps[6])) : Activator.CreateInstance(Plain(ps[6])),
                     AtmoSpherize ? Sphere(h.SkySphere, k, Plain(ps[7])) : Activator.CreateInstance(Plain(ps[7])),
-                    F(h.EnvShowArgs[5]), center, null,
+                    F(h.EnvShowArgs[5]) * AtmoStageShrink, center, null,
                     Array.CreateInstance(Plain(ps[11]).GetElementType(), 0),
                 });
-                p.AtmoAt = center; p.AtmoK = k; p.AtmoMadeAt = now; p.AtmoGen = _atmoGen;
-            }
-            else if (Math.Abs(k - p.AtmoK) > p.AtmoK * 0.01)
-            {
-                var set = p.Atmo.GetType().GetMethod("SetParameters");
-                var sp = set?.GetParameters();
-                if (set != null && sp.Length == 7)
+                p.AtmoNextAt = center; p.AtmoNextK = k; p.AtmoNextFrame = p.AtmoUpdates; p.AtmoNextWall = now; p.AtmoNextGen = _atmoGen;
+                if (!AtmoStaged)
                 {
-                    float F(object o) => (float)(Convert.ToDouble(o) * k);
-                    set.Invoke(p.Atmo, new object[] { h.EnvShowArgs[0], F(h.EnvShowArgs[1]), F(h.EnvShowArgs[2]), null, AtmoSpherize ? Sphere(h.EnvShowArgs[4], k, Plain(sp[4])) : Activator.CreateInstance(Plain(sp[4])), F(h.EnvShowArgs[5]), null });
-                    p.AtmoK = k;
+                    // (A/B: the old one-frame swap - made, given its atmosphere, the old disposed, all in this frame)
+                    SetEnvParameters(h, p.AtmoNext, k, 1f, true);
+                    DisposeEnv(p.Atmo);
+                    p.Atmo = p.AtmoNext; p.AtmoNext = null;
+                    p.AtmoAt = center; p.AtmoK = k; p.AtmoMadeAt = now; p.AtmoGen = _atmoGen;
+                    AtmoRemakes++;
                 }
+                return;
             }
+            if (Math.Abs(k - p.AtmoK) > p.AtmoK * 0.01) { SetEnvParameters(h, p.Atmo, k, 1f, true); p.AtmoK = k; }
         }
         catch (Exception e)
         {
@@ -563,11 +629,69 @@ public static class PlanetRenderBridge
         }
     }
 
+    /// <summary>A proxy atmosphere's parameters at scale k (PlanetEnvironmentEntity.SetParameters, 7 parameters): the planet's
+    /// atmosphere, radii and spherization scaled as its globe; the spherize radius x shrink.</summary>
+    static void SetEnvParameters(PlanetHandles h, object env, double k, float shrink, bool air)
+    {
+        _setEnv ??= env.GetType().GetMethod("SetParameters");
+        var sp = _setEnv?.GetParameters();
+        if (_setEnv == null || sp.Length != 7) throw new InvalidOperationException("PlanetEnvironmentEntity.SetParameters(7) not found");
+        float F(object o) => (float)(Convert.ToDouble(o) * k);
+        _setEnv.Invoke(env, new object[] { air ? h.EnvShowArgs[0] : null, F(h.EnvShowArgs[1]), F(h.EnvShowArgs[2]), null,
+            AtmoSpherize ? Sphere(h.EnvShowArgs[4], k, Plain(sp[4])) : Activator.CreateInstance(Plain(sp[4])), F(h.EnvShowArgs[5]) * shrink, null });
+    }
+    static MethodInfo _setEnv;
+
+    /// <summary>STAGE 2: the successor given its real atmosphere at its real spherize radius, and the current one stripped of
+    /// its air but kept (its spherize radius and skybox spherization unchanged - SetParameters touches neither the skybox
+    /// spherization nor the position): whichever of the two the renderer's stale list has first when it takes the sky's
+    /// brightness, the brightness is that of an environment where the globe is. Stage 3 waits AtmoRetireSeconds, so only a
+    /// renderer that far behind (replaying all three stages before one sort) could still put another planet first.</summary>
+    static void PromoteAtmosphere(PlanetHandles h, Proxy p, double now)
+    {
+        if (p.AtmoUpdates <= p.AtmoNextFrame || now - p.AtmoNextWall < AtmoStageSeconds) return;
+        SetEnvParameters(h, p.AtmoNext, p.AtmoNextK, 1f, true);
+        if (p.Atmo != null) { SetEnvParameters(h, p.Atmo, p.AtmoK, 1f, false); p.AtmoRetiring.Add((p.Atmo, p.AtmoUpdates, now)); }
+        p.Atmo = p.AtmoNext; p.AtmoNext = null;
+        p.AtmoAt = p.AtmoNextAt; p.AtmoK = p.AtmoNextK; p.AtmoMadeAt = now; p.AtmoGen = p.AtmoNextGen;
+        AtmoRemakes++;
+    }
+
+    /// <summary>STAGE 3: the stripped old ones given back, each a frame and AtmoRetireSeconds after its stage 2.</summary>
+    static void RetireAtmospheres(Proxy p, double now)
+    {
+        for (int i = p.AtmoRetiring.Count - 1; i >= 0; i--)
+        {
+            var r = p.AtmoRetiring[i];
+            if (p.AtmoUpdates <= r.upd || now - r.wall < AtmoRetireSeconds) continue;
+            DisposeEnv(r.env); p.AtmoRetiring.RemoveAt(i);
+        }
+    }
+    /// <summary>The least wall time from stage 1 to stage 2 (more than a frame the renderer could be behind by: it replays
+    /// queued game frames back to back with no sort between), and from stage 2 to stage 3.</summary>
+    public static double AtmoStageSeconds = 0.05, AtmoRetireSeconds = 0.25;
+    /// <summary>A proxy atmosphere's offset from its globe is remade past this many pixels at the camera's distance (with
+    /// AtmoFovDeg, the vertical field of view assumed) - or 0.2% of the radius, whichever is more.</summary>
+    public static double AtmoMovePixels = 0.5, AtmoFovDeg = 70;
+    /// <summary>The staged handover (off: the old one-frame swap, for A/B - it flashes the sky near a planet).</summary>
+    public static bool AtmoStaged = true;
+    /// <summary>The staged successor's spherize radius against the current's: just behind it in the renderer's sort (distance
+    /// minus spherize radius) - more than a remake's drift (0.2% of the radius), small enough to change nothing seen.</summary>
+    public static float AtmoStageShrink = 0.99f;
+
+    static void DisposeEnv(object env)
+    {
+        if (env == null) return;
+        try { env.GetType().GetMethod("Dispose", Type.EmptyTypes)?.Invoke(env, null); } catch { }
+    }
+
     static void DisposeAtmosphere(Proxy p)
     {
-        if (p?.Atmo == null) return;
-        try { p.Atmo.GetType().GetMethod("Dispose", Type.EmptyTypes)?.Invoke(p.Atmo, null); } catch { }
-        p.Atmo = null;
+        if (p == null) return;
+        DisposeEnv(p.Atmo); p.Atmo = null;
+        DisposeEnv(p.AtmoNext); p.AtmoNext = null;
+        foreach (var r in p.AtmoRetiring) DisposeEnv(r.env);
+        p.AtmoRetiring.Clear();
     }
 
     public static void SetProxyVisible(Proxy p, bool visible)
@@ -1205,12 +1329,15 @@ public static class PlanetRenderBridge
     // walked the type chain with GetProperty/GetField each time.
     sealed class MemberSlot { public PropertyInfo P; public FieldInfo F; }
     static readonly Dictionary<(Type, string), MemberSlot> _members = new Dictionary<(Type, string), MemberSlot>();
+    // (reads and writes in their own tables: the write key was "=" + name, a new string on every SetMember - ~35 a map frame)
+    static readonly Dictionary<(Type, string), MemberSlot> _writeMembers = new Dictionary<(Type, string), MemberSlot>();
     static MemberSlot Slot(Type type, string name, bool forWrite)
     {
-        var key = (type, forWrite ? "=" + name : name);
+        var key = (type, name);
+        var table = forWrite ? _writeMembers : _members;
         lock (_members)
         {
-            if (_members.TryGetValue(key, out var slot)) return slot;
+            if (table.TryGetValue(key, out var slot)) return slot;
             slot = new MemberSlot();
             for (Type t = type; t != null && slot.P == null && slot.F == null; t = t.BaseType)
             {
@@ -1229,7 +1356,7 @@ public static class PlanetRenderBridge
                     if (f != null) slot.F = f;
                 }
             }
-            _members[key] = slot;
+            table[key] = slot;
             return slot;
         }
     }

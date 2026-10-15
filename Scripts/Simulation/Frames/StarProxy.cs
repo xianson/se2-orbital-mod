@@ -43,8 +43,17 @@ public static class StarProxy
         }
         PlanetRenderBridge.UpdateProxy(_h, _proxy, pp.RenderPos, pp.RenderRadius);
         PlanetRenderBridge.SetProxyVisible(_proxy, true);
-        Status = $"shown {pp.TrueDistance / 1000:F0} km, {2 * System.Math.Atan(SystemHost.StarRadius / System.Math.Max(1, pp.TrueDistance)) * 180 / System.Math.PI:F1} deg";
+        // (the line made again only when what it prints changes - whole km, tenths of a degree - or another status replaced
+        //  it: a new string every frame before, this system's garbage with UpdateProxy's arguments, 2026-10-14)
+        double km = pp.TrueDistance / 1000, deg = 2 * System.Math.Atan(SystemHost.StarRadius / System.Math.Max(1, pp.TrueDistance)) * 180 / System.Math.PI;
+        long kKm = (long)System.Math.Round(km), kDeg = (long)System.Math.Round(deg * 10);
+        if (!ReferenceEquals(Status, _shown) || kKm != _shownKm || kDeg != _shownDeg)
+        {
+            _shown = $"shown {km:F0} km, {deg:F1} deg"; _shownKm = kKm; _shownDeg = kDeg;
+        }
+        Status = _shown;
     }
+    static string _shown; static long _shownKm, _shownDeg;
 
     static void Hide(string why)
     {

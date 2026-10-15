@@ -18,7 +18,7 @@ asked() { echo "$1" | grep -o "[0-9.eE+-]*/s in all\|charged, [0-9.eE+-]*/s" | h
 fill() { q "stores" | tr '[' '\n' | grep -a "^$1:" | grep -o " [0-9.eE+-]*/" | tr -d ' /' | awk '{s+=$1} END {printf "%.6f", s}'; }
 
 powershell -NoProfile -Command "Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Stop-Process -Force"; sleep 4
-powershell -NoProfile -Command "Start-Process 'steam://rungameid/1133870'"; sleep 15
+. "$(dirname "$0")/launch.sh"; launch
 for i in $(seq 1 80); do L=$(LOG); grep -aq "beacon Root Entity\|Loading Failed" "$L" 2>/dev/null && break; sleep 3; done
 sleep 15; echo "log $(LOG)"
 grep -a "+StationKeepCharge" "$(LOG)" | head -2 | cut -c60-200

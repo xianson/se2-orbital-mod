@@ -9,7 +9,7 @@ seated() { q "exitcheck $1" | grep -q "seated True"; }
 shots() { for i in 1 2 3; do s=$(q "shot" | grep -o "[A-Z]:[^ ]*png" | tr "\\\\" "/"); for k in 1 2 3 4 5 6; do sleep 0.5; cp "$s" "$TEMP/tw_$1_$i.png" 2>/dev/null && break; done; sleep 0.7; done; }
 if [ "$NOLAUNCH" != 1 ]; then
 powershell -NoProfile -Command "Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Stop-Process -Force"; sleep 2
-powershell -NoProfile -Command "Start-Process 'steam://rungameid/1133870'"
+. "$(dirname "$0")/launch.sh"; launch
 until_ 300 "grep -aq 'beacon Root Entity\|Loading Failed' \"\$(LOG)\" 2>/dev/null"; until_ 60 "q 'findgrids' | grep -q '='"
 echo "loaded in $(( $(date +%s) - T0 )) s"
 fi

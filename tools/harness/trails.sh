@@ -22,7 +22,7 @@ judge() {   # judge <name> <report>
 }
 
 powershell -NoProfile -Command "Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Stop-Process -Force"; sleep 2
-powershell -NoProfile -Command "Start-Process 'steam://rungameid/1133870'"
+. "$(dirname "$0")/launch.sh"; launch
 until_ 300 "grep -aq 'beacon Root Entity\|Loading Failed' \"\$(LOG)\" 2>/dev/null"; until_ 60 "q 'findgrids' | grep -q '='"
 echo "loaded in $(( $(date +%s) - T0 )) s: $(LOG)"
 G=$(q "findgrids"); ship=$(echo "$G" | tr ' ' '\n' | grep -i "=MC-82_FireFly\$\|FireFly" | head -1 | cut -d= -f1)

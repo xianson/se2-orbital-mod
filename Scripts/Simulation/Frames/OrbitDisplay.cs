@@ -137,6 +137,7 @@ public static class OrbitDisplay
         // was noisy: a third-person camera moves on its own). Seated / HighSpeed: the smoothed estimate.
         var sv = _hasFrozen ? _frozen
                : FrameHost.FootState(out Vector3D fp, out Vector3D fv) ? new StateVector(fp - center, fv)
+               : FrameHost.SeatState(out Vector3D sp, out Vector3D svv) ? new StateVector(sp - center, svv)   // (seated: the ship's own, not the camera's)
                : new StateVector(camera.Position - center, _velocity);
         if (_hasFrozen) mu = _frozenMu;
         string fit = law.IsInverseSquare ? "exact (1/r²)" : $"local fit (falloff {law.Falloff:F1})";

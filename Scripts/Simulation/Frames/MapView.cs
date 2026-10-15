@@ -143,10 +143,15 @@ public static class MapView
         if ((ours != (_backdropHold != null) || (ours && _noticeHold == null)) && nowTicks - _backdropTry > System.Diagnostics.Stopwatch.Frequency && _uiPost != null)
         {
             _backdropTry = nowTicks;
-            var args = (object[])_uiPostDefaults.Clone();
-            args[0] = (Action)(() => Backdrop(ours));
-            try { _uiPost.Invoke(_uiDispatcher, args); } catch { }
+            PostBackdrop(ours);
         }
+    }
+    // (its own method: a lambda here captured 'ours', and the closure for it was made on every call of SectorlessScene)
+    static void PostBackdrop(bool ours)
+    {
+        var args = (object[])_uiPostDefaults.Clone();
+        args[0] = (Action)(() => Backdrop(ours));
+        try { _uiPost.Invoke(_uiDispatcher, args); } catch { }
     }
 
     static volatile bool _togglePending;
@@ -434,18 +439,29 @@ public static class MapView
     /// <summary>The client session (MapLayout reads the game's UI design scale through it).</summary>
     public static Keen.VRage.Core.Game.Systems.Session SessionForLayout;
 
+    // (the guarded parts read the session and the map from here, set just before: lambdas capturing them were a closure and
+    //  a delegate every frame - the closure made on entry, map open or not, 2026-10-14)
+    static Keen.VRage.Core.Game.Systems.Session _gSession; static ColonizationMapSessionComponent _gMap;
+    static readonly Action _sectorless = () => SectorlessScene(_gSession, _gMap);
+    static readonly Action _mapCamera = () =>
+    {
+        var map = _gMap; var session = _gSession;
+        bool hm = GameMap.TryMouse(map, out var mm); MapCamera.Tick(session, map, hm, mm); if (hm) DebugPanel.Tick(session, mm);
+    };
+
     public static void Tick(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera, double t)
     {
         SessionForLayout = session;
         var map = Map(session);
-        FrameHost.Guard("MapView.Sectorless", () => SectorlessScene(session, map));
+        _gSession = session; _gMap = map;
+        FrameHost.Guard("MapView.Sectorless", _sectorless);
         Visible = map != null && map.IsVisible;
         if (map == null || !map.IsVisible || !SystemHost.Built) { RendezvousView.Reset(); ContactsTab.Reset(); MapCamera.Release(session); CleanMap.ResetView(); if (map != null) GameMap.RestoreGame(map); MapGlobes.HideAll(); Clear(); Status = map == null ? "no map component" : "map closed"; return; }
         SectorsSessionComponent sectors = null;
         try { sectors = session.SessionComponents.TryGet<SectorsSessionComponent>(); } catch { }
         if (sectors == null) { Status = "no sectors component"; return; }   // (a sectorless world still has the component: its list is empty)
 
-        FrameHost.Guard("MapCamera", () => { bool hm = GameMap.TryMouse(map, out var mm); MapCamera.Tick(session, map, hm, mm); if (hm) DebugPanel.Tick(session, mm); });
+        FrameHost.Guard("MapCamera", _mapCamera);
 
         _builder ??= CreateBuilder(session);
         if (_builder == null) { Status = "no mesh builder"; return; }

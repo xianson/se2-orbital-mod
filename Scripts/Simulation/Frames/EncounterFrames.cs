@@ -105,13 +105,27 @@ public static class EncounterFrames
 
     // ── NPC / encounter classification (server grids), re-checked every few seconds ──
     private static readonly Dictionary<long, (bool npc, bool enc, double at)> _kind = new Dictionary<long, (bool, bool, double)>();
-    internal static void ForgetKind(long gridId) { lock (_kind) _kind.Remove(gridId); }
+    internal static void ForgetKind(long gridId) { lock (_kind) { _kind.Remove(gridId); _kindEpoch++; } }
+
+    // THE KIND ON THE GRID (2026-10-15, a profile: Kind was 5.7 ms/s of the server tick - a lock and a lookup, asked per member
+    // per pair of the merge screen, per grid in every loop). A grid component keeps a copy of its id's entry in _kind (the
+    // entry's own time, not when copied) and answers from it while that entry would answer: under 5 s old, the same id, and no
+    // entry forgotten since (ForgetKind bumps _kindEpoch - every copy is then asked of _kind again). An entry is only replaced
+    // once it is 5 s old or forgotten, so a copy never answers what _kind would not.
+    internal sealed class KindMemo { public long Id; public bool Npc, Enc; public double At; public int Epoch; }
+    static int _kindEpoch;
 
     private static (bool npc, bool enc) Kind(OrbitalGridComponent g)
     {
         double now = Wall();
+        var m = System.Threading.Volatile.Read(ref g.KindMemo);
+        if (m != null && m.Id == g.Id && m.Epoch == System.Threading.Volatile.Read(ref _kindEpoch) && now - m.At < 5.0) return (m.Npc, m.Enc);
         lock (_kind)
-            if (_kind.TryGetValue(g.Id, out var k) && now - k.at < 5.0) return (k.npc, k.enc);
+            if (_kind.TryGetValue(g.Id, out var k) && now - k.at < 5.0)
+            {
+                System.Threading.Volatile.Write(ref g.KindMemo, new KindMemo { Id = g.Id, Npc = k.npc, Enc = k.enc, At = k.at, Epoch = _kindEpoch });
+                return (k.npc, k.enc);
+            }
         bool npc = false, enc = false;
         try
         {
@@ -130,7 +144,7 @@ public static class EncounterFrames
             }
         }
         catch { }
-        lock (_kind) _kind[g.Id] = (npc, enc, now);
+        lock (_kind) { _kind[g.Id] = (npc, enc, now); System.Threading.Volatile.Write(ref g.KindMemo, new KindMemo { Id = g.Id, Npc = npc, Enc = enc, At = now, Epoch = _kindEpoch }); }
         return (npc, enc);
     }
 
@@ -405,8 +419,27 @@ public static class EncounterFrames
         if (!SectorHomes.LagrangeOrbit(body, t, out var omega, out var w)) return false;
         double core = SectorHomes.LagrangeCore(s.Home, SystemHost.Registry);
         Vector3D omDot = SectorHomes.LagrangeTurnRate(body, t);
-        relAccel = (d, v) => SectorHomes.LagrangeAccel(d, v, omega, w, core, omDot);
+        // (one holder per frame and thread, its delegate made once and its values set each call: a new closure and delegate
+        //  per frame per tick were 0.17 MB/s - a profile, 2026-10-14. Callers use it within their tick)
+        var map = _lagAccel ??= new Dictionary<long, LagAccel>();
+        if (!map.TryGetValue(frameId, out var la)) { map[frameId] = la = new LagAccel(); if (map.Count > 64) Prune(map); }
+        la.Omega = omega; la.W = w; la.Core = core; la.OmDot = omDot;
+        relAccel = la.Fn;
         return true;
+    }
+    sealed class LagAccel
+    {
+        public Vector3D Omega, OmDot; public double W, Core;
+        public readonly Func<Vector3D, Vector3D, Vector3D> Fn;
+        public LagAccel() { Fn = (d, v) => SectorHomes.LagrangeAccel(d, v, Omega, W, Core, OmDot); }
+    }
+    [ThreadStatic] static Dictionary<long, LagAccel> _lagAccel;
+    static void Prune(Dictionary<long, LagAccel> map)
+    {
+        // (rare - over 64 frames seen on this thread; _sites is the server's: read racily from the client, so guarded)
+        var gone = new List<long>();
+        try { foreach (var k in map.Keys) if (!_sites.ContainsKey(k)) gone.Add(k); } catch { map.Clear(); return; }
+        foreach (var k in gone) map.Remove(k);
     }
 
     /// <summary>The home's co-moving axes at t: radial (from its centre), along-track, normal.</summary>
@@ -462,6 +495,12 @@ public static class EncounterFrames
         //  planner - it was lists, an iterator and a lambda per zone each time)
         IEnumerable<Site> snap = Sites;   // (as IEnumerable: a var of a mod type array is banned in game, VRS1001 - ModCheck misses it)
         var virt = VirtualLagrange();
+        // (the kept list without the lock - the server's rides and the client's planner both ask, per frame: the lock was
+        //  waited on, ~10 ms a second in a profile, 2026-10-14. The three are published together under the lock; a racing
+        //  read that sees a new key with an old list falls to the locked path)
+        var kept = System.Threading.Volatile.Read(ref _lagSites);
+        if (ReferenceEquals(snap, System.Threading.Volatile.Read(ref _lagFor)) && ReferenceEquals(virt, System.Threading.Volatile.Read(ref _lagVirtFor))
+            && ReferenceEquals(kept, System.Threading.Volatile.Read(ref _lagSites))) return kept;
         lock (_lagLock)
         {
             if (ReferenceEquals(snap, _lagFor) && ReferenceEquals(virt, _lagVirtFor)) return _lagSites;
@@ -476,7 +515,8 @@ public static class EncounterFrames
                 for (int i = 0; i < nReal && !dup; i++) dup = l[i].Home.Host == v.Home.Host && l[i].Home.Point == v.Home.Point;
                 if (!dup) l.Add(v);
             }
-            _lagSites = l; _lagFor = snap; _lagVirtFor = virt;
+            // (the list first, its keys after: a lock-free reader that matches both keys reads this list or a newer one)
+            System.Threading.Volatile.Write(ref _lagSites, l); System.Threading.Volatile.Write(ref _lagFor, snap); System.Threading.Volatile.Write(ref _lagVirtFor, virt);
             return l;
         }
     }
@@ -895,21 +935,27 @@ public static class EncounterFrames
     static readonly Dictionary<long, double> _missingSince = new Dictionary<long, double>();
     /// <summary>Every frame's members checked (ServerFrames, once a second; encounters on or off): dead characters, grids
     /// gone; empty frames dissolved.</summary>
+    // (Prune's copies - the frames, a frame's members - into kept lists: new ones per frame per call before, 16 KB/s, 2026-10-15.
+    //  Server thread, under FramesLock; each member copy is used up before the next is made)
+    static readonly List<ProximityFrame> _pruneFrames = new List<ProximityFrame>();
+    static readonly List<long> _pruneMembers = new List<long>();
+    static List<long> MembersCopy(ProximityFrame f) { var l = _pruneMembers; l.Clear(); l.AddRange(f.Members); return l; }
     internal static void Prune()
     {
         long player = FrameHost.PlayerId;
-        foreach (var f in new List<ProximityFrame>(SystemHost.Frames.Frames))
+        var frames = _pruneFrames; frames.Clear(); frames.AddRange(SystemHost.Frames.Frames);
+        foreach (var f in frames)
         {
             // A character id that is not the live player's is a dead character (a respawn gets a new id).
             if (player != 0)
-                foreach (long id in new List<long>(f.Members))
+                foreach (long id in MembersCopy(f))
                     if (!GridMembers.IsGridId(id) && id != player) SystemHost.Frames.RemoveMember(id);
             if (!f.IsEncounter)
             {
                 // (a grid deleted while its frame was on rails - ground down, despawned - never left it: the frame
                 //  never emptied. Pruned after 10 s missing, and only once the save is applied - grids register late)
                 if (SavedState.Idle)
-                    foreach (long id in new List<long>(f.Members))
+                    foreach (long id in MembersCopy(f))
                     {
                         if (!GridMembers.IsGridId(id)) continue;
                         if (GridMembers.Get(id) != null || GridMembers.Tombstoned(id)) { _missingSince.Remove(id); continue; }   // (may be coming back: an area respawn keeps its id)
@@ -921,7 +967,7 @@ public static class EncounterFrames
                 continue;
             }
             if (!_built) continue;   // (encounter frames: only once their sites are built, as before)
-            foreach (long id in new List<long>(f.Members))
+            foreach (long id in MembersCopy(f))
                 if (GridMembers.IsGridId(id) && GridMembers.Get(id) == null && !GridMembers.Tombstoned(id)) SystemHost.Frames.RemoveMember(id);
             if (f.Members.Count == 0 && !(SiteOf(f.Id)?.Anchor ?? false))
             {

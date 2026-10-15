@@ -28,7 +28,7 @@ public static partial class CleanMap
         _listBox = new BoundingBox2(MapLayout.P(0.777f, 0.27f), MapLayout.P(0.777f, 0.27f));   // (none this frame until drawn)
         Vector2 scr = MapPipeline.ScreenSize;
         float k = MapPipeline.TextScale;   // rows and columns grow with the text
-        float x = MapLayout.X(0.782f), y = MapLayout.Y(0.27f), line = MapLayout.LenY(0.0275f) * k, scale = 0.78f;
+        float x = MapLayout.X(0.782f), y = MapLayout.Y(0.27f), line = MapLayout.LenY(0.0275f) * k, scale = 0.78f * MapPipeline.MapText;
         float x0 = MapLayout.X(0.777f), x1 = MapLayout.X(0.975f);
         // Lay out first (the panel goes behind), then draw.
         var rows = new List<(Band b, bool header, string text, float y)>();
@@ -61,9 +61,12 @@ public static partial class CleanMap
             if (b.Selected) MapPipeline.ScreenRect(rowMin, new Vector2(x0 + 3f, rowMax.Y), LineSel);
             var c = b.Selected ? LineSel : Text;
             MapPipeline.PickName = b.Name;
+            // (the columns at least as wide as the text drawn: at a small screen's floor size the number ran into the name)
+            float dotX = x + Math.Max(MapLayout.LenY(0.030f) * k, MapPipeline.MeasureText("00", scale).X + 5f);
+            float nameX = Math.Max(x + MapLayout.LenY(0.045f) * k, dotX + 9f);
             MapPipeline.ScreenText(new Vector2(x, r.y), b.Number.ToString(), Dim, scale);
-            MapPipeline.ScreenDot(new Vector2(x + MapLayout.LenY(0.030f) * k, r.y + line * 0.42f), 4.5f, StateColor(b));
-            MapPipeline.ScreenText(new Vector2(x + MapLayout.LenY(0.045f) * k, r.y), b.Name == Maneuvers.Target ? Label(b) + "  · target" : Label(b), b.Name == Maneuvers.Target ? TargetText : c, scale);
+            MapPipeline.ScreenDot(new Vector2(dotX, r.y + line * 0.42f), 4.5f, StateColor(b));
+            MapPipeline.ScreenText(new Vector2(nameX, r.y), b.Name == Maneuvers.Target ? Label(b) + "  · target" : Label(b), b.Name == Maneuvers.Target ? TargetText : c, scale);
             MapPipeline.ScreenText(new Vector2(x + MapLayout.LenY(0.19f) * k, r.y), Fit(Where(b), x1 - (x + MapLayout.LenY(0.19f) * k) - 6f, scale * 0.85f), Dim, scale * 0.85f);
             MapPipeline.PickName = null;
         }
@@ -114,7 +117,7 @@ public static partial class CleanMap
         else h = "Drag: pan   \u00b7   Right-drag: orbit   \u00b7   Wheel: zoom   \u00b7   Double-click: focus   \u00b7   N or right-click: target   \u00b7   . , /  warp";   // (two lines at most: the game's text is wide)
         // (wrapped to the map's width at its separators: a long hint ran onto the right panel at 4:3 and 5:4; cut short, it
         //  lost its last hints)
-        DrawWrapped(MapLayout.P(0.265f, 0.9f), h, MapLayout.X(0.775f) - MapLayout.X(0.265f), 0.74f, Dim);
+        DrawWrapped(MapLayout.P(0.265f, 0.9f), h, MapLayout.X(0.775f) - MapLayout.X(0.265f), 0.74f * MapPipeline.MapText, Dim);
     }
 
     // ───────────────────────────── encounters and GPS (both views) ─────────────────────────────
@@ -139,7 +142,7 @@ public static partial class CleanMap
 
     private static void ContextMenu(List<Band> bands, double t)
     {
-        float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        float u = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
         bool rp = MapInput.RightPressed;
         if (MapMenu.Draw(Mouse, MapInput.LeftPressed, rp, u)) { Maneuvers.ClaimsMouse = true; return; }
         if (MapMenu.Open) { Maneuvers.ClaimsMouse = true; return; }
@@ -238,7 +241,7 @@ public static partial class CleanMap
     {
         var l = new List<(string key, string name)>();
         if (!MapClickable()) return l;
-        float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        float u = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
         var pins = new List<(string key, string name, Vector2 s)>(_pins.Count > 0 ? _pins : _pinsLast);
         pins.Sort((a, b) => (a.s - m).Length().CompareTo((b.s - m).Length()));
         foreach (var pn in pins)
@@ -319,7 +322,7 @@ public static partial class CleanMap
     {
         _tlRows.Clear();
         float k = MapPipeline.TextScale;
-        float line = MapLayout.LenY(0.0275f) * k, scale = 0.78f;
+        float line = MapLayout.LenY(0.0275f) * k, scale = 0.78f * MapPipeline.MapText;
         float x0 = MapLayout.X(0.777f), x1 = MapLayout.X(0.975f), x = MapLayout.X(0.782f);
         float top = Math.Max(_listBox.Max.Y, MapLayout.Y(0.27f) - line) + line * 0.7f;
         float bottom = MapLayout.Y(0.80f);   // (above the game's Fast Travel button, which sits over the panel's foot)
@@ -414,7 +417,7 @@ public static partial class CleanMap
     {
         if (!MapPipeline.ToScreen(centre, out var sc)) return;
         float r = MapPipeline.ToScreen(edge, out var se) ? (se - sc).Length() : 0f;
-        float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        float u = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
         _hits.Add((b, sc, Math.Max(r, ringPx * u) + 8f * u));
     }
 
@@ -439,7 +442,7 @@ public static partial class CleanMap
     static void HoverCard(SystemRegistry reg, string playerPlanet, KeplerianElements? playerOrbit, double t)
     {
         if (MapCamera.Dragging || MapMenu.Open || Maneuvers.OnGizmo || !InOpenArea(Mouse)) return;
-        float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        float u = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
         OrbitInfo.Info info = null;
         string ship = null;
         foreach (var pn in _pins) if (Targets.GridOf(pn.key, out _) && (pn.s - Mouse).Length() <= PinHit * u) { ship = pn.key; break; }
@@ -494,7 +497,8 @@ public static partial class CleanMap
     /// </summary>
     static Vector2 DrawInfo(OrbitInfo.Info info, Vector2 at, float width, float u, bool measureOnly = false, bool toggles = false, float k = 1f, bool cards = false)
     {
-        float kS = 0.74f * k, vS = 0.8f * k, hS = 0.6f * k, tS = 1.0f * k, sS = 0.72f * k;
+        float mt = MapPipeline.MapText;   // (the map's text: its 4K look at any size)
+        float kS = 0.74f * k * mt, vS = 0.8f * k * mt, hS = 0.6f * k * mt, tS = 1.0f * k * mt, sS = 0.72f * k * mt;
         float pad = 14f * u * k, gap = 20f * u * k, cardGap = 8f * u * k;
         float row = Math.Max(MapPipeline.MeasureText("Ag", vS).Y, 14f * u * k) * 1.18f;   // a row's height
         float th = Math.Max(MapPipeline.MeasureText("Ag", tS).Y, 16f * u * k);
@@ -610,11 +614,11 @@ public static partial class CleanMap
         string key = Maneuvers.Target;
         if (key == null) return;
         _listBox = new BoundingBox2(MapLayout.P(0.777f, 0.27f), MapLayout.P(0.777f, 0.27f));   // (no sector list under it this frame)
-        float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        float u = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
         double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
         if (_panel == null || now - _panelAt > 0.5) { _panel = OrbitInfo.Panel(key, t, _panelMore); _panelAt = now; }
         float x0 = MapLayout.X(0.777f), x1 = MapLayout.X(0.975f), top = MapLayout.Y(0.268f);   // (clear of the game's index box above)
-        float bs = 0.72f, bh = Math.Max(MapPipeline.MeasureText("Ag", bs).Y, 14f * u) + 14f * u;
+        float bs = 0.72f * MapPipeline.MapText, bh = Math.Max(MapPipeline.MeasureText("Ag", bs).Y, 14f * u) + 14f * u;
         bool click = ui && MapInput.LeftReleased && !MapCamera.DragEnded && !MapMenu.Open;
         // the bar: back to the lists, show it on the map, the Rendezvous view, clear the target
         MapPipeline.ScreenRect(new Vector2(x0, top), new Vector2(x1, top + bh), PanelSolid);
@@ -699,7 +703,7 @@ public static partial class CleanMap
     /// scale (the measure comes out short at high resolutions, and parts ran together).</summary>
     static Vector2 CrumbSize(string text)
     {
-        return MapPipeline.MeasureText(text, 1.05f);   // (now never short)
+        return MapPipeline.MeasureText(text, 1.05f * MapPipeline.MapText);   // (now never short)
     }
 
     private static Vector2 _titleAt;
@@ -726,13 +730,13 @@ public static partial class CleanMap
             var box = new BoundingBox2(new Vector2(x, at.Y), new Vector2(x + size.X, at.Y + size.Y));
             bool last = i == chain.Count - 1;
             bool hot = !last && box.Contains(Mouse) == ContainmentType.Contains;
-            MapPipeline.ScreenText(new Vector2(x, at.Y), name, hot ? LineSel : last ? Text : Dim, 1.05f);
+            MapPipeline.ScreenText(new Vector2(x, at.Y), name, hot ? LineSel : last ? Text : Dim, 1.05f * MapPipeline.MapText);
             if (!last) _crumbs.Add((chain[i], box));
             x += size.X;
             if (!last)
             {
-                float gap = 10f * Math.Max(1f, scr.Y / 1080f);   // the font drops leading spaces: gaps in pixels
-                x += gap; MapPipeline.ScreenText(new Vector2(x, at.Y), ">", Dim, 1.05f); x += CrumbSize(">").X + gap;
+                float gap = 10f * MapPipeline.UiScale(scr.Y);   // the font drops leading spaces: gaps in pixels
+                x += gap; MapPipeline.ScreenText(new Vector2(x, at.Y), ">", Dim, 1.05f * MapPipeline.MapText); x += CrumbSize(">").X + gap;
             }
         }
         MapPipeline.Reserve(at - new Vector2(4, 4), at + new Vector2(MapLayout.LenX(0.3f), MapLayout.LenY(0.035f)));
@@ -820,7 +824,7 @@ public static partial class CleanMap
         // Pins on one spot (a planet's ground stations seen from afar) are one pin, "Name +3": the target first, then yours.
         // Each still answers N and the right-click menu where it is (every one under the cursor is listed there).
         {
-            float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+            float u = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
             _shipPins.Sort((a, b) => a.rank.CompareTo(b.rank));
             var leaders = new List<(int i, Vector2 s, int n)>();
             var follow = new List<(int i, Vector2 s)>();
@@ -854,14 +858,14 @@ public static partial class CleanMap
     private static void Pin(Vector3D p, double limit, Func<Vector3D, Vector3D> W, string label, ColorSRGB c, bool diamond = false, string key = null, string name = null)
     {
         if (!MapPipeline.ToScreen(W(p), out var s)) return;
-        float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        float u = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
         if (InOpenArea(s))
         {
             bool hot = key != null && (s - Mouse).Length() <= PinHit * u && !MapMenu.Open && !MapCamera.Dragging;
             if (hot) MapPipeline.ScreenCircle(s, 11f * u, HudPanel.Alpha(Text, 0.9f), 1.6f * u);   // (the one N or a click would take)
             if (diamond) MapPipeline.ScreenDiamond(W(p), 6f, c, 1.8f);
             else { MapPipeline.ScreenRing(W(p), 6f, c, 1.8f); MapPipeline.ScreenRing(W(p), 2.5f, c, 2.5f); }
-            MapPipeline.TextScreen(s + new Vector2(0, 16f * u), label, hot ? Text : c, hot ? 0.7f : 0.6f);
+            MapPipeline.TextScreen(s + new Vector2(0, 16f * u), label, hot ? Text : c, (hot ? 0.7f : 0.6f) * MapPipeline.MapText);
             if (key != null) _pins.Add((key, name ?? label, s));
             return;
         }
@@ -874,7 +878,7 @@ public static partial class CleanMap
         Vector2 e = c0 + d * k, n = Vector2.Normalize(d), side = new Vector2(-n.Y, n.X);
         float a = 9f * u;
         // The arrow only with its name (a bare arrow says nothing).
-        if (!MapPipeline.TextScreen(e - n * (a + 14f * u), label, c, 0.6f)) return;
+        if (!MapPipeline.TextScreen(e - n * (a + 14f * u), label, c, (0.6f) * MapPipeline.MapText)) return;
         if (!MapPipeline.ScreenArrow(e - n * a * 0.5f, n, a * 0.75f, c))
         {
             MapPipeline.ScreenLine(e, e - n * a + side * a * 0.6f, c, 1.8f * u);

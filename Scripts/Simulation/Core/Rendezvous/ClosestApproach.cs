@@ -184,6 +184,50 @@ namespace SEAerospace.Rendezvous
             return 0.5 * (tLo + tHi);
         }
 
+        /// <summary>
+        /// The most an orbit's speed can be anywhere on it: at periapsis, sqrt(mu/p)(1+e) (the speed ToState gives is
+        /// sqrt(mu/p) sqrt(1 + 2e cos nu + e^2), largest at nu = 0). NaN when the orbit is not a proper conic (p &lt;= 0,
+        /// e &lt; 0, non-finite).
+        /// </summary>
+        public static double MaxSpeed(KeplerianElements el)
+        {
+            double e = el.Eccentricity, p = el.SemiLatusRectum, mu = el.Mu;
+            if (!(e >= 0.0) || !(p > 0.0) || !(mu > 0.0) || double.IsInfinity(e) || double.IsInfinity(p) || double.IsInfinity(mu))
+                return double.NaN;
+            return Math.Sqrt(mu / p) * (1.0 + e);
+        }
+
+        /// <summary>
+        /// A PROOF that the two never come within <paramref name="range"/> anywhere in [t0, t0+horizon] - so any approach
+        /// <see cref="Find"/> could report there misses by at least that much. The separation changes no faster than the two
+        /// speeds' sum (<see cref="MaxSpeed"/>), so from a time where it is D it stays over range for (D - range) / that sum:
+        /// the check steps through the window that way (each step two state solves) and says true only when it reaches the
+        /// end. False - not proven, the caller searches as ever - when it gets close, takes more than
+        /// <paramref name="maxSteps"/> steps, or meets anything non-finite. A margin (1 m plus 1e-9 of the radii) covers the
+        /// Kepler solve's own error, in these states and in Find's.
+        /// </summary>
+        public static bool CertainlyApart(KeplerianElements me, KeplerianElements target, double t0, double horizon, double range, int maxSteps)
+        {
+            double v = MaxSpeed(me) + MaxSpeed(target);
+            if (!(v > 0.0) || double.IsInfinity(v) || !(horizon >= 0.0) || double.IsInfinity(horizon) || double.IsNaN(t0) || double.IsInfinity(t0)) return false;
+            v = v * (1.0 + 1e-6) + 1e-6;
+            double tEnd = t0 + horizon, t = t0;
+            for (int i = 0; i < maxSteps; i++)
+            {
+                StateVector a = OrbitPropagation.StateAt(me, t), b = OrbitPropagation.StateAt(target, t);
+                double d = (b.Position - a.Position).Length();
+                double rr = Math.Max(a.Position.Length(), b.Position.Length());
+                if (double.IsNaN(d) || double.IsInfinity(d) || double.IsNaN(rr) || double.IsInfinity(rr)) return false;
+                double slack = d - range - (1.0 + 1e-9 * rr);
+                if (!(slack > 0.0)) return false;
+                double next = t + slack / v;
+                if (next >= tEnd) return true;
+                if (!(next > t)) return false;   // (no progress at this magnitude of t)
+                t = next;
+            }
+            return false;
+        }
+
         // Global minimum over a dense resample — endpoint-safe fallback.
         private static ApproachEvent SampledMinimum(KeplerianElements me, KeplerianElements target,
             double t0, double horizon, int samples)

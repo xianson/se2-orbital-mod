@@ -59,8 +59,19 @@ public static class SunDriver
         sun.Override((float)MathHelper.ToDegrees(a2), (float)MathHelper.ToDegrees(e2));
         _overriding = true;
         DirectionToSun = -v; Light = v;
-        Status = $"{(f != null ? $"frame #{f.Id} ({planet})" : $"{planet}'s chart")}: game sun az {az:F1} el {el:F1} -> az {MathHelper.ToDegrees(a2):F1} el {MathHelper.ToDegrees(e2):F1}";
+        // (the line made again only when what it prints changes - the frame, the planet, any angle by a tenth of a degree -
+        //  or another status replaced it: a new string (two) every frame before, all of this system's garbage, 2026-10-14)
+        double a2d = MathHelper.ToDegrees(a2), e2d = MathHelper.ToDegrees(e2);
+        long fid = f != null ? f.Id : long.MinValue;
+        double kAz = System.Math.Round(az * 10.0), kEl = System.Math.Round(el * 10.0), kA2 = System.Math.Round(a2d * 10), kE2 = System.Math.Round(e2d * 10);
+        if (!ReferenceEquals(Status, _said) || fid != _saidFrame || planet != _saidPlanet || kAz != _saidAz || kEl != _saidEl || kA2 != _saidA2 || kE2 != _saidE2)
+        {
+            _said = $"{(f != null ? $"frame #{f.Id} ({planet})" : $"{planet}'s chart")}: game sun az {az:F1} el {el:F1} -> az {a2d:F1} el {e2d:F1}";
+            _saidFrame = fid; _saidPlanet = planet; _saidAz = kAz; _saidEl = kEl; _saidA2 = kA2; _saidE2 = kE2;
+        }
+        Status = _said;
     }
+    static string _said, _saidPlanet; static long _saidFrame; static double _saidAz, _saidEl, _saidA2, _saidE2;
 
     /// <summary>The direction for an azimuth and elevation, as the game's own <c>Vector3D.GetAzimuthAndElevation</c> (which
     /// makes the sun's az/el, and reads ours back for the override) defines them - its exact inverse (round trip under 1e-13

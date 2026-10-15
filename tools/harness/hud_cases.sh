@@ -11,7 +11,7 @@ ids() { grep -a "gridinfo 10000" "$(LOG)" | grep -ao "=> grid [0-9]* 'Blue Fight
 check() { local r; r=$(q "hudcheck"); echo "[$1] $r" | sed 's/ || /\n      /g'; case "$r" in "hudcheck PASS"*) P=$((P+1));; *) F=$((F+1));; esac; }
 P=0; F=0
 powershell -NoProfile -Command "Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Stop-Process -Force"; sleep 4
-powershell -NoProfile -Command "Start-Process 'steam://rungameid/1133870'"; sleep 15
+. "$(dirname "$0")/launch.sh"; launch
 for i in $(seq 1 80); do L=$(LOG); grep -aq "beacon Root Entity\|Loading Failed" "$L" 2>/dev/null && break; sleep 3; done
 sleep 15; echo "log $(LOG)"
 scan; before=$(ids); bf=$(echo "$before" | head -1); echo "anchor: Blue Fighter $bf"

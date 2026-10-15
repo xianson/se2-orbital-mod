@@ -72,5 +72,6 @@ public static class MapGlobes
         foreach (var kv in _globes) if (!used.Contains(kv.Key)) PlanetRenderBridge.SetProxyVisible(kv.Value, false);
     }
 
-    public static void HideAll() => End(new HashSet<string>());
+    public static void HideAll() => End(_none);   // (every frame the map is closed: one empty set, not a new one)
+    static readonly HashSet<string> _none = new HashSet<string>();
 }

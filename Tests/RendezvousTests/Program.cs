@@ -49,6 +49,9 @@ namespace RendezvousTest
             // --- tilt regression (system-plane tilt re-introduced 2026-06-17) ---
             TiltConsistentIntercept();           // both inputs tilted == canonical, rotated; a mix breaks
 
+            // --- the merge screen's proof of a fly-by (ServerFrames.Approach, 2026-10-15) ---
+            CertainlyApartIsAProof();
+
             Console.WriteLine($"\n=== {_passed} passed, {_failed} failed ===");
             return _failed == 0 ? 0 : 1;
         }
@@ -85,6 +88,77 @@ namespace RendezvousTest
             Ok("solved", ok);
             NearVec("v1 (km/s)", v1, new Vector3D(-5992.5, 1925.4, 3245.6), 2.0);
             NearVec("v2 (km/s)", v2, new Vector3D(-3312.5, -4196.6, -385.29), 2.0);
+        }
+
+        /// <summary>ClosestApproach.CertainlyApart lets the merge screen skip Find: wherever it says true, nothing in the window
+        /// comes within range - checked against a dense brute-force minimum and against Find itself; and it does say true for
+        /// pairs plainly apart, and never for a constructed close pass.</summary>
+        private static void CertainlyApartIsAProof()
+        {
+            Section("merge screen: CertainlyApart is a proof (never true when a pass comes within range)");
+            const double range = 7500.0, horizon = 1800.0;
+            var rnd = new Random(20261015);
+            int proven = 0, wrong = 0, findBelow = 0, speedOver = 0, pairs = 0;
+            foreach (double mu in new[] { MuEarth, 3.0e12, 1.0e11 })
+            {
+                double rBase = Math.Pow(mu / MuEarth, 1.0 / 3.0) * 7000e3;   // (the same orbital periods at every scale)
+                for (int k = 0; k < 120; k++)
+                {
+                    KeplerianElements El()
+                    {
+                        double r = rBase * (1.0 + 0.4 * rnd.NextDouble());
+                        double vc = Math.Sqrt(mu / r) * (0.85 + 0.3 * rnd.NextDouble());
+                        double ang = rnd.NextDouble() * 2 * Math.PI, inc = (rnd.NextDouble() - 0.5) * 0.3;
+                        var p = new Vector3D(r * Math.Cos(ang), r * Math.Sin(ang), 0);
+                        var v = new Vector3D(-vc * Math.Sin(ang), vc * Math.Cos(ang) * Math.Cos(inc), vc * Math.Sin(inc));
+                        return OrbitalMath.ToElements(new StateVector(p, v), mu, 0);
+                    }
+                    var a = El();
+                    // half the pairs close neighbours (a few to tens of km apart), half anywhere
+                    KeplerianElements b;
+                    if (k % 2 == 0) b = El();
+                    else
+                    {
+                        var sa = OrbitPropagation.StateAt(a, 0);
+                        var off = new Vector3D(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5) * (60e3 * rnd.NextDouble());
+                        var dv = new Vector3D(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5) * (20.0 * rnd.NextDouble());
+                        b = OrbitalMath.ToElements(new StateVector(sa.Position + off, sa.Velocity + dv), mu, 0);
+                    }
+                    pairs++;
+                    double t0 = 1000.0 * rnd.NextDouble();
+                    // the speed bound holds wherever sampled
+                    double vmax = ClosestApproach.MaxSpeed(a);
+                    for (int i = 0; i <= 200; i++) if (OrbitPropagation.StateAt(a, t0 + i * horizon / 200).Velocity.Length() > vmax * (1 + 1e-9)) speedOver++;
+                    if (!ClosestApproach.CertainlyApart(a, b, t0, horizon, range, 48)) continue;
+                    proven++;
+                    double min = double.PositiveInfinity;
+                    for (int i = 0; i <= 20000; i++)
+                    {
+                        double t = t0 + i * horizon / 20000;
+                        min = Math.Min(min, (OrbitPropagation.StateAt(b, t).Position - OrbitPropagation.StateAt(a, t).Position).Length());
+                    }
+                    if (!(min >= range)) wrong++;
+                    var f = ClosestApproach.Find(a, b, t0, horizon, 48);
+                    if (f.Found && f.MissDistance < range) findBelow++;
+                }
+            }
+            Ok($"speed never over MaxSpeed ({pairs} orbits x 201 samples)", speedOver == 0);
+            Ok($"proven apart for some pairs ({proven} of {pairs})", proven > pairs / 10);
+            Ok($"no proven pair comes within range (dense brute force: {wrong} wrong)", wrong == 0);
+            Ok($"no proven pair has a Find miss under range ({findBelow})", findBelow == 0);
+
+            // a constructed close pass (ClosestApproachConstructed's) is never proven apart
+            var target = OrbitalMath.ToElements(
+                new StateVector(new Vector3D(7000e3, 0, 0), new Vector3D(0, Math.Sqrt(MuEarth / 7000e3), 0)), MuEarth, 0);
+            var targAtArr = OrbitPropagation.StateAt(target, 1800.0);
+            var myStart = new StateVector(new Vector3D(0, -6800e3, 0), new Vector3D(7700, 0, 0));
+            Lambert.Solve(myStart.Position, targAtArr.Position, 1800.0, MuEarth, true, out Vector3D v1, out Vector3D _);
+            var myOrbit = OrbitalMath.ToElements(new StateVector(myStart.Position, v1), MuEarth, 0);
+            Ok("a constructed close pass is not proven apart", !ClosestApproach.CertainlyApart(myOrbit, target, 0, 3600, 5000, 1000000));
+            // nor a pair already within range, nor a degenerate orbit
+            Ok("a pair within range now is not proven apart", !ClosestApproach.CertainlyApart(target, target, 0, horizon, range, 48));
+            var bad = target; bad.SemiMajorAxis = double.NaN;
+            Ok("a non-finite orbit is not proven apart", !ClosestApproach.CertainlyApart(bad, target, 0, horizon, range, 48));
         }
 
         private static void ClosestApproachConstructed()

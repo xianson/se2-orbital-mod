@@ -19,7 +19,7 @@ fld() { echo "$1" | grep -o "$2 [-0-9.a-z#]*" | head -1 | awk '{print $2}'; }
 ang() { awk -v a="$1" -v b="$2" 'BEGIN{split(a,x,",");split(b,y,",");d=x[1]*y[1]+x[2]*y[2]+x[3]*y[3];na=sqrt(x[1]^2+x[2]^2+x[3]^2);nb=sqrt(y[1]^2+y[2]^2+y[3]^2);c=d/(na*nb);if(c>1)c=1;if(c<-1)c=-1;printf "%.3f", atan2(sqrt(1-c*c),c)*180/3.14159265}'; }
 
 powershell -NoProfile -Command "Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Stop-Process -Force"; sleep 2
-powershell -NoProfile -Command "Start-Process 'steam://rungameid/1133870'"
+. "$(dirname "$0")/launch.sh"; launch
 until_ 300 "grep -aq 'beacon Root Entity\|Loading Failed' \"\$(LOG)\" 2>/dev/null"; until_ 60 "q 'findgrids' | grep -q '='"
 echo "loaded in $(( $(date +%s) - T0 )) s: $(LOG)"
 G=$(q "findgrids"); bf=$(echo "$G" | tr ' ' '\n' | grep "=Blue_Fighter\$" | head -1 | cut -d= -f1)

@@ -50,6 +50,9 @@ public static class DevHarness
 
     private static long _lastPoll;
     private static string _dir;
+    private static long _cmdAt, _statusAt;
+    /// <summary>The status at every poll, used or not (statusfast on: load-test scripts that only read it).</summary>
+    public static bool StatusAlways;
     private static readonly List<string> _log = new List<string>();
 
     private static float _clientGravityMultiplier = float.NaN;
@@ -93,6 +96,7 @@ public static class DevHarness
             if (File.Exists(cmdPath))
             {
                 string[] lines = File.ReadAllLines(cmdPath);
+                _cmdAt = System.Diagnostics.Stopwatch.GetTimestamp();
                 File.Delete(cmdPath);
                 foreach (string raw in lines)
                 {
@@ -110,7 +114,10 @@ public static class DevHarness
                     Log.Default?.Info($"[ORBIT-DEV] {line} => {result}");
                 }
             }
-            WriteStatus(camera);
+            // (the status - a page of text - twice a second only while the harness is being used: a command in the last 30 s;
+            //  else every 5 s. It was 160 KB/s of garbage in everyone's game - a profile, 2026-10-14)
+            long nowS = System.Diagnostics.Stopwatch.GetTimestamp(); double fq = System.Diagnostics.Stopwatch.Frequency;
+            if (StatusAlways || _cmdAt != 0 && nowS - _cmdAt < 30 * fq || nowS - _statusAt > 5 * fq) { _statusAt = nowS; WriteStatus(camera); }
         }
         catch (Exception e)
         {
@@ -378,6 +385,24 @@ public static class DevHarness
                 return PlanetRenderBridge.SetForeignString("AeroMod.AeroGridComponent+AeroFlightTest", "Only", a.Length > 2 ? a[2] : null) + "; "
                      + PlanetRenderBridge.SetForeignFlag("AeroMod.AeroGridComponent+AeroFlightTest", "Enabled", On(a[1]));
 
+            case "fxcull":   // fxcull [on|off]: far grids' looping block effects hidden (EffectCull) - its status, or switched
+                if (a.Length > 1) EffectCull.On = On(a[1]);
+                return EffectCull.Run(session, camera.Position);
+
+            case "mem":   // mem: managed memory (MB) and GC counts - for leak hunts
+                return $"managed {GC.GetTotalMemory(false) / 1048576} MB, gen0/1/2 {GC.CollectionCount(0)}/{GC.CollectionCount(1)}/{GC.CollectionCount(2)}";
+
+            case "particles":   // particles: every particle effect the game is playing, grouped (tag | effect | looped | state), also logged [ORBIT-PARTICLES]
+                return ParticleCensus.Report(session, true, camera.Position);
+
+            case "hudtree":   // hudtree <TypeName|root> [max]: queue a dump of the game HUD's controls under that one; "hudtree" alone: the last dump
+                if (a.Length > 1) { AlignButton.TreeMax = a.Length > 2 ? (int)D(a[2]) : 60; AlignButton.TreeWanted = a[1]; return "queued (next UI job, ~0.5 s)"; }
+                return HudGeom.Tree;
+
+            case "alignbtn":   // alignbtn [on|off]: the attitude hold's toggle after the cockpit's dampeners - its status
+                if (a.Length > 1) AlignButton.On = On(a[1]);
+                return $"align button {(AlignButton.On ? "on" : "off")}: {AlignButton.Status} | hold {AttitudeHold.Status}";
+
             case "aeroaware":   // aeroaware on|off: the aero mod's aero-aware attitude law (gyros and thrusters told the air's torque; off: the game's gyros)
                 return PlanetRenderBridge.SetForeignFlag("AeroMod.ThrustTorque", "AeroAware", On(a[1]));
 
@@ -410,7 +435,7 @@ public static class DevHarness
                 Type ft = null;
                 foreach (var asm in AppDomain.CurrentDomain.GetAssemblies()) { ft = asm.GetType("AeroMod.FlightFixture"); if (ft != null) break; }
                 if (ft == null) return "aero mod's FlightFixture not found";
-                var text = ft.GetMethod("Build")?.Invoke(null, new object[] { gi.Entity, a.Length > 2 ? a[2] : "grid" }) as string;
+                var text = ft.GetMethod("Build", new[] { typeof(Entity), typeof(string) })?.Invoke(null, new object[] { gi.Entity, a.Length > 2 ? a[2] : "grid" }) as string;
                 return text == null ? "no aero component on " + a[1] : "FIXTURE " + text.TrimEnd('\n').Replace("\n", " ;; ") + " ;; END";
             }
             case "reentrytest":   // reentrytest <id>: arm the top-to-bottom reentry check on a grid (DevReentry); alone: the report
@@ -645,7 +670,7 @@ public static class DevHarness
             {
                 foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
                 {
-                    var t = asm.GetType("AeroMod.AeroApi"); var m = t?.GetMethod("GetFxConsistency"); if (m == null) continue;
+                    var t = asm.GetType("AeroMod.AeroApi"); var m = t?.GetMethod("GetFxConsistency", new[] { typeof(bool) }); if (m == null) continue;
                     return (string)m.Invoke(null, new object[] { a.Length > 1 && a[1] == "reset" });
                 }
                 return "fxcheck: the aero mod has no GetFxConsistency";
@@ -1164,7 +1189,7 @@ public static class DevHarness
                 if (g?.Entity == null) return "no grid";
                 Type ph = null;
                 foreach (var asm in AppDomain.CurrentDomain.GetAssemblies()) { ph = asm.GetType("AeroMod.PhysicsHack"); if (ph != null) break; }
-                var gm = ph?.GetMethod("GetGravityDirection");
+                var gm = ph?.GetMethod("GetGravityDirection", new[] { typeof(Keen.VRage.DCS.Accessors.DEntityContext) });
                 if (gm == null) return "no AeroMod.PhysicsHack.GetGravityDirection";
                 var down = (Vector3)gm.Invoke(null, new object[] { g.Entity.Data });
                 if (down.LengthSquared() < 0.25f) return "no gravity here";
@@ -1329,6 +1354,9 @@ public static class DevHarness
             case "allocs":   // allocs on|off|show: bytes allocated per guarded client system (FrameHost.Guard)
                 if (a.Length > 1 && a[1] != "show") { FrameHost.AllocWatch = On(a[1]); FrameHost.AllocReport(); return "alloc watch " + FrameHost.AllocWatch; }   // (a fresh window)
                 return FrameHost.AllocReport();
+            case "statusfast":   // statusfast on|off: the status file at every poll even with no commands (perf scripts)
+                StatusAlways = On(a[1]);
+                return "status every poll: " + StatusAlways;
             case "aeroset":   // aeroset Type.Member value (AeroMod. prefix implied): a static of the aero mod
             case "aeroget":   // aeroget Type.Member
             {

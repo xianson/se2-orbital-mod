@@ -141,7 +141,7 @@ public static partial class CleanMap
 
         Frame = $"anchor {anchor.Name} pxPerV {_pxPerV:G3} d {MapCamera.Distance:G3} min {GameMap.MinZoom:G3} focusV {MapCamera.FocusV.Length():G3} scale {_wscale:G3}";
         _hits.Clear(); _crumbs.Clear(); SwapLens(); SwapPins(); _bandsLast = bands;
-        _hoverOrbitLast = _hoverOrbitD <= 7f * Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f) ? _hoverOrbit : null; _hoverOrbit = null; _hoverOrbitD = float.MaxValue;
+        _hoverOrbitLast = _hoverOrbitD <= 7f * MapPipeline.UiScale(MapPipeline.ScreenSize.Y) ? _hoverOrbit : null; _hoverOrbit = null; _hoverOrbitD = float.MaxValue;
         GravityBody focusPlanet = anchor.IsRoot ? null : anchor.Parent != null && !anchor.Parent.IsRoot ? anchor.Parent : anchor;
         string focus = focusPlanet?.Name;
         // The planet's own level (its sectors listed) while its system shows.
@@ -357,7 +357,7 @@ public static partial class CleanMap
     {
         var dim = HudPanel.Alpha(col, col.A / 255f * 0.4f);
         bool runDim = false;
-        float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        float u = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
         bool cam = MapCamera.Distance > 0;
         Vector3D f = cam ? MapCamera.FocusV - _off : Vector3D.Zero;
         double reach = cam ? 5 * MapCamera.Distance : double.PositiveInfinity;

@@ -70,7 +70,7 @@ public static class ServerFrames
         lock (AnchorAccel) AnchorAccel.Clear();
         lock (GridPositions) GridPositions.Clear();
         _gridHighSpeed.Clear(); _trackers.Clear(); Holding.Clear(); _arrivalNoticed.Clear();
-        System.Threading.Volatile.Write(ref _views, new Dictionary<long, GridView>());
+        System.Threading.Volatile.Write(ref _views, EmptyViews);
         System.Threading.Volatile.Write(ref _mergeAhead, double.NaN);
     }
 
@@ -101,8 +101,8 @@ public static class ServerFrames
             if (g != null && g.IsServer && !GridMembers.IsDynamic(g) && (GridMembers.Position(g) - f.BerthCenter).Length() <= reach)
             { id = m; pos = GridMembers.Position(g); return true; }
         }
-        // a static grid in no frame within the frame: it joins it, and anchors it
-        foreach (var g in GridMembers.All())
+        // a static grid in no frame within the frame: it joins it, and anchors it (the world's static grids only)
+        foreach (var g in GridMembers.Statics())
         {
             if (!g.IsServer || g.Entity == null || GridMembers.IsDynamic(g)) continue;
             if ((GridMembers.Position(g) - f.BerthCenter).Length() > CaptureEnterRadius) continue;
@@ -214,8 +214,13 @@ public static class ServerFrames
     private static DateTime _lastGameTime;
     private static int _tick;
 
-    /// <summary>Snapshot for the harness status (built on the server thread).</summary>
-    public static volatile string GridSnapshot = "";
+    /// <summary>Snapshot for the harness status (built on the server thread). Its text is made only while someone reads it
+    /// (asked within SnapshotAskedSeconds), else every SnapshotIdleSeconds: the harness's own text, every half second for
+    /// nobody, was 0.14 MB/s (a profile, 2026-10-15). The grid positions it also refreshes are refreshed as ever.</summary>
+    public static string GridSnapshot { get { System.Threading.Volatile.Write(ref _snapAsked, Wall()); return _gridSnapshot; } }
+    static volatile string _gridSnapshot = "";
+    static double _snapAsked = double.NegativeInfinity, _snapBuilt = double.NegativeInfinity;
+    public static double SnapshotAskedSeconds = 10, SnapshotIdleSeconds = 5;
 
     /// <summary>Grid id -> last known world position (server snapshot, for the harness).</summary>
     public static readonly Dictionary<long, Vector3D> GridPositions = new Dictionary<long, Vector3D>(); // lock GridPositions
@@ -243,6 +248,25 @@ public static class ServerFrames
     private static readonly Dictionary<long, (string body, KeplerianElements el)> _gridHighSpeed =
         new Dictionary<long, (string, KeplerianElements)>();
 
+    /// <summary>The tick's slow sections (over 2 ms), for the [HITCH] line (ServerPlanetBeacon): what took the time.</summary>
+    /// <summary>(Per thread: every planet's beacon job runs Tick, two can overlap - each reads back its own, ServerPlanetBeacon.)</summary>
+    [ThreadStatic] public static string LastSlow;
+    public static int LastFrameCount;
+    [ThreadStatic] static System.Text.StringBuilder _slowT;
+    static System.Text.StringBuilder _slow => _slowT ??= new System.Text.StringBuilder();
+    static long Sw() => System.Diagnostics.Stopwatch.GetTimestamp();
+    static string Ms(long a, long b) => a == 0 || b == 0 || b < a ? "-" : ((b - a) * 1000.0 / System.Diagnostics.Stopwatch.Frequency).ToString("F0");
+    // (a section under 2 ms - nearly all - is told by its ticks alone: no conversion, no thread-static read. _secFloor is the
+    //  2 ms mark rounded down, so every section over 2 ms still reaches the same test as before)
+    static readonly long _secFloor = (long)(System.Diagnostics.Stopwatch.Frequency * 0.002);
+    static void Sec(string name, long t0)
+    {
+        long d = Sw() - t0;
+        if (d <= _secFloor) return;
+        double ms = d * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+        if (ms > 2) _slow.Append(name).Append(' ').Append(ms.ToString("F0")).Append(" ms, ");
+    }
+
     public static void Tick(Keen.VRage.Core.Game.Systems.Session session)
     {
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -254,17 +278,24 @@ public static class ServerFrames
         //  the drain, the fold and the warp steering twice)
         if (last != 0 && dt < 0.008) return;
         if (System.Threading.Interlocked.CompareExchange(ref _lastTickStamp, now, last) != last) return;
+        // (the section timers are per thread: an overlapping second job keeps its own)
+        _slow.Clear();
+        try { TickBody(session, now, dt); } finally { LastSlow = _slow.ToString(); }
+    }
+
+    static void TickBody(Keen.VRage.Core.Game.Systems.Session session, long now, double dt)
+    {
         TickRate.Server.Count();
         if (!ReferenceEquals(session, _noticeSession)) { _noticeSession = session; _arrivalNoticed.Clear(); }   // (frame ids restart in a new world)
         if (!OrbitalSettings.SawServer) OrbitalSettings.SawServer = true;
         OrbitalSettings.Poll();   // (the settings files, every ~2 s)
         SavedState.ApplyRadarSettings();
-        SpawnGuard.Tick(AsteroidBridge.Generator(session));   // (takes FramesLock itself, only to read the frames: the zones' calls after it)
+        { long _s0 = Sw(); SpawnGuard.Tick(AsteroidBridge.Generator(session)); Sec("spawnguard", _s0); }   // (takes FramesLock itself, only to read the frames: the zones' calls after it)
         StationKeepCharge.Sweep();   // (thrusters of grids no longer holding station ask nothing more)
         GridMembers.SweepTombs();   // (grids gone for good: forgotten once their tombstones expire)
-        WarmBerths.Tick(session);   // (berths kept warm: no engine stall when a frame takes one)
+        { long _s0 = Sw(); WarmBerths.Tick(session); Sec("warmberths", _s0); }   // (berths kept warm: no engine stall when a frame takes one)
    // no encounters on a planet's border (before they materialize); reads frames
-        AsteroidBridge.Tick(session);   // no procedural asteroids, ever (encounters and our own system place them)
+        { long _s0 = Sw(); AsteroidBridge.Tick(session); Sec("asteroidbridge", _s0); }   // no procedural asteroids, ever (encounters and our own system place them)
         // Physics runs on game time (it slows and pauses with the game), so the tidal velocity
         // changes must use game-time dt too; the wall-clock dt above only gates once-per-frame.
         try
@@ -299,6 +330,7 @@ public static class ServerFrames
 
         if (SystemHost.Built && SystemHost.Frames != null)
         {
+            EntryHost.ServerBeforeLock();   // (the aero hook: never called under FramesLock - API.md's lock rule)
             lock (FramesLock)
             {
                 while (Attach.TryDequeue(out var req)) DoAttach(req);
@@ -350,27 +382,32 @@ public static class ServerFrames
                     pf.PendingBerthShift = Vector3D.Zero; pf.PendingBerthWait = 0;
                 }
                 if (_tick % 60 == 0 && SystemHost.Built && SystemHost.Frames != null) EncounterFrames.Prune();
-                EncounterFrames.ServerTick(session, _tick);
+                { long _s0 = Sw(); EncounterFrames.ServerTick(session, _tick); Sec("encounters", _s0); }
                 DevFlight.ServerTick();
                 DevFlight.ServerCommandTick();
-                var frames = _tickFrames; frames.Clear(); frames.AddRange(SystemHost.Frames.Frames);   // (a snapshot: frames dissolve as they arrive)
-                EntryHost.ServerTick(frames, SystemHost.Now);   // reentry (the braking band, an airless border's clamp): before arrivals
-                foreach (var f in frames) UpdateGridFrame(f, dt);
+                var frames = _tickFrames; frames.Clear(); frames.AddRange(SystemHost.Frames.Frames); LastFrameCount = frames.Count;   // (a snapshot: frames dissolve as they arrive)
+                { long _s0 = Sw(); EntryHost.ServerTick(frames, SystemHost.Now); Sec("entry", _s0); }   // reentry (the braking band, an airless border's clamp): before arrivals
+                { long _s0 = Sw(); foreach (var f in frames) { long _f0 = Sw(); UpdateGridFrame(f, dt); double _fms = (Sw() - _f0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency; if (_fms > 15) { _slow.Append("frame #").Append(f.Id).Append(" (").Append(f.Members.Count).Append(" members) ").Append(_fms.ToString("F0")).Append(" ms [rules ").Append(Ms(_ugf[0], _ugf[1])).Append(" anchor-elect ").Append(Ms(_ugf[1], _ugf[2])).Append(" anchor ").Append(Ms(_ugf[2], _ugf[3])).Append(" others ").Append(Ms(_ugf[3], Sw())).Append("], "); } } Sec("frames", _s0); }
                 StepGridHighSpeed();
-                if (_tick % 10 == 0 && SavedState.Idle) StowLoneGrids();   // (not before the save is applied: a frame made now took a saved frame's id)
+                { long _s0 = Sw(); if (_tick % 10 == 0 && SavedState.Idle) StowLoneGrids(); Sec("stow", _s0); }   // (not before the save is applied: a frame made now took a saved frame's id)
                 ApplyFictitious(dt);
                 DevReentry.ServerTick(dt);
-                if (_tick % MergeScreenInterval == 0) ScreenMerges(MergeScreenInterval * dt);
-                if (_tick % 60 == 0) CheckInvariants();   // (the frames' rules, judged once a second: Invariants)
+                { long _s0 = Sw(); int ph = (int)(_tick % MergeScreenInterval); ScreenMergesApply(MergeScreenInterval * dt, ph); ScreenMergesCollect(ph); Sec("merges", _s0); }
+                { long _s0 = Sw(); if (_tick % 60 == 0) CheckInvariants(); Sec("invariants", _s0); }   // (the frames' rules, judged once a second: Invariants)
             }
             // The generator's work the locked step planned (rock volumes out and in, its sectors rebuilt, its bodies counted):
             // the engine's, and slow at times - out here it no longer holds the client's HUD, map and player tick on FramesLock.
-            AsteroidFrames.ServerAfterLock(session);
+            { long _s0 = Sw(); AsteroidFrames.ServerAfterLock(session); Sec("asteroids", _s0); }
+            // (the aero calls the locked step collected: the moves it told of, a frame's ballistic coefficient, a border's air -
+            //  never made under FramesLock: API.md's lock rule)
+            FlushAeroNoteMoved();
+            { long _s0 = Sw(); EntryHost.ServerAfterLock(); Sec("entry-aero", _s0); }
+            { long _s0 = Sw(); ScreenMergesCompute(); Sec("merges-unlocked", _s0); }   // (the screen's slow part, off the lock)
         }
 
-        if (_tick % 30 == 0) { BuildSnapshot(); AdoptLooseGrids(); }
-        if (_tick % 5 == 0) BuildViews();
-        else RefreshGridPositions();   // (every tick: a seated player's grid is matched against them - PlayerOrbit)
+        { long _s0 = Sw(); if (_tick % 30 == 0) { BuildSnapshot(); AdoptLooseGrids(); } Sec("snapshot", _s0); }
+        { long _s0 = Sw(); if (_tick % 5 == 0) BuildViews();
+        else RefreshGridPositions(); Sec("views", _s0); }   // (every tick: a seated player's grid is matched against them - PlayerOrbit)
         DevStress.Tick();
         if (DevFreeGrids)
         {
@@ -436,9 +473,11 @@ public static class ServerFrames
         foreach (var g in GridMembers.All())
         {
             if (!g.IsServer || _gridHighSpeed.ContainsKey(g.Id) || !GridMembers.IsDynamic(g)) continue;
+            // (a framed grid first - one lookup - before the cell search: both only skip, so their order is free; most grids
+            //  are framed and were cell-searched first, every tick, 2026-10-15)
+            if (SystemHost.Frames.FindByMember(g.Id) != null) continue;
             Vector3D pos = GridMembers.Position(g);
             if (!VoxelBerthRegistry.TryCellContaining(pos, reg, out string body, out Vector3D cell)) continue;
-            if (SystemHost.Frames.FindByMember(g.Id) != null) continue;
             if (EncounterFrames.IsNpc(g)) continue;   // NPCs: no relative-motion terms
             Chart c = Chart.Of(body, t);
             if (!c.Spin) continue;
@@ -458,6 +497,7 @@ public static class ServerFrames
     /// own stow, which takes them along (one frame, not two). Grids within the attach radius of the
     /// stowing grid join its frame.
     /// </summary>
+    static readonly List<Entity> _stowMoveSet = new List<Entity>();   // (StowLoneGrids': server thread, under FramesLock)
     private static void StowLoneGrids()
     {
         var reg = SystemHost.Registry;
@@ -472,7 +512,6 @@ public static class ServerFrames
             if (!FrameHost.Seated && (pos - PlayerPosition).Length() <= AttachRadius) continue;
             if (EncounterFrames.IsNpc(g)) continue;
             lock (GridMembers.Pending) if (GridMembers.Pending.ContainsKey(g.Id)) continue;   // (going with its group this tick)
-            if (GridMembers.IsConstrained(g) && !GridMembers.MoveSet(g, new List<Entity>(), out _)) continue;   // locked to a base: stays
             if (!VoxelBerthRegistry.TryCellContaining(pos, reg, out string body, out Vector3D cell))
             {
                 if (!OrbitalConfig.CaptureLegacySpace || !SystemHost.TryNearestCell(pos, out body, out cell)) continue;
@@ -496,6 +535,11 @@ public static class ServerFrames
             double shell = PlanetBerths.ShellRadius(def);
             double keep = PlanetBerths.KeepRadius(def);
             if (d < shell * PlanetBerths.StowShellMargin) continue;
+            // locked to a base: stays. (Asked here, last of the filters - every one above only skips and reads nothing it could
+            //  change, so the order is free: a grid inside the shell - a landed ship, a base - ran this physics query and joint
+            //  search ~6 times a second, with a new list each, 2026-10-15)
+            if (GridMembers.IsConstrained(g) && !GridMembers.MoveSet(g, _stowMoveSet, out _)) { _stowMoveSet.Clear(); continue; }
+            _stowMoveSet.Clear();
             // (STOWED AS SOON AS IT IS OUT: past the conversion radius R_c by the stow floor's 5 % (StowShellMargin - the hysteresis:
             //  back down, the release is at R_c), whatever its orbit. Inside the keep it also had to be LEAVING (FrameRails.EscapesShell:
             //  apoapsis above 1.5 R_c, or hyperbolic): a spaceplane in a low orbit - apoapsis under ~46 km at Verdure - never left the
@@ -555,50 +599,235 @@ public static class ServerFrames
     /// starve it (fly-by). A latched pair merges on the first screen where it is ALSO close now
     /// (inside the enter range) and slow now (below the physics cap), so an incomer never coasts out of the berth.
     /// </summary>
-    private static void ScreenMerges(double dt)
+    // THE MERGE SCREEN, its slow part off FramesLock (2026-10-13): each pair's closest approach (ClosestApproach.Find, 48
+    // samples over 30 min) ran inside the lock - 50-70 ms every half second with 73 frames, and the client's frame waits on
+    // that lock while seated (FrameHost): the whole screen froze for it. Now, under the lock, this tick's share of the pairs
+    // is listed (their elements copied) and last tick's answers applied; the approaches are found between the two, unlocked.
+    // Each pair is still screened once per MergeScreenInterval ticks, in its own tick of the round (by its ids).
+    struct ScreenJob { public long A, B; public KeplerianElements EA, EB; public double T; public ApproachEvent Ev; }
+    static readonly List<ProximityFrame> _screenFrames = new List<ProximityFrame>();
+    static readonly List<(long, long)> _screenDead = new List<(long, long)>();
+    // (handed between the three as whole lists: Collect queues its list, Compute drains the queue and hands its results back
+    //  under FramesLock, Apply drains them under it - an overlapping second tick never shares a list, nor loses one)
+    static readonly System.Collections.Concurrent.ConcurrentQueue<List<ScreenJob>> _screenJobs = new System.Collections.Concurrent.ConcurrentQueue<List<ScreenJob>>();
+    static readonly List<ScreenJob> _screenDone = new List<ScreenJob>();
+    static readonly System.Collections.Concurrent.ConcurrentQueue<List<ScreenJob>> _screenLists = new System.Collections.Concurrent.ConcurrentQueue<List<ScreenJob>>();   // (a pool; ConcurrentBag is not whitelisted)
+
+    /// <summary>Under FramesLock: this tick's pairs to screen, their elements copied (cheap filters only).</summary>
+    // (each frame's own facts - finite elements, radial band, epoch passed, a site, anyone non-NPC in it - found once per
+    //  listing, not once per pair: HasNonNpc walked a frame's members for every pair it was in, 2026-10-15. Under FramesLock:
+    //  no frame changes during the listing. The filters are the same ones, cheapest first - all are pure, their order is free)
+    static readonly List<byte> _screenFacts = new List<byte>();
+    static readonly List<double> _screenPe = new List<double>(), _screenAp = new List<double>();
+    const byte FactFinite = 1, FactBand = 2, FactMutable = 4, FactSite = 8, FactNonNpcKnown = 16, FactNonNpc = 32;
+    static bool ScreenNonNpc(int i, ProximityFrame f)
     {
+        byte x = _screenFacts[i];
+        if ((x & FactNonNpcKnown) == 0) { x |= FactNonNpcKnown; if (EncounterFrames.HasNonNpc(f)) x |= FactNonNpc; _screenFacts[i] = x; }
+        return (x & FactNonNpc) != 0;
+    }
+    private static void ScreenMergesCollect(int phase)
+    {
+        List<ScreenJob> jobs = null;
         double t = SystemHost.Now;
-        var frames = new List<ProximityFrame>(SystemHost.Frames.Frames);
+        var frames = _screenFrames; frames.Clear(); frames.AddRange(SystemHost.Frames.Frames);   // (reused: this runs every tick)
         double er = Rendezvous.EnterRangeMeters;
+        var facts = _screenFacts; facts.Clear(); _screenPe.Clear(); _screenAp.Clear();
+        bool screenAll = !EncounterFrames.Enabled;   // (EncounterFrames.ShouldScreen: encounters off, every pair is screened)
+        for (int i = 0; i < frames.Count; i++)
+        {
+            var f = frames[i];
+            byte x = 0;
+            if (Finite(f.Elements)) x |= FactFinite;
+            if (RadialBand(f.Elements, out double pe, out double ap)) x |= FactBand;
+            if (FrameRails.CanMutateAt(f.Elements, t)) x |= FactMutable;
+            if (!screenAll && EncounterFrames.IsSite(f)) x |= FactSite;
+            facts.Add(x); _screenPe.Add(pe); _screenAp.Add(ap);
+        }
         for (int a = 0; a < frames.Count; a++)
         {
             var fa = frames[a];
-            if (SystemHost.Frames.Get(fa.Id) == null || !Finite(fa.Elements)) continue;
-            bool bandA = RadialBand(fa.Elements, out double peA, out double apA);
+            byte xa = facts[a];
+            if ((xa & FactFinite) == 0) continue;
+            bool bandA = (xa & FactBand) != 0;
+            double peA = _screenPe[a], apA = _screenAp[a];
             for (int b = a + 1; b < frames.Count; b++)
             {
-                if (SystemHost.Frames.Get(fa.Id) == null) break;   // (a merge dissolved fa itself: no more merges into it)
                 var fb = frames[b];
-                if (SystemHost.Frames.Get(fb.Id) == null || !Finite(fb.Elements)) continue;
+                byte xb = facts[b];
+                if ((xb & FactFinite) == 0) continue;
                 if (fa.ParentBodyName != fb.ParentBodyName) continue;
-                if (!EncounterFrames.ShouldScreen(fa, fb)) continue;
-                if (bandA && RadialBand(fb.Elements, out double peB, out double apB) && (apA + er < peB || apB + er < peA)) continue;
-                if (!FrameRails.CanMutateAt(fa.Elements, t) || !FrameRails.CanMutateAt(fb.Elements, t)) continue;
-
-                var ev = ClosestApproach.Find(fa.Elements, fb.Elements, t, TcaHorizonSeconds, TcaSamples);
-                bool ok = ev.Found && IsFinite(ev.MissDistance) && IsFinite(ev.RelativeSpeed);
-                double miss = ok ? ev.MissDistance : double.PositiveInfinity;
-                double rel = ok ? ev.RelativeSpeed : double.PositiveInfinity;
-                var key = fa.Id < fb.Id ? (fa.Id, fb.Id) : (fb.Id, fa.Id);
-                if (!_trackers.TryGetValue(key, out var tr)) { tr = new RendezvousTracker(); _trackers[key] = tr; }
-                if (miss < er && rel < Rendezvous.EnterRelSpeedMps && ev.Time > t && FrameHost.PlayerFrame != null
-                    && (FrameHost.PlayerFrame.Id == fa.Id || FrameHost.PlayerFrame.Id == fb.Id))
-                    NoteMergeAhead(ev.Time);
-                bool merged = miss < er && rel < Rendezvous.EnterRelSpeedMps
-                    ? tr.Update(miss, rel, dt, Rendezvous)
-                    : tr.Update(double.PositiveInfinity, double.PositiveInfinity, dt, Rendezvous);
-                if (!merged) continue;
-
-                var sa = OrbitPropagation.StateAt(fa.Elements, t);
-                var sb = OrbitPropagation.StateAt(fb.Elements, t);
-                if (!IsFinite(sa.Position) || !IsFinite(sb.Position) || !IsFinite(sa.Velocity) || !IsFinite(sb.Velocity)) continue;
-                if ((sb.Position - sa.Position).Length() >= er) continue;
-                if ((sb.Velocity - sa.Velocity).Length() >= FrameHost.SpeedCap) continue;
-                ExecuteMerge(fa, fb, sa, sb);
-                _trackers.Remove(key);
+                if ((int)(((ulong)(fa.Id < fb.Id ? fa.Id : fb.Id) * 7919UL + (ulong)(fa.Id < fb.Id ? fb.Id : fa.Id)) % (ulong)MergeScreenInterval) != phase) continue;
+                if (bandA && (xb & FactBand) != 0 && (apA + er < _screenPe[b] || _screenAp[b] + er < peA)) continue;
+                if ((xa & FactMutable) == 0 || (xb & FactMutable) == 0) continue;
+                // (EncounterFrames.ShouldScreen, on the facts: two sites never; else anyone non-NPC in either)
+                if (!screenAll && (((xa & xb & FactSite) != 0) || !(ScreenNonNpc(a, fa) || ScreenNonNpc(b, fb)))) continue;
+                (jobs ??= (_screenLists.TryDequeue(out var pooled) ? pooled : new List<ScreenJob>())).Add(new ScreenJob { A = Math.Min(fa.Id, fb.Id), B = Math.Max(fa.Id, fb.Id),
+                    EA = fa.Id < fb.Id ? fa.Elements : fb.Elements, EB = fa.Id < fb.Id ? fb.Elements : fa.Elements, T = t });
             }
         }
-        var dead = new List<(long, long)>();
+        if (jobs != null) _screenJobs.Enqueue(jobs);
+    }
+
+    /// <summary>OFF FramesLock: the listed pairs' closest approaches (the slow part), into the done list.</summary>
+    private static void ScreenMergesCompute()
+    {
+        while (_screenJobs.TryDequeue(out var jobs))
+        {
+            (_screenNowT ??= new Dictionary<long, StateVector>()).Clear();   // (one listing: one time, one element set per frame)
+            (_screenKeptT ??= new Dictionary<long, (KeplerianElements, StateVector)>()).Clear();   // (one time: the kept copies' states at it)
+            for (int i = 0; i < jobs.Count; i++)
+            {
+                var d = jobs[i];
+                d.Ev = Approach(d);
+                jobs[i] = d;
+            }
+            lock (FramesLock) _screenDone.AddRange(jobs);
+            jobs.Clear(); _screenLists.Enqueue(jobs);   // (back to the pool: a new list per screen tick before)
+        }
+    }
+
+    // A PAIR'S APPROACH, KEPT (a profile, 2026-10-14: the screen's approaches were a tenth of a core - every pair's 30 min
+    // look-ahead found anew every half second, two coasting orbits giving the same answer each time). Reused while both
+    // orbits are the same ones (SameOrbit: the shape and where along it - a re-epoched copy is the same orbit), the answer
+    // a clear fly-by (no approach, or a miss over ReuseMissRanges enter ranges), its approach still ahead, and no older
+    // than ReuseSeconds. A pair that may merge, or whose orbit changed (someone thrusting), is found anew every screen.
+    // (SameOrbit: two Kepler solves an orbit, against the screen's ~100)
+    public static double ScreenReuseSeconds = 30.0, ScreenReuseMissRanges = 4.0;
+    static readonly Dictionary<(long, long), ScreenJob> _screenKept = new Dictionary<(long, long), ScreenJob>();
+    static double _screenKeptSwept;
+    public static int ScreenFound, ScreenReused, ScreenNew, ScreenOld, ScreenClose, ScreenPassed, ScreenMoved, ScreenApart;
+    public static string ScreenStats => $"found {ScreenFound} reused {ScreenReused} | new {ScreenNew} old {ScreenOld} close {ScreenClose} passed {ScreenPassed} moved {ScreenMoved} | proven apart {ScreenApart}";
+    /// <summary>The most steps (two state solves each, against Find's ~1500) the fly-by proof may take before Find runs.</summary>
+    public static int ScreenApartSteps = 48;
+
+    static ApproachEvent Approach(in ScreenJob d)
+    {
+        lock (_screenKept)
+        {
+            if (!_screenKept.TryGetValue((d.A, d.B), out var k)) ScreenNew++;
+            else if (!(d.T - k.T < ScreenReuseSeconds && d.T >= k.T)) ScreenOld++;
+            else if (k.Ev.Found && !(k.Ev.MissDistance > ScreenReuseMissRanges * Rendezvous.EnterRangeMeters)) ScreenClose++;
+            // (an approach at the window's very start is a pair moving apart - its closest is now: kept as long as its orbits
+            //  are, its minimum can only change by the horizon's end, ScreenReuseSeconds later, half an hour ahead)
+            else if (k.Ev.Found && !(k.Ev.Time > d.T) && !(k.Ev.Time <= k.T + 1.0)) ScreenPassed++;
+            else if (!SameOrbit(k.EA, d.EA, d.T, d.A) || !SameOrbit(k.EB, d.EB, d.T, d.B)) ScreenMoved++;
+            else { ScreenReused++; return k.Ev; }
+        }
+        // A PROVEN FLY-BY (2026-10-15): when the two cannot come within the enter range anywhere in the window - the separation
+        // changes no faster than their two top speeds (ClosestApproach.CertainlyApart, tested offline against a dense search and
+        // Find) - Find could only answer a miss of at least that range, which ScreenMergesApply treats exactly as no approach:
+        // its tracker starved, no merge-ahead noted. So it answers "none" without the search. Not kept: the next screen asks
+        // anew (the proof, or Find - never an answer older than this screen).
+        if (ClosestApproach.CertainlyApart(d.EA, d.EB, d.T, TcaHorizonSeconds, Rendezvous.EnterRangeMeters, ScreenApartSteps))
+        {
+            System.Threading.Interlocked.Increment(ref ScreenApart);
+            return ApproachEvent.None;
+        }
+        var ev = ClosestApproach.Find(d.EA, d.EB, d.T, TcaHorizonSeconds, TcaSamples);
+        ScreenFound++;
+        lock (_screenKept)
+        {
+            var kept = d; kept.Ev = ev; _screenKept[(d.A, d.B)] = kept;
+            if (d.T - _screenKeptSwept > 120.0)
+            {
+                _screenKeptSwept = d.T;
+                var old = new List<(long, long)>();
+                foreach (var kv in _screenKept) if (d.T - kv.Value.T > 120.0) old.Add(kv.Key);
+                foreach (var key in old) _screenKept.Remove(key);
+            }
+        }
+        return ev;
+    }
+
+    /// <summary>The same orbit as far as the screen can tell: where the two put the frame now, and how fast, agree to
+    /// SameOrbitMeters and SameOrbitMps. (Elements themselves differ from tick to tick for a frame re-osculated every tick
+    /// - a Lagrange ride, a site - so they were compared by the state they give, at the time of the screen.)</summary>
+    static bool SameOrbit(in KeplerianElements x, in KeplerianElements y, double t, long yId)
+    {
+        if (x.Mu != y.Mu) return false;
+        var sx = KeptNow(yId, x, t); var sy = ListedNow(yId, y, t);
+        if (!IsFinite(sx.Position) || !IsFinite(sy.Position) || !IsFinite(sx.Velocity) || !IsFinite(sy.Velocity)) return false;
+        return (sx.Position - sy.Position).LengthSquared() < SameOrbitMeters * SameOrbitMeters
+            && (sx.Velocity - sy.Velocity).LengthSquared() < SameOrbitMps * SameOrbitMps;
+    }
+    public static double SameOrbitMeters = 20.0, SameOrbitMps = 0.02;
+
+    // A FRAME'S LISTED STATE, ONCE PER SCREEN (2026-10-15: SameOrbit solved each pair's current orbits anew - a frame in 70 pairs
+    // was solved 70 times at the same time on the same elements). One listing (ScreenMergesCollect) copies each frame's elements
+    // once, at one time: every job of a list has the same T and the same elements for a frame id, so its state at T is kept by
+    // id for that list. Per thread: two overlapping ticks may compute at once.
+    [ThreadStatic] static Dictionary<long, StateVector> _screenNowT;
+    // (and the KEPT elements' state at the listing's time, by frame id: pairs kept at the same screen hold the same copy of a
+    //  frame's elements - SameOrbit solved it once per pair. Reused only for bit-identical elements: StateAt is a pure function
+    //  of the elements and the time, and every job of a list has the same time)
+    [ThreadStatic] static Dictionary<long, (KeplerianElements el, StateVector s)> _screenKeptT;
+    static bool SameBits(in KeplerianElements a, in KeplerianElements b) =>
+        BitConverter.DoubleToInt64Bits(a.SemiMajorAxis) == BitConverter.DoubleToInt64Bits(b.SemiMajorAxis)
+        && BitConverter.DoubleToInt64Bits(a.Eccentricity) == BitConverter.DoubleToInt64Bits(b.Eccentricity)
+        && BitConverter.DoubleToInt64Bits(a.Inclination) == BitConverter.DoubleToInt64Bits(b.Inclination)
+        && BitConverter.DoubleToInt64Bits(a.Raan) == BitConverter.DoubleToInt64Bits(b.Raan)
+        && BitConverter.DoubleToInt64Bits(a.ArgPeriapsis) == BitConverter.DoubleToInt64Bits(b.ArgPeriapsis)
+        && BitConverter.DoubleToInt64Bits(a.TrueAnomaly) == BitConverter.DoubleToInt64Bits(b.TrueAnomaly)
+        && BitConverter.DoubleToInt64Bits(a.Mu) == BitConverter.DoubleToInt64Bits(b.Mu)
+        && BitConverter.DoubleToInt64Bits(a.Epoch) == BitConverter.DoubleToInt64Bits(b.Epoch);
+    static StateVector KeptNow(long id, in KeplerianElements el, double t)
+    {
+        var c = _screenKeptT;
+        if (c == null || _screenNowT == null) return OrbitPropagation.StateAt(el, t);
+        if (c.TryGetValue(id, out var k) && SameBits(k.el, el)) return k.s;
+        var s = OrbitPropagation.StateAt(el, t);
+        c[id] = (el, s);
+        return s;
+    }
+    static StateVector ListedNow(long id, in KeplerianElements el, double t)
+    {
+        var c = _screenNowT;
+        if (c == null) return OrbitPropagation.StateAt(el, t);
+        if (c.TryGetValue(id, out var s)) return s;
+        s = OrbitPropagation.StateAt(el, t);
+        c[id] = s;
+        return s;
+    }
+
+    /// <summary>Under FramesLock: last tick's approaches judged - the rendezvous trackers, the merges (on the frames as they
+    /// are NOW: a pair gone or changed since is judged on its current state, ExecuteMerge's own checks unchanged).</summary>
+    private static void ScreenMergesApply(double dt, int phase)
+    {
+        double t = SystemHost.Now;
+        double er = Rendezvous.EnterRangeMeters;
+        foreach (var j in _screenDone)
+        {
+            var fa = SystemHost.Frames.Get(j.A); var fb = SystemHost.Frames.Get(j.B);
+            if (fa == null || fb == null) continue;   // (merged or dissolved since)
+            // (the screen's own filters again, on the frames as they are now: a reparent or a new epoch since the listing)
+            if (fa.ParentBodyName != fb.ParentBodyName || !EncounterFrames.ShouldScreen(fa, fb)
+                || !FrameRails.CanMutateAt(fa.Elements, t) || !FrameRails.CanMutateAt(fb.Elements, t)) continue;
+            var ev = j.Ev;
+            bool ok = ev.Found && IsFinite(ev.MissDistance) && IsFinite(ev.RelativeSpeed);
+            double miss = ok ? ev.MissDistance : double.PositiveInfinity;
+            double rel = ok ? ev.RelativeSpeed : double.PositiveInfinity;
+            var key = (j.A, j.B);
+            if (!_trackers.TryGetValue(key, out var tr)) { tr = new RendezvousTracker(); _trackers[key] = tr; }
+            if (miss < er && rel < Rendezvous.EnterRelSpeedMps && ev.Time > t && FrameHost.PlayerFrame != null
+                && (FrameHost.PlayerFrame.Id == fa.Id || FrameHost.PlayerFrame.Id == fb.Id))
+                NoteMergeAhead(ev.Time);
+            bool merged = miss < er && rel < Rendezvous.EnterRelSpeedMps
+                ? tr.Update(miss, rel, dt, Rendezvous)
+                : tr.Update(double.PositiveInfinity, double.PositiveInfinity, dt, Rendezvous);
+            if (!merged) continue;
+            if (!Finite(fa.Elements) || !Finite(fb.Elements)) continue;
+            var sa = OrbitPropagation.StateAt(fa.Elements, t);
+            var sb = OrbitPropagation.StateAt(fb.Elements, t);
+            if (!IsFinite(sa.Position) || !IsFinite(sb.Position) || !IsFinite(sa.Velocity) || !IsFinite(sb.Velocity)) continue;
+            if ((sb.Position - sa.Position).Length() >= er) continue;
+            if ((sb.Velocity - sa.Velocity).Length() >= FrameHost.SpeedCap) continue;
+            ExecuteMerge(fa, fb, sa, sb);
+            _trackers.Remove(key);
+        }
+        _screenDone.Clear();
+        if (phase != 0) return;   // (the dead pairs swept once a round)
+        var dead = _screenDead; dead.Clear();
         foreach (var k in _trackers.Keys) if (SystemHost.Frames.Get(k.Item1) == null || SystemHost.Frames.Get(k.Item2) == null) dead.Add(k);
         foreach (var k in dead) _trackers.Remove(k);
     }
@@ -728,6 +957,11 @@ public static class ServerFrames
 
     static readonly Dictionary<long, double> _unframedSince = new Dictionary<long, double>();
     static readonly HashSet<long> _everFramed = new HashSet<long>();
+    // (CheckInvariants' own, kept: a dictionary, a set and lists per check before - 26 KB/s, 2026-10-15. Server thread, under
+    //  FramesLock)
+    static readonly Dictionary<Keen.VRage.DCS.Components.Entity, OrbitalGridComponent> _invByEntity = new Dictionary<Keen.VRage.DCS.Components.Entity, OrbitalGridComponent>();
+    static readonly HashSet<long> _invSeen = new HashSet<long>();
+    static readonly List<long> _invGone = new List<long>();
     /// <summary>The server's invariants (Invariants), once a second, under FramesLock, after the frame step.</summary>
     internal static void CheckInvariants()
     {
@@ -735,7 +969,7 @@ public static class ServerFrames
         try
         {
             double now = Wall(), N = Math.Max(1.0, SystemHost.Timescale);
-            var byEntity = new Dictionary<Keen.VRage.DCS.Components.Entity, OrbitalGridComponent>();
+            var byEntity = _invByEntity; byEntity.Clear();
             var all = GridMembers.All();
             foreach (var g in all) if (g.IsServer && g.Entity != null) byEntity[g.Entity] = g;
             foreach (var f in SystemHost.Frames.Frames) foreach (long m in f.Members) if (GridMembers.IsGridId(m)) _everFramed.Add(m);
@@ -755,10 +989,12 @@ public static class ServerFrames
                     double away = isStatic ? (p - sAt).Length() : (p - f.BerthCenter).Length();
                     if (away > leave && away < 60000) Invariants.Report("past-edge", "g" + m, $"grid {m} '{g.DisplayName}' {away / 1000:F1} km from frame #{f.Id}'s {(isStatic ? "static anchor" : "centre")}, unsplit");
                     // ship-together
+                    // (the joint search kept for a second per grid - JoinedSet, the frame step's own: it ran a search of its own for
+                    //  every jointed member every second before, beside the step's)
                     if (GridMembers.IsConstrained(g))
                     {
-                        var set = new List<Keen.VRage.DCS.Components.Entity>();
-                        if (GridMembers.MoveSet(g, set, out _))
+                        var set = JoinedSet(g, now);
+                        if (set != null)
                             foreach (var e in set)
                                 if (byEntity.TryGetValue(e, out var o) && o != g && GridMembers.IsDynamic(o))
                                 {
@@ -772,7 +1008,7 @@ public static class ServerFrames
                 }
             }
             // on-rails: a player ship (dynamic, not an encounter's or NPC) in open space, in no frame for over 10 s
-            var seen = new HashSet<long>();
+            var seen = _invSeen; seen.Clear();
             foreach (var g in all)
             {
                 if (!g.IsServer || g.Entity == null || !GridMembers.IsDynamic(g) || EncounterFrames.IsNpc(g) || EncounterFrames.IsEncounterGrid(g)) continue;
@@ -785,30 +1021,43 @@ public static class ServerFrames
                 if (!_unframedSince.TryGetValue(g.Id, out double since)) { _unframedSince[g.Id] = now; continue; }
                 if (now - since > 10) Invariants.Report("on-rails", "g" + g.Id, $"grid {g.Id} '{g.DisplayName}' in open space in no frame for {now - since:F0} s (no orbit: warp leaves it behind)");
             }
-            foreach (long id in new List<long>(_unframedSince.Keys)) if (!seen.Contains(id)) _unframedSince.Remove(id);
+            var gone = _invGone; gone.Clear();
+            foreach (long id in _unframedSince.Keys) if (!seen.Contains(id)) gone.Add(id);
+            foreach (long id in gone) _unframedSince.Remove(id);
+            gone.Clear(); seen.Clear(); byEntity.Clear();
         }
         catch (Exception ex) { Invariants.Report("checker", "x", "the check itself failed: " + ex.Message); }
     }
 
     /// <summary>The frame's members joined to this grid (its ship: sub-grids, docked craft), itself included - from the
     /// joint search kept once a second per grid (_joinedOf).</summary>
-    static List<OrbitalGridComponent> JoinedMembers(ProximityFrame f, OrbitalGridComponent g, List<OrbitalGridComponent> grids)
+    /// <summary>(into r, cleared first: the caller's kept list - UpdateGridFrame's anchor body and steering set, each used within
+    /// its own step; a new list per call before, every tick for a jointed anchor)</summary>
+    static List<OrbitalGridComponent> JoinedMembers(ProximityFrame f, OrbitalGridComponent g, List<OrbitalGridComponent> grids, List<OrbitalGridComponent> r)
     {
-        double wj = Wall();
-        HashSet<Keen.VRage.DCS.Components.Entity> set;
-        if (_joinedOf.TryGetValue(g.Id, out var cj) && wj - cj.at < 1.0) set = cj.set;
-        else
-        {
-            var l = new List<Keen.VRage.DCS.Components.Entity>();
-            set = GridMembers.MoveSet(g, l, out _) ? new HashSet<Keen.VRage.DCS.Components.Entity>(l) : null;
-            _joinedOf[g.Id] = (set, wj);
-        }
-        var r = new List<OrbitalGridComponent>();
+        var set = JoinedSet(g, Wall());
+        r.Clear();
         if (set == null) { r.Add(g); return r; }
         foreach (var o in grids) if (o.Entity != null && set.Contains(o.Entity)) r.Add(o);
         if (!r.Contains(g)) r.Add(g);
         return r;
     }
+
+    /// <summary>A grid's joined entities (GridMembers.MoveSet, itself included; null: joined to something static, or none
+    /// found), kept per grid for a second (_joinedOf) - every caller's: the frame step's anchor and steering, the rules'
+    /// Joined, the invariants. (One kept scratch list for the search: server thread, under FramesLock - a new one per search
+    /// before.)</summary>
+    static HashSet<Keen.VRage.DCS.Components.Entity> JoinedSet(OrbitalGridComponent g, double wj)
+    {
+        if (_joinedOf.TryGetValue(g.Id, out var cj) && wj - cj.at < 1.0) return cj.set;
+        var l = _moveSetScratch; l.Clear();
+        var set = GridMembers.MoveSet(g, l, out _) ? new HashSet<Keen.VRage.DCS.Components.Entity>(l) : null;
+        l.Clear();
+        _joinedOf[g.Id] = (set, wj);
+        return set;
+    }
+    static readonly List<Keen.VRage.DCS.Components.Entity> _moveSetScratch = new List<Keen.VRage.DCS.Components.Entity>();
+    static readonly List<OrbitalGridComponent> _bodyScratch = new List<OrbitalGridComponent>(), _steerScratch = new List<OrbitalGridComponent>(), _frameAll = new List<OrbitalGridComponent>();
 
     /// <summary>The game behind the membership rules (Core/Frames/MembershipRules): server grids by their mod id.</summary>
     internal sealed class GridWorld : SEAerospace.Frames.IFrameWorld
@@ -823,31 +1072,33 @@ public static class ServerFrames
         public long FrameOf(long id) => SystemHost.Frames?.FindByMember(id)?.Id ?? -1;
         // (the joint search once a second per grid, its entities mapped to ids through the live registry once a tick)
         static readonly Dictionary<Keen.VRage.DCS.Components.Entity, long> _ids = new Dictionary<Keen.VRage.DCS.Components.Entity, long>();
-        static long _idsTick = -1;
+        // (the answer in a kept list of this thread's: the rules enumerate it at once and keep nothing - ElectAnchor, per frame
+        //  per tick; a new array or list per call was ~0.1 MB/s, 2026-10-15. The entity -> id map built again only when grids
+        //  come or go - GridMembers.All's snapshot changes - not every tick: an entity's id is fixed while it is registered)
+        [ThreadStatic] static List<long> _joinedOut;
+        static List<OrbitalGridComponent> _idsOf;
         public IReadOnlyCollection<long> Joined(long id)
         {
+            var r = _joinedOut ??= new List<long>();
+            r.Clear();
             var g = G(id);
-            if (g == null || !GridMembers.IsConstrained(g)) return new[] { id };
-            double wj = Wall();
-            HashSet<Keen.VRage.DCS.Components.Entity> set;
-            if (_joinedOf.TryGetValue(id, out var cj) && wj - cj.at < 1.0) set = cj.set;
-            else
-            {
-                var l = new List<Keen.VRage.DCS.Components.Entity>();
-                set = GridMembers.MoveSet(g, l, out _) ? new HashSet<Keen.VRage.DCS.Components.Entity>(l) : null;
-                _joinedOf[id] = (set, wj);
-            }
-            if (set == null) return new[] { id };
-            if (_idsTick != _tick) { _ids.Clear(); foreach (var o in GridMembers.All()) if (o.IsServer && o.Entity != null) _ids[o.Entity] = o.Id; _idsTick = _tick; }
-            var r = new List<long>();
+            if (g == null || !GridMembers.IsConstrained(g)) { r.Add(id); return r; }
+            var set = JoinedSet(g, Wall());
+            if (set == null) { r.Add(id); return r; }
+            var allNow = GridMembers.All();
+            if (!ReferenceEquals(_idsOf, allNow)) { _ids.Clear(); foreach (var o in allNow) if (o.IsServer && o.Entity != null) _ids[o.Entity] = o.Id; _idsOf = allNow; }
             foreach (var e in set) if (_ids.TryGetValue(e, out long oid)) r.Add(oid);
             if (!r.Contains(id)) r.Add(id);
             return r;
         }
     }
     private static readonly List<OrbitalGridComponent> _frameGrids = new List<OrbitalGridComponent>();   // (UpdateGridFrame's: one frame at a time, from Tick)
+    /// <summary>(diagnostics: UpdateGridFrame's phase marks - start, members/anchor rules, anchor step, others - for a slow frame)</summary>
+    [ThreadStatic] static long[] _ugfT;
+    static long[] _ugf => _ugfT ??= new long[4];
     private static void UpdateGridFrame(ProximityFrame f, double dt)
     {
+        _ugf[0] = Sw(); _ugf[1] = _ugf[2] = _ugf[3] = 0;
         // (a restored frame whose berth was moved, its grids still loading: not stepped until they follow - its members are
         //  at the old berth, and every one would be "moved out" of it)
         if (f.PendingBerthShift.LengthSquared() >= 1) return;
@@ -876,15 +1127,21 @@ public static class ServerFrames
         // A station exists only on a stable orbit: a static-anchored frame whose orbit dips into its planet's border (a station
         // pushed off its orbit, a frame captured on a low one) has its static grids made ships (the game's own static/dynamic
         // switch) - then it is a ship's frame, and arrives as one. (The orbits the mod spawns things on are stable to begin with.)
-        if (!f.IsEncounter && StaticAnchor(f, out long sid0, out _) && sid0 != AsteroidAnchorId && !OrbitStable(f))
+        // (StaticAnchor once per frame step, not twice - it scans the world's static grids and its rocks, 7.5 ms/s in a profile,
+        //  2026-10-15: the second call answered the same, its first having made any join and noted any rock - asked again
+        //  only after the block below, which may have made its static grids ships)
+        long sid = 0;
+        bool staticHit = !f.IsEncounter && StaticAnchor(f, out sid, out staticPos);
+        if (staticHit && sid != AsteroidAnchorId && !OrbitStable(f))
         {
             int made = 0;
             foreach (long m in new List<long>(f.Members))
                 if (GridMembers.IsGridId(m) && GridMembers.Get(m) is OrbitalGridComponent sg && sg.IsServer && !GridMembers.IsDynamic(sg))
-                    try { var gp = sg.Entity.TryGet<Keen.Game2.Simulation.WorldObjects.CubeGrids.Physicss.GridPhysicsComponent>(); if (gp != null) { gp.SetGridMotion(false); made++; } } catch { }
+                    try { var gp = sg.Entity.TryGet<Keen.Game2.Simulation.WorldObjects.CubeGrids.Physicss.GridPhysicsComponent>(); if (gp != null) { gp.SetGridMotion(false); GridMembers.ForgetMotion(sg); made++; } } catch { }
             if (made > 0) Event($"frame #{f.Id}: its orbit meets {f.ParentBodyName}'s border (periapsis {(f.Elements.PeriapsisRadius / 1000):F0} km): {made} static grid(s) made ship(s) - a station needs a stable orbit");
+            staticHit = StaticAnchor(f, out sid, out staticPos);
         }
-        if (!f.IsEncounter && StaticAnchor(f, out long sid, out staticPos))
+        if (staticHit)
         {
             isStatic = true;
             if (f.AnchorEntityId != sid)
@@ -931,13 +1188,16 @@ public static class ServerFrames
                 Event($"frame #{f.Id}: anchor -> the player");
             }
         }
-        if (grids.Count == 0 && !isStatic) return;   // (a static anchor's frame still steps: its riders, its arrival)
+        _ugf[1] = Sw(); if (grids.Count == 0 && !isStatic) return;   // (a static anchor's frame still steps: its riders, its arrival)
 
         // Anchor election: keep a live grid anchor, else the heaviest PLAYER grid (SE1 ElectAnchor).
         // NPC grids never anchor, and an encounter frame has no anchor at all: its origin is the berth
         // (the site, pinned) and its orbit is its own (a site's ephemeris, a procedural spawn's conic).
         OrbitalGridComponent anchor = null;
         bool elected = false;
+        // (the anchor's joint check, made once in the anchor step and read again for the joined set below: a physics query each -
+        //  the two were asked the same thing within the same step, nothing between them changes a joint)
+        bool anchorJointed = false;
         if (!f.IsEncounter && !isStatic)
         {
             // The rules (Core/Frames/MembershipRules.ElectAnchor, tested offline on a fake world): a live grid anchor kept -
@@ -960,7 +1220,7 @@ public static class ServerFrames
             }
         }
 
-        double t = SystemHost.Now;
+        _ugf[2] = Sw(); double t = SystemHost.Now;
         StateVector cur = OrbitPropagation.StateAt(f.Elements, t);
         Vector3D A = Vector3D.Zero;
         Vector3D anchorPos = isStatic ? staticPos : f.BerthCenter;
@@ -1011,7 +1271,8 @@ public static class ServerFrames
             // mass-weighted velocity, and every one of them zeroed (one body; the anchor alone zeroed was refilled through
             // the joints, and drained again).
             Vector3D vA = GridMembers.Velocity(anchor);
-            List<OrbitalGridComponent> body = GridMembers.IsConstrained(anchor) ? JoinedMembers(f, anchor, grids) : null;
+            anchorJointed = GridMembers.IsConstrained(anchor);
+            List<OrbitalGridComponent> body = anchorJointed ? JoinedMembers(f, anchor, grids, _bodyScratch) : null;
             if (body != null && body.Count > 1)
             {
                 double mt = 0; Vector3D p = Vector3D.Zero;
@@ -1041,7 +1302,7 @@ public static class ServerFrames
 
         // Other members: CW differential gravity minus the frame acceleration; split beyond the slot.
         // NPC grids are Newtonian inside the frame: no relative-motion terms, and they never split off.
-        double mu = f.Elements.Mu;
+        _ugf[3] = Sw(); double mu = f.Elements.Mu;
         Vector3D rA = cur.Position;
         Vector3D gA = Grav(rA, mu);
         // A Lagrange site: its own simple dynamics (EncounterFrames.LagrangeDynamics).
@@ -1057,17 +1318,10 @@ public static class ServerFrames
         // own (a docked ship with dampeners on skipped the relative pull while the joint dragged it: the anchor's thrust,
         // drained over the anchor's mass alone, counted double for a tug pushing a ship of its own mass)
         HashSet<Keen.VRage.DCS.Components.Entity> joined = null;
-        if (anchor != null && GridMembers.IsConstrained(anchor))
+        if (anchor != null && anchorJointed)
         {
             // (the joint search once a second per anchor, not every tick)
-            double wj = Wall();
-            if (_joinedOf.TryGetValue(anchor.Id, out var cj) && wj - cj.at < 1.0) joined = cj.set;
-            else
-            {
-                var set = new List<Keen.VRage.DCS.Components.Entity>();
-                if (GridMembers.MoveSet(anchor, set, out _)) joined = new HashSet<Keen.VRage.DCS.Components.Entity>(set);
-                _joinedOf[anchor.Id] = (joined, wj);
-            }
+            joined = JoinedSet(anchor, Wall());
         }
         else if (anchor != null) _joinedOf.Remove(anchor.Id);   // (no joints left - undocked, a hinge broken: no joined set kept)
         // The frame's stations (static grids): their boxes, grown by StationHoldMargin. A ship parked at one, or locked to
@@ -1144,7 +1398,7 @@ public static class ServerFrames
             List<OrbitalGridComponent> steerSet = null;
             if ((N > 1.0 || settle > 0) && GridMembers.IsConstrained(g))
             {
-                steerSet = JoinedMembers(f, g, grids);
+                steerSet = JoinedMembers(f, g, grids, _steerScratch);
                 bool withAnchor = anchor != null && steerSet.Contains(anchor);
                 OrbitalGridComponent root = g; double rm = GridMembers.Mass(g);
                 foreach (var o in steerSet) { double m = GridMembers.Mass(o); if (m > rm) { rm = m; root = o; } }
@@ -1215,7 +1469,7 @@ public static class ServerFrames
         // the planet's space, static grids placed at their offsets (an asteroid itself stays).
         // (only grids still this frame's: one split off or let go earlier this tick has its queued position at another berth -
         //  carried along, it landed 100+ km off in the planet's space)
-        var all = new List<OrbitalGridComponent>();
+        var all = _frameAll; all.Clear();   // (kept: one frame at a time - TryMaterializeGrids keeps nothing of it)
         foreach (var g in grids) if (SEAerospace.Frames.MembershipRules.StillJudged(GridWorld.I, f.Id, g.Id)) all.Add(g);
         if (isStatic)
             foreach (long id in f.Members)
@@ -1285,6 +1539,9 @@ public static class ServerFrames
         if (isQueued) return AddToQueuedMove(g, queued, target, setVel, addVel, rotate, with);
         if (!GridMembers.Finite(target) || !GridMembers.Finite(addVel) || (setVel.HasValue && !GridMembers.Finite(setVel.Value)))
         { GridMembers.NaNRefused++; Event($"grid {g.Id} '{g.DisplayName}' not moved: non-finite target"); return false; }
+        // (the motion cache - IsDynamic, 0.25 s - can still call a grid just made a station dynamic: a move would make the game
+        //  turn it back. Asked live here, where it matters)
+        if (g.Dyn && !GridMembers.IsDynamicNow(g)) { GridMembers.ForgetMotion(g); Event($"grid {g.Id} '{g.DisplayName}' not moved: it was just made static"); return false; }
         if (!GridMembers.IsConstrained(g))
         {
             Vector3D v = setVel ?? GridMembers.Velocity(g) + addVel;
@@ -1344,6 +1601,54 @@ public static class ServerFrames
         try { if (e.Data.Has<Keen.Game2.Simulation.WorldObjects.Movement.TargetControlData>()) TargetTurns.Enqueue((from, to, rot)); } catch { }
     }
 
+    /// <summary>Tell the aero mod a grid was moved (AeroApi.NoteMoved: its structure ignores the physics contacts of the next
+    /// steps - a teleport is no collision). Silent when the aero mod is absent or older.</summary>
+    public static void AeroNoteMoved(Entity e)
+    {
+        if (e == null) return;
+        GridEdits.Moved(e);   // (the move stamp - OrbitalApi.TryGetGridEdits: the pull side of this push)
+        // (under FramesLock - a frame step's moves: told right after the lock, FlushAeroNoteMoved, still before the next physics
+        //  step; never a call into aero while holding our lock - API.md's lock rule)
+        if (System.Threading.Monitor.IsEntered(FramesLock)) { lock (_noteMovedLater) _noteMovedLater.Add(e); return; }
+        CallNoteMoved(e);
+    }
+
+    /// <summary>The moves made under FramesLock, told to the aero mod (after the lock).</summary>
+    public static void FlushAeroNoteMoved()
+    {
+        Entity[] todo;
+        lock (_noteMovedLater) { if (_noteMovedLater.Count == 0) return; todo = _noteMovedLater.ToArray(); _noteMovedLater.Clear(); }
+        foreach (var e in todo) CallNoteMoved(e);
+    }
+    static readonly List<Entity> _noteMovedLater = new List<Entity>();
+
+    static void CallNoteMoved(Entity e)
+    {
+        var fn = System.Threading.Volatile.Read(ref _noteMoved);
+        if (fn == null)
+        {
+            // (looked up again every few seconds until found - the aero mod can load later; the LAST loaded assembly that has
+            //  the method wins: an older or stale copy may be loaded too. Bound once as a typed delegate: no argument array,
+            //  no Invoke per move)
+            long now = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (now < System.Threading.Volatile.Read(ref _noteMovedRetryAt)) return;
+            System.Threading.Volatile.Write(ref _noteMovedRetryAt, now + 5 * System.Diagnostics.Stopwatch.Frequency);
+            System.Reflection.MethodInfo mi = null;
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type t; try { t = asm.GetType("AeroMod.AeroApi"); } catch { continue; }
+                var m = t?.GetMethod("NoteMoved", new[] { typeof(Entity) });   // (explicit parameter types: a later overload must not make it ambiguous)
+                if (m != null) mi = m;
+            }
+            if (mi == null) return;
+            fn = (Action<Entity>)Delegate.CreateDelegate(typeof(Action<Entity>), mi, false);
+            if (fn == null) return;   // (an unexpected signature: as absent)
+            System.Threading.Volatile.Write(ref _noteMoved, fn);
+        }
+        try { fn(e); } catch { }
+    }
+    static Action<Entity> _noteMoved; static long _noteMovedRetryAt;
+
     public static void RunDeferredMoves()
     {
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -1365,9 +1670,15 @@ public static class ServerFrames
                 var wt = e.Data.GetWorldTransform();
                 Quaternion rot; bool turn; lock (_deferredRot) { turn = _deferredRot.TryGetValue(e, out rot); if (turn) _deferredRot.Remove(e); }
                 e.Data.SetWorldTransform(new WorldTransform(p, turn ? Quaternion.Normalize(rot * wt.Orientation) : wt.Orientation));
+                AeroNoteMoved(e);   // (its next physics contacts are the move's, not loads)
                 if (turn) NoteTargetTurn(e, wt.Position, p, rot);
                 ref var rb = ref e.Data.TryGetWritePtr<Keen.VRage.Physics.Data.RigidBodyData>();
-                if (!System.Runtime.CompilerServices.Unsafe.IsNullRef(in rb)) { rb.LinearVelocity = (Vector3)v; if (turn) rb.AngularVelocity = Vector3.Transform(rb.AngularVelocity, rot); }
+                if (!System.Runtime.CompilerServices.Unsafe.IsNullRef(in rb))
+                {
+                    var was = rb.LinearVelocity;
+                    rb.LinearVelocity = (Vector3)v; if (turn) rb.AngularVelocity = Vector3.Transform(rb.AngularVelocity, rot);
+                    GridEdits.Wrote(e, rb.LinearVelocity - was);   // (OrbitalApi.TryGetGridEdits; a wheel or rotor part of the set: not recorded)
+                }
             }
             catch (Exception ex) { Event("deferred move failed: " + ex.Message); }
         }
@@ -1441,7 +1752,9 @@ public static class ServerFrames
             {
                 var t = asm.GetType("AeroMod.AeroApi");
                 if (t == null) continue;
-                _ftGround = t.GetMethod("TryGetGroundHeight"); _ftTop = t.GetMethod("GetTopSpeedAt");
+                // (explicit parameter types throughout: an aero overload added later must not make a lookup ambiguous - API.md)
+                _ftGround = t.GetMethod("TryGetGroundHeight", new[] { typeof(Entity), typeof(float).MakeByRefType() });
+                _ftTop = t.GetMethod("GetTopSpeedAt", new[] { typeof(Entity), typeof(Vector3), typeof(float) });
                 break;
             }
         }
@@ -1806,20 +2119,83 @@ public static class ServerFrames
     public static List<SensorView> SensorViews => System.Threading.Volatile.Read(ref _sensorViews);
     /// <summary>The grid the player's seat is on, as the server has it (0: not seated) - BuildViews.</summary>
     public static long PlayerSeatGrid;
-    public static List<GridView> AllViews() => new List<GridView>(System.Threading.Volatile.Read(ref _views).Values);
-    private static Dictionary<long, GridView> _views = new Dictionary<long, GridView>();
+    public static List<GridView> AllViews() => new List<GridView>(System.Threading.Volatile.Read(ref _views).Views);
+    /// <summary>The snapshot's grids without a copy (published whole each snapshot, never changed after).</summary>
+    public static GridViews ViewValues => new GridViews(System.Threading.Volatile.Read(ref _views).Views);
+    /// <summary>A snapshot's views to enumerate (foreach: no allocation - a struct enumerator, as the dictionary's values had).
+    /// (Not the array itself: a var of a mod type array is banned in game, VRS1001 - and it could be written to.)</summary>
+    public readonly struct GridViews
+    {
+        readonly GridView[] _a;
+        public GridViews(GridView[] a) { _a = a; }
+        public int Count => _a.Length;
+        public GridView this[int i] => _a[i];
+        public Enumerator GetEnumerator() => new Enumerator(_a);
+        public struct Enumerator
+        {
+            readonly GridView[] _a; int _i;
+            public Enumerator(GridView[] a) { _a = a; _i = -1; }
+            public bool MoveNext() => ++_i < _a.Length;
+            public GridView Current => _a[_i];
+        }
+    }
+    /// <summary>One published snapshot: its views (in GridMembers.All's order, as the dictionary's values were) and id -> index.</summary>
+    sealed class ViewSnap { public GridView[] Views; public Dictionary<long, int> Index; }
+    static readonly ViewSnap EmptyViews = new ViewSnap { Views = new GridView[0], Index = new Dictionary<long, int>() };
+    private static ViewSnap _views = EmptyViews;
 
     /// <summary>A server grid as of the last snapshot (every 5 server ticks).</summary>
-    public static bool View(long id, out GridView v) { v = null; return System.Threading.Volatile.Read(ref _views).TryGetValue(id, out v); }
+    public static bool View(long id, out GridView v)
+    {
+        var s = System.Threading.Volatile.Read(ref _views);
+        if (s.Index.TryGetValue(id, out int i)) { v = s.Views[i]; return true; }
+        v = null; return false;
+    }
+
+    // THE VIEWS: published whole and never changed after (readers enumerate them across FramesLock waits - Contacts, Targets:
+    // recycled dictionaries could be cleared under them, a review, 2026-10-14). The scratch sets are kept (a profile: four
+    // new ones per build).
+    // (2026-10-15, a profile: still 0.68 MB/s - a new dictionary and a new view per grid, 12 times a second. Now a snapshot is
+    //  an array and an id -> index map; the map is kept while the grids are the same ones in the same order, and a grid whose
+    //  view would read exactly as the last one keeps that object - a view is never changed once published, so sharing it is
+    //  safe. Nothing changed at all: the last snapshot stays.)
+    static readonly Dictionary<Entity, long> _bvByEntity = new Dictionary<Entity, long>();
+    static readonly HashSet<Keen.VRage.DCS.Components.Entity> _bvJoined = new HashSet<Keen.VRage.DCS.Components.Entity>();
+    static readonly HashSet<long> _bvHolding = new HashSet<long>();
+    static readonly Dictionary<long, Vector3D> _bvTrueRel = new Dictionary<long, Vector3D>();
+    static readonly List<GridView> _bvViews = new List<GridView>();
+    static readonly List<SensorView> _bvSens = new List<SensorView>();
+    static readonly List<TelescopeComponent> _bvScopes = new List<TelescopeComponent>();
+    static readonly List<RadarComponent> _bvRadars = new List<RadarComponent>();
+    /// <summary>The server seat the player sat in at the last snapshot: asked first (every seat of the world was scanned for
+    /// it, 12 times a second).</summary>
+    static Entity _bvSeat;
+
+    static bool SameView(GridView o, long id, Vector3D pos, bool hasBox, BoundingBoxD box, bool dyn, string name, double mass,
+        Keen.Game2.Simulation.GameSystems.Ownership.IdentityId owner, bool hasOwner, bool enc, bool holding, bool joined, bool hasTr, Vector3D tr)
+        => o.Id == id && o.Position.X == pos.X && o.Position.Y == pos.Y && o.Position.Z == pos.Z && o.HasBox == hasBox
+           && (!hasBox || (o.Box.Min.X == box.Min.X && o.Box.Min.Y == box.Min.Y && o.Box.Min.Z == box.Min.Z
+                           && o.Box.Max.X == box.Max.X && o.Box.Max.Y == box.Max.Y && o.Box.Max.Z == box.Max.Z))
+           && o.Dynamic == dyn && o.Name == name && o.Mass == mass && o.HasOwner == hasOwner && o.Owner.Equals(owner) && o.Encounter == enc
+           && o.Holding == holding && o.AnchorJoined == joined && o.HasTrueRel == hasTr
+           && (!hasTr || (o.TrueRel.X == tr.X && o.TrueRel.Y == tr.Y && o.TrueRel.Z == tr.Z));
+
+    static bool EntityAlive(Entity e)
+    {
+        if (e == null) return false;
+        var d = e.Data; var scene = d.Scene;
+        return scene != null && scene.IsEntityAlive(d.Entity);
+    }
 
     private static void BuildViews()
     {
-        var next = new Dictionary<long, GridView>();
-        var byEntity = new Dictionary<Entity, long>();
+        var prev = System.Threading.Volatile.Read(ref _views);
+        var views = _bvViews; views.Clear();
+        var byEntity = _bvByEntity; byEntity.Clear();
         // what is joined to each frame's anchor (the joint search the member loop keeps, once a second per anchor)
-        var joinedAll = new HashSet<Keen.VRage.DCS.Components.Entity>();
-        var holding = new HashSet<long>();
-        var trueRel = new Dictionary<long, Vector3D>();
+        var joinedAll = _bvJoined; joinedAll.Clear();
+        var holding = _bvHolding; holding.Clear();
+        var trueRel = _bvTrueRel; trueRel.Clear();
         lock (FramesLock)   // (the registry and these sets change on the client thread too)
         {
             foreach (var kv in _joinedOf)
@@ -1832,47 +2208,86 @@ public static class ServerFrames
             foreach (long hid in Holding.Keys) holding.Add(hid);
             foreach (var kv in _trueRel) trueRel[kv.Key] = kv.Value;
         }
+        bool changed = false;
         foreach (var g in GridMembers.All())
         {
             if (!g.IsServer || g.Entity == null) continue;
-            var v = new GridView { Id = g.Id, Position = GridMembers.Position(g), Dynamic = GridMembers.IsDynamic(g), Name = g.DisplayName, Mass = GridMembers.Mass(g), Holding = holding.Contains(g.Id), AnchorJoined = joinedAll.Contains(g.Entity) };
-            if (trueRel.TryGetValue(g.Id, out var tr)) { v.TrueRel = tr; v.HasTrueRel = true; }
+            Vector3D pos = GridMembers.Position(g); bool dyn = GridMembers.IsDynamic(g); string name = g.DisplayName; double mass = GridMembers.Mass(g);
+            bool hold = holding.Contains(g.Id), joined = joinedAll.Contains(g.Entity);
+            bool hasTr = trueRel.TryGetValue(g.Id, out var tr);
             // (TryGet: no exception - ~200 ms each in SE2 - for a grid whose box is not set yet, every 5 ticks)
             var tb = Keen.VRage.Core.Game.Data.BoundingBoxData.TryGetWorldAABB(g.Entity.Data);
-            if (tb.HasValue) { v.Box = tb.Value; v.HasBox = true; }
+            Keen.Game2.Simulation.GameSystems.Ownership.IdentityId owner = default; bool hasOwner = false, enc = false;
             try
             {
                 var own = g.Session?.SessionComponents.TryGet<Keen.Game2.Simulation.GameSystems.Ownership.OwnershipSessionComponent>();
-                if (own != null) { v.Owner = own.TryGetOwnerOf(g.Entity); v.HasOwner = true; }
-                v.Encounter = EncounterFrames.IsEncounterGrid(g);
+                if (own != null) { owner = own.TryGetOwnerOf(g.Entity); hasOwner = true; }
+                enc = EncounterFrames.IsEncounterGrid(g);
             }
             catch { }
-            next[g.Id] = v;
+            BoundingBoxD box = tb.HasValue ? tb.Value : default;
+            // (the last snapshot's view of this grid: at the same place in the array when nothing came or went)
+            int vi = views.Count;
+            GridView v = vi < prev.Views.Length && prev.Views[vi].Id == g.Id ? prev.Views[vi]
+                       : prev.Index.TryGetValue(g.Id, out int pi) ? prev.Views[pi] : null;
+            if (v == null || !SameView(v, g.Id, pos, tb.HasValue, box, dyn, name, mass, owner, hasOwner, enc, hold, joined, hasTr, tr))
+            {
+                v = new GridView { Id = g.Id, Position = pos, Dynamic = dyn, Name = name, Mass = mass, Holding = hold, AnchorJoined = joined };
+                if (hasTr) { v.TrueRel = tr; v.HasTrueRel = true; }
+                if (tb.HasValue) { v.Box = tb.Value; v.HasBox = true; }
+                v.Owner = owner; v.HasOwner = hasOwner; v.Encounter = enc;
+            }
+            if (vi >= prev.Views.Length || !ReferenceEquals(prev.Views[vi], v)) changed = true;
+            views.Add(v);
             byEntity[g.Entity] = g.Id;
         }
-        System.Threading.Volatile.Write(ref _views, next);
+        if (views.Count != prev.Views.Length) changed = true;
+        if (changed)
+        {
+            // (the map kept while the ids are the same, in the same order: the arrays index alike)
+            bool sameIds = views.Count == prev.Views.Length;
+            for (int i = 0; sameIds && i < views.Count; i++) sameIds = views[i].Id == prev.Views[i].Id;
+            Dictionary<long, int> index = prev.Index;
+            if (!sameIds) { index = new Dictionary<long, int>(views.Count); for (int i = 0; i < views.Count; i++) index[views[i].Id] = i; }
+            System.Threading.Volatile.Write(ref _views, new ViewSnap { Views = views.ToArray(), Index = index });
+        }
+        views.Clear();
         // the player's seat grid, by the server's own seat (its pilot the server character): the client pairs by this id
         long seatGrid = 0;
         try
         {
             var ss = ServerPlanetBeacon.ServerSession; var sch = ss != null ? PlayerCache.Of(ss) : null;
             if (sch != null && sch.Data.Has<Keen.VRage.Core.Game.Components.EntityParentData>())
-                foreach (var se in ss.GetEntitiesOfType<Keen.Game2.Simulation.WorldObjects.CubeBlocks.Pilotable.SeatComponent>())
+            {
+                // (the last seat first - still alive, its pilot still the player: the scan over every seat found that one)
+                Entity found = null;
+                var last = _bvSeat;
+                if (EntityAlive(last) && (last.TryGet<Keen.Game2.Simulation.WorldObjects.CubeBlocks.Pilotable.SeatComponent>() as Keen.Game2.Simulation.WorldObjects.CubeBlocks.Pilotable.ISeat)?.Pilot == sch) found = last;
+                else
+                    foreach (var se in ss.GetEntitiesOfType<Keen.Game2.Simulation.WorldObjects.CubeBlocks.Pilotable.SeatComponent>())
+                    {
+                        if (!((se.TryGet<Keen.Game2.Simulation.WorldObjects.CubeBlocks.Pilotable.SeatComponent>() as Keen.Game2.Simulation.WorldObjects.CubeBlocks.Pilotable.ISeat)?.Pilot == sch)) continue;
+                        found = se;
+                        break;
+                    }
+                _bvSeat = found;
+                if (found != null)
                 {
-                    if (!((se.TryGet<Keen.Game2.Simulation.WorldObjects.CubeBlocks.Pilotable.SeatComponent>() as Keen.Game2.Simulation.WorldObjects.CubeBlocks.Pilotable.ISeat)?.Pilot == sch)) continue;
-                    var ge = se.TryGet<Keen.Game2.Simulation.WorldObjects.CubeBlocks.CubeBlockComponent>()?.Grid?.Entity;
+                    var ge = found.TryGet<Keen.Game2.Simulation.WorldObjects.CubeBlocks.CubeBlockComponent>()?.Grid?.Entity;
                     if (ge != null && byEntity.TryGetValue(ge, out long gid)) seatGrid = gid;
-                    break;
                 }
+            }
+            else _bvSeat = null;
         }
-        catch { }
+        catch { _bvSeat = null; }
         System.Threading.Interlocked.Exchange(ref PlayerSeatGrid, seatGrid);
-        // the sensor blocks (their grid by its top entity)
-        var sens = new List<SensorView>();
+        // the sensor blocks (their grid by its top entity) - published anew only when one changed (a new list per build before)
+        var sens = _bvSens; sens.Clear();
+        bool sensOk = true;
         try
         {
-            TelescopeComponent[] scopes; lock (SensorBlocks.Telescopes) scopes = SensorBlocks.Telescopes.ToArray();
-            RadarComponent[] radars; lock (SensorBlocks.Radars) radars = SensorBlocks.Radars.ToArray();
+            var scopes = _bvScopes; scopes.Clear(); lock (SensorBlocks.Telescopes) scopes.AddRange(SensorBlocks.Telescopes);
+            var radars = _bvRadars; radars.Clear(); lock (SensorBlocks.Radars) radars.AddRange(SensorBlocks.Radars);
             foreach (var c in scopes)
             {
                 var top = c.Entity?.GetTopLevelParent();
@@ -1886,8 +2301,19 @@ public static class ServerFrames
                     sens.Add(new SensorView { Grid = gid, Position = c.Entity.Data.GetWorldTransform().Position, Radar = true, Working = c.Working, Power = c.Power });
             }
         }
-        catch { }
-        System.Threading.Volatile.Write(ref _sensorViews, sens);
+        catch { sensOk = false; }
+        _bvScopes.Clear(); _bvRadars.Clear();
+        var was = System.Threading.Volatile.Read(ref _sensorViews);
+        bool sameSens = sensOk && was.Count == sens.Count;
+        for (int i = 0; sameSens && i < sens.Count; i++)
+        {
+            SensorView x = was[i], y = sens[i];
+            sameSens = x.Grid == y.Grid && x.Position.X == y.Position.X && x.Position.Y == y.Position.Y && x.Position.Z == y.Position.Z
+                       && x.Radar == y.Radar && x.Working == y.Working && x.Power == y.Power;
+        }
+        // (a read that failed part way publishes what it had, as before)
+        if (!sameSens) System.Threading.Volatile.Write(ref _sensorViews, new List<SensorView>(sens));
+        sens.Clear();
     }
 
     /// <summary>The client's StaticAnchorOf: from the snapshot (StaticAnchorOf itself reads the server's entities).</summary>
@@ -1911,17 +2337,31 @@ public static class ServerFrames
         catch { }
     }
 
+    static readonly List<OrbitalGridComponent> _snapGrids = new List<OrbitalGridComponent>();
+    [ThreadStatic] static Vector3D _snapP;
+    static System.Text.StringBuilder _snapSb;   // (taken whole by the builder - Interlocked - never shared while in use)
+    static readonly Comparison<OrbitalGridComponent> _snapByDistance =
+        (x, y) => (GridMembers.Position(x) - _snapP).LengthSquared().CompareTo((GridMembers.Position(y) - _snapP).LengthSquared());
     private static void BuildSnapshot()
     {
+        // (the positions every time, the text only when wanted - GridSnapshot)
+        try { var every = GridMembers.All(); lock (GridPositions) foreach (var gg in every) if (gg.IsServer) GridPositions[gg.Id] = GridMembers.Position(gg); }
+        catch { }
+        double wallNow = Wall();
+        if (!(wallNow - System.Threading.Volatile.Read(ref _snapAsked) < SnapshotAskedSeconds) && wallNow - _snapBuilt < SnapshotIdleSeconds) return;
+        _snapBuilt = wallNow;
         try
         {
-            var grids = GridMembers.All();
+            var grids = _snapGrids; grids.Clear(); grids.AddRange(GridMembers.All());
             grids.RemoveAll(g => !g.IsServer);
             Vector3D p = PlayerPosition;
-            grids.Sort((x, y) => (GridMembers.Position(x) - p).LengthSquared().CompareTo((GridMembers.Position(y) - p).LengthSquared()));
-            var sb = new System.Text.StringBuilder();
+            // (the comparison made once, its point per thread; the builder kept per thread and cleared: the text is the same,
+            //  without a closure, a delegate and the builder's chunks per build - 124 KB/s in a profile, 2026-10-15)
+            _snapP = p;
+            grids.Sort(_snapByDistance);
+            var sb = System.Threading.Interlocked.Exchange(ref _snapSb, null) ?? new System.Text.StringBuilder();
+            sb.Clear();
             sb.AppendLine($"grids {grids.Count} server-side (nearest to player first)");
-            lock (GridPositions) foreach (var gg in grids) GridPositions[gg.Id] = GridMembers.Position(gg);
             for (int i = 0; i < Math.Min(8, grids.Count); i++)
             {
                 var g = grids[i];
@@ -1948,9 +2388,11 @@ public static class ServerFrames
                     }
             }
             sb.AppendLine($"  serverPlayer={ServerPlanetBeacon.Fmt(PlayerPosition)} gridHS={_gridHighSpeed.Count}");
-            GridSnapshot = sb.ToString();
+            _gridSnapshot = sb.ToString();
+            sb.Clear(); System.Threading.Volatile.Write(ref _snapSb, sb);   // (handed back: an overlapping tick took none, or made its own)
+            grids.Clear();
         }
-        catch (Exception e) { GridSnapshot = "grids ? " + e.Message; }
+        catch (Exception e) { _gridSnapshot = "grids ? " + e.Message; _snapGrids.Clear(); }
     }
 
     private static string CellR(Vector3D p)
@@ -1975,7 +2417,10 @@ public static class ServerFrames
 public sealed class ModCost
 {
     public static readonly ModCost Client = new ModCost(), Server = new ModCost(), Map = new ModCost();
-    private long _windowStart; private double _sum, _max; private int _n;
+    // (kept in Stopwatch ticks and added with Interlocked, no lock: every planet's beacon job stops Server at once, in parallel,
+    //  and waited on each other's lock - ModCost.Stop was 1.4 ms/s in a profile, 2026-10-15. The second that ends is published
+    //  by the one caller whose exchange moves the window on; a sample racing it lands in the next second's average)
+    private long _windowStart, _sumTicks, _maxTicks; private int _n;
     public volatile float AvgMs, MaxMs, PeakMs;   // (Peak: the worst frame ever, for one-off stalls)
     public static long Start()
     {
@@ -1984,27 +2429,47 @@ public sealed class ModCost
     }
     // (DEV, allocs on: a named section's bytes since the last Start - the map draws on one thread)
     [ThreadStatic] static long _allocMark;   // (per thread: the server's Start must not move the map's mark)
-    string _name;
+    string _name, _key;   // (the allocation watch's key, made once)
     public void Stop(long start)
     {
-        if (_name != null && FrameHost.AllocWatch) FrameHost.AllocAdd("map:" + _name, GC.GetAllocatedBytesForCurrentThread() - _allocMark);
+        if (_name != null && FrameHost.AllocWatch) FrameHost.AllocAdd(_key ??= "map:" + _name, GC.GetAllocatedBytesForCurrentThread() - _allocMark);
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
-        double ms = (now - start) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
-        lock (this)
+        long d = now - start;
+        if (System.Threading.Volatile.Read(ref _windowStart) == 0) System.Threading.Interlocked.CompareExchange(ref _windowStart, now, 0L);
+        System.Threading.Interlocked.Add(ref _sumTicks, d); System.Threading.Interlocked.Increment(ref _n);
+        long mx = System.Threading.Volatile.Read(ref _maxTicks);
+        while (d > mx) { long seen = System.Threading.Interlocked.CompareExchange(ref _maxTicks, d, mx); if (seen == mx) break; mx = seen; }
+        double ms = d * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+        if (ms > PeakMs) PeakMs = (float)ms;
+        long ws = System.Threading.Volatile.Read(ref _windowStart);
+        if (now - ws >= System.Diagnostics.Stopwatch.Frequency && System.Threading.Interlocked.CompareExchange(ref _windowStart, now, ws) == ws)
         {
-            if (_windowStart == 0) _windowStart = now;
-            _sum += ms; _n++; if (ms > _max) _max = ms; if (ms > PeakMs) PeakMs = (float)ms;
-            if ((now - _windowStart) / (double)System.Diagnostics.Stopwatch.Frequency >= 1.0)
-            { AvgMs = (float)(_sum / _n); MaxMs = (float)_max; _sum = _max = 0; _n = 0; _windowStart = now; }
+            long sum = System.Threading.Interlocked.Exchange(ref _sumTicks, 0L), max = System.Threading.Interlocked.Exchange(ref _maxTicks, 0L);
+            int n = System.Threading.Interlocked.Exchange(ref _n, 0);
+            double toMs = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            if (n > 0) AvgMs = (float)(sum * toMs / n);
+            MaxMs = (float)(max * toMs);
         }
     }
     public override string ToString() => $"{AvgMs:F2}/{MaxMs:F1}/{PeakMs:F0}";
 
     /// <summary>Named parts of a costly path (the map's draw), for finding where its time goes.</summary>
     public static readonly Dictionary<string, ModCost> Sections = new Dictionary<string, ModCost>();
+    // (a known name read from a copy of Sections without the lock - the map asks ~30 a frame; the copy is replaced whole, under
+    //  the lock, when a name is added: the same ModCost per name as ever)
+    static Dictionary<string, ModCost> _sectionsRead = new Dictionary<string, ModCost>();
     public static ModCost Sec(string name)
     {
-        lock (Sections) { if (!Sections.TryGetValue(name, out var c)) Sections[name] = c = new ModCost { _name = name }; return c; }
+        if (System.Threading.Volatile.Read(ref _sectionsRead).TryGetValue(name, out var known)) return known;
+        lock (Sections)
+        {
+            if (!Sections.TryGetValue(name, out var c))
+            {
+                Sections[name] = c = new ModCost { _name = name };
+                System.Threading.Volatile.Write(ref _sectionsRead, new Dictionary<string, ModCost>(Sections));
+            }
+            return c;
+        }
     }
     public static string SectionList()
     {

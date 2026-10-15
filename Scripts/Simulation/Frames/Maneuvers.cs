@@ -338,7 +338,7 @@ public static class Maneuvers
                                double t, Vector2 mouse, string selectedSector, string focusBody, bool allLive = false)
     {
         ClaimsMouse = false;
-        float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);   // sizes are for 1080p
+        float u = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);   // sizes are for 1080p
         DevStep(ref mouse, u);
         bool lDown = _devLeft ?? MapInput.Left, lPressed = _devPressed || (_devLeft == null && MapInput.LeftPressed);
         bool rPressed = _devRight || MapInput.RightPressed;
@@ -1818,7 +1818,7 @@ public static class Maneuvers
         if (!FrameMarkers.BeginHud(session)) return;
         try
         {
-            float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+            float u = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
             HudPanel.BeginLabels();
             if (!MapPipeline.HudPoint(camera.Position + dirW * 1e4, out var s, out bool edge)) return;
             Icon("P", s, PlanColor, true, u);

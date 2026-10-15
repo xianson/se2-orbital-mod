@@ -96,12 +96,25 @@ public static class GridGen
                 case "clear": return Clear();
                 case "measure": return a.Length > 2 ? Measure(camera, Path.IsPathRooted(a[2]) ? a[2] : Path.Combine(Dir, a[2])) : "gen measure FILE";
                 case "report": return Report();
+                case "rate":
+                {
+                    // gen rate ID: a world grid's rotation in its own frame (rad/s about X pitch, Y yaw, Z roll) and speed
+                    var e = WorldGrid(long.Parse(a[2], CI)); if (e == null) return "no grid " + a[2];
+                    if (!e.Data.TryGet<Keen.VRage.Physics.Data.RigidBodyData>(out var rb)) return "no body";
+                    var q = e.Data.GetWorldTransform().Orientation;
+                    var wl = Vector3.Transform((Vector3)rb.AngularVelocity, Quaternion.Inverse(q));
+                    return $"rate {wl.X.ToString("F4", CI)} {wl.Y.ToString("F4", CI)} {wl.Z.ToString("F4", CI)} v {((Vector3)rb.LinearVelocity).Length().ToString("F1", CI)}";
+                }
+                case "dump": return a.Length > 2 ? Dump(long.Parse(a[2], CI)) : "gen dump GRIDID";
+                case "add": return a.Length > 3 ? AddTo(long.Parse(a[2], CI), Path.IsPathRooted(a[3]) ? a[3] : Path.Combine(Dir, a[3])) : "gen add GRIDID FILE";
                 case "mounts": return Mounts();
                 case "probe": return Probe();
                 case "steer":
                 {
                     // gen steer N PITCH YAW ROLL (rad/s, grid frame: about X, Y, Z): the rotation a pilot asks for, held
-                    var e = Grid(a, 2); if (e == null) return "no grid " + (a.Length > 2 ? a[2] : "");
+                    // (a[2]: a spawned grid's number, or a world grid's id - findgrids' - e.g. the user's own plane)
+                    var e = a.Length > 2 && long.TryParse(a[2], out long wid) && GridMembers.IsGridId(wid) ? WorldGrid(wid) : Grid(a, 2);
+                    if (e == null) return "no grid " + (a.Length > 2 ? a[2] : "");
                     var w = new Vector3(float.Parse(a[3], CI), float.Parse(a[4], CI), float.Parse(a[5], CI));
                     e.Data.Set(new Keen.Game2.Simulation.WorldObjects.Movement.AngularControlData { TargetAngularVelocity = w });
                     return $"steering grid {IdOf(e)}: {V(w)} rad/s";
@@ -292,7 +305,9 @@ public static class GridGen
             foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
             {
                 var t = asm.GetType("AeroMod.AeroApi"); if (t == null) continue;
-                _flight = t.GetMethod("TryGetFlight"); _forces = t.GetMethod("TryGetForces"); _lift = t.GetMethod("TryGetLift"); _ground = t.GetMethod("TryGetGroundHeight"); break;
+                // (explicit parameter types: an aero overload added later must not make a lookup ambiguous)
+                _flight = t.GetMethod("TryGetFlight", new[] { typeof(Entity), typeof(Vector3).MakeByRefType(), typeof(float).MakeByRefType(), typeof(float).MakeByRefType(), typeof(float).MakeByRefType(), typeof(float).MakeByRefType() }); _forces = t.GetMethod("TryGetForces", new[] { typeof(Entity), typeof(Vector3).MakeByRefType(), typeof(Vector3).MakeByRefType(), typeof(float).MakeByRefType(), typeof(float).MakeByRefType(), typeof(float).MakeByRefType() });
+                _lift = t.GetMethod("TryGetLift", new[] { typeof(Entity), typeof(Vector3).MakeByRefType(), typeof(float).MakeByRefType() }); _ground = t.GetMethod("TryGetGroundHeight", new[] { typeof(Entity), typeof(float).MakeByRefType() }); break;
             }
         }
         if (_flight == null) return "aero mod's API not found";
@@ -433,6 +448,46 @@ public static class GridGen
             if (e != null) _measured.Add((g, e)); else bad++;
         }
         return Status = $"measuring {_measured.Count} blocks ({bad} failed): 'gen report' after a second";
+    }
+
+    /// <summary>A world grid (findgrids' id), server copy.</summary>
+    static Entity WorldGrid(long id) { foreach (var g in GridMembers.All()) if (g.IsServer && g.Id == id) return g.Entity; return null; }
+
+    /// <summary>gen dump ID: every block of a grid - its cells (AABB, 0.25 m) and orientation - to gen\dump_ID.txt (to place
+    /// blocks on an existing ship: the aero mod's 3x3x1 control surfaces on the user's Tu-134, 2026-10-12).</summary>
+    static string Dump(long id)
+    {
+        var e = WorldGrid(id); if (e == null) return "no grid " + id;
+        var kids = e.TryGet<HierarchyComponent>()?.Children; if (kids == null) return "no blocks";
+        Directory.CreateDirectory(Dir);
+        var sb = new System.Text.StringBuilder("# minX minY minZ maxX maxY maxZ forward up name\n");
+        int n = 0;
+        foreach (var k in kids)
+        {
+            var cb = k?.TryGet<CubeBlockComponent>(); if (cb == null) continue;
+            var b = cb.AABB; var o = cb.BlockOrientation;
+            sb.Append($"{b.Min.X} {b.Min.Y} {b.Min.Z} {b.Max.X} {b.Max.Y} {b.Max.Z} {o.Forward} {o.Up} {k}\n"); n++;
+        }
+        File.WriteAllText(Path.Combine(Dir, $"dump_{id}.txt"), sb.ToString());
+        return Status = $"{n} blocks of grid {id} -> {Path.Combine(Dir, $"dump_{id}.txt")}";
+    }
+
+    /// <summary>gen add ID FILE: the FILE's "B PREFAB X Y Z FWD UP" blocks added to an existing grid (as the flaps:
+    /// GridBuilder.AddBlockToGrid), on the server thread. Reports how many the grid gained.</summary>
+    static string AddTo(long id, string file)
+    {
+        var e = WorldGrid(id); if (e == null) return "no grid " + id;
+        int before = e.TryGet<HierarchyComponent>()?.Children?.Count ?? 0, tried = 0, bad = 0;
+        foreach (var raw in File.ReadAllLines(file))
+        {
+            var t = raw.Split('#')[0].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (t.Length < 7 || t[0] != "B") continue;
+            tried++;
+            if (!Guid.TryParse(t[1], out var g) || !DefinitionManager.Instance.TryGetDefinition(g, out PrefabDefinition pd) || pd == null) { bad++; continue; }
+            try { GridBuilder.AddBlockToGrid(e, Cell(t[2], t[3], t[4]), Orient(t[5], t[6]), pd.Get()); } catch (Exception x) { bad++; Status = "add: " + x.Message; }
+        }
+        int after = e.TryGet<HierarchyComponent>()?.Children?.Count ?? 0;
+        return Status = $"grid {id}: {tried} block(s) asked, {bad} failed, children {before} -> {after}";
     }
 
     static string Report()

@@ -33,6 +33,15 @@ namespace SEAerospace.Entry
         public bool HasAfter, Landing;
         public double ExitTime = double.NaN;
         public bool Braked => Shed > 0;
+
+        /// <summary>Back to a new one's values (every field as its initializer sets it), for a caller that keeps one to reuse
+        /// (the server's per-frame tick: a new one per frame per tick was its garbage, 2026-10-15).</summary>
+        public void Reset()
+        {
+            EnterTime = double.NaN; MaxQTime = double.NaN; MaxQRadius = 0; PeakDecel = 0;
+            BottomTime = double.NaN; SpeedAtBottom = double.NaN; Shed = 0; PeakHeat = 0; ArrivalSpeed = double.NaN;
+            DragShed = 0; Dv = 0; After = default; HasAfter = false; Landing = false; ExitTime = double.NaN;
+        }
     }
 
     /// <summary>

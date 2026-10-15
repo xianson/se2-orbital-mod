@@ -19,12 +19,26 @@ namespace OrbitalMod;
 public static class Targets
 {
     public const string GridPrefix = "grid:";
-    public static string OfGrid(long id) => GridPrefix + id.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    public static string OfGrid(long id)
+    {
+        // (made once per grid: the ship list is rebuilt twice a second, two keys a ship, and the HUD asks for them as well)
+        lock (_gridKeys)
+        {
+            if (!_gridKeys.TryGetValue(id, out var k))
+            {
+                if (_gridKeys.Count > 20000) _gridKeys.Clear();   // (bounded)
+                _gridKeys[id] = k = GridPrefix + id.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
+            return k;
+        }
+    }
+    static readonly Dictionary<long, string> _gridKeys = new Dictionary<long, string>();
     public static bool GridOf(string key, out long id)
     {
         id = 0;
+        // (the digits parsed in place: a Substring per call was a string for every ship on the HUD every frame)
         return key != null && key.StartsWith(GridPrefix, StringComparison.Ordinal)
-            && long.TryParse(key.Substring(GridPrefix.Length), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out id);
+            && long.TryParse(key.AsSpan(GridPrefix.Length), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out id);
     }
 
     /// <summary>A planet or moon (not the star).</summary>
@@ -205,7 +219,7 @@ public static class Targets
         var placed = new List<Vector3D>();
         long seat = ServerFrames.PlayerSeatGrid;
         var pf = FrameHost.PlayerFrame;
-        var views = ServerFrames.AllViews();
+        var views = ServerFrames.ViewValues;   // (the snapshot's own collection: replaced whole, never changed - no copy needed)
         // (the ship you sit in, and what is joined to it, are not targets)
         if (seat != 0 && ServerFrames.View(seat, out var sv)) placed.Add(sv.Position);
         foreach (var v in views)

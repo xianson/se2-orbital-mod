@@ -144,7 +144,7 @@ public static partial class CleanMap
     static void LagrangeMarks(List<Band> bands, SystemRegistry reg, double t, Func<Vector3D, Vector3D> W, Func<Vector3D, Vector3D> toLocal, GravityBody body, int fromPoint, int toPoint)
     {
         if (body?.Parent == null) return;
-        float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        float u = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
         var col = HudPanel.Alpha(Dim, 0.55f);
         for (int p = fromPoint; p <= toPoint; p++)
         {
@@ -177,7 +177,7 @@ public static partial class CleanMap
                 Vector2 toC = cs - s;
                 if (toC.LengthSquared() > 1f) lab = s + Vector2.Normalize(toC) * ((es - s).Length() + 14f * u);
             }
-            MapPipeline.TextScreen(lab, zoneName, col, 0.5f);
+            MapPipeline.TextScreen(lab, zoneName, col, (0.5f) * MapPipeline.MapText);
         }
     }
 
@@ -264,7 +264,7 @@ public static partial class CleanMap
                     if (b0.Selected || b0.Name == Hovered)
                     {
                         var body = reg.Find(h.Host);
-                        float lu = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+                        float lu = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
                         var tc = HudPanel.Alpha(b0.Selected ? LineSel : StateColor(b0), 0.5f);
                         if (body?.Parent != null && MapPipeline.ToScreen(W0(mk), out var pm)
                             && MapPipeline.ToScreen(W0(toLocal(body.Parent.OriginInRoot(t).Position)), out var pp)
@@ -292,8 +292,8 @@ public static partial class CleanMap
                 Marker(W0(mk), b0);
                 if (MapPipeline.ToScreen(W0(mk), out var ms))
                 {
-                    float lu = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
-                    MapPipeline.TextScreen(ms + new Vector2(0, 22f * lu), label, Quiet(b0) ? QuietText : b0.Selected ? LineSel : Text, Quiet(b0) ? 0.72f * 0.85f : 0.72f);
+                    float lu = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
+                    MapPipeline.TextScreen(ms + new Vector2(0, 22f * lu), label, Quiet(b0) ? QuietText : b0.Selected ? LineSel : Text, (Quiet(b0) ? 0.72f * 0.85f : 0.72f) * MapPipeline.MapText);
                 }
             }
             MapPipeline.PickName = null;
@@ -313,7 +313,7 @@ public static partial class CleanMap
     {
         var roids = AsteroidFrames.Of(belt.Name);
         if (roids.Count == 0) return;
-        float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        float u = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
         // A click on a rock selects it (again: unselects); its orbit is drawn while selected or targeted.
         if (MapInput.LeftReleased && !MapCamera.DragEnded && !MapMenu.Open && Hovered != null && roids.Exists(x => x.label == Hovered))
             SelectedRock = SelectedRock == Hovered ? null : Hovered;
@@ -329,7 +329,7 @@ public static partial class CleanMap
             var c = label == Maneuvers.Target ? TargetText : hot ? LineSel : live ? RoidLive : Quiet(belt) ? HudPanel.Alpha(RoidColor, 0.4f) : RoidColor;
             MapPipeline.PickName = label;
             MapPipeline.ScreenRing(w, (cluster ? 4f : 2.8f) * u, c, (hot ? 2f : 1.4f) * u);
-            if (hot || !Quiet(belt)) MapPipeline.TextScreen(s + new Vector2(0, 12f * u), Contacts.TrackedRock(label) ? label : "≈ " + label, c, hot ? 0.6f : 0.5f);
+            if (hot || !Quiet(belt)) MapPipeline.TextScreen(s + new Vector2(0, 12f * u), Contacts.TrackedRock(label) ? label : "≈ " + label, c, (hot ? 0.6f : 0.5f) * MapPipeline.MapText);
         }
         MapPipeline.PickName = null;
     }
@@ -397,7 +397,7 @@ public static partial class CleanMap
     {
         double core = SectorHomes.LagrangeCore(h, reg);
         if (!(core > 0)) return;
-        float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        float u = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
         Vector3D c = toLocal(at);
         double rl = core * LocalScale(toLocal);
         if (!MapPipeline.ToScreen(W(c), out var cs)) return;
@@ -412,7 +412,7 @@ public static partial class CleanMap
         if (rmax < 6f * u) return;   // too small to read yet
         var col = new ColorSRGB(0.55f, 0.85f, 1f, 0.55f);
         MapStyle.Boundary(pts, true, col, MapStyle.Thin(u), u);
-        if (rmax > 40f * u) MapPipeline.TextScreen(cs + new Vector2(0, rmax * 0.6f + 10f * u), "Calm core", col, 0.5f);
+        if (rmax > 40f * u) MapPipeline.TextScreen(cs + new Vector2(0, rmax * 0.6f + 10f * u), "Calm core", col, (0.5f) * MapPipeline.MapText);
     }
 
     /// <summary>Where each sector's marker was drawn (world), for centring on it.</summary>
@@ -447,7 +447,7 @@ public static partial class CleanMap
     static readonly List<Vector2> _saOuter = new List<Vector2>(97), _saInner = new List<Vector2>(97), _saPoly = new List<Vector2>(194);
     static void SectorArea(Func<Vector3D, Vector3D> W, Func<double, Vector3D> relAt, Func<Vector3D, Vector3D> toLocal, Band b, double span = SectorSpan, double kWidth = 0, bool taper = false, bool faint = false)
     {
-        float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        float u = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
         double k = kWidth > 0 ? kWidth : Math.Clamp(b.Home.Size * 0.5 * SystemHost.SectorOrbitScale / Math.Max(1, b.Home.A), 0.03, 0.065);
         bool ring = span >= 0.5;
         if (ring && !(kWidth > 0)) k = Math.Min(k, 0.03);   // a belt: a thin ring
@@ -486,7 +486,7 @@ public static partial class CleanMap
     {
         if (!MapPipeline.ToScreen(W(p), out var a) || !MapPipeline.ToScreen(W(new Vector3D(p.X, 0, p.Z)), out var f)) return;
         if ((a - f).Length() < 6f) return;
-        float u = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+        float u = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
         MapPipeline.ScreenDashed(a, f, HudPanel.Alpha(c, 0.45f), 1.2f * u, u);
         MapPipeline.ScreenDisc(f, 2.2f * u, HudPanel.Alpha(c, 0.6f));
     }
@@ -508,7 +508,7 @@ public static partial class CleanMap
         // The colonization map's own sector icons (locked, or the default), tinted by state.
         if (MapPipeline.ToScreen(world, out var ms))
         {
-            float mu = Math.Max(1f, MapPipeline.ScreenSize.Y / 1080f);
+            float mu = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
             string icon = b.State == Keen.Game2.Simulation.GameSystems.Colonization.SectorColonizationState.Locked ? "LockedIcon" : "DefaultIcon";
             bool dim = Quiet(b) || Maneuvers.UnderGhost(ms, b.Name);
             if (MapPipeline.ScreenIcon(icon, ms, (dim ? 7f : b.Selected ? 11f : 9f) * mu, dim ? HudPanel.Alpha(c, 0.35f) : c)) return;

@@ -14,7 +14,7 @@ shot() { local p; p=$(timeout 60 "$O" --eshot 2 "hudcheck" | grep -a "engine sho
 check() { local r; r=$(q "hudcheck"); echo "[$1] $r" | sed 's/ || /\n      /g'; case "$r" in "hudcheck PASS"*) P=$((P+1));; *) F=$((F+1));; esac; shot "$2"; }
 P=0; F=0
 powershell -NoProfile -Command "Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Stop-Process -Force"; sleep 4
-powershell -NoProfile -Command "Start-Process 'steam://rungameid/1133870'"; sleep 15
+. "$(dirname "$0")/launch.sh"; launch
 for i in $(seq 1 80); do L=$(LOG); grep -aq "beacon Root Entity\|Loading Failed" "$L" 2>/dev/null && break; sleep 3; done
 sleep 15; echo "log $(LOG)"
 scan; before=$(ids); bf=$(echo "$before" | head -1); echo "anchor: Blue Fighter $bf"

@@ -33,11 +33,16 @@ public static class DevFlight
             if (!found) return $"no grid '{gridName}'";
         }
         Entity best = null; double bd = double.MaxValue;
-        foreach (var e in session.GetEntitiesOfType<SeatComponent>())
-        {
-            double d = (e.Data.GetWorldTransform().Position - target).Length();
-            if (d < bd) { bd = d; best = e; }
-        }
+        // (a seat ON the named grid first - its top entity the grid: the grid's origin can be 100 m from its cockpit, and the
+        //  world's nearest seat to it was another grid's, 2026-10-15; else the nearest seat anywhere, as before)
+        //  (this runs on the client: a seat's own grid - its top entity's orbital component - by name, not the server copy)
+        for (int pass = !string.IsNullOrEmpty(gridName) ? 0 : 1; pass < 2 && best == null; pass++)
+            foreach (var e in session.GetEntitiesOfType<SeatComponent>())
+            {
+                if (pass == 0 && (e.GetTopLevelParent()?.TryGet<OrbitalGridComponent>()?.DisplayName ?? "").IndexOf(gridName, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                double d = (e.Data.GetWorldTransform().Position - target).Length();
+                if (d < bd) { bd = d; best = e; }
+            }
         if (best == null) return "no seat";
         var seat = best.TryGet<SeatComponent>() as ISeat;
         if (seat == null) return "no ISeat";

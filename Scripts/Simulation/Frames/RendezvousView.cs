@@ -315,8 +315,8 @@ public static class RendezvousView
             if (x == tbody)
             {
                 MapPipeline.ClipRect = null;
-                MapPipeline.ScreenText(head, $"Rendezvous · {tn}", white, 1.05f);
-                MapPipeline.ScreenText(head + new Vector2(0, 34f * u), $"At {tn}: plan your capture on the map", Dim, 0.8f);
+                MapPipeline.ScreenText(head, $"Rendezvous · {tn}", white, 1.05f * MapPipeline.MapText);
+                MapPipeline.ScreenText(head + new Vector2(0, 34f * u), $"At {tn}: plan your capture on the map", Dim, 0.8f * MapPipeline.MapText);
                 Status = "at the target";
                 return;
             }
@@ -356,31 +356,31 @@ public static class RendezvousView
         Porkchop.Draw(MapLayout.P(0.27f, 0.22f), MapLayout.P(0.765f, 0.72f), c, from, to, tn,
                       dep, arr, dv, note, t, mouse, u);
         MapPipeline.ClipRect = null;
-        MapPipeline.ScreenText(head, $"Rendezvous · {tn}", white, 1.05f);
-        MapPipeline.ScreenText(head + new Vector2(0, 34f * u), "Pick a window, then shape your burn on the map: your plan is the cross", Dim, 0.8f);
+        MapPipeline.ScreenText(head, $"Rendezvous · {tn}", white, 1.05f * MapPipeline.MapText);
+        MapPipeline.ScreenText(head + new Vector2(0, 34f * u), "Pick a window, then shape your burn on the map: your plan is the cross", Dim, 0.8f * MapPipeline.MapText);
         Status = $"windows to {to.Name} about {c.Name}: {Porkchop.Status}; plan dep {(double.IsNaN(dep) ? "-" : Maneuvers.Clock(dep - t))} entry {(double.IsNaN(arr) ? "-" : Maneuvers.Clock(arr - t))} dv {dv:F0} {note}";
     }
 
     public static void Draw(Keen.VRage.Core.Game.Systems.Session session, SystemRegistry reg, double t, Func<Vector3D, Vector3D> W, Vector2 mouse)
     {
         var scr = MapPipeline.ScreenSize;
-        float u = Math.Max(1f, scr.Y / 1080f);
+        float u = MapPipeline.UiScale(scr.Y);
         MapPipeline.ClipRect = MapLayout.OpenArea;
         var head = MapLayout.P(0.265f, 0.158f);
         string target = Maneuvers.Target;
         if (target == null)
         {
-            MapPipeline.ScreenText(head, "No target", new ColorSRGB(1f, 1f, 1f, 1f), 1.05f);
-            MapPipeline.ScreenText(head + new Vector2(0, 34f * u), "On the map: point at a ship, a sector or a body and press N (or right-click: Set as target), or pick one in the target list", Dim, 0.8f);
+            MapPipeline.ScreenText(head, "No target", new ColorSRGB(1f, 1f, 1f, 1f), 1.05f * MapPipeline.MapText);
+            MapPipeline.ScreenText(head + new Vector2(0, 34f * u), "On the map: point at a ship, a sector or a body and press N (or right-click: Set as target), or pick one in the target list", Dim, 0.8f * MapPipeline.MapText);
             Status = "no target";
             return;
         }
         bool targetKnown = TargetAt(target, t, out var tpar, out _);
         if (!Maneuvers.Trajectory(t, out var legs, out var applied) || legs.Count == 0 || !targetKnown)
         {
-            MapPipeline.ScreenText(head, $"Rendezvous · {Targets.Name(target)}", new ColorSRGB(1f, 1f, 1f, 1f), 1.05f);
+            MapPipeline.ScreenText(head, $"Rendezvous · {Targets.Name(target)}", new ColorSRGB(1f, 1f, 1f, 1f), 1.05f * MapPipeline.MapText);
             // (a target that is not there any more - a site dissolved, a rock you left: say so, not "no path" forever)
-            MapPipeline.ScreenText(head + new Vector2(0, 34f * u), targetKnown ? "No path to compare yet" : "Target lost  ·  right-click the map to set another, or clear it", Dim, 0.8f);
+            MapPipeline.ScreenText(head + new Vector2(0, 34f * u), targetKnown ? "No path to compare yet" : "Target lost  ·  right-click the map to set another, or clear it", Dim, 0.8f * MapPipeline.MapText);
             Status = targetKnown ? "no path" : "target lost";
             return;
         }
@@ -441,28 +441,28 @@ public static class RendezvousView
             var clip = MapPipeline.ClipRect.Value;
             MapPipeline.ScreenLine(new Vector2(clip.Min.X, os.Y), new Vector2(clip.Max.X, os.Y), Axis, 1f * u);
             MapPipeline.ScreenLine(new Vector2(os.X, clip.Min.Y), new Vector2(os.X, clip.Max.Y), Axis, 1f * u);
-            MapPipeline.ScreenText(new Vector2(clip.Min.X + 8f * u, os.Y - 22f * u), "ahead", Dim, 0.6f);
-            MapPipeline.ScreenText(new Vector2(clip.Max.X - 70f * u, os.Y - 22f * u), "behind", Dim, 0.6f);
-            MapPipeline.ScreenText(new Vector2(os.X + 8f * u, clip.Min.Y + 6f * u), $"away from {SystemHost.DisplayName(c.Name)}", Dim, 0.6f);
-            MapPipeline.ScreenText(new Vector2(os.X + 8f * u, clip.Max.Y - 24f * u), $"toward {SystemHost.DisplayName(c.Name)}", Dim, 0.6f);
+            MapPipeline.ScreenText(new Vector2(clip.Min.X + 8f * u, os.Y - 22f * u), "ahead", Dim, 0.6f * MapPipeline.MapText);
+            MapPipeline.ScreenText(new Vector2(clip.Max.X - 70f * u, os.Y - 22f * u), "behind", Dim, 0.6f * MapPipeline.MapText);
+            MapPipeline.ScreenText(new Vector2(os.X + 8f * u, clip.Min.Y + 6f * u), $"away from {SystemHost.DisplayName(c.Name)}", Dim, 0.6f * MapPipeline.MapText);
+            MapPipeline.ScreenText(new Vector2(os.X + 8f * u, clip.Max.Y - 24f * u), $"toward {SystemHost.DisplayName(c.Name)}", Dim, 0.6f * MapPipeline.MapText);
             foreach (var (rz, name) in new[] { (ServerFrames.Rendezvous.EnterRangeMeters, "arrive"), ((double)ServerFrames.SlotRadius, "leave") })
                 if (MapPipeline.ToScreen(W(P(rz, 0)), out var rs))
                 {
                     float rpx = Math.Abs(rs.X - os.X);
-                    if (rpx > 6f * u && rpx < scr.Y) { MapStyle.BoundaryCircle(os, rpx, HudPanel.Alpha(TargetCol, 0.5f), MapStyle.Thin(u), u); if (rpx > 40f * u) MapPipeline.ScreenText(os + new Vector2(rpx * 0.71f + 4f * u, -rpx * 0.71f - 18f * u), $"{name} {HudPanel.Km(rz)}", HudPanel.Alpha(TargetCol, 0.7f), 0.5f); }
+                    if (rpx > 6f * u && rpx < scr.Y) { MapStyle.BoundaryCircle(os, rpx, HudPanel.Alpha(TargetCol, 0.5f), MapStyle.Thin(u), u); if (rpx > 40f * u) MapPipeline.ScreenText(os + new Vector2(rpx * 0.71f + 4f * u, -rpx * 0.71f - 18f * u), $"{name} {HudPanel.Km(rz)}", HudPanel.Alpha(TargetCol, 0.7f), 0.5f * MapPipeline.MapText); }
                 }
             float h = 5f * u;
             MapPipeline.ScreenFill(new List<Vector2> { os + new Vector2(-h, -h), os + new Vector2(h, -h), os + new Vector2(h, h), os + new Vector2(-h, h) }, TargetCol);
-            MapPipeline.ScreenText(os + new Vector2(10f * u, 6f * u), Targets.Name(target), TargetCol, 0.7f);
+            MapPipeline.ScreenText(os + new Vector2(10f * u, 6f * u), Targets.Name(target), TargetCol, 0.7f * MapPipeline.MapText);
         }
 
         // Your path and nodes: the map's own editor, drawn through the relative frame (no ghost pinning: every arc at its true time).
         Maneuvers.MapDraw(toMap, W, double.PositiveInfinity, t, mouse, null, c.Name, allLive: true);
 
         MapPipeline.ClipRect = null;
-        MapPipeline.ScreenText(head, $"Rendezvous · {Targets.Name(target)} · about {SystemHost.DisplayName(c.Name)}", new ColorSRGB(1f, 1f, 1f, 1f), 1.05f);
+        MapPipeline.ScreenText(head, $"Rendezvous · {Targets.Name(target)} · about {SystemHost.DisplayName(c.Name)}", new ColorSRGB(1f, 1f, 1f, 1f), 1.05f * MapPipeline.MapText);
         string line = Maneuvers.TargetLine(t);
-        if (line != null) MapPipeline.ScreenText(head + new Vector2(0, 34f * u), line, Dim, 0.8f);
+        if (line != null) MapPipeline.ScreenText(head + new Vector2(0, 34f * u), line, Dim, 0.8f * MapPipeline.MapText);
         CleanMap.DrawWrapped(MapLayout.P(0.265f, 0.9f), "Click the path: add a maneuver   ·   Drag a handle: the burn   ·   Right-click: options   ·   Wheel: zoom", MapLayout.X(0.775f) - MapLayout.X(0.265f), 0.74f, Dim);   // (wrapped to the map: cut, it lost its last hints)
         Status = $"target {target} about {c.Name}, k {_k:G3}";
     }

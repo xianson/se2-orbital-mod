@@ -8,12 +8,15 @@ Space Engineers 2 compiles each mod on its own, so your mod cannot reference thi
 
 1. Find the type `OrbitalMod.OrbitalApi` in `AppDomain.CurrentDomain.GetAssemblies()`.
 2. Read `Version`. It is a `const`, so use `FieldInfo.GetRawConstantValue()`.
-3. Cache the `MethodInfo`s you use. Look again when the number of loaded assemblies changes, if the orbital mod may load after yours.
+3. Find each member by its name **and its parameter types** (`GetMethod(name, Type[])`; an `out` parameter is `typeof(T).MakeByRefType()`), and bind it once as a **typed delegate** (`Delegate.CreateDelegate(typeof(YourDelegate), method, false)`: `null` when the signature does not match). A call is then an ordinary call: no argument array, no boxing, no `MethodInfo.Invoke` per call. Look again when the number of loaded assemblies changes, if the orbital mod may load after yours.
 
 Every signature uses only .NET and engine types (`Entity`, `Vector3`, `Vector3D`, `List<T>`), never an orbital type.
 
 ```csharp
-static MethodInfo _frameOf, _orbit;
+delegate long FrameOfFn(Entity grid);
+delegate bool OrbitSummaryFn(long frameId, out double periapsisAltitude, out double apoapsisAltitude, out double period, out double inclination);
+static FrameOfFn _frameOf;
+static OrbitSummaryFn _orbit;
 static int _asmCount = -1;
 
 static bool OrbitOf(Entity grid, out double periapsisAlt, out double apoapsisAlt)
@@ -22,24 +25,25 @@ static bool OrbitOf(Entity grid, out double periapsisAlt, out double apoapsisAlt
     var asms = AppDomain.CurrentDomain.GetAssemblies();
     if (asms.Length != _asmCount)
     {
-        _asmCount = asms.Length; _frameOf = _orbit = null;
+        _asmCount = asms.Length; _frameOf = null; _orbit = null;
         foreach (var a in asms)
         {
             var t = a.GetType("OrbitalMod.OrbitalApi");
             if (t == null) continue;
             if ((int)t.GetField("Version").GetRawConstantValue() < 1) break;
-            _frameOf = t.GetMethod("GetFrameOf");
-            _orbit = t.GetMethod("TryGetFrameOrbitSummary");
+            var d = typeof(double).MakeByRefType();
+            var frameOf = t.GetMethod("GetFrameOf", new[] { typeof(Entity) });
+            var orbit = t.GetMethod("TryGetFrameOrbitSummary", new[] { typeof(long), d, d, d, d });
+            if (frameOf == null || orbit == null) break;
+            _frameOf = (FrameOfFn)Delegate.CreateDelegate(typeof(FrameOfFn), frameOf, false);
+            _orbit = (OrbitSummaryFn)Delegate.CreateDelegate(typeof(OrbitSummaryFn), orbit, false);
             break;
         }
     }
-    if (_frameOf == null) return false;   // (the orbital mod is not installed)
-    long frame = (long)_frameOf.Invoke(null, new object[] { grid });
-    if (frame < 0) return false;          // (not on an orbit)
-    var args = new object[] { frame, null, null, null, null };
-    if (!(bool)_orbit.Invoke(null, args)) return false;
-    periapsisAlt = (double)args[1]; apoapsisAlt = (double)args[2];
-    return true;
+    if (_frameOf == null || _orbit == null) return false;   // (the orbital mod is not installed, or too old)
+    long frame = _frameOf(grid);
+    if (frame < 0) return false;                             // (not on an orbit)
+    return _orbit(frame, out periapsisAlt, out apoapsisAlt, out _, out _);
 }
 ```
 
@@ -49,9 +53,11 @@ static bool OrbitOf(Entity grid, out double periapsisAlt, out double apoapsisAlt
 - **States** are relative to the frame's (or body's) parent body, in the solar system's inertial axes: m, m/s.
 - **Time** is the universe clock (`GetTime`, s), which runs faster in time warp. Pass `NaN` for "now".
 - **Where it answers:** where the frame registry lives, the machine that runs the server (single player, a host). The player calls (`GetPlayerFrame`, `GetPlayerBody`, `TryGetEntryPrediction`) answer where that player's client runs. SE2 2.4 runs both in one process.
-- **Grids:** pass the grid's server copy or, in the same process, its client copy (matched to the nearest server grid within 20 m).
-- **Threads:** any. Frame answers are copied under the frame lock.
+- **Grids:** pass the grid's server copy or, in the same process, its client copy (matched to the nearest server grid within 20 m). `TryGetGridEdits` is the exception: the server copy only (it is about the server's physics).
+- **Threads:** any. Frame answers are copied under the frame lock. **That lock is held for a whole server frame step** (milliseconds; longer in a hitch), so the members that take it (`GetFrames`, `TryGetFrame`, `GetFrameMembers`, `TryGetFrameOrbit`, `TryGetFrameOrbitSummary`, `TryGetFrameState`, `GetFrameOf`) can **block the caller that long**: never call them from a per-frame render path. The per-grid members (`GetMemberId`, `TryGetGridEdits`, the entry state and glow) take only small locks of their own.
+- **Locks (the lock rule):** never call this API while holding a lock of your own, and orbital never calls another mod while holding one of its own: its calls into the Aerodynamics Mod (the entry-source hook, the ballistic coefficients, the border's air, `NoteMoved`) are collected under the frame lock and made after it. A call that waits on the other mod's lock while the other waits on yours is a deadlock neither mod can see.
 - **Stability:** members are only **added** within a version. Changing an existing member bumps `Version`.
+- **Never overloaded:** no two public members share a name. A name-only lookup (`GetMethod(name)`) throws `AmbiguousMatchException` the day an overload appears, so a new shape gets a **new name** (`TryGetEntryState2` beside `TryGetEntryState`), and the old member stays. Look members up with their parameter types anyway. `tools/check_contract.sh` fails the build on an overload in either mod's API.
 
 ## Version 1
 
@@ -82,6 +88,7 @@ static bool OrbitOf(Entity grid, out double periapsisAlt, out double apoapsisAlt
 | Member | What it gives |
 |---|---|
 | `long GetMemberId(Entity grid)` | The grid's member id (what frames list), or −1. |
+| `bool TryGetGridEdits(Entity grid, out Vector3D velocityWrittenSum, out long moveStamp)` | *(added 2026-10-14)* What orbital has **written into the grid's physics**, for mods that balance the physics' own velocity change (the Aerodynamics Mod's contact loads: m·Δv less the known forces). `velocityWrittenSum`: the running sum (world axes, m/s, double) of every velocity change orbital wrote into its rigid body, new − old at each write: a frame anchor's motion drained into the rails every tick, warp's rescale and steering, the N² differential gravity in a frame, a spinning planet's fictitious forces, the HighSpeed exit, arrivals and moves. Take its **change** between two of your reads and subtract it (× mass) from the velocity's change: none of it is a force. `moveStamp`: changes on every teleport or turn in place orbital makes (it is never reused, so a record made anew also reads as changed): a changed stamp means that step is no load; re-baseline. When: the writes land after the physics step (a deferred move's before it), so between two reads made before the step. Server copy only; `false`: orbital never wrote into it. |
 | `long GetFrameOf(Entity grid)` | The frame the grid is in, or −1: not on an orbit (inside a planet's cell, or not framed). |
 | `long GetPlayerFrame()` | The local player's frame, or −1. |
 | `string GetPlayerBody()` | The planet whose cell the local player is in, or `""`. |
@@ -92,11 +99,14 @@ A frame on orbit that comes down into a planet's cell is first braked through th
 
 | Member | What it gives |
 |---|---|
-| `double GetSpeedCap()` | The world's speed cap (m/s), what reentry slows a frame to. |
+| `double GetSpeedCap()` | The **arrival** cap (m/s; 990, a hair under the physics' cap): what reentry slows a frame to and an arrival is capped to. Not the physics' own limit. |
+| `double GetPhysicsSpeedCap()` | *(added 2026-10-14)* The **physics'** speed cap (m/s): the engine's `VelocityLimitProvider.LinearVelocityLimit` (the world definition's `Physics.MaximumSpeedLinear`, which the physics world clamps every body to; 1000 with this mod's injector), from the server session. |
 | `bool TryGetEntryBand(string body, out double bottomRadius, out double topRadius)` | A body's band: from the planet cell's border (bottom) to the entry interface (top), radii in m. `false` without an atmosphere. |
 | `bool TryGetReentry(long frameId, out double heat, out bool braking, out double deceleration)` | A frame's heat (J/kg; the unshielded tolerance is 1.15×10⁶), whether it is braked now and how hard (m/s²). `false` when neither. |
 | `bool TryGetEntryWear(Entity grid, out double tolerance, out double wornUpTo, out double worn)` | A grid's wear this entry: its tolerance (J/kg; doubled by heavy armour in front), the heat it is worn up to, and the fraction of its forward layer worn. |
-| `bool TryGetEntryGlow(Entity grid, out Vector3 airWorld, out float strength)` | The plasma orbital reports to the Aerodynamics Mod for a grid: the air past it (world, m/s) and how hard it burns (0..1). |
+| `bool TryGetEntryState(Entity grid, out Vector3 trueAirWorld, out float density)` | *(added 2026-10-14)* A grid's re-entry as the air sees it: its **true** air velocity (world, m/s; its real speed through the band, not the physics' capped one) and the air density there (kg/m³). For heating models; the Aerodynamics Mod heats its hull from these. "Air velocity" is the **travel**: the frame's velocity less the planet's turning air at that point, v − ω×r, the direction the grid moves **into** the air (the wind it feels is the opposite), as the Aerodynamics Mod's "travel". Published on **every tick the frame is braked** (not only while the plasma shows), then faded as the glow: held 0.25 s, the density down to 0 over 1.5 s. False: not in a re-entry now. |
+| `bool TryGetEntryState2(Entity grid, out Vector3 travelWorld, out float density, out float temperature, out Vector3 brakingAccelWorld)` | *(added 2026-10-14)* The fuller state: the travel (as above), the density, the air's **temperature** there (K: the band's, which is its border's, sampled from the Aerodynamics Mod's atmosphere; the band's envelope is exponential in height, an isothermal one; 0: unknown, use your own model at the density) and the frame's **braking acceleration** (world, m/s²: against the travel, this tick's peak deceleration from drag and the cap rule). The rails apply no physical force, so the braking is what the ship's structure would feel: the Aerodynamics Mod loads its structure with it (`Structure.EntryLoads`). Density and braking fade as the glow does. False: not in a re-entry now. |
+| `bool TryGetEntryGlow(Entity grid, out Vector3 airWorld, out float strength)` | The plasma orbital reports to the Aerodynamics Mod for a grid: the air past it (world, m/s: the travel, as above) and how hard it burns (0..1). Only while the plasma shows (braking over 1 m/s², or the cap rule). |
 | `bool TryGetEntryPrediction(out string body, out double enterTime, out double peakDeceleration, out double peakHeat, out double bottomTime, out double speedAtBottom)` | The local player's next pass through a band, predicted. |
 
 ### Settings
@@ -152,4 +162,23 @@ SE2 2.4 has the engine side of programmable blocks (`InGameScriptingComponent`, 
 
 ## The Aerodynamics Mod
 
-Orbital registers an **entry source** with the Aerodynamics Mod (`AeroMod.AeroApi.RegisterEntrySource`, see that mod's `docs/API.md`) so that its plasma shows during reentry on rails. `tools/check_contract.sh`, run by the fast gate, checks that contract against the aero mod's source.
+The two mods compile apart and meet only by reflection. Every link, both ways (`tools/check_contract.sh`, run by the fast gate, checks each name and parameter list against the other mod's source, that every lookup passes its parameter types, and that neither API overloads a name):
+
+**Orbital → Aero** (`AeroMod.AeroApi`, see that mod's `docs/API.md`; all made outside the frame lock):
+
+| Member | Who | What for |
+|---|---|---|
+| `RegisterEntrySource(string, Delegate)`, `HasEntrySource(string, Delegate)` | `EntryHost` (before the locked step, ~every 10 s) | The **entry source**: the plasma of a railed re-entry (`TryGetEntryGlow`'s values). Contract number checked: aero's `EntrySourceContract` must equal `EntryHost.AeroEntryContract`. |
+| `PredictHullForces(Entity, Vector3, float, float, out Vector3, out Vector3, out float)`, `RequestForceTable(Entity)` | `EntryHost.MeasureBeta` (after the locked step) | Aerobraking: each railed frame's ballistic coefficient from aero's force tables. |
+| `TryGetAtmosphereAt(Vector3D, out float ×4)` | `EntryHost.SampleBorder` (after the locked step) | The air at a planet's border: the band's density (the rails' drag meets the physics' at the handover) and temperature (`TryGetEntryState2`). |
+| `NoteMoved(Entity)` | `ServerFrames.AeroNoteMoved` (moves made under the lock: told right after it) | The push: a grid was teleported or turned; its next physics contacts are no loads. The pull side is `TryGetGridEdits`' stamp. |
+| `SetFocusGrid`, `TryGetFlight`, `TryGetForces`, `TryGetStructure`, `TryGetStall`, `TryGetLoac`, `TryDesign`, `GetTopSpeed`, `GetTopSpeedAt`, `GetThrustAlong`, `TryGetCenterOfMass`, `GetMass`, `GetDesignPressures`, `GetControlRatio` | `BuildHints` (client) | The build hints and the seated flight gauges (STRUCT, HEAT, STALL, LOSS OF CONTROL). |
+| `TryGetGroundHeight`, `GetTopSpeedAt` | `ServerFrames.DoFlyTest` (dev) | The fly test's altitude and cruise speed. |
+| `TryGetFlight`, `TryGetForces`, `TryGetLift`, `TryGetGroundHeight`, `TryGetEntry`, `TryGetAtmosphere`, `GetFxConsistency`; `FlightFixture.Build`, `PhysicsHack.GetGravityDirection`; static fields by name (`aeroset`) | `GridGen`, `DevReentry`, `DevHarness` (dev) | Harness readouts and switches. |
+
+**Aero → Orbital** (`OrbitalMod.OrbitalApi`, this API):
+
+| Member | Who (aero) | What for |
+|---|---|---|
+| `TryGetEntryState2` (else `TryGetEntryState`) | `OrbitalLink`, `AeroEntryFx.EntryStateAt` | A railed re-entry's true travel, density and temperature (the hull heats, weakens and scorches as in a real one) and its braking (the structure is loaded with it). |
+| `TryGetGridEdits` | `OrbitalLink` → `StructureContacts` | The contact loads' momentum balance: orbital's velocity writes and moves taken out, so a drained frame anchor, a warp switch or the fictitious forces never read as loads on the plates and wheels. |

@@ -470,7 +470,11 @@ public static class DevReentry
         foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
         {
             var t = asm.GetType("AeroMod.AeroApi"); if (t == null) continue;
-            _flight = t.GetMethod("TryGetFlight"); _entry = t.GetMethod("TryGetEntry"); _atmo = t.GetMethod("TryGetAtmosphere"); _forces = t.GetMethod("TryGetForces"); break;
+            // (explicit parameter types: an aero overload added later must not make a lookup ambiguous)
+            _flight = t.GetMethod("TryGetFlight", new[] { typeof(Entity), typeof(Vector3).MakeByRefType(), typeof(float).MakeByRefType(), typeof(float).MakeByRefType(), typeof(float).MakeByRefType(), typeof(float).MakeByRefType() });
+            _entry = t.GetMethod("TryGetEntry", new[] { typeof(Entity), typeof(float).MakeByRefType(), typeof(bool).MakeByRefType() });
+            _atmo = t.GetMethod("TryGetAtmosphere", new[] { typeof(Entity), typeof(float).MakeByRefType(), typeof(float).MakeByRefType(), typeof(float).MakeByRefType(), typeof(float).MakeByRefType() });
+            _forces = t.GetMethod("TryGetForces", new[] { typeof(Entity), typeof(Vector3).MakeByRefType(), typeof(Vector3).MakeByRefType(), typeof(float).MakeByRefType(), typeof(float).MakeByRefType(), typeof(float).MakeByRefType() }); break;
         }
     }
 

@@ -277,7 +277,7 @@ public static class MapPipeline
     public static int ShownLately(string key) => _shown.TryGetValue(key, out var v) && NowS() - v.at < 0.3 ? v.cand : -1;
     public static void MarkShown(string key, int cand) => _shown[key] = (NowS(), cand);
     /// <summary>Margin (px) for a collision test: generous for a new label, lenient for one already shown.</summary>
-    public static float Hysteresis(string key) { float u = Math.Max(1f, ScreenSize.Y / 1080f); return ShownLately(key) >= 0 ? -3f * u : 3f * u; }
+    public static float Hysteresis(string key) { float u = UiScale(ScreenSize.Y); return ShownLately(key) >= 0 ? -3f * u : 3f * u; }
 
     /// <summary>No map label (or reserved area) placed this frame overlaps the box.</summary>
     public static bool Free(Vector2 min, Vector2 max)
@@ -287,6 +287,8 @@ public static class MapPipeline
         return true;
     }
     private static MethodInfo _drawLine, _drawString;
+    private static MethodInfo _getUiSystem, _mkBatch; private static Type _uiSysFor, _mkBatchFor;
+    private static readonly object[] _mkBatchArgs = { 60, "OrbitalMap" };   // (only read by Invoke: one array for every call)
     private static object _font;
     private static Keen.Game2.Client.GameSystems.CameraSystems.CameraComponent _cam;
 
@@ -304,10 +306,14 @@ public static class MapPipeline
         {
             _cam = SpecCam.CameraOf(session);
             object contracts = PlanetRenderBridge.Contracts;
-            object ui = contracts?.GetType().GetMethod("GetUISystem", Type.EmptyTypes)?.Invoke(contracts, null);
-            var mk = ui?.GetType().GetMethod("CreateImmediateMainViewBatch");
+            // (the two methods found once per type, their arguments boxed once: every HUD system opens a batch every frame -
+            //  two method lookups, an array and a box each time, 2026-10-14)
+            if (contracts != null && !ReferenceEquals(contracts.GetType(), _uiSysFor)) { var ct = contracts.GetType(); _getUiSystem = ct.GetMethod("GetUISystem", Type.EmptyTypes); _uiSysFor = ct; }
+            object ui = contracts != null ? _getUiSystem?.Invoke(contracts, null) : null;
+            if (ui != null && !ReferenceEquals(ui.GetType(), _mkBatchFor)) { var ut = ui.GetType(); _mkBatch = ut.GetMethod("CreateImmediateMainViewBatch"); _mkBatchFor = ut; }
+            var mk = ui != null ? _mkBatch : null;
             if (mk == null || _cam == null) return false;
-            _batch = mk.Invoke(ui, new object[] { 60, "OrbitalMap" });
+            _batch = mk.Invoke(ui, _mkBatchArgs);
             _mapConfig = mapConfiguration;
             BindVector();
             if (_drawLine == null)
@@ -392,34 +398,65 @@ public static class MapPipeline
     /// A dotted path, the dashes measured along its whole length (the batch's own dashing restarts on
     /// every segment, and a small shape of short segments came out solid).
     /// </summary>
+    /// <summary>
+    /// A dashed polyline. (2026-10-12: entering an orbit frame froze the game for tens of seconds and took the managed heap
+    /// to 36 GB - the orbit HUD's disc, its scale easing in from a tiny value, drew a dotted circle millions of px round:
+    /// millions of 3 px dashes a frame into the UI command buffer (one 1.4 GB array), and phase, summed in a float over the
+    /// whole length, lost its precision and crept in slivers. Now: the phase kept within one period (double), each segment
+    /// clipped to the screen first (what lies off it only moves the phase), and at most MaxDashes a call.)
+    /// </summary>
+    public static int MaxDashes = 4000;
     public static void ScreenDotted(IList<Vector2> pts, bool closed, ColorSRGB color, float width, float dash, float gap)
     {
         if (pts == null || pts.Count < 2 || !(dash > 0) || !(gap > 0)) return;
-        float period = dash + gap, phase = 0;
-        int n = closed ? pts.Count : pts.Count - 1;
-        for (int i = 0; i < n; i++)
+        double period = dash + gap, phase = 0;
+        int n = closed ? pts.Count : pts.Count - 1, dashes = 0;
+        float m = 16f;   // (a margin past the screen's edges)
+        var lo = new Vector2(-m, -m); var hi = ScreenSize + new Vector2(m, m);
+        for (int i = 0; i < n && dashes < MaxDashes; i++)
         {
             Vector2 a = pts[i], b = pts[(i + 1) % pts.Count];
             float len = (b - a).Length();
-            if (!(len > 0)) continue;
+            if (!(len > 0) || !float.IsFinite(len)) continue;
             Vector2 dir = (b - a) / len;
-            float at = 0;
-            while (at < len)
+            // the part of the segment on screen (Liang-Barsky on the screen rectangle); before it, the phase moves on
+            float t0 = 0f, t1 = len;
+            if (!ClipParam(a, dir, lo, hi, ref t0, ref t1)) { phase = (phase + len) % period; continue; }
+            phase = (phase + t0) % period;
+            double at = t0;
+            while (at < t1 && dashes < MaxDashes)
             {
-                float inPeriod = phase % period;
-                if (inPeriod < dash)
+                if (phase < dash)
                 {
-                    float on = Math.Min(dash - inPeriod, len - at);
-                    ScreenLine(a + dir * at, a + dir * (at + on), color, width);
+                    double on = Math.Min(dash - phase, t1 - at);
+                    ScreenLine(a + dir * (float)at, a + dir * (float)(at + on), color, width);
+                    dashes++;
                     at += on; phase += on;
                 }
                 else
                 {
-                    float off = Math.Min(period - inPeriod, len - at);
+                    double off = Math.Min(period - phase, t1 - at);
                     at += off; phase += off;
                 }
+                if (phase >= period) phase -= period;
             }
+            phase = (phase + (len - t1)) % period;   // (what lies past the screen)
         }
+    }
+
+    /// <summary>The span [t0, t1] of a + dir t (|dir| = 1) inside the rectangle lo..hi; false when none.</summary>
+    static bool ClipParam(Vector2 a, Vector2 dir, Vector2 lo, Vector2 hi, ref float t0, ref float t1)
+    {
+        bool Side(float p, float q, ref float u0, ref float u1)
+        {
+            if (Math.Abs(p) < 1e-12f) return q >= 0f;
+            float r = q / p;
+            if (p < 0f) { if (r > u1) return false; if (r > u0) u0 = r; }
+            else { if (r < u0) return false; if (r < u1) u1 = r; }
+            return true;
+        }
+        return Side(-dir.X, a.X - lo.X, ref t0, ref t1) && Side(dir.X, hi.X - a.X, ref t0, ref t1)
+            && Side(-dir.Y, a.Y - lo.Y, ref t0, ref t1) && Side(dir.Y, hi.Y - a.Y, ref t0, ref t1) && t1 > t0;
     }
 
     /// <summary>A body's globe this frame (world centre and radius): lines behind it are not drawn.</summary>
@@ -456,6 +493,16 @@ public static class MapPipeline
     /// <summary>Text in the map's own font at a world point, centred.</summary>
     /// <summary>All map text is drawn this much larger than the sizes the callers ask for (legibility).</summary>
     public static float TextScale = 1.3f;
+    /// <summary>The HUD's scale for a screen this tall: its sizes are for 1080p (2026-10-12, the user: "not sure our ui scales
+    /// well with resolution" - it was max(1, h / 1080) at 46 places: never under 1, so at 480p everything kept its 1080p
+    /// size, twice too big; floored at MinUiScale only for a tiny window).</summary>
+    public static float UiScale(float screenHeight) => Math.Max(MinUiScale, screenHeight / 1080f);
+    public static float MinUiScale = 0.4f;
+    /// <summary>The map's text sizes (fixed scales, laid out for 4K): x screen height / 2160 - the 4K look kept, smaller
+    /// screens the same proportions (at 640x480 the map's titles, labels and lists ran over each other, 2026-10-12) -
+    /// floored at MinMapText so text stays readable in a small window.</summary>
+    public static float MapText => Math.Max(MinMapText, ScreenSize.Y / 2160f);
+    public static float MinMapText = 0.45f;
 
 
     /// <summary>The font's own measure of a string at scale 1 (the method is found once).</summary>
@@ -586,7 +633,7 @@ public static class MapPipeline
         if (_font == null || string.IsNullOrEmpty(text)) return new Vector2((text?.Length ?? 0) * 12f * scale, 22f * scale);
         // Never under ~8 px a character and 20 px a line per unit scale at 1080p: the font's own
         // measure comes out short at high resolutions (4K: labels and bars ran together).
-        float u = Math.Max(1f, ScreenSize.Y / 1080f);
+        float u = UiScale(ScreenSize.Y);
         var est = new Vector2(text.Length * 8.2f * scale * u, 20f * scale * u);
         var v = Measure(text) * scale;
         return new Vector2(Math.Max(v.X, est.X), Math.Max(v.Y, est.Y));
@@ -631,7 +678,8 @@ public static class MapPipeline
             catch { _path = null; }
         }
         if (!ReferenceEquals(_solidFor, _drawLine)) { _solid = _drawLine.GetParameters()[4].DefaultValue; _solidFor = _drawLine; }
-        _lineArgs[0] = a; _lineArgs[1] = b; _lineArgs[2] = color; _lineArgs[3] = width; _lineArgs[4] = _solid; _lineArgs[5] = 1f; _lineArgs[6] = false;
+        _lineArgs[0] = Box(ref _bLineA, a); _lineArgs[1] = Box(ref _bLineB, b); _lineArgs[2] = Box(ref _bLineCol, color); _lineArgs[3] = Box(ref _bLineW, width);
+        _lineArgs[4] = _solid; _lineArgs[5] = _one; _lineArgs[6] = _false;
         _drawLine.Invoke(_batch, _lineArgs);
     }
     static readonly QuadraticBezier2[] _seg1 = new QuadraticBezier2[1];
@@ -644,11 +692,23 @@ public static class MapPipeline
     static readonly List<Vector2> _discPoly = new List<Vector2>(48);
     static void DrawStringArgs(Vector2 at, ColorSRGB color, string text, float scale)
     {
-        _strArgs[0] = _font; _strArgs[1] = at; _strArgs[2] = color; _strArgs[3] = text; _strArgs[4] = scale;
+        _strArgs[0] = _font; _strArgs[1] = Box(ref _bStrAt, at); _strArgs[2] = Box(ref _bStrCol, color); _strArgs[3] = text; _strArgs[4] = Box(ref _bStrScale, scale);
         _strArgs[5] = _false; _strArgs[6] = null; _strArgs[7] = _zero;
         _drawString.Invoke(_batch, _strArgs);
     }
     static readonly object[] _lineArgs = new object[7];
+
+    // The varying arguments of the reflected draws (a point, a colour, a size, a box) each in ONE box, reused: its value
+    // written in place (Unsafe.Unbox). Invoke copies an argument out of its box for the call and keeps nothing, so one box
+    // serves every call. Boxed anew they were three boxes a string, two an icon, two a GPS marker - with the batch's
+    // lookups, most of each HUD system's garbage (2026-10-14). Client thread only, as the argument arrays they go in.
+    static object Box<T>(ref object box, T value) where T : struct
+    {
+        if (box == null) box = value;
+        else System.Runtime.CompilerServices.Unsafe.Unbox<T>(box) = value;
+        return box;
+    }
+    static object _bStrAt, _bStrCol, _bStrScale, _bImgBox, _bImgCol, _bLineA, _bLineB, _bLineCol, _bLineW, _bMarkS, _bMarkDist;
 
     // ── the batch's own vector drawing: smooth paths, fills, and the game's icons ──
     // DrawPath / DrawFill take a ReadOnlySpan, which reflection cannot pass: they are bound as typed
@@ -667,6 +727,9 @@ public static class MapPipeline
     static void CallFill<T>(Delegate d, QuadraticBezier2[] a, int n, ColorSRGB c) => ((FillFn<T>)d)(new ReadOnlySpan<QuadraticBezier2>(a, 0, n), c, default(T), false);
 
     static double _iconRetryAt;
+    sealed class VecBind { public MethodInfo PathM, FillM; public PathFn Path; public Action<QuadraticBezier2[], int, ColorSRGB> Fill; }
+    static readonly Dictionary<object, VecBind> _vecBinds = new Dictionary<object, VecBind>();
+    static int _vecKey = -1; static string _vecText;
     static void BindVector()
     {
         _path = null; _fill = null;
@@ -681,15 +744,28 @@ public static class MapPipeline
                     if (m.Name == "DrawFill" && m.GetParameters().Length == 4) _drawFillM = m;
                     if (m.Name == "DrawImage" && m.GetParameters().Length == 6) _drawImageM = m;
                 }
-            if (_drawPathM != null) _path = (PathFn)Delegate.CreateDelegate(typeof(PathFn), _batch, _drawPathM);
-            if (_drawFillM != null)
+            // (the delegates are bound to the batch object, and the game's batches are pooled - the same few come back: bound
+            //  once per batch object and kept. Rebuilt every UiBegin they were three delegates, a generic type lookup and a
+            //  parameter array a frame for every HUD system, 2026-10-14)
+            if (!_vecBinds.TryGetValue(_batch, out var vb) || !ReferenceEquals(vb.PathM, _drawPathM) || !ReferenceEquals(vb.FillM, _drawFillM))
             {
-                Type g = _drawFillM.GetParameters()[2].ParameterType;
-                var d = Delegate.CreateDelegate(typeof(FillFn<>).MakeGenericType(g), _batch, _drawFillM);
-                _callFill ??= typeof(MapPipeline).GetMethod(nameof(CallFill), BindingFlags.NonPublic | BindingFlags.Static).MakeGenericMethod(g);
-                _fill = (Action<QuadraticBezier2[], int, ColorSRGB>)Delegate.CreateDelegate(typeof(Action<QuadraticBezier2[], int, ColorSRGB>), d, _callFill);
+                vb = new VecBind { PathM = _drawPathM, FillM = _drawFillM };
+                if (_drawPathM != null) vb.Path = (PathFn)Delegate.CreateDelegate(typeof(PathFn), _batch, _drawPathM);
+                if (_drawFillM != null)
+                {
+                    Type g = _drawFillM.GetParameters()[2].ParameterType;
+                    var d = Delegate.CreateDelegate(typeof(FillFn<>).MakeGenericType(g), _batch, _drawFillM);
+                    _callFill ??= typeof(MapPipeline).GetMethod(nameof(CallFill), BindingFlags.NonPublic | BindingFlags.Static).MakeGenericMethod(g);
+                    vb.Fill = (Action<QuadraticBezier2[], int, ColorSRGB>)Delegate.CreateDelegate(typeof(Action<QuadraticBezier2[], int, ColorSRGB>), d, _callFill);
+                }
+                if (_vecBinds.Count >= 32) _vecBinds.Clear();   // (bounded: the pool hands out a few, never many)
+                _vecBinds[_batch] = vb;
             }
-            VectorStatus = $"path={_path != null} fill={_fill != null} image={_drawImageM != null}";
+            _path = vb.Path; _fill = vb.Fill;
+            // (the same text while nothing changed - unless an icon's error was written over it meanwhile)
+            int vk = (_path != null ? 1 : 0) | (_fill != null ? 2 : 0) | (_drawImageM != null ? 4 : 0);
+            if (vk != _vecKey || !ReferenceEquals(VectorStatus, _vecText)) { _vecText = $"path={_path != null} fill={_fill != null} image={_drawImageM != null}"; _vecKey = vk; }
+            VectorStatus = _vecText;
         }
         catch (Exception e) { VectorStatus = "bind failed: " + (e.InnerException ?? e).Message; _path = null; _fill = null; }
     }
@@ -813,7 +889,7 @@ public static class MapPipeline
         {
             var box = new BoundingBox2(c - new Vector2(half, half), c + new Vector2(half, half));
             if (PickName != null) AddPick(c - new Vector2(half, 0), c + new Vector2(half, 0));
-            _imgArgs[0] = h; _imgArgs[1] = box; _imgArgs[2] = color; _imgArgs[3] = _false; _imgArgs[4] = null; _imgArgs[5] = null;
+            _imgArgs[0] = h; _imgArgs[1] = Box(ref _bImgBox, box); _imgArgs[2] = Box(ref _bImgCol, color); _imgArgs[3] = _false; _imgArgs[4] = null; _imgArgs[5] = null;
             _drawImageM.Invoke(_batch, _imgArgs);
             return true;
         }
@@ -843,7 +919,7 @@ public static class MapPipeline
         if (_batch == null || _drawImageM == null || !MapIcons.Has(name)) return false;
         object h = MapIcons.Handle(name);
         if (h == null) return false;
-        try { _imgArgs[0] = h; _imgArgs[1] = new BoundingBox2(min, max); _imgArgs[2] = color; _imgArgs[3] = _false; _imgArgs[4] = null; _imgArgs[5] = null; _drawImageM.Invoke(_batch, _imgArgs); return true; }
+        try { _imgArgs[0] = h; _imgArgs[1] = Box(ref _bImgBox, new BoundingBox2(min, max)); _imgArgs[2] = Box(ref _bImgCol, color); _imgArgs[3] = _false; _imgArgs[4] = null; _imgArgs[5] = null; _drawImageM.Invoke(_batch, _imgArgs); return true; }
         catch { return false; }
     }
 
@@ -954,6 +1030,7 @@ public static class MapPipeline
         return true;
     }
 
+    static readonly Vector2[] _dia = new Vector2[5];
     public static void HudMarker(Vector3D world, string name, string distance, ColorSRGB color)
     {
         if (_batch == null || _drawLine == null || _cam == null) return;
@@ -974,10 +1051,10 @@ public static class MapPipeline
                 float ax = centre.X - mx, ay = centre.Y - my;   // on an ellipse, as the game clamps its markers
                 s = centre + dir * (1f / (float)Math.Sqrt(dir.X * dir.X / (ax * ax) + dir.Y * dir.Y / (ay * ay)));
             }
-            float u = Math.Max(1f, size.Y / 1080f);
+            float u = UiScale(size.Y);
             float r = 9f * u;
             Vector2 up = new Vector2(0, -r), rt = new Vector2(r, 0);
-            var dia = new[] { s + up, s + rt, s - up, s - rt, s + up };
+            var dia = _dia; dia[0] = s + up; dia[1] = s + rt; dia[2] = s - up; dia[3] = s - rt; dia[4] = s + up;   // (one array, reused)
             if (!ScreenIcon("diamond", s, 8f * u, color)) for (int i = 0; i < 4; i++) Seg(dia[i], dia[i + 1], color, 2f * u);
             ScreenDot(s, 2.5f * u, color);
             ScreenText(s + new Vector2(14, -14) * u, name ?? "", color, 0.62f * u);
@@ -996,6 +1073,8 @@ public static class MapPipeline
     /// Draw a GPS marker exactly as the game's HUD does (its icon, name, colour; the edge arrow when off
     /// screen), at a world point, showing the given distance. False if the game's drawing is unavailable.
     /// </summary>
+    static object[] _markerArgs; static object _boxedCentre; static Vector2 _boxedCentreAt;
+    static readonly object BoxedTrue = true, BoxedFalse = false;
     public static bool GameMarker(Keen.VRage.Core.Game.Systems.Session session, object marker, Vector3D world, double distance)
     {
         if (_batch == null || _cam == null || marker == null) return false;
@@ -1019,7 +1098,14 @@ public static class MapPipeline
                 float k = 1f / (float)Math.Sqrt(dir.X * dir.X / (ax * ax) + dir.Y * dir.Y / (ay * ay));
                 s = centre + dir * k;
             }
-            _drawSingle.Invoke(null, new object[] { _gpsSettings, _batch, _lodFull, centre, centre, s, false, edge, marker, distance });
+            // (one argument array, the constants boxed once: an array and ten boxes per marker per frame were most of the
+            //  HUD's garbage, 2026-10-14)
+            var args = _markerArgs ??= new object[10];
+            if (_boxedCentre == null || _boxedCentreAt != centre) { _boxedCentre = centre; _boxedCentreAt = centre; }
+            args[0] = _gpsSettings; args[1] = _batch; args[2] = _lodFull; args[3] = _boxedCentre; args[4] = _boxedCentre;
+            args[5] = Box(ref _bMarkS, s); args[6] = BoxedFalse; args[7] = edge ? BoxedTrue : BoxedFalse; args[8] = marker; args[9] = Box(ref _bMarkDist, distance);
+            _drawSingle.Invoke(null, args);
+            args[8] = null;
             return true;
         }
         catch (Exception e)

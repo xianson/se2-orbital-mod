@@ -31,6 +31,16 @@ public class StationKeepCharge : Component, IInSceneListener,
     internal static readonly List<StationKeepCharge> All = new List<StationKeepCharge>();
     static readonly Dictionary<Entity, List<StationKeepCharge>> _byGrid = new Dictionary<Entity, List<StationKeepCharge>>();
     static double _byGridAt = -1;
+    // THE THRUSTERS BY GRID, KEPT (a profile, 2026-10-15: rebuilt every tick - every thruster of the world copied into an array,
+    // its top parent looked up, a new list per grid - this was 1.7 MB/s, the server's largest garbage, and most of ChargeGrid's
+    // 13 ms/s). Now built again only when a thruster comes or goes (_allVersion), when a holding grid's own list is found
+    // stale (a thruster of it on another grid now: checked on every charge), and at most ByGridSeconds apart (a thruster
+    // moved ONTO a holding grid without leaving the scene is charged within that). Its lists are pooled; server thread only
+    // (ChargeGrid runs in the frame step, under FramesLock).
+    public static double ByGridSeconds = 0.25;
+    static int _allVersion, _byGridVersion = -1;   // (_allVersion: under lock (All))
+    static readonly List<List<StationKeepCharge>> _listPool = new List<List<StationKeepCharge>>();
+    static readonly List<StationKeepCharge> _rebuildBuf = new List<StationKeepCharge>();
     private float _rate;
     private double _stamp;
     private double _full = -1;
@@ -71,12 +81,38 @@ public class StationKeepCharge : Component, IInSceneListener,
     void Keen.Game2.Simulation.WorldObjects.CubeBlocks.ResourceDistribution.Resources.IResourceNode.GetResources(
         Keen.VRage.Library.Memory.BufferReference<Keen.Game2.Simulation.WorldObjects.CubeBlocks.ResourceDistribution.Resources.ResourceNodeData> resources) { }
 
-    void IInSceneListener.OnAddedToScene() { lock (All) All.Add(this); }
-    void IInSceneListener.OnBeforeRemovedFromScene() { lock (All) All.Remove(this); }
+    void IInSceneListener.OnAddedToScene() { lock (All) { All.Add(this); _allVersion++; } }
+    void IInSceneListener.OnBeforeRemovedFromScene() { lock (All) { All.Remove(this); _allVersion++; } }
 
     static double Wall() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
 
-    public static string Status = "-";
+    /// <summary>The last charge, for the harness: text made when read (2026-10-15: a new string per holding grid per tick before).
+    /// (Its three parts written apart: a read racing a charge may mix two charges' numbers - diagnostics only.)</summary>
+    public static string Status => _stState == 0 ? "-" : _stState == 1 ? "holding: no thrusters" : $"holding: {_stN} thruster(s) on the grid asked {_stTotal:G3}/s in all";
+    static volatile int _stState; static int _stN; static double _stTotal;
+
+    /// <summary>The thrusters by grid built again (ChargeGrid's: server thread). Its old lists back to the pool.</summary>
+    static void RebuildByGrid(double now)
+    {
+        foreach (var l in _byGrid.Values) { l.Clear(); _listPool.Add(l); }
+        _byGrid.Clear();
+        var every = _rebuildBuf;
+        lock (All) { every.Clear(); every.AddRange(All); _byGridVersion = _allVersion; }
+        foreach (var c in every)
+        {
+            var top = c.Entity?.GetTopLevelParent();
+            if (top == null) continue;
+            if (!_byGrid.TryGetValue(top, out var l))
+            {
+                if (_listPool.Count > 0) { l = _listPool[_listPool.Count - 1]; _listPool.RemoveAt(_listPool.Count - 1); }
+                else l = new List<StationKeepCharge>();
+                _byGrid[top] = l;
+            }
+            l.Add(c);
+        }
+        every.Clear();
+        _byGridAt = now;
+    }
 
     /// <summary>
     /// A grid holding station this tick: needLocal is the force (N, the grid's axes) its thrusters would have to make
@@ -86,9 +122,14 @@ public class StationKeepCharge : Component, IInSceneListener,
     {
         if (grid == null) return;
         double now = Wall(), total = 0; int n = 0;
-        // (the thrusters by grid, gathered once a tick - every thruster in the world was copied for every holding grid)
-        if (now - _byGridAt > 0.01) { _byGrid.Clear(); StationKeepCharge[] every; lock (All) every = All.ToArray(); foreach (var c in every) { var top = c.Entity?.GetTopLevelParent(); if (top == null) continue; if (!_byGrid.TryGetValue(top, out var l)) _byGrid[top] = l = new List<StationKeepCharge>(); l.Add(c); } _byGridAt = now; }
-        if (!_byGrid.TryGetValue(grid, out var mine)) { Status = "holding: no thrusters"; return; }
+        // (the thrusters by grid: kept - see _byGrid - built again when thrusters came or went, or ByGridSeconds on)
+        int ver; lock (All) ver = _allVersion;
+        if (ver != _byGridVersion || now - _byGridAt > ByGridSeconds) RebuildByGrid(now);
+        _byGrid.TryGetValue(grid, out var mine);
+        // (every thruster of this grid's list still on it: one moved to another grid since - a split - and the lists are built anew)
+        if (mine != null)
+            foreach (var c in mine) { var top = c.Entity?.GetTopLevelParent(); if (top == null || !top.Equals(grid)) { RebuildByGrid(now); _byGrid.TryGetValue(grid, out mine); break; } }
+        if (mine == null) { _stState = 1; return; }
         var all = mine;
         // (the air it is in (no water in orbit): a thruster that makes no thrust here - an atmospheric one in vacuum - is not charged)
         float air = 0f, water = 0f;
@@ -119,15 +160,19 @@ public class StationKeepCharge : Component, IInSceneListener,
             }
             catch { }
         }
-        Status = $"holding: {n} thruster(s) on the grid asked {total:G3}/s in all";
+        _stN = n; _stTotal = total; _stState = 2;
     }
 
     /// <summary>Once a server tick: a thruster whose grid was not charged lately (it stopped holding, left its frame) asks nothing.</summary>
+    [ThreadStatic] static List<StationKeepCharge> _sweep;
     public static void Sweep()
     {
         double now = Wall();
-        StationKeepCharge[] all; lock (All) all = All.ToArray();
+        // (into a list of this thread's, kept: an array of every thruster per call was 0.35 MB/s - a profile, 2026-10-14)
+        var all = _sweep ??= new List<StationKeepCharge>();
+        lock (All) { all.Clear(); all.AddRange(All); }
         foreach (var c in all) if (c._rate != 0f && now - c._stamp > 0.5) { c._rate = 0f; try { c._power?.UpdateConsumedResource(); } catch { } }
+        all.Clear();
     }
 
     /// <summary>DEV (harness): what the thrusters of a grid ask now.</summary>

@@ -381,6 +381,7 @@ public static class SystemHost
         //  before this world's zones are set)
         BerthAllocator.IsForbidden = null; BerthAllocator.IsClear = null;
         EntryHost.ResetWorld();
+        GridEdits.Clear();   // (what we wrote into the last world's grids: OrbitalApi.TryGetGridEdits)
         Maneuvers.ResetWorld(); GameMap.ResetWorld(); CleanMap.Reset(); CleanMap.ResetView(); MapGlobes.ResetWorld();
         VoxelBerthRegistry.Clear();
         SystemBuildResult res = SystemRegistry.Build(def);
@@ -452,7 +453,13 @@ public static class SystemHost
     /// <summary>A planet body by its beacon (for renderers).</summary>
     public static string BodyNameOf(PlanetBeacon beacon)
     {
+        if (beacon == null) return null;
         foreach (var kv in BeaconOf) if (ReferenceEquals(kv.Value, beacon)) return kv.Key;
+        // (a beacon made again since the system was built - the planet's component holds the one it found first: matched by
+        //  its centre. By reference alone Kemik matched nothing - its component fell to the legacy path, its globe drawn at
+        //  its literal world place, 4000 km off, besides its marker at its place in the system: a second globe in the sky
+        //  and "in both frames at once", 2026-10-13)
+        foreach (var kv in BeaconOf) if (kv.Value != null && (kv.Value.Center - beacon.Center).LengthSquared() < 1000.0 * 1000.0) return kv.Key;
         return null;
     }
 }

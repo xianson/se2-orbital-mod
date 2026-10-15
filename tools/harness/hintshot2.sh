@@ -7,8 +7,7 @@ LOGF() { ls -t "$LOGDIR"/SpaceEngineers2_*[0-9].log | grep -v "Render\|Mission\|
 shot() { send "shotui on"; local f; f=$(timeout 40 "$SP/orb.sh" --eshot 3 "$1" | grep -a -o "[A-Za-z]:[^ ]*\.png" | tail -1)
   # (minimized, the engine may not draw: shown again without focus for the shot, then down)
   if [ -z "$f" ]; then Q restore; sleep 2; f=$(timeout 40 "$SP/orb.sh" --eshot 3 "$1" | grep -a -o "[A-Za-z]:[^ ]*\.png" | tail -1); Q back; f="$f (window shown for it)"; fi; echo "$f"; }
-powershell -NoProfile -Command "Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Stop-Process -Force"; sleep 3
-powershell -NoProfile -Command "Start-Process 'steam://rungameid/1133870'"
+launch
 Q() { [ -n "$NOQUIET" ] && return 0; powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$SP/quiet.ps1")" "$1" >/dev/null 2>&1; }
 for i in $(seq 1 300); do grep -aq 'beacon Root Entity\|Loading Failed' "$(LOGF)" 2>/dev/null && break; [ $((i % 4)) = 0 ] && Q back; sleep 1; done
 for i in $(seq 1 60); do "$SP/orb.sh" findgrids | grep -aq '=' && break; sleep 1; done

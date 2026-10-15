@@ -35,7 +35,7 @@ exitcase() {   # exitcase <tag> <ship>: out; 8 s sampled; judged (both in no fra
 }
 
 powershell -NoProfile -Command "Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Stop-Process -Force"; sleep 4
-powershell -NoProfile -Command "Start-Process 'steam://rungameid/1133870'"; sleep 15
+. "$(dirname "$0")/launch.sh"; launch
 for i in $(seq 1 80); do L=$(LOG); grep -aq "beacon Root Entity\|Loading Failed" "$L" 2>/dev/null && break; sleep 3; done
 sleep 20; echo "log $(LOG)"
 scan; bf=$(ids | head -1); echo "ship: Blue Fighter $bf"

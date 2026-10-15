@@ -11,7 +11,7 @@ namespace OrbitalMod;
 /// (the aero mod's ground ray; sea level when it has none), turned level - the cockpit's nose horizontal on its heading,
 /// its top up - and flying along that nose at cruise speed: the aero mod's top speed that way at CruiseThrottle (the
 /// build boxes' cruise; 150 m/s when it has none). Planet-fixed velocity, so that is your airspeed (wind aside).
-/// Only with the dev flag (OrbitalConfig.DevHarness). Harness: the dev key "flytest".
+/// Ctrl+T works without the dev flag (the user, 2026-10-12: "add it"); the harness key "flytest" needs it.
 /// </summary>
 public static class FlyTest
 {
@@ -21,9 +21,8 @@ public static class FlyTest
 
     internal static void ClientTick(Keen.VRage.Core.Game.Systems.Session session)
     {
-        if (!OrbitalConfig.DevHarness) return;
         bool ctrlT = MapInput.KeyPressed(KeyboardInputs.T) && MapInput.KeyDown(KeyboardInputs.Control);
-        if (!(ctrlT | MapInput.DevKeys.Remove("flytest"))) return;
+        if (!(ctrlT | (OrbitalConfig.DevHarness && MapInput.DevKeys.Remove("flytest")))) return;
         var grid = FrameHost.SeatGrid; var seat = FrameHost.SeatBlock;
         if (!FrameHost.Seated || grid == null || seat == null || FrameHost.SeatGridServerId == 0) { Status = "not seated in a ship"; return; }
         // the cockpit's nose and top in its grid's axes (the server's copy has the same)

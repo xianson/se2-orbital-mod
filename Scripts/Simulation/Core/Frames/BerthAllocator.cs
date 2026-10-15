@@ -66,6 +66,8 @@ namespace SEAerospace.Frames
         /// cell on demand; stable for the life of the session.</summary>
         public Vector3D SlotCenter(int slotId)
         {
+            // (an id outside the lattice - negative, or past MaxSlots - is nowhere, not an index past the cell list: 2026-10-15)
+            if (slotId < 0 || slotId >= MaxSlots) return new Vector3D(double.NaN, double.NaN, double.NaN);
             EnsureCells(slotId + 1);
             Vector3I c = _cells[slotId];
             return _origin + new Vector3D(c.X * _spacing, c.Y * _spacing, c.Z * _spacing);

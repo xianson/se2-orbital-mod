@@ -121,6 +121,7 @@ public static class GameMap
             {
                 // The body you are about: your frame's, else the smallest sphere of influence you are in
                 // (moons too: at Palatine it said Verdure), else the nearest planet.
+                // (strictly inside, as GravityBody.DeepestSoiContaining: on the edge it said one body, the frames another - 2026-10-15)
                 var pf = FrameHost.PlayerFrame;
                 if (pf != null && reg.Find(pf.ParentBodyName) != null) youPlanet = pf.ParentBodyName;
                 else
@@ -129,7 +130,7 @@ public static class GameMap
                     foreach (var body in reg.Bodies)
                     {
                         if (body.IsRoot || !(body.SoiRadius < bestSoi)) continue;
-                        if ((ycel - body.OriginInRoot(t).Position).Length() <= body.SoiRadius) { bestSoi = body.SoiRadius; youPlanet = body.Name; }
+                        if ((ycel - body.OriginInRoot(t).Position).Length() < body.SoiRadius) { bestSoi = body.SoiRadius; youPlanet = body.Name; }
                     }
                     if (youPlanet == null)
                     {

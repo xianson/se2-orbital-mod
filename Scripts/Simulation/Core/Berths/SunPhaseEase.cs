@@ -165,7 +165,8 @@ namespace SEAerospace
         public static double Wrap(double angle)
         {
             double f = angle / TwoPi;
-            return (f - Math.Floor(f)) * TwoPi;
+            double w = (f - Math.Floor(f)) * TwoPi;
+            return w < TwoPi ? w : 0.0;   // (a tiny negative angle rounded up to exactly 2pi: 2026-10-15)
         }
 
         /// <summary>Wrap an angle to (−pi, pi] — the shortest-path signed offset.</summary>

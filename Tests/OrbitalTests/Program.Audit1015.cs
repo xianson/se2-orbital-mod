@@ -15,6 +15,7 @@ namespace Orbital.Tests
             ImpactOnLowPeriapsisPass();   // O15
             EncounterFlyThroughBetweenSamples();   // O16
             LiveReparentPadAndSkippedSoi();   // O17
+            AuditEdgeCasesO25();   // O25
         }
 
         // O15: an arrival whose periapsis is below a small body's surface. The map's CutAtImpact sampled the
@@ -142,5 +143,26 @@ namespace Orbital.Tests
         }
 
         private static double EscapePadOf() => SoiReparent.EscapePad;
+
+        // O25: edge cases - SlotCenter on an id outside the lattice threw (an index past the cell list); the [0, 2pi)
+        // wraps returned exactly 2pi for a tiny negative angle.
+        private static void AuditEdgeCasesO25()
+        {
+            Section("O25: SlotCenter bounds; [0, 2pi) wraps never return 2pi");
+            var alloc = new BerthAllocator(1000.0, 100.0);
+            bool threw = false; Vector3D c1 = default, c2 = default;
+            try { c1 = alloc.SlotCenter(-1); c2 = alloc.SlotCenter(1 << 20); } catch (Exception) { threw = true; }
+            Ok("out-of-range slot ids do not throw", !threw);
+            Ok("...and are nowhere (non-finite)", !threw && double.IsNaN(c1.X) && double.IsNaN(c2.X));
+            Ok("a valid id still has its centre", alloc.SlotCenter(0).Length() < 1e-9 && alloc.SlotCenter(1).Length() > 1.0);
+            foreach (double x in new[] { -1e-17, -1e-300, -4e-16, -2 * Math.PI - 1e-16 })
+            {
+                double w = OrbitalMath.Wrap2Pi(x), s2 = SunPhaseEase.Wrap(x);
+                Ok($"Wrap2Pi({x:G3}) in [0, 2pi) ({w:R})", w >= 0.0 && w < OrbitalMath.TwoPi);
+                Ok($"SunPhaseEase.Wrap({x:G3}) in [0, 2pi) ({s2:R})", s2 >= 0.0 && s2 < 2.0 * Math.PI);
+            }
+            Near("Wrap2Pi keeps ordinary angles", OrbitalMath.Wrap2Pi(-0.5), OrbitalMath.TwoPi - 0.5, 1e-15);
+            Near("SunPhaseEase.Wrap keeps ordinary angles", SunPhaseEase.Wrap(7.0), 7.0 - 2.0 * Math.PI, 1e-15);
+        }
     }
 }

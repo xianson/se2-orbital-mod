@@ -33,8 +33,8 @@ namespace OrbitalMod;
 /// </summary>
 public static partial class OrbitalApi
 {
-    /// <summary>The API contract. 1: the first published API. 2: the Peek* snapshot reads, bodies in the world, grid orbits, orbit math, time warp, the player's plan, targets, sites, contacts (docs/API.md, Version 2; the members in Scripts/Simulation/Api/).</summary>
-    public const int Version = 2;
+    /// <summary>The API contract. 1: the first published API. 2: the Peek* snapshot reads, bodies in the world, grid orbits, orbit math, time warp, the player's plan, targets, sites, contacts (docs/API.md, Version 2; the members in Scripts/Simulation/Api/). 3: the settings' menu metadata and who may change them (TryGetSettingUi, IsSettingForced, CanEditWorldSettings, ResetSettingsGroup, AreWorldSettingsUnsaved); GetWarpLevels and RequestTimescale stop at the world's maximum warp (the setting Warp.MaxLevel).</summary>
+    public const int Version = 3;
 
     // ── the solar system ──
 
@@ -339,4 +339,29 @@ public static partial class OrbitalApi
 
     /// <summary>Bumped on every change of any setting (the API, a settings file, a world load).</summary>
     public static int GetSettingsVersion() => OrbitalSettings.Version;
+
+    /// <summary>(v3) What a settings screen needs to show a setting: its player-facing label; its group (the screen section,
+    /// e.g. "Time warp"; GetSettings lists them in screen order); its tier ("basic": always shown, "advanced": a collapsed
+    /// section, "hidden": only the files and this API); a number's unit ("" none) and slider step (0: pick one; an int's is
+    /// 1); and for an int shown as a choice, a label per value Min..Max (null: a number; a copy). The tooltip is
+    /// TryGetSettingInfo's description. The same shape as the Aerodynamics Mod's AeroApi.TryGetSettingUi.</summary>
+    public static bool TryGetSettingUi(string name, out string label, out string group, out string tier, out string unit, out double step, out string[] choices)
+        => OrbitalSettings.UiInfo(name, out label, out group, out tier, out unit, out step, out choices);
+
+    /// <summary>(v3) A world setting the host's file (%APPDATA%\SpaceEngineers2\ModSettings\OrbitalMod.world.cfg) forces:
+    /// SetSetting refuses to change it. Show it locked.</summary>
+    public static bool IsSettingForced(string name) => OrbitalSettings.IsForced(name);
+
+    /// <summary>(v3) World settings may be changed from here: this process hosts the world (single player, the host). False on
+    /// a remote client: show world settings read-only.</summary>
+    public static bool CanEditWorldSettings() => OrbitalSettings.CanEditWorld();
+
+    /// <summary>(v3) Every setting of a group (TryGetSettingUi's group; scope "world", "client" or null for either) back to its
+    /// default, as SetSetting would (a world one only where CanEditWorldSettings; never a forced one). Returns how many
+    /// changed; why: the first one refused, or no such group.</summary>
+    public static int ResetSettingsGroup(string scope, string group, out string why) => OrbitalSettings.ResetGroup(scope, group, out why);
+
+    /// <summary>(v3) A world setting changed (the API, a screen) since the world was loaded or last saved: it is saved with the
+    /// world on its next save (a screen's "saved with this world on the next save" hint).</summary>
+    public static bool AreWorldSettingsUnsaved() => OrbitalSettings.WorldUnsaved;
 }

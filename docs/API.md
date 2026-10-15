@@ -1,6 +1,6 @@
 # Orbital Mod API
 
-The Orbital Mod exposes its data to other mods through one class, `OrbitalMod.OrbitalApi`: a `partial` class whose version 1 members are in `Scripts/Simulation/Api/OrbitalApi.cs` and whose version 2 members are in `Scripts/Simulation/Api/OrbitalApi.<Area>.cs` (`Peek`, `World`, `Grids`, `Orbits`, `Time`, `Player`, `Sites`), with their engine-free parts in `Scripts/Simulation/Api/Core/` (tested offline: `Tests/ApiTests`). Its settings go through the same class (`Scripts/Simulation/Host/OrbitalSettings.cs`).
+The Orbital Mod exposes its data to other mods through one class, `OrbitalMod.OrbitalApi`: a `partial` class whose version 1 members are in `Scripts/Simulation/Api/OrbitalApi.cs` and whose version 2 members are in `Scripts/Simulation/Api/OrbitalApi.<Area>.cs` (version 3 added settings members to `OrbitalApi.cs`) (`Peek`, `World`, `Grids`, `Orbits`, `Time`, `Player`, `Sites`), with their engine-free parts in `Scripts/Simulation/Api/Core/` (tested offline: `Tests/ApiTests`). Its settings go through the same class (`Scripts/Simulation/Host/OrbitalSettings.cs`, the registry; `OrbitalSettings.Store.cs`, the store).
 
 **At a glance (version 2):** the solar system (bodies, their states, orbits, spin and where their planets sit in the world), the frames (lock-free `Peek*` reads), any grid's own orbit and status, the conversion between world positions and body-relative states, orbit math on any element set (propagate, convert, apsides and times, sampled paths into your buffer), time warp (levels, ask for a factor, a stop time), the local player's plan (orbit, maneuver nodes, the next burn, attitude hold, target, closest approach), sites and contacts, reentry, and the settings.
 
@@ -210,7 +210,7 @@ Threads: any (the clock reads the factor once per tick). Lock: none (`RequestTim
 
 | Member | What it gives |
 |---|---|
-| `int GetWarpLevels(double[] levels)` | The factors warp steps through (1 first), as many as fit. Returns how many. |
+| `int GetWarpLevels(double[] levels)` | The factors warp steps through (1 first), as many as fit. Returns how many (version 3: only up to the world's maximum, the setting `Warp.MaxLevel`; `RequestTimescale` stops there too). |
 | `bool CanWarp()` | Warp can go above ×1 now (built, and the player on rails). |
 | `double RequestTimescale(double timescale, out string why)` | Ask for a factor: the highest level at or under it is set, held lower when a ship moving in the player's frame could not be carried (as the keys are), ×1 off rails. Returns the factor set; `why`: what held it (`""` none). The mod may drop it again at any time. |
 | `double GetWarpStopTime()` | The universe time warp is asked to stop at (`NaN`: none): the map's "Warp here". |
@@ -278,6 +278,27 @@ if (peekOrbit(frame, out var a, out var e, out var i, out var raan, out var w, o
 }
 ```
 
+## Version 3
+
+The settings' menu metadata, and who may change what: enough for a generic settings screen (another mod's, or a later
+in-game "Mods" tab) to list, group, lock and reset the settings without knowing them. Members in `OrbitalApi.cs`
+(the settings section); the store in `Scripts/Simulation/Host/OrbitalSettings.Store.cs`. The Aerodynamics Mod's
+`AeroApi` gives the same shape for its settings.
+
+Threads: any. Lock: none (the metadata is fixed once registered; `ResetSettingsGroup` takes the settings' lock as
+`SetSetting` does). Allocation: `TryGetSettingUi`'s choices (a copy); otherwise none beyond what a setting's change does.
+
+| Member | What it gives |
+|---|---|
+| `bool TryGetSettingUi(string name, out string label, out string group, out string tier, out string unit, out double step, out string[] choices)` | A setting's player-facing **label**; its **group** (a screen section: `Orbits and world`, `Time warp`, `Planets`, `Flight HUD`, `Map`, `Autopilot`; `GetSettings` lists the settings in screen order); its **tier** (`basic`: always shown; `advanced`: a collapsed section; `hidden`: the files and the API only); a number's **unit** (`""` none) and slider **step** (0: pick one; an int's is 1); and for an int shown as a choice, a label per value `Min..Max` (`null`: a number; a copy). The tooltip is `TryGetSettingInfo`'s description. The same shape as the Aerodynamics Mod's `AeroApi.TryGetSettingUi`. |
+| `bool IsSettingForced(string name)` | A world setting the host's `OrbitalMod.world.cfg` forces (an uncommented line): `SetSetting` refuses to change it ("forced by the host file ..."). Show it locked. |
+| `bool CanEditWorldSettings()` | World settings may be changed from here: this process hosts the world (single player, a host). `false` on a remote client: show world settings read-only. `SetSetting` refuses world settings where it is `false`. |
+| `int ResetSettingsGroup(string scope, string group, out string why)` | A screen's "reset to defaults": every setting of the group (any tier; scope `world`, `client` or `null` for either) back to its default as `SetSetting` would (a world one only where `CanEditWorldSettings`; never a forced one). Returns how many changed; `why`: the first refusal, or no such group. |
+| `bool AreWorldSettingsUnsaved()` | A world setting changed (the API, a screen) since the world was loaded or last saved: it is saved with the world on its next save. |
+
+Changed: `GetWarpLevels` and `RequestTimescale` stop at the world's maximum warp (`Warp.MaxLevel`, the top level by default,
+so nothing changes unless a world lowers it).
+
 ## Roadmap / gaps
 
 What the API does **not** give yet, and why. Additions only; each would come as a new version.
@@ -306,6 +327,8 @@ Two scopes, the same design as the Aerodynamics Mod's settings:
 
 Both files are read again within ~2 s of an edit, so they can be changed while playing. The format is `name = value`, `#` for comments, `true` / `false` for switches. Settings marked **reload** are read when the solar system is built: change them, then reload the world.
 
+A world setting the host file names is **forced**: a change through the API is refused with the file's path (`IsSettingForced`). Each setting also has a menu label, group and tier (`TryGetSettingUi`, Version 3); *hidden* ones below are for the files and the API only.
+
 | Setting | Scope | Type | Default | Range | What it does |
 |---|---|---|---|---|---|
 | `Orbit.PlanetDaySeconds` | world | float | −1 | −1..10⁷ | Planet day (sidereal, s): −1 the world's own sun period, 0 no spin. **Reload.** |
@@ -313,13 +336,24 @@ Both files are read again within ~2 s of an edit, so they can be changed while p
 | `Orbit.FictitiousMinSpeed` | world | float | 20 | 0..1000 | In a spinning planet's cell, the spin's fictitious forces apply above this speed (m/s)... |
 | `Orbit.FictitiousMinAltitude` | world | float | 5000 | 0..10⁶ | ... or above this altitude (m). |
 | `Entry.Enabled` | world | bool | true | | Reentry braking, heat and wear. Off: frames arrive at orbital speed. |
+| `Entry.DragDensity` | world | float | 0.002 | 0..0.1 | Aerobraking: the outer atmosphere's density at the planet frame's border (kg/m³). 0: off. |
 | `World.Asteroids` | world | bool | true | | Asteroid belts on orbits. **Reload.** |
 | `World.Encounters` | world | bool | true | | Encounter sites on orbits. **Reload.** |
 | `World.RingRocks` | world | bool | true | | Rocks in planetary rings. **Reload.** |
+| `World.SectorAnchors` | world | bool | true | | An encounter site on orbit at every deep-space sector's centre. **Reload.** |
 | `World.RingRocksPerRing` | world | int | 120 | 0..1000 | Rocks per ring. |
+| `Warp.MaxLevel` | world | int | 6 | 0..6 | The highest time warp (a level: ×1, ×5, ×10, ×50, ×100, ×1,000, ×10,000). Warp above it drops to it. |
+| `Warp.CostsEnergy` | world | bool | true | | Warping drains batteries and tanks. |
+| `Warp.StopLead` | world | float | 30 | 5..120 | Warp drops to ×1 this long (s) before a maneuver burn or a planet's air. |
+| `Warp.SafetySpeed` | world | float | 800 | 100..5000 | Hidden. Warp is held so no ship moving in your frame is carried faster than 0.75 × this (m/s). |
 | `Proxy.Mode` | client | int | 0 | 0..3 | 0 a proxy globe outside the planet's frame, 1 always the proxy, 2 never, 3 alternate. |
 | `Proxy.HideRealPlanets` | client | bool | true | | Hide the real planet where the proxy stands in. |
 | `Proxy.HideAtmosphere` | client | bool | true | | Hide its atmosphere and clouds with it. |
+| `Proxy.Rings` | client | bool | true | | Planetary rings around the distant globes. |
+| `Proxy.GlobeDetail` | client | int | 2 | 0..3 | The distant globes' mesh: 16 × 2^this quads per cube-face edge (Low, Medium, High, Very high). |
+| `Proxy.NormalMaps` | client | bool | true | | The globes' baked surface relief. |
+| `Proxy.WarmBeforeShow` | client | bool | true | | Keep the globe up until the real planet's terrain has loaded (no pop-in). |
+| `Fx.ArrivalFade` | client | bool | false | | A short fade to black on arriving in or leaving a planet's space. |
 | `Proxy.ClampDistance` | client | float | 0 | 0..10⁹ | Draw proxies no further than this (m), keeping their angular size. 0: true distance. |
 | `Proxy.FrameEnterFactor` / `Proxy.FrameExitFactor` | client | float | 1 / 1.1 | 0.1..10 | Outside the frames model: the real planet shows inside gravity reach × enter, hides past × exit. Enter must stay under exit. |
 | `Proxy.MinFrameRadii` | client | float | 1.5 | 1..20 | The smallest frame sphere, in planet radii. |
@@ -327,12 +361,25 @@ Both files are read again within ~2 s of an edit, so they can be changed while p
 | `Hud.ShowOrbit` | client | bool | true | | The predicted orbit line and the orbit card. |
 | `Hud.OrbitLineThickness` | client | float | 0.0025 | 0.0005..0.05 | The orbit line's width per metre of distance. |
 | `Map.BodyMarkers` / `Map.FrameMarkers` | client | bool | true | | Planet and moon markers; markers on other frames. |
-| `Map.LineWidth` | client | float | 0.003 | 0.0005..0.05 | The map's orbit lines. |
+| `Hud.FrameOrigin` | client | bool | true | | A marker at the centre of the frame you ride in. |
+| `Hud.AlignButton` | client | bool | true | | The align button on the cockpit HUD. |
+| `Hud.SpeedIcon` | client | bool | true | | The orbital speed icon. |
+| `Hud.BuildHints` | client | bool | true | | Build and aero hints while building (O cycles the overlay). |
+| `Hud.ContactsNeedDetection` | client | bool | true | | Other ships and rocks show only once your sensors have seen them. Off: everything is known. |
+| `Map.Orbital` | client | bool | true | | The orbital map in place of the game's map. |
+| `Map.TextScale` | client | float | 1.3 | 0.5..3 | The map's text size. |
+| `Map.FreeCamera` | client | bool | true | | The map's free camera (right-drag orbits, drag pans). |
+| `Map.HideGameSectors` | client | bool | true | | Hide the game's own sector grid on the map. |
+| `Map.Rings` | client | bool | true | | Planetary rings on the map. |
+| `Map.ContactsTab` | client | bool | true | | The contacts tab in place of the GPS tab. **Reload.** |
+| `Map.LineWidth` | client | float | 0.003 | 0.0005..0.05 | Hidden; no longer drawn (kept so that old files still parse). |
 | `Map.ZoomOutFactor` | client | float | 6 | 1..100 | How far the map zooms out, × the game's own limit. |
 | `Map.ManeuverEditor` | client | bool | true | | Maneuver nodes on the map. |
 | `Map.OrbitPatches` | client | int | 3 | 0..10 | Conic patches drawn ahead. |
+| `Autopilot.HoldTurnRate` | client | float | 30 | 5..180 | How fast attitude hold turns the ship (°/s). |
+| `Autopilot.BurnAlignLead` | client | float | 30 | 5..120 | An auto-burn starts turning to its burn this long (s) before it. |
 
-**Multiplayer:** SE2 2.4 runs its server in the same process as the client (its networking is a mock), so world values are the server's. A process that has only seen a client tick refuses world sets.
+**Multiplayer:** SE2 2.4 runs its server in the same process as the client (its networking is a mock), so world values are the server's. A process that has only seen a client tick refuses world sets (`CanEditWorldSettings`: the one place an admin check will go).
 
 ## Reaching orbital from a script
 

@@ -141,8 +141,8 @@ public static partial class ServerFrames
     private static readonly Dictionary<long, Vector3D> _trueRel = new Dictionary<long, Vector3D>();
     private static readonly Dictionary<long, int> _settle = new Dictionary<long, int>();
     private const int SettleTicks = 30;
-    /// <summary>The most a member may be carried at in warp (m/s; the world's cap is 1000).</summary>
-    private const double WarpMemberSpeed = 800;
+    /// <summary>The most a member may be carried at in warp (m/s; the world's cap is 1000). The setting Warp.SafetySpeed.</summary>
+    internal static double WarpMemberSpeed = 800;
     /// <summary>A ship within this of a station's box (m) is held at the station through warp.</summary>
     public const double StationHoldMargin = 150;
     static bool AtStation(OrbitalGridComponent g, List<BoundingBoxD> stations)

@@ -12,12 +12,13 @@ namespace OrbitalMod;
 public static partial class OrbitalApi
 {
     /// <summary>(v2) The warp factors the mod steps through (1 first: none), into your buffer (as many as fit). Returns how many
-    /// there are.</summary>
+    /// there are (v3: up to the world's maximum, the setting Warp.MaxLevel).</summary>
     public static int GetWarpLevels(double[] levels)
     {
         var l = WarpControl.Levels;
-        if (levels != null) for (int i = 0; i < l.Length && i < levels.Length; i++) levels[i] = l[i];
-        return l.Length;
+        int n = WarpControl.TopLevel + 1;
+        if (levels != null) for (int i = 0; i < n && i < levels.Length; i++) levels[i] = l[i];
+        return n;
     }
 
     /// <summary>(v2) Warp can go above x1 now: the solar system is built and the local player is on rails.</summary>
@@ -31,7 +32,8 @@ public static partial class OrbitalApi
         why = "";
         var l = WarpControl.Levels;
         double want = 1;
-        if (!double.IsNaN(timescale)) foreach (double x in l) if (x <= timescale + 1e-9) want = x;
+        int top = WarpControl.TopLevel;   // (v3: the world's maximum, Warp.MaxLevel)
+        if (!double.IsNaN(timescale)) for (int k = 0; k <= top; k++) if (l[k] <= timescale + 1e-9) want = l[k];
         if (want <= 1.0) { SystemHost.Timescale = 1.0; return 1.0; }
         if (!CanWarp()) { SystemHost.Timescale = 1.0; why = "not on rails: leave the planet's space first"; return 1.0; }
         double cur = SystemHost.Timescale;   // (read once: the server's limit writes it in parallel)

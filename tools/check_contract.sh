@@ -153,5 +153,33 @@ while IFS= read -r hit; do
 done < <(grep -rhoE '(SetForeignFlag|SetForeignString|ForeignValue)\("AeroMod\.[A-Za-z0-9_.+]+", *"[A-Za-z0-9_]+"' Scripts --include=*.cs | sort -u)
 [ -n "$opt" ] && echo "      (note: local-only aero type(s) absent, not checked:$opt)"
 
-[ $rc -eq 0 ] && echo "PASS  contract (aero API $a, entry source $e; names, signatures both ways, explicit lookups, no overloads, $nflags harness flags)" || echo "FAIL  contract"
+# 7. SETTINGS UI PARITY (2026-10-15, settings DESIGN.md W6): one settings screen reads both mods, so the two registries'
+#    Setting carries the same UI metadata (names and types), the same fluent Ui(...), and the two APIs the same settings
+#    members. SKIP while the aero side has no UI metadata yet.
+ASET=$(src "$AERO" AeroSettings.cs) || exit 1
+OSET=$(src Scripts OrbitalSettings.cs) || exit 1
+fld() { grep -oE "public [][A-Za-z]+ ([A-Za-z]+, )*$2\b" "$1" | head -1 | awk '{print $2}'; }
+parity=""
+if grep -q 'public string Label, Group;' "$ASET"; then
+  parity=", settings UI parity"
+  for f in Label Group Tier Unit Step Choices Order ClientVisible; do
+    x=$(fld "$ASET" "$f"); y=$(fld "$OSET" "$f")
+    [ -n "$x" ] && [ "$x" = "$y" ] || bad "Setting.$f: aero '$x', orbital '$y'"
+  done
+  for t in "internal enum Tier { Basic, Advanced, Hidden }" \
+           "public Setting Ui(string label, string group, Tier tier, string unit = \"\", double step = 0, string[] choices = null)" \
+           "public Setting SeenByClients()"; do
+    grep -qF "$t" "$ASET" || bad "AeroSettings.cs lacks: $t"
+    grep -qF "$t" "$OSET" || bad "OrbitalSettings.cs lacks: $t"
+  done
+  for m in TryGetSettingUi IsSettingForced CanEditWorldSettings ResetSettingsGroup AreWorldSettingsUnsaved \
+           GetSettings TryGetSettingInfo TryGetSetting SetSetting GetSettingsVersion; do
+    x=$(sig "$api" "$m"); y=$(sig "$OAPI" "$m")
+    [ "$x" = "$y" ] || bad "settings API $m: AeroApi($x), OrbitalApi($y)"
+  done
+else
+  echo "      (note: settings UI parity skipped - the aero side has no UI metadata yet)"
+fi
+
+[ $rc -eq 0 ] && echo "PASS  contract (aero API $a, entry source $e; names, signatures both ways, explicit lookups, no overloads, $nflags harness flags$parity)" || echo "FAIL  contract"
 exit $rc

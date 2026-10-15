@@ -80,7 +80,7 @@ public static partial class Maneuvers
     public static double BurnIn;
     /// <summary>The next burn's direction (world axes) and what is left (m/s), from the last HUD tick.</summary>
     public static Vector3D BurnDirWorld; public static double BurnLeft;
-    public const double WarpLead = 30.0;      // s: warp stops this long before a burn (time to line up)
+    public static double WarpLead = 30.0;     // s: warp stops this long before a burn (time to line up; the setting Warp.StopLead)
     public const double AutoWarpLead = 5.0;   // s: before an auto-burn (it turns and fires by itself)
 
     /// <summary>How long before the next burn warp stops: shorter when that node flies itself.</summary>

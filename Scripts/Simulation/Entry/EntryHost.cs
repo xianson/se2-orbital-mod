@@ -22,8 +22,8 @@ public static class EntryHost
     public static double TestCap = double.NaN;
     /// <summary>An arrival's speed over <see cref="Cap"/> (the one margin: Reentry.CapSlack).</summary>
     public static bool OverCap(double speed) => Reentry.OverCap(speed, Cap);
-    /// <summary>Warp stops this long before the braking starts.</summary>
-    public const double WarpLead = 30.0;
+    /// <summary>Warp stops this long before the braking starts (s; the setting Warp.StopLead, with Maneuvers.WarpLead).</summary>
+    public static double WarpLead = 30.0;
 
     static readonly Dictionary<long, double> _last = new Dictionary<long, double>();
     static readonly Dictionary<long, double> _heat = new Dictionary<long, double>();

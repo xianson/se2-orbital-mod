@@ -68,7 +68,7 @@ public static class WarpBar
     {
         var scr = MapPipeline.ScreenSize;
         float u = MapPipeline.UiScale(scr.Y);
-        int n = WarpControl.Levels.Length;
+        int n = WarpControl.TopLevel + 1;   // (up to the world's maximum, Warp.MaxLevel)
         int cur = 0;
         for (int k = 0; k < n; k++) if (SystemHost.Timescale >= WarpControl.Levels[k] - 1e-6) cur = k;
         bool rails = FrameHost.PlayerFrame != null;

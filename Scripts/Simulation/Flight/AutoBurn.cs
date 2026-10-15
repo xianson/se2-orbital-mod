@@ -14,7 +14,7 @@ public static class AutoBurn
 {
     public static string Status = "";
     public static bool Flying { get; private set; }
-    public const double AlignLead = 30.0;   // s: turn to the burn this long before it starts
+    public static double AlignLead = 30.0;   // s: turn to the burn this long before it starts (the setting Autopilot.BurnAlignLead)
 
     public static void Tick(Keen.VRage.Core.Game.Systems.Session session, double t)
     {

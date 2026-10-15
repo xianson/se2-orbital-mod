@@ -397,7 +397,19 @@ public static class EntryHost
         Prediction = null; Airless = null;
     }
 
-    public static void Forget(long frameId) { lock (_heat) { _last.Remove(frameId); _heat.Remove(frameId); _braking.Remove(frameId); _inPass.Remove(frameId); } lock (_beta) _beta.Remove(frameId); }
+    public static void Forget(long frameId) { lock (_heat) { _last.Remove(frameId); _heat.Remove(frameId); _braking.Remove(frameId); _inPass.Remove(frameId); _jolted.Remove(frameId); } lock (_beta) _beta.Remove(frameId); }
+
+    /// <summary>A frame leaves the registry (ServerFrames.FrameRetiring, FramesLock held): its per-frame state goes (Forget
+    /// had no caller: heat, braking, the ballistic coefficient grew per frame for good, _inPass stayed true after an
+    /// arrival); dissolved (not merged), its members' entry ends too - their wear and plasma (2026-10-15: an arrival kept
+    /// a grid's spent wear, upTo = MaxValue, so it took no heat wear again for the world).</summary>
+    internal static void Retire(ProximityFrame f, bool merged)
+    {
+        Forget(f.Id);
+        if (merged) return;   // (its grids go on in the host: their entry with them)
+        lock (_heat) foreach (long id in f.Members) _wear.Remove(id);
+        ForgetGlow(f);
+    }
 
     /// <summary>Server tick (FramesLock held): brake every railed frame inside a band. Calls no aero member (the ballistic
     /// coefficients and the border's air it needs are measured after the lock: ServerAfterLock).</summary>
@@ -483,6 +495,25 @@ public static class EntryHost
             done.Clear();
         }
         _stBraking = braking; _stCap = Cap; _stTicked = true;
+        if (++_pruneTick % 60 == 0) PruneFaded();
+    }
+
+    // (a grid deleted mid-entry is no member any more - ForgetGlow finds it by its id: its glow and state, keyed by its Entity,
+    //  held it for good. Faded to nothing, an entry answers exactly as none: dropped, once a second - 2026-10-15)
+    static readonly List<Entity> _faded = new List<Entity>();
+    static int _pruneTick;
+    static void PruneFaded()
+    {
+        lock (_glow)
+        {
+            var dead = _faded; dead.Clear();
+            foreach (var kv in _glow) if (!(Fade(kv.Value.t) > 0)) dead.Add(kv.Key);
+            foreach (var e in dead) _glow.Remove(e);
+            dead.Clear();
+            foreach (var kv in _state) if (!(Fade(kv.Value.t) > 0)) dead.Add(kv.Key);
+            foreach (var e in dead) _state.Remove(e);
+            dead.Clear();
+        }
     }
 
     /// <summary>

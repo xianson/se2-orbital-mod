@@ -414,9 +414,21 @@ public static partial class ServerFrames
     internal static void Forget(long gridId)
     {
         // (all per-grid state: _gridN, _trueRel and _settle outlived their grid - a stale _gridN rescaled a later joiner)
-        lock (FramesLock) { Holding.Remove(gridId); _gridHighSpeed.Remove(gridId); _gridN.Remove(gridId); _trueRel.Remove(gridId); _settle.Remove(gridId); _vSet.Remove(gridId); }
+        // (and _joinedOf - its HashSet of entities kept a deleted anchor's joined grids alive - and the invariants' grid sets, 2026-10-15)
+        lock (FramesLock) { Holding.Remove(gridId); _gridHighSpeed.Remove(gridId); _gridN.Remove(gridId); _trueRel.Remove(gridId); _settle.Remove(gridId); _vSet.Remove(gridId); _joinedOf.Remove(gridId); _everFramed.Remove(gridId); _unframedSince.Remove(gridId); }
         lock (GridPositions) GridPositions.Remove(gridId);
         EncounterFrames.ForgetKind(gridId);
+    }
+
+    /// <summary>A frame leaves the registry (FrameRegistry.Retiring - every Dissolve, a merge's incomer; FramesLock held): its
+    /// per-frame state goes with it. (2026-10-15: AnchorAccel was dropped at 4 of the 8 dissolve sites - a stale acceleration
+    /// could push a reused frame id; the entry state at none, EntryHost.Forget had no caller.)</summary>
+    internal static void FrameRetiring(ProximityFrame f, bool merged)
+    {
+        long id = f.Id;
+        AnchorAccel.Remove(id);
+        _rockOf.Remove(id); _rebasePending.Remove(id); _lastSteerNow.Remove(id); _arrivalNoticed.Remove(id); _born.Remove(id); _dirtySince.Remove(id);
+        EntryHost.Retire(f, merged);
     }
 
     // ───────────────────────────── helpers ─────────────────────────────

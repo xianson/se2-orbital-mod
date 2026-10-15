@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using SEAerospace.Orbital;
 
@@ -225,6 +226,15 @@ namespace SEAerospace.Frames
         }
 
         /// <summary>
+        /// Called as a frame leaves the registry, before anything of it is dropped (its members still listed):
+        /// <see cref="Dissolve"/> (merged false - its members leave the rails) and the incomer of
+        /// <see cref="MergeInto"/> (merged true - its members go on in the host). State the game keeps per
+        /// frame elsewhere goes with it here, at every site (2026-10-15: an anchor's acceleration, the entry heat and
+        /// a grid's spent entry wear were dropped at some of the sites only - half never, a reused id inherited them).
+        /// </summary>
+        public Action<ProximityFrame, bool> Retiring;
+
+        /// <summary>
         /// Dissolve a frame: drop all its member indices and free its berth slot. Used on
         /// merge (the incomer dissolves into the host) and when a frame empties.
         /// </summary>
@@ -232,6 +242,8 @@ namespace SEAerospace.Frames
         {
             ProximityFrame frame;
             if (!_byId.TryGetValue(frameId, out frame)) return;
+            Action<ProximityFrame, bool> retiring = Retiring;
+            if (retiring != null) retiring(frame, false);
             for (int i = 0; i < frame.Members.Count; i++)
                 _byMember.Remove(frame.Members[i]);
             if (frame.BerthSlotId >= 0) _allocator.Free(frame.BerthSlotId);
@@ -250,6 +262,8 @@ namespace SEAerospace.Frames
         {
             if (host == null || incomer == null || host == incomer) return false;
             if (!_byId.ContainsKey(host.Id) || !_byId.ContainsKey(incomer.Id)) return false;
+            Action<ProximityFrame, bool> retiring = Retiring;
+            if (retiring != null) retiring(incomer, true);
 
             for (int i = 0; i < incomer.Members.Count; i++)
             {

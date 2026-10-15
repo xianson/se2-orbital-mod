@@ -417,7 +417,7 @@ public static class SystemHost
             foreach (var z in planetZones) if ((c - z.c).Length() < z.r + r) return true;
             return false;
         };
-        FrameRegistry.Publish(new FrameRegistry(alloc));
+        FrameRegistry.Publish(new FrameRegistry(alloc) { Retiring = ServerFrames.FrameRetiring });   // (per-frame state dropped as a frame goes)
 
         // Inverse-square gravity in each planet cell, reaching across the cell.
         foreach (var kv in BeaconOf)

@@ -2470,6 +2470,20 @@ namespace Orbital.Tests
             Ok("dissolved slot freed", !alloc.IsOccupied(0));
             ProximityFrame f3 = reg.CreateFrame("Earth", el, 500);
             Ok("new frame recycles freed slot 0", f3.BerthSlotId == 0);
+
+            // O7/O8/O9 (2026-10-15): every way a frame leaves the registry is told, once, with its members still listed -
+            // the game's per-frame state (anchor acceleration, entry heat, entry wear) was dropped at some sites only.
+            var told = new List<(long id, bool merged, int members)>();
+            reg.Retiring = (f, merged) => told.Add((f.Id, merged, f.MemberCount));
+            reg.AddMember(f3, 501);
+            reg.Dissolve(f3.Id);
+            Ok("dissolve tells Retiring (not merged), members still listed", told.Count == 1 && told[0].id == f3.Id && !told[0].merged && told[0].members == 2);
+            reg.Dissolve(f3.Id);
+            Ok("a second dissolve of the same id tells nothing", told.Count == 1);
+            ProximityFrame h = reg.CreateFrame("Earth", el, 600), i = reg.CreateFrame("Earth", el, 700);
+            reg.MergeInto(h, i);
+            Ok("merge tells Retiring for the incomer (merged)", told.Count == 2 && told[1].id == i.Id && told[1].merged && told[1].members == 1);
+            Ok("a refused merge tells nothing", !reg.MergeInto(h, i) && told.Count == 2);
         }
 
         private static void FrameIsolationQuery()

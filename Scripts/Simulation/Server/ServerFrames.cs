@@ -400,8 +400,9 @@ public static partial class ServerFrames
         }
 
         { long _s0 = Sw(); if (_tick % 30 == 0) { BuildSnapshot(); AdoptLooseGrids(); } Sec("snapshot", _s0); }
-        { long _s0 = Sw(); if (_tick % 5 == 0) BuildViews();
-        else RefreshGridPositions(); Sec("views", _s0); }   // (every tick: a seated player's grid is matched against them - PlayerOrbit)
+        // (the positions EVERY tick: a seated player's grid is matched against them - PlayerOrbit. 2026-10-15: every 5th tick
+        //  the views were built INSTEAD, and the positions were a tick stale)
+        { long _s0 = Sw(); RefreshGridPositions(); if (_tick % 5 == 0) BuildViews(); Sec("views", _s0); }
         DevStress.Tick();
         if (DevFreeGrids)
         {

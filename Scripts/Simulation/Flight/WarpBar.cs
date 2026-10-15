@@ -123,7 +123,9 @@ public static class WarpBar
         MapPipeline.ScreenText(at, t, c, scale);
     }
 
-    static ColorSRGB A(ColorSRGB c) => _alpha >= 1f ? c : new ColorSRGB(c.R, c.G, c.B, c.A * _alpha);
+    // (the BYTE constructor: R, G, B are 0..255 bytes - they went to the float one, 0..1, and every faded frame tripped the
+    //  game's colour assertion with wrong colours; the in-game integration run, 2026-10-15)
+    static ColorSRGB A(ColorSRGB c) => _alpha >= 1f ? c : new ColorSRGB(c.R, c.G, c.B, (byte)Math.Clamp((int)(c.A * _alpha + 0.5f), 0, 255));
 
     /// <summary>A right-pointing triangle, filled with horizontal strokes when lit.</summary>
     static void Arrow(Vector2 a0, float w, float h, ColorSRGB fill, ColorSRGB edge, bool filled, float u)

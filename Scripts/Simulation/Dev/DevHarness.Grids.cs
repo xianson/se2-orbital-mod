@@ -7,8 +7,9 @@ namespace OrbitalMod;
 // (Execute's switch, by theme: a verb not here falls through to the next group - DevHarness.cs has the order.)
 // THREADS: the harness runs on the client's frame job. A command that enumerates the server's entities, reads their components
 // or writes them runs on the server thread (GridGen.OnServerThread, waited for) - 2026-10-15: `hudcheck`'s seat search from
-// here asserted 'Scene.IsCurrentThreadDCS()'; a hinge's SetVelocity from here once crashed the game. Positions and velocities
-// alone (GridMembers.Position / Velocity, as the rest of the client side reads them) stay here.
+// here asserted 'Scene.IsCurrentThreadDCS()'; a hinge's SetVelocity from here once crashed the game. Positions, velocities and
+// motion of a server grid too (GridMembers.Position / Velocity / IsDynamic read its entity: the cross-scene read the game's
+// DataGuard asserts on - the 2026-10-15 scene audit); a place alone is ServerFrames.GridPositions. Tests/SceneTests checks it.
 public static partial class DevHarness
 {
     private static string ExecuteGrids(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera, string line, string[] a, string verb)
@@ -54,7 +55,7 @@ public static partial class DevHarness
             }
 
             case "reentrytest":   // reentrytest <id>: arm the top-to-bottom reentry check on a grid (DevReentry); alone: the report
-                return a.Length > 1 ? DevReentry.Arm((long)D(a[1])) : DevReentry.Report();
+                return a.Length > 1 ? GridGen.OnServerThread(() => DevReentry.Arm((long)D(a[1]))) : DevReentry.Report();   // (Arm reads the grid's joints)
 
             case "gridinfo":   // gridinfo <id>: where a grid is (nearest planet, height), its frame, motion and aero
                 return GridGen.OnServerThread(() =>
@@ -174,22 +175,25 @@ public static partial class DevHarness
             case "findgrids":   // findgrids [name...]: the server grids (id, name, dynamic) - all, or those with this name - in one call
             {
                 string want = a.Length > 1 ? string.Join(" ", a, 1, a.Length - 1) : null;
-                var sb2 = new System.Text.StringBuilder("grids:");
-                foreach (var g in GridMembers.All())
+                return GridGen.OnServerThread(() =>   // (IsDynamic reads the server grid's body)
                 {
-                    if (!g.IsServer) continue;
-                    string nm = g.DisplayName;
-                    if (want != null && nm != want) continue;
-                    sb2.Append($" {g.Id}={nm.Replace(' ', '_')}{(GridMembers.IsDynamic(g) ? "" : "(static)")}");
-                }
-                return sb2.ToString();
+                    var sb2 = new System.Text.StringBuilder("grids:");
+                    foreach (var g in GridMembers.All())
+                    {
+                        if (!g.IsServer) continue;
+                        string nm = g.DisplayName;
+                        if (want != null && nm != want) continue;
+                        sb2.Append($" {g.Id}={nm.Replace(' ', '_')}{(GridMembers.IsDynamic(g) ? "" : "(static)")}");
+                    }
+                    return sb2.ToString();
+                });
             }
 
             case "exitcheck":   // exitcheck <gridId>: you against that ship - distance and relative speed (server and client), frames, warp
             {
                 var eg = GridMembers.Get((long)D(a[1]));
                 if (eg == null || !eg.IsServer) return "no server grid " + a[1];
-                Vector3D gp = GridMembers.Position(eg), gv = GridMembers.Velocity(eg);
+                string em = ServerMotion(eg, out Vector3D gp, out Vector3D gv); if (em != "ok") return em;
                 string srv = ServerPlanetBeacon.PlayerState(out Vector3D sp, out Vector3D sv) ? $"server d {(sp - gp).Length():F1} m dv {(sv - gv).Length():F2} m/s" : "server -";
                 string cli = FrameHost.FootState(out Vector3D cp, out Vector3D cv) ? $"client d {(cp - gp).Length():F1} m dv {(cv - gv).Length():F2} m/s" : $"client (seated) d {(FrameHost.PlayerPosition - gp).Length():F1} m";
                 SEAerospace.Frames.ProximityFrame pf2, gf2; lock (ServerFrames.FramesLock) { pf2 = SystemHost.Frames?.FindByMember(FrameHost.PlayerId); gf2 = SystemHost.Frames?.FindByMember(eg.Id); }
@@ -200,7 +204,9 @@ public static partial class DevHarness
             {
                 var sg = GridMembers.Get(long.Parse(a[1]));
                 if (sg?.Entity == null) return "no such grid";
-                var swt = sg.Entity.Data.GetWorldTransform();
+                WorldTransform swt = default;   // (a server grid's transform: read there; a client copy's here, its own thread)
+                if (ReferenceEquals(sg.Entity.Data.Scene, session.Scene)) swt = sg.Entity.Data.GetWorldTransform();
+                else { string sr = GridGen.OnServerThread(() => { swt = sg.Entity.Data.GetWorldTransform(); return "ok"; }); if (sr != "ok") return sr; }
                 Vector3D lc = WorldTransform.TransformDirectionInv(SunDriver.Light, swt);
                 var vb = SystemHost.Registry?.Find("Verdure");
                 return $"sunrel light local ({lc.X:F4},{lc.Y:F4},{lc.Z:F4}) frame {(FrameHost.PlayerFrame == null ? "planet" : "#" + FrameHost.PlayerFrame.Id)} | spin {SystemHost.SpinNow:F1} now {SystemHost.Now:F1} theta {(vb != null ? vb.RotationAngleAt(SystemHost.Now) * 180 / Math.PI : double.NaN):F3} | {SunDriver.Status}";
@@ -234,9 +240,10 @@ public static partial class DevHarness
                 if (cg == null || !cg.IsServer) return "no server grid " + cid;
                 SEAerospace.Frames.ProximityFrame cf; lock (ServerFrames.FramesLock) cf = SystemHost.Frames?.FindByMember(cid);
                 if (cf == null) return $"grid {cid}: in no frame";
+                string cm = ServerMotion(cg, out Vector3D cgp, out Vector3D cgv); if (cm != "ok") return cm;   // (before the lock: the server thread takes it)
                 double ct = SystemHost.Now, cn = Math.Max(1.0, SystemHost.Timescale);
-                SEAerospace.Orbital.StateVector fc; Vector3D off; lock (ServerFrames.FramesLock) { fc = SEAerospace.Orbital.OrbitPropagation.StateAt(cf.Elements, ct); off = GridMembers.Position(cg) - cf.BerthCenter; }
-                var cs = new SEAerospace.Orbital.StateVector(fc.Position + off, fc.Velocity + GridMembers.Velocity(cg) / cn);
+                SEAerospace.Orbital.StateVector fc; Vector3D off; lock (ServerFrames.FramesLock) { fc = SEAerospace.Orbital.OrbitPropagation.StateAt(cf.Elements, ct); off = cgp - cf.BerthCenter; }
+                var cs = new SEAerospace.Orbital.StateVector(fc.Position + off, fc.Velocity + cgv / cn);
                 var cb = SystemHost.Registry?.Find(cf.ParentBodyName);
                 if (cb == null) return "no body";
                 if (a[0] == "celmark")
@@ -355,18 +362,24 @@ public static partial class DevHarness
 
             case "nearcenter":   // nearcenter: every grid within a planet radius of any planet's centre (the game's watchdog)
             {
-                var sb3 = new System.Text.StringBuilder();
-                foreach (var kv in SystemHost.BeaconOf)
+                string near = GridGen.OnServerThread(() =>   // (the server grids' places: read there)
                 {
-                    var pdef = SystemHost.Registry?.FindDefinition(kv.Key);
-                    double R = pdef?.RadiusMeters ?? 0;
-                    foreach (var g in GridMembers.All())
+                    var sbg = new System.Text.StringBuilder();
+                    foreach (var kv in SystemHost.BeaconOf)
                     {
-                        if (!g.IsServer) continue;
-                        double d = (GridMembers.Position(g) - kv.Value.Center).Length();
-                        if (d < Math.Max(R * 0.5, 1000)) sb3.Append($"[{kv.Key}: grid {g.Id} '{g.DisplayName}' {d / 1000:F1} km from centre (R {R / 1000:F0} km)] ");
+                        var pdef = SystemHost.Registry?.FindDefinition(kv.Key);
+                        double R = pdef?.RadiusMeters ?? 0;
+                        foreach (var g in GridMembers.All())
+                        {
+                            if (!g.IsServer) continue;
+                            double d = (GridMembers.Position(g) - kv.Value.Center).Length();
+                            if (d < Math.Max(R * 0.5, 1000)) sbg.Append($"[{kv.Key}: grid {g.Id} '{g.DisplayName}' {d / 1000:F1} km from centre (R {R / 1000:F0} km)] ");
+                        }
                     }
-                }
+                    return sbg.ToString();
+                });
+                if (near.StartsWith("not run:") || near.StartsWith("timed out")) return near;
+                var sb3 = new System.Text.StringBuilder(near);
                 // (and the player's character: a stowed player's body has to be somewhere)
                 try
                 {
@@ -402,5 +415,14 @@ public static partial class DevHarness
             default:
                 return ExecuteMap(session, camera, line, a, verb);
         }
+    }
+
+    /// <summary>A server grid's place and velocity, read on the server thread: "ok", or why not.</summary>
+    static string ServerMotion(OrbitalGridComponent g, out Vector3D p, out Vector3D v)
+    {
+        Vector3D gp = default, gv = default;
+        string r = GridGen.OnServerThread(() => { gp = GridMembers.Position(g); gv = GridMembers.Velocity(g); return "ok"; });
+        p = gp; v = gv;
+        return r;
     }
 }

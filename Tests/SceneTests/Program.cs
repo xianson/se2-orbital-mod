@@ -10,9 +10,15 @@
 //    accessors, its entity's data or components): on the CLIENT side (Flight, Hud, Render, Map, Ui, Host, Frames) they keep to
 //    the caller's own scene - ReferenceEquals(g.Entity.Data.Scene, ...) - never "IsServer" (that is the server's copy, read
 //    from the client's thread); on the SERVER side (Server, Encounters, Entry, Asteroids) they keep to the server copies -
-//    IsServer or the scene - before the first read. Dev/ is the harness (dev only: its client-thread reads are listed in
-//    the 2026-10-15 scene audit, not checked).
+//    IsServer or the scene - before the first read. (Dev/ is checked on its own, 4.)
 // 3. THE SITES: StationKeepCharge's rebuild keeps to the server scene; OrbitalApi.GetMemberId answers a server copy's id only.
+// 4. THE HARNESS (Dev/, and Render/SpecCam's dev camera): it runs on the client's frame job, so every read of a server entity -
+//    a server grid's engine data (GridMembers' physics accessors, its entity's data or components), the server session's
+//    entities, the server's sensor blocks, a helper that reads them - happens on the server thread: inside a GridGen
+//    OnServerThread / RunOnServer call, in a method only the server thread runs (its entry points listed below; a method
+//    every caller of which is such a place counts as one), in a `gen` verb GridGen.Command sends there, or in a loop that
+//    keeps to the caller's own scene first. Spawning (GridGen's measured exception) is listed with why. (2026-10-15: the
+//    harness's leftover cross-scene reads - findgrids, exitcheck, seat, thrust, cam grid, ... - the DataGuard class.)
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -48,6 +54,154 @@ static class Program
         var d = new DirectoryInfo(AppContext.BaseDirectory);
         while (d != null && !File.Exists(Path.Combine(d.FullName, "Scripts", "Simulation", "Api", "OrbitalApi.cs"))) d = d.Parent;
         return d?.FullName ?? throw new Exception("no Scripts/Simulation/Api/OrbitalApi.cs above " + AppContext.BaseDirectory);
+    }
+
+    // ── 4: what the harness may not do from the client thread, and where it may ──
+    /// <summary>The calls that run their argument on the server thread (GridGen: queued to ServerPlanetBeacon's job, waited for).</summary>
+    static readonly string[] OnServerCalls = { "OnServerThread", "RunOnServer", "OnServer" };
+    /// <summary>Dev methods the server thread calls (from ServerFrames / ServerPlanetBeacon / GridGen.ServerTick).</summary>
+    static readonly string[] ServerEntries = { "DevFlight.ServerTick", "DevFlight.ServerCommandTick", "DevReentry.ServerTick", "DevReentry.Expect", "DevStress.Tick", "GridGen.ServerTick", "HingeRig.Tick" };
+    /// <summary>Spawning and growing blocks: measured to work only from the client thread (GridGen.Command's notes: a new
+    /// battery's inventory is not readable inside the server's job, "Data not found").</summary>
+    static readonly Dictionary<string, string> SpawnPath = new()
+    {
+        ["GridGen.Tick"] = "the client tick: hinge heads spawned and flaps grown (GridBuilder.AddBlockToGrid), as spawning works there",
+        ["GridGen.AddTo"] = "gen add: blocks grown on a grid as the flaps are (GridBuilder.AddBlockToGrid)",
+    };
+    /// <summary>Helpers outside Dev/ (or taking a server entity as a parameter) that read server entities.</summary>
+    static readonly string[] ServerHelpers = { "StationKeepCharge.Describe", "EntryDamage.Damaged", "EntryDamage.Health", "EncounterFrames.Describe", "WarmBerths.Clear", "SensorBlocks.Describe", "Contacts.Command", "WarpBill.Describe", "ServerFrames.StaticAnchorOf", "GridGen.AeroReadout" };
+    static readonly string[] PhysicsReads = { "Position", "TryPosition", "Velocity", "Mass", "IsDynamic", "IsDynamicNow", "ThrustDv", "IsConstrained", "MoveSet", "SetVelocity", "AddVelocity", "SetPosition", "Rotate", "Unmanage" };
+    /// <summary>Where a server grid or entity comes from: a local or loop variable from one of these holds one.</summary>
+    static readonly Regex ServerSource = new(@"GridMembers\.(Get|All|AllCopy)\(|\bWorldGrid\(|\bGrid\(a\b|\b_spawned\b|\b_measured\b|\b_hinges\b|ServerPlanetBeacon\.ServerSession");
+    static readonly Regex SensorSource = new(@"SensorBlocks\.(Radars|Telescopes)\b");
+
+    static string CalleeName(InvocationExpressionSyntax inv) => inv.Expression switch
+    {
+        MemberAccessExpressionSyntax m => m.Name.Identifier.Text,
+        IdentifierNameSyntax i => i.Identifier.Text,
+        GenericNameSyntax g => g.Identifier.Text,
+        _ => ""
+    };
+    static bool InServerArg(SyntaxNode n) => n.Ancestors().OfType<ArgumentSyntax>().Any(arg => arg.Parent?.Parent is InvocationExpressionSyntax inv && OnServerCalls.Contains(CalleeName(inv)));
+    static string MethodKey(SyntaxNode n) { var m = n.AncestorsAndSelf().OfType<MethodDeclarationSyntax>().FirstOrDefault(); return m == null ? "" : ClassOf(m) + "." + m.Identifier.Text; }
+
+    static void DevScan(Dictionary<string, SyntaxNode> trees, Func<string, string> rel)
+    {
+        var methods = new HashSet<string>(trees.Values.SelectMany(r => r.DescendantNodes().OfType<MethodDeclarationSyntax>()).Select(m => ClassOf(m) + "." + m.Identifier.Text));
+        foreach (var k in ServerEntries.Concat(SpawnPath.Keys)) Check(methods.Contains(k), $"harness: {k} (a server-thread or spawn entry) still exists");
+
+        // the gen verbs GridGen.Command sends to the server thread (its `sub == "..."` tests before an OnServer call)
+        var routed = new HashSet<string>();
+        var cmd = trees.Values.SelectMany(r => r.DescendantNodes().OfType<MethodDeclarationSyntax>()).FirstOrDefault(m => ClassOf(m) == "GridGen" && m.Identifier.Text == "Command");
+        if (cmd != null)
+            foreach (var ifs in cmd.DescendantNodes().OfType<IfStatementSyntax>())
+                if (ifs.Statement.DescendantNodesAndSelf().OfType<InvocationExpressionSyntax>().Any(i => OnServerCalls.Contains(CalleeName(i))))
+                    foreach (var lit in ifs.Condition.DescendantNodes().OfType<LiteralExpressionSyntax>()) if (lit.IsKind(SyntaxKind.StringLiteralExpression)) routed.Add(lit.Token.ValueText);
+        Check(routed.Contains("clear") && routed.Contains("steer"), $"harness: GridGen.Command's server verbs found ({string.Join(",", routed)})");
+        bool InRoutedGen(SyntaxNode n) => MethodKey(n) == "GridGen.CommandOnServer"
+            && n.Ancestors().OfType<SwitchSectionSyntax>().LastOrDefault() is { } sec
+            && sec.Labels.OfType<CaseSwitchLabelSyntax>().Any(l => l.Value is LiteralExpressionSyntax lv && routed.Contains(lv.Token.ValueText));
+
+        // a loop over GridMembers' grids that keeps to the caller's own scene before the read; or a branch taken only when the
+        // grid read is of the caller's own scene (if (ReferenceEquals(v.Entity.Data.Scene, ...)) ...)
+        static bool SceneKept(SyntaxNode n) => n.Ancestors().OfType<ForEachStatementSyntax>().Any(fe =>
+        {
+            string coll = Regex.Replace(fe.Expression.ToString(), @"\s+", "");
+            if (coll != "GridMembers.All()" && coll != "GridMembers.AllCopy()") return false;
+            var sm = Regex.Match(fe.Statement.ToString(), $@"ReferenceEquals\(\s*{Regex.Escape(fe.Identifier.Text)}\.Entity\??\.Data\.Scene\s*,");
+            return sm.Success && fe.Statement.SpanStart + sm.Index < n.SpanStart;
+        }) || n.Ancestors().OfType<IfStatementSyntax>().Any(ifs => ifs.Statement.Span.Contains(n.Span)
+            && Regex.IsMatch(ifs.Condition.ToString(), $@"^ReferenceEquals\(\s*{Regex.Escape(Regex.Match(n.ToString(), @"^\w+").Value)}\.Entity\??\.Data\.Scene\s*,"));
+
+        // the reads
+        var hits = new List<(string file, SyntaxNode node, string what)>();
+        foreach (var (f, root) in trees)
+        {
+            string src = root.ToFullString();
+            foreach (var inv in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
+                if (inv.Expression is MemberAccessExpressionSyntax ma && ma.Expression.ToString() == "GridMembers" && PhysicsReads.Contains(ma.Name.Identifier.Text))
+                    hits.Add((f, inv, ma.ToString()));
+            foreach (var ma in root.DescendantNodes().OfType<MemberAccessExpressionSyntax>())
+            {
+                string t = Regex.Replace(ma.ToString(), @"\s+", "");
+                if (!ServerHelpers.Contains(t)) continue;
+                var call = ma.Parent as InvocationExpressionSyntax;
+                if (t == "WarpBill.Describe" && call?.ArgumentList.Arguments.FirstOrDefault()?.ToString() == "session") continue;   // (the client session's: no server)
+                // (contacts forget / sensor / on / off touch no grid: the ternary sends the rest to the server thread)
+                if (t == "Contacts.Command" && ma.Ancestors().OfType<ConditionalExpressionSyntax>().Any(c => c.WhenTrue.Span.Contains(ma.Span) && c.Condition.ToString().Contains("\"forget\""))) continue;
+                hits.Add((f, ma, t));
+            }
+            foreach (var inv in root.DescendantNodes().OfType<InvocationExpressionSyntax>())   // (a helper called inside its own class)
+                if (inv.Expression is IdentifierNameSyntax hn && ServerHelpers.Contains(ClassOf(inv) + "." + hn.Identifier.Text)) hits.Add((f, inv, ClassOf(inv) + "." + hn.Identifier.Text));
+            foreach (var m in root.DescendantNodes().OfType<MethodDeclarationSyntax>())
+            {
+                var server = new HashSet<string>(); var sensor = new HashSet<string>();
+                for (int pass = 0; pass < 2; pass++)
+                {
+                    foreach (var v in m.DescendantNodes().OfType<VariableDeclaratorSyntax>())
+                    {
+                        string init = v.Initializer?.Value.ToString() ?? "";
+                        var am = Regex.Match(init, @"^(\w+)\??\.Entity$");
+                        if (ServerSource.IsMatch(init) || am.Success && server.Contains(am.Groups[1].Value)) server.Add(v.Identifier.Text);
+                        if (SensorSource.IsMatch(init)) sensor.Add(v.Identifier.Text);
+                    }
+                    foreach (var fe in m.DescendantNodes().OfType<ForEachStatementSyntax>())
+                    {
+                        if (ServerSource.IsMatch(fe.Expression.ToString())) server.Add(fe.Identifier.Text);
+                        if (SensorSource.IsMatch(fe.Expression.ToString())) sensor.Add(fe.Identifier.Text);
+                    }
+                    foreach (var fv in m.DescendantNodes().OfType<ForEachVariableStatementSyntax>())
+                        if (ServerSource.IsMatch(fv.Expression.ToString())) foreach (var d in fv.Variable.DescendantNodes().OfType<SingleVariableDesignationSyntax>()) server.Add(d.Identifier.Text);
+                    foreach (var ip in m.DescendantNodes().OfType<IsPatternExpressionSyntax>())
+                        if (ServerSource.IsMatch(ip.Expression.ToString())) foreach (var d in ip.Pattern.DescendantNodes().OfType<SingleVariableDesignationSyntax>()) server.Add(d.Identifier.Text);
+                }
+                foreach (var id in m.DescendantNodes().OfType<IdentifierNameSyntax>())
+                {
+                    string v = id.Identifier.Text;
+                    if (!server.Contains(v) && !sensor.Contains(v)) continue;
+                    if (id.Parent is MemberAccessExpressionSyntax pm && pm.Name == id) continue;   // (x.v: someone else's v)
+                    string tail = src.Substring(id.SpanStart, Math.Min(80, src.Length - id.SpanStart));
+                    var r = sensor.Contains(v) ? Regex.Match(tail, $@"^{v}\??\.\w+")
+                          : Regex.Match(tail, $@"^{v}\??\.(Entity\??\.)?(Data\??\.(?!Scene\b)|TryGet\b|Get\b|AsInterface\b|GetTopLevelParent\b|GetSession\b|GetEntitiesOfType\b)");
+                    if (r.Success) hits.Add((f, id, r.Value));
+                }
+            }
+            foreach (Match sm in Regex.Matches(src, @"ServerPlanetBeacon\.ServerSession\??\.GetEntitiesOfType"))
+                hits.Add((f, root.FindNode(new Microsoft.CodeAnalysis.Text.TextSpan(sm.Index, 1)), sm.Value));
+        }
+
+        // the methods only the server thread runs: the entries, then every method whose callers all are such places
+        var ok = new HashSet<string>(ServerEntries.Concat(SpawnPath.Keys));
+        var refs = new List<(string key, SyntaxNode at)>();
+        foreach (var root in trees.Values)
+            foreach (var id in root.DescendantNodes().OfType<IdentifierNameSyntax>())
+            {
+                string key;
+                if (id.Parent is MemberAccessExpressionSyntax pm && pm.Name == id) key = Regex.Match(pm.Expression.ToString(), @"(\w+)$").Value + "." + id.Identifier.Text;
+                else key = ClassOf(id) + "." + id.Identifier.Text;
+                if (methods.Contains(key)) refs.Add((key, id));
+            }
+        bool Ok(SyntaxNode n) => InServerArg(n) || ok.Contains(MethodKey(n)) || InRoutedGen(n) || SceneKept(n);
+        for (bool grew = true; grew;)
+        {
+            grew = false;
+            foreach (var mk in methods)
+            {
+                if (ok.Contains(mk)) continue;
+                var callers = refs.Where(r => r.key == mk && MethodKey(r.at) != mk).ToList();
+                if (callers.Count > 0 && callers.All(c => Ok(c.at))) { ok.Add(mk); grew = true; }
+            }
+        }
+
+        int onServer = 0;
+        foreach (var (f, node, what) in hits)
+        {
+            if (InServerArg(node)) onServer++;
+            int line = node.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
+            Check(Ok(node), $"{rel(f)}:{line}: {MethodKey(node)} reads '{what}' (a server entity) off the server thread");
+        }
+        Check(hits.Count >= 40, $"harness: server-entity reads found ({hits.Count})");
+        Check(onServer >= 25, $"harness: reads inside OnServerThread / RunOnServer found ({onServer})");
     }
 
     static string ClassOf(SyntaxNode n) => n.Ancestors().OfType<TypeDeclarationSyntax>().FirstOrDefault()?.Identifier.Text ?? "";
@@ -120,6 +274,9 @@ static class Program
         Check(gm != null && gm.ToString().Contains("g.IsServer && g.Id >= GridMembers.IdBase"), "OrbitalApi.GetMemberId: a component's own id answers for the server copy only");
         var owner = Method("Render/ParticleCensus.cs", "Owner");
         Check(owner != null && !owner.ToString().Contains("GridMembers.Position("), "ParticleCensus.Owner: the server grids' places from ServerFrames.GridPositions");
+
+        // ── 4. the harness ──
+        DevScan(trees.Where(kv => Rel(kv.Key).StartsWith("Dev/") || Rel(kv.Key) == "Render/SpecCam.cs").ToDictionary(kv => kv.Key, kv => kv.Value), Rel);
 
         Console.WriteLine(_fails == 0 ? $"SceneTests: {_checks}/{_checks} passed" : $"SceneTests: {_fails} of {_checks} FAILED");
         return _fails == 0 ? 0 : 1;

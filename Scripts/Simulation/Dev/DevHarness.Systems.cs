@@ -17,13 +17,17 @@ public static partial class DevHarness
 
             case "radarpower":   // radarpower <0..1>: every radar's transmit power (as the terminal slider)
             {
-                int n = 0;
-                lock (SensorBlocks.Radars) foreach (var r in SensorBlocks.Radars) { r.Power = (float)D(a[1]); n++; }
-                return $"{n} radar(s) at {D(a[1]):P0}";
+                // (the radars are the server's blocks: their draw is asked again there)
+                return GridGen.OnServerThread(() =>
+                {
+                    int n = 0;
+                    lock (SensorBlocks.Radars) foreach (var r in SensorBlocks.Radars) { r.Power = (float)D(a[1]); n++; }
+                    return $"{n} radar(s) at {D(a[1]):P0}";
+                });
             }
 
             case "sensorblocks":   // sensorblocks: the sensor blocks' definitions, unlock and count
-                return SensorBlocks.Describe(session);
+                return GridGen.OnServerThread(() => SensorBlocks.Describe(session));   // (the server's blocks' power and draw read there)
 
             case "buildmenu":   // buildmenu on|off: the terminal's Build tab (block catalogue)
                 if (On(a[1])) MapView.OpenBuild(session); else MapView.Close();
@@ -138,7 +142,7 @@ public static partial class DevHarness
                 return $"hitch log over {TickRate.HitchLogMs:F0} ms";
 
             case "warm":   // warm [on|off|clear]: the warm berths (no engine stall when a frame takes a berth)
-                if (a.Length > 1 && a[1] == "clear") return WarmBerths.Clear();
+                if (a.Length > 1 && a[1] == "clear") return GridGen.OnServerThread(WarmBerths.Clear);   // (closes the server's placeholders)
                 if (a.Length > 1) WarmBerths.Enabled = On(a[1]);
                 return WarmBerths.Status;
 

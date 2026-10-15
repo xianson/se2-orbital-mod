@@ -93,6 +93,11 @@ public static class GridGen
         // (clear too: deleting from here raced the server's own access to those grids - "Concurrent access", then a crash;
         //  the asteroid frames delete from the server's job the same way)
         if (sub == "hold" || sub == "free" || sub == "steer" || sub == "clear") return OnServer(() => CommandOnServer(me, camera, a));
+        // (and the reads of the server's grids - a body, a transform, blocks, hinges, the aero readout, a mass: from here they
+        //  were the cross-scene read the game's DataGuard asserts on - the 2026-10-15 scene audit. Spawning and growing blocks
+        //  stay here, as measured above.)
+        if (sub == "rate" || sub == "dump" || sub == "probe" || sub == "aero" || sub == "hinges" || sub == "report" || sub == "air" && !(a.Length > 2 && a[2] == "off"))
+            return OnServerThread(() => CommandOnServer(me, camera, a));
         return CommandOnServer(me, camera, a);
     }
 

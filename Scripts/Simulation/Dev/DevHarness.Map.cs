@@ -74,8 +74,12 @@ public static partial class DevHarness
             }
 
             case "encounters":
-                Log.Default?.Info("[ORBIT-DEV] " + EncounterFrames.Describe());
-                return EncounterFrames.Describe().Replace((char)10, '|');
+            {
+                // (its census reads the server grids' places and kinds: on the server thread, once - 2026-10-15 scene audit)
+                string ed = GridGen.OnServerThread(EncounterFrames.Describe);
+                Log.Default?.Info("[ORBIT-DEV] " + ed);
+                return ed.Replace((char)10, '|');
+            }
 
             case "roids":
             {
@@ -459,7 +463,11 @@ public static partial class DevHarness
                 return $"mapview={MapView.Mode}";
 
             case "contacts":   // contacts [reveal|forget|on|off]
-                return Contacts.Command(a);
+            {
+                // (reveal and the count read each server grid's owner: on the server thread)
+                string cs = a.Length > 1 ? a[1] : "";
+                return cs == "forget" || cs == "sensor" || cs == "on" || cs == "off" ? Contacts.Command(a) : GridGen.OnServerThread(() => Contacts.Command(a));
+            }
 
             case "bodymarkers":   // bodymarkers on|off: planet and moon markers in flight
                 BodyMarkers.Enabled = On(a[1]);

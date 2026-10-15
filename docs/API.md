@@ -296,7 +296,6 @@ What the API does **not** give yet, and why. Additions only; each would come as 
 | Encounter **expiry** timers, NPC classification beyond `isEncounter` | Internal and short-lived. |
 | **Writes** that move things (set an orbit, teleport, merge / split frames) | Deliberately not exposed: they are dev tools (the harness) and bypass the physics (no cheats). |
 | A **remote** multiplayer client | Nothing is sent to clients yet (as with the Aerodynamics Mod); SE2 2.4 runs both in one process. |
-| `tools/check_contract.sh` reads only `Frames/OrbitalApi.cs` | Its overload and signature checks should glob `Scripts/**/OrbitalApi*.cs`; `Tests/ApiTests` checks every partial file meanwhile. |
 
 ## Settings
 
@@ -341,7 +340,7 @@ SE2 2.4 has the engine side of programmable blocks (`InGameScriptingComponent`, 
 
 ## The Aerodynamics Mod
 
-The two mods compile apart and meet only by reflection. Every link, both ways (`tools/check_contract.sh`, run by the fast gate, checks each name and parameter list against the other mod's source, that every lookup passes its parameter types, and that neither API overloads a name):
+The two mods compile apart and meet only by reflection. Every link, both ways (`tools/check_contract.sh`, run by the fast gate, checks each name and parameter list against the other mod's source, that every lookup passes its parameter types, and that neither API overloads a name - over every `AeroApi*.cs` / `OrbitalApi*.cs` partial - and that every `AeroMod` flag the dev harness sets by name exists):
 
 **Orbital → Aero** (`AeroMod.AeroApi`, see that mod's `docs/API.md`; all made outside the frame lock):
 

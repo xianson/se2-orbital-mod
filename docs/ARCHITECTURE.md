@@ -327,7 +327,7 @@ where the fast gate can test it; the in-game tiers check only what needs the eng
 
 The mods compile apart and find each other by reflection, by type name; neither needs the other.
 `tools/check_contract.sh` checks the contract both ways from source (names, exact signatures, explicit parameter
-types, no overloads).
+types, no overloads, over every API partial file; and the dev harness's `AeroMod` flags).
 
 - **Aero reads Orbital** (`OrbitalApi`, `Version` 1; reference in `docs/API.md`):
   - `OrbitalApi.TryGetEntryState` / `TryGetEntryState2` - a railed grid sits still in its berth, so Aero cannot see its

@@ -94,7 +94,11 @@ public static class DevHudCheck
         }
         return "ok";
         });
-        if (ran != "ok") return "hudcheck: " + ran;
+        // (the HUD against it here, once the server has worked it out - never waited for in this frame: ServerAsks, 2026-10-15)
+        return GridGen.Then(ran, Against);
+        string Against(string ranR)
+        {
+        if (ranR != "ok") return "hudcheck: " + ranR;
         if (refused != null) return refused;
         sb.Append(what).Append(": ");
         var hudFrame = FrameHost.PlayerFrame;
@@ -162,5 +166,6 @@ public static class DevHudCheck
         if (r?.Relative != null && hasTgt) Line(r.RelIsTarget, $"the plot is about the target ({r.AnchorName}), now along {r.RelNow.along / 1000:F2} km radial {r.RelNow.radial / 1000:F2} km");
         sb.Insert(0, $"hudcheck {(fails == 0 ? "PASS" : "FAIL")} ({fails}) || ");
         return sb.ToString();
+        }
     }
 }

@@ -278,6 +278,22 @@ static class Program
         // ── 4. the harness ──
         DevScan(trees.Where(kv => Rel(kv.Key).StartsWith("Dev/") || Rel(kv.Key) == "Render/SpecCam.cs").ToDictionary(kv => kv.Key, kv => kv.Value), Rel);
 
+        // ── 5. the harness never WAITS for the server thread: it runs in the client's frame, and the in-process server's next
+        //    tick starts only after that frame (GameAppComponent.GameUpdate: Server.Tick, Client.Tick, Server.AfterTick) - a
+        //    wait there is a deadlock until its timeout (2026-10-15: findgrids' 3 s wait, "server tick gap 3025 ms" after each).
+        //    Its server work is queued and answered later (ServerAsks; Tests/HarnessTests runs it). ──
+        var waits = new Regex(@"\.Wait\s*\(|ManualResetEvent|AutoResetEvent|Thread\.Sleep|SpinWait|\bSemaphore(Slim)?\b|Monitor\.Wait|\.GetAwaiter\(\)\.GetResult");
+        int devFiles = 0;
+        foreach (var (f, root) in trees)
+        {
+            if (!Rel(f).StartsWith("Dev/")) continue;
+            devFiles++;
+            string code = Regex.Replace(root.ToFullString(), @"//[^\n]*|/\*.*?\*/", "", RegexOptions.Singleline);
+            var m = waits.Match(code);
+            Check(!m.Success, $"{Rel(f)}: no blocking wait in the harness ({(m.Success ? "'" + m.Value + "'" : "none")}) - queue it (ServerAsks)");
+        }
+        Check(devFiles >= 10, $"harness: Dev/ files found ({devFiles})");
+
         Console.WriteLine(_fails == 0 ? $"SceneTests: {_checks}/{_checks} passed" : $"SceneTests: {_fails} of {_checks} FAILED");
         return _fails == 0 ? 0 : 1;
     }

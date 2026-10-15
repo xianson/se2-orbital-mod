@@ -76,9 +76,11 @@ public static partial class DevHarness
             case "encounters":
             {
                 // (its census reads the server grids' places and kinds: on the server thread, once - 2026-10-15 scene audit)
-                string ed = GridGen.OnServerThread(EncounterFrames.Describe);
-                Log.Default?.Info("[ORBIT-DEV] " + ed);
-                return ed.Replace((char)10, '|');
+                return GridGen.Then(GridGen.OnServerThread(EncounterFrames.Describe), ed =>
+                {
+                    Log.Default?.Info("[ORBIT-DEV] " + ed);
+                    return ed.Replace((char)10, '|');
+                });
             }
 
             case "roids":

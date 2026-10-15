@@ -19,17 +19,24 @@ namespace SEAerospace.Time
     {
         // the game time (TimeSpan ticks) last claimed; long.MinValue: none yet
         private long _last = long.MinValue;
+        /// <summary>A game time this far (or more) BEHIND the last claim is a new clock (a new session) and claims afresh;
+        /// less is a straggler from an older frame and claims nothing.</summary>
+        public const long NewClockTicks = TimeSpan.TicksPerSecond;
 
         /// <summary>
         /// True for exactly one caller per new game time. <paramref name="dtSeconds"/>: game seconds since the last claim,
         /// at most <paramref name="maxDt"/> (a stall must not bill minutes at once); 0 on the first claim and when the game
-        /// time went BACK (a new session's clock starting again: claimed afresh, not held until it caught up).
+        /// time went BACK by NewClockTicks or more (a new session's clock starting again: claimed afresh, not held until it
+        /// caught up). A smaller step back claims nothing and leaves the last claim where it was.
+        /// (2026-10-15: any step back claimed and moved the claim backwards - a straggler from an older frame let the current
+        ///  frame claim a second time.)
         /// </summary>
         public bool TryClaim(long gameTicks, double maxDt, out double dtSeconds)
         {
             dtSeconds = 0;
             long last = Interlocked.Read(ref _last);
             if (gameTicks == last) return false;
+            if (last != long.MinValue && gameTicks < last && last - gameTicks < NewClockTicks) return false;
             if (Interlocked.CompareExchange(ref _last, gameTicks, last) != last) return false;
             if (last != long.MinValue && gameTicks > last)
                 dtSeconds = Math.Min((gameTicks - last) / (double)TimeSpan.TicksPerSecond, maxDt);

@@ -173,9 +173,6 @@ namespace SEAerospace.Orbital
             => 2.0 * Math.Atan2(Math.Sqrt(e + 1.0) * Math.Sinh(H / 2.0),
                                 Math.Sqrt(e - 1.0) * Math.Cosh(H / 2.0));
 
-        /// <summary>Asymptote true anomaly of a hyperbola: the limit |nu| approaches (acos(-1/e)).</summary>
-        public static double AsymptoteTrueAnomaly(double e) => Math.Acos(-1.0 / e);
-
         /// <summary>Solve M = E - e sin E for the eccentric anomaly E (Newton-Raphson).</summary>
         public static double SolveKeplerElliptic(double M, double e)
         {

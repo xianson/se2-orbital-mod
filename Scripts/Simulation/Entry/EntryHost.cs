@@ -43,8 +43,7 @@ public static class EntryHost
     //    Glow under "OrbitalMod"; while registered our strength owns the grid's plasma ──
     static readonly Dictionary<Entity, (Vector3D air, double strength, double t, double rho)> _glow = new Dictionary<Entity, (Vector3D, double, double, double)>();
     static bool _glowHooked;
-    /// <summary>Diagnostics: the hook is set; grid glows written; asked for / answered.</summary>
-    public static bool GlowHooked => _glowHooked;
+    /// <summary>Diagnostics: grid glows written; asked for / answered.</summary>
     public static int GlowWrites, GlowAsks, GlowAnswers;
     /// <summary>The entry-source contract this build speaks (= AeroMod.AeroEntryFx.EntrySourceContract, what
     /// RegisterEntrySource returns; aero's API version, AeroApi.Version, may be higher - members are only added).</summary>

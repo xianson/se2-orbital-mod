@@ -134,9 +134,6 @@ public static partial class ServerFrames
     /// <summary>The rock a rock-anchored frame is on (its box centre), to tell a change of rock.</summary>
     static readonly Dictionary<long, Vector3D> _rockOf = new Dictionary<long, Vector3D>();
 
-    /// <summary>A rock that does not persist anchors a frame only when one of its grids is this close to it (m).</summary>
-    public const double RockReach = 2000.0;
-
     /// <summary>Guards the frame registry and frame state across the client and server threads.</summary>
     public static readonly object FramesLock = new object();
 

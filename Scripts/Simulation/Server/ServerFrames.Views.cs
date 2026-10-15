@@ -49,7 +49,6 @@ public static partial class ServerFrames
     public static List<SensorView> SensorViews => System.Threading.Volatile.Read(ref _sensorViews);
     /// <summary>The grid the player's seat is on, as the server has it (0: not seated) - BuildViews.</summary>
     public static long PlayerSeatGrid;
-    public static List<GridView> AllViews() => new List<GridView>(System.Threading.Volatile.Read(ref _views).Views);
     /// <summary>The snapshot's grids without a copy (published whole each snapshot, never changed after).</summary>
     public static GridViews ViewValues => new GridViews(System.Threading.Volatile.Read(ref _views).Views);
     /// <summary>A snapshot's views to enumerate (foreach: no allocation - a struct enumerator, as the dictionary's values had).

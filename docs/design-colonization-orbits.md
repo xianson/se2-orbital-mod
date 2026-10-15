@@ -1,10 +1,16 @@
 # Fusing colonization with orbits: design (revision 2)
 
-Status: proposal, 2026-09-26. Decisions from the user: **a real solar system, no compromises**
+Status: proposal, 2026-09-26; **checked against the code 2026-10-15** (marks per section: IMPLEMENTED,
+PARTIAL, NOT IMPLEMENTED, SUPERSEDED). In short: windows, real orbits, orbital travel and virtual sectors are built;
+the "no fast travel", planner, reachability and orbital-contract parts are not; the scale in section 6 was replaced by
+a compact system. Decisions from the user: **a real solar system, no compromises**
 (planets orbit the sun; nothing in the model is pinned for the game's convenience) and **no fast
 travel at all** (every trip is flown).
 
 ## 1. The consequence: the world is storage, not space
+
+> PARTIAL: planet cells and berths are built. Region cells were realised as **sites** instead (latent frames at the
+> encounter's authored spot, `EncounterFrames.Site`; `docs/design-encounter-frames.md`).
 
 Every colonization system is pinned to fixed world coordinates (sector areas, fast-travel
 fields, procedural encounter cells, contract targets, discovery triggers). Planets that really
@@ -25,6 +31,9 @@ window: sector membership, contract placement, encounter seeds, discovery, field
 
 ## 2. The solar system
 
+> IMPLEMENTED, differently: sectors get homes from `SectorHomes` (about a planet, Lagrange points, the belts, a ring),
+> not all "high planetary orbits".
+
 - The star at the root; planets on real heliocentric orbits; moons on real orbits around their
   planets (built: Palatine around Verdure, Caligo around Kemik).
 - **Region cells get real orbits too.** A deep-space sector is a real place in the system. The
@@ -37,6 +46,9 @@ window: sector membership, contract placement, encounter seeds, discovery, field
 
 ## 3. Travel is orbital, always
 
+> IMPLEMENTED (stow, arrival, SOI reparenting, warp; sites reached by conjunction). Not "speed caps are irrelevant":
+> inside a planet's space the world cap (1000 m/s) applies, and reentry brakes you to it (`Reentry`).
+
 - Leaving any window (planet, region, berth) is a stow onto the rails; arriving is a crossing
   of the target window's shell, with the exact state. Built for planets; region cells reuse it
   with a region radius instead of a planet shell.
@@ -47,6 +59,10 @@ window: sector membership, contract placement, encounter seeds, discovery, field
 - Speed caps are irrelevant: ships in frames carry any velocity on the rails.
 
 ## 4. Colonization gameplay on real orbits
+
+> 4.1 NOT IMPLEMENTED (fast travel is untouched). 4.2 NOT IMPLEMENTED as written: no planner (removed 2026-09-29); a
+> per-sector delta-v / trip guide in the sector list and a display-only porkchop exist. 4.3, 4.4 NOT IMPLEMENTED.
+> 4.5 IMPLEMENTED (sites).
 
 1. **No fast travel.** Every trip is flown: stow, coast (with warp), arrive. The mod disables
    the game's fast travel (its fields stay as landmarks and discovery points, but never teleport).
@@ -63,6 +79,9 @@ window: sector membership, contract placement, encounter seeds, discovery, field
    at their authored coordinates. Cargo ships get real trajectories.
 
 ## 5. Display: one map, one zoom
+
+> PARTIAL: one map (the game's, taken over: `GameMap`, `CleanMap`), zoomed out past the chart (`GameMap.ZoomOutFactor`
+> raises `MaxDistance`). The moon markers with arcs back to their chart cells and the family badges were not built.
 
 The colonization map and the KSP map are one map. The game's map stays the interactive surface
 (its controls, selection, side panel, contracts); the orbital layers live in the same 3D scene
@@ -128,6 +147,10 @@ chart cells to their orbit positions, families shrink into badges.
 
 ## 6. Mapping the campaign onto a real system (decided: big warp, smart mapping)
 
+> SUPERSEDED: the system is compact - a red dwarf (`SystemHost.StarMu` 1.41e13), `SystemHost.AU` = 30,000 km, orbits
+> x `OrbitScale` 0.1, sectors about a planet at their charted distance x `SectorOrbitScale` 0.4; warp tops out at
+> x10,000 (`WarpControl.Levels`). The table below is the original survey of the campaign layout.
+
 **Scale: real.** A Sun-mass star; Verdure at 1 AU (a one-year orbit), Kemik at 1.52 AU. A
 Verdure-Kemik Hohmann transfer takes about 8.5 months, with launch windows about every 26
 months. Rails warp goes to x1,000,000 and beyond (8.5 months in about 22 s); the warp stop at
@@ -169,6 +192,10 @@ map plane). Measured from the campaign:
 
 ## 7. Phases
 
+> 1 PARTIAL (legacy space is still flyable; captured only with `CaptureLegacySpace`). 2 NOT IMPLEMENTED (no planner,
+> fast travel kept). 3 PARTIAL (orbits, sectors, targets, closest approach, the delta-v guide; no launch-window
+> countdowns). 4 NOT IMPLEMENTED (sensors and contacts exist, but no reachability shading or orbital contracts).
+
 1. **Region cells:** a pinned window per deep-space sector, with a model orbit; stow and
    arrival for region windows; legacy space outside every window is no longer flyable.
 2. **Transfers:** a player transfer planner (Lambert, launch windows, maneuver markers) and
@@ -182,6 +209,8 @@ map plane). Measured from the campaign:
 - Home of each deep-space sector (Trojans, belts, high planetary orbits).
 
 ## Virtual sectors (worlds without colonization sectors), 2026-10-06
+
+> IMPLEMENTED (`SectorHomes.Virtual`, `GameMap.HomesBySector`, `ZoneLevel`).
 
 A world with no colonization sectors, such as Creative (Concordia), used to get the bodies and orbits but none of the zones. The
 map then had no ring or belt bands, belt rocks couldn't be clicked or targeted, Lagrange zones were faint outlines with nothing to

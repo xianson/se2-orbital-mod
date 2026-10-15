@@ -1,23 +1,41 @@
 # Orbital Mod (SE2)
 
-Orbital mechanics for Space Engineers 2, the SE2 counterpart of the SE1 project at
-`D:\SE-Aerospace`. Status as of 2026-09-27, SE2 **2.4.0.77**. Separate from the Aerodynamics Mod on purpose:
-the two share almost nothing, and players can run either alone.
+Orbital mechanics for Space Engineers 2 (SE2 2.4), the SE2 counterpart of the SE1 project at `D:\SE-Aerospace`: a
+real, compact solar system, orbits on rails, time warp, KSP-style maneuver planning on the game's map, reentry, and
+encounters you reach by conjunction. Separate from the Aerodynamics Mod on purpose: the two share almost nothing,
+find each other by reflection, and each runs alone. Single player and listen host only (see Limits).
 
-## Playing it (2026-09-27)
+Docs: [how it works](docs/ARCHITECTURE.md) · [the API for other mods](docs/API.md) ·
+[reflection and the whitelist](docs/REFLECTION_AND_WHITELIST.md) · design notes
+([encounters](docs/design-encounter-frames.md), [maneuver nodes](docs/design-maneuver-nodes.md),
+[colonization on orbits](docs/design-colonization-orbits.md)) · [the 2026-10-05 audit log](docs/AUDIT_2026-10-05.md) ·
+a README in each client folder (`Scripts/Simulation/Flight`, `Hud`, `Map`, `Render`).
 
-**The system.** Verdure and Kemik orbit the sun (SE-Aerospace's scale rule, then orbits a further
-10x smaller: Verdure's year ~3.6 days, Kemik's ~6.8, a transfer ~2.5 days). Palatine orbits Verdure
-at ~380 km; Caligo orbits Kemik at ~585 km (3x its charted distance). The colonization sectors are
-places in this system: orbits about their planet, L1/L2 loops, the belt, the Byblos ring.
+## Playing it
 
-**Getting somewhere.** Leave a planet's space and your orbit goes on the rails. Every sector is a
-site on its orbit; when your orbit meets it (a conjunction) you arrive there, at your true relative
-position and speed, and the game spawns that sector's encounters around you. Brown-dwarf killing
-fields are kept clear. Fast travel is untouched.
+**The system.** Verdure and Kemik orbit Delfos, a red dwarf (SE-Aerospace's scale rule, then orbits a further 10x
+smaller: Verdure's year is about 3 days, Kemik's about 6, a transfer about 2.3). Palatine orbits Verdure at 1,140 km;
+Caligo orbits Kemik at ~1,170 km (6x its charted distance). Planets spin with the world's day. The colonization
+sectors are places in this system: orbits about their planet, L1-L5 points, the belts, the ring. Worlds without
+sectors get the same kind of zones built from the system (each planet's space, the belts, rings, Lagrange points).
 
-**Keys.** `.` faster time warp, `,` slower, `/` back to x1 (rails only; warp stops by itself at
-arrivals and before a burn).
+**Getting somewhere.** A planet's own space ends at the top of its atmosphere (9.5 km up at Verdure; airless bodies a
+little above their hills). Below that is ordinary flight; climb past it and your orbit goes on the rails. Every
+sector is a site on its orbit; when your orbit meets it (a conjunction) you arrive there, at your true relative
+position and speed, and the game spawns that sector's encounters around you. Brown-dwarf killing fields are kept
+clear. Fast travel is untouched.
+
+**Keys.**
+- `.` faster time warp, `,` slower, `/` back to x1 (on rails only; x1 to x10,000). The warp bar shows the level
+  (clickable on the map).
+- `N` targets what is under the crosshair (in flight) or the cursor (on the map).
+- `;` turns the attitude hold on and off; `Ctrl+;` picks the mode (prograde, retrograde, normal, anti-normal, radial
+  out / in, level). The cockpit HUD's align button shows it, lit while holding.
+
+**Warp stops by itself** at arrivals, 30 s before a maneuver's burn (5 s for an armed one), ahead of a rendezvous,
+before the entry interface, at a sphere-of-influence change, before Delfos's heat and at a point you asked for
+('Warp here' on the map). A ship moving in your frame limits how fast you can warp. Warp is not free: batteries and
+tanks on railed grids run at the warp rate, and warp drops to x1 when one on your ship runs dry.
 
 **Map (terminal Map tab).**
 - Left click a sector's orbit, marker or list row: select it (the game's side panel).
@@ -55,186 +73,102 @@ arrivals and before a burn).
   semi-major axis, where it is now (height, speed, the next apsis), against your orbit (Ap / Pe differences, the
   planes' angle, how far ahead or behind) and the closest approach on your path.
 
-**In flight.** The game's notification card shows your orbit (altitude, speed, periapsis /
-apoapsis, period, warp) and the next burn (delta-v, burn time, time to start). A navball marker
-points along the burn; the countdown runs to half the burn before the node; the node completes
-when what is left is under 0.1 m/s. GPS markers in another place (another planet, a sector) are
-drawn in their true direction with the true distance.
+**Rendezvous tab** (the map's third tab): your planned path relative to the target, in the target's own frame, with
+its merge zone; the nodes are edited there as on the map. With a planet or moon targeted it shows a porkchop plot
+(departure time against flight time, coloured by total delta-v; your plan is the cross).
 
-**Encounters.** Encounters live on orbits too: close spawns stay with you, far ones get an orbit of
-their own; NPC ships fly plain Newtonian inside their frame.
+**In flight.** The game's notification card shows your orbit (altitude, speed, periapsis / apoapsis, period, warp) and
+the next burn (delta-v, burn time, time to start). A navball marker points along the burn; the countdown runs to half
+the burn before the node; the node completes when what is left is under 0.1 m/s. Maneuvers with **Auto-burn: on**
+(their right-click menu) fly themselves: the ship turns to the burn and its thrusters fly it (the jetpack on foot). GPS markers in
+another place (another planet, a sector) are drawn in their true direction with the true distance.
 
-Design notes: docs/design-colonization-orbits.md, docs/design-encounter-frames.md,
-docs/design-maneuver-nodes.md.
+**Encounters.** Encounters live on orbits too: close spawns stay with you, far ones get an orbit of their own; NPC
+ships fly plain Newtonian inside their frame.
 
-## Frames and rails (the SE-Aerospace design) - verified in game 2026-09-25
+**Holding station.** Ships near you in your frame feel the relative pull of your orbit. With dampeners on a ship
+holds station instead, and its thrusters pay for it in power (or the suit, on foot). A "Frame origin" marker shows
+where holding is free.
 
-The same design as SE-Aerospace (planet cells + conjunction berths, rails, the treadmill, the
-interaction shell, HighSpeed), ported. Verified in game with the harness:
+**Reentry and the speed cap.** Inside a planet's space the world's speed cap applies (raised from 300 to 1000 m/s);
+on rails nothing caps you.
+- From the entry interface (about 10 km above the border at Verdure) down to the border, speed over the cap is braked
+  away, so you always arrive at or under the cap. Climbs and ordinary orbits are untouched; the band is also a thin
+  atmosphere, so aerobraking passes lower the apoapsis.
+- **Heat:** the energy shed, against a tolerance of 1.15 MJ/kg (x2 with heavy armour in front). Every normal transfer
+  arrival comes in within it. Past it a grid's forward layer is worn in 5 % chunks, at most half a block's health per
+  entry: the rule alone never destroys a ship.
+- **Airless bodies** (Palatine) have no band: an arrival over the cap is clamped at the border, a jolt worth a quarter
+  of the same heat.
+- **Seen ahead:** the orbit card ('Entry in 2:46 · 1,669 -> 990 m/s · heat 82%', then 'braking 5.3 g'), map marks
+  (Atmosphere entry, Max q, No air) and warp stopping 30 s before a pass.
+- **Plasma:** with the Aerodynamics Mod installed, ships braked on rails glow with its reentry plasma.
 
-- **System from the world:** Verdure and Kemik become bodies around a synthetic star, mu matching the
-  patched 1/r² physics (incl. the world gravity multiplier 2); planet cells pinned where the planets
-  sit; the conjunction lattice 2000 km beyond the farthest planet.
-- **Stow:** leaving Verdure's keep (113 km) on an escaping arc captures the player into a
-  conjunction frame and teleports them into a berth (0 g there).
-- **Treadmill:** in the berth the player is pinned, velocity drained and folded into the rails; the
-  planets are proxies at the frame-relative celestial offset; the frame orbit is drawn from the rails.
-- **Warp:** rails-only; locks to x1 whenever the player is materialized.
-- **Arrival:** the rails orbit crossing the shell (75.6 km then; 78.1 km, 15 km up, since 2026-10-01) hands the player back to the real planet at
-  the crossing, with the exact crossing state.
-- **HighSpeed (analytic):** above the 300 m/s cap the player rode the conic, placed each tick.
-  *Retired 2026-09-28: no rails inside a planet's frame; the cap is 1000 m/s and reentry (below)
-  brings you to it before the border. The HighSpeed notes below are history.*
-- **A full skimming revolution:** Ap 200 / Pe 8 km -> rails -> ARRIVE at 1262 m/s -> HighSpeed through
-  periapsis at exactly 71.0 km -> STOW again at the 79.4 km floor. Orbit after two handoffs:
-  a 166.6 km e 0.574 (was 167.0 / 0.575).
+**Sensors and contacts.** What you can target beyond your own things is what you have seen: by eye, with a
+**Telescope** (passive: sunlit or warm targets) or a **Radar** (active: everything in range, and it gives you away).
+The blocks come from the companion "Orbital Mod Blocks" content (`tools/blocks/gen_blocks.py`).
 
-- **Ships as frame members (server side):** grids within 5 km of a stowing player join its frame;
-  the heaviest dynamic grid is the anchor (pinned, drained, folded into the rails on the server);
-  the other members and the player get the berth's differential gravity minus the frame
-  acceleration (Clohessy-Wiltshire); a member beyond 20 km splits into its own frame. Verified:
-  the Nova35 wreck (5 grids, 90 t anchor) plus the player stow together, warp, arrive together in
-  HighSpeed (offsets held at 0.32-0.34 km through periapsis) and re-stow together.
-- **Merge (a rendezvous, as in SE1):** same-SOI frame pairs are screened for closest approach over
-  30 min; miss < 10 km and rel speed < 1000 m/s feed a sticky tracker (2 s dwell), and a latched
-  pair merges when it is also within 10 km and below the cap now. The lighter frame moves into the
-  heavier one's berth at the celestial relative state. Verified: the player's frame merged into
-  the wreck's (sep 1.18 km, 3.7 m/s).
-- **Thrust in HighSpeed:** the character's per-frame thrust impulse (ActiveThrustData) is folded
-  into the conic by re-osculating; unexplained jumps above 2 m/s (collisions) are folded from the
-  velocity. With no input the orbit is unchanged (0 folds over a periapsis pass); a harness 50 m/s
-  prograde kick at periapsis gave a 167.0 -> 229.7 km (vis-viva: 229.8). The physics velocity
-  alone cannot be used: the thrust job zeroes components below the movement minimum speed, which
-  swallows a frame of gravity.
-- **Clock on game time:** the rails and the server's tidal integration run on IGameTime (synced
-  client/server, follows game speed, pauses with the game), so the rails and the physics agree.
-- **Persistence:** frames, the rails clock and HighSpeed conics are saved with the world, on every
-  planet's beacon component (planets always exist). The builder is the engine's own
-  EntityNameSessionComponentObjectBuilder (string -> Entity): mod-defined builders cannot compile,
-  because the serializer generator always emits code needing System.Linq.Expressions. Member ids
-  are remapped through saved entity references. Verified: a frame with 5 grids and the player was
-  saved and reloaded intact (orbit, clock t=150, all members). The harness `save` only ever writes
-  the "Orbital Test World" copy.
-- **Orbital map (KSP style):** SE2's strategic map only exists in worlds with colonization
-  sectors, so the mod has its own map mode. It opens automatically with the terminal's Map tab
-  when there is no colonization map (or `omap on`), switches the renderer to map-only drawing
-  (the world hidden, as the strategic map does) and builds a diorama at the player: focus on the
-  planet you orbit (its textured map globe, keep ring, every frame's orbit with Ap/Pe, "you + N
-  grids") or the whole system (sun, planet globes on heliocentric orbits, SOI rings). Where the
-  colonization map exists, orbits are also drawn over it (MapView). Screenshots 09-11.
-- **Campaign (colonization) map overlay:** in worlds with sectors (a new SurvivalNOFTUE game, 15
-  sectors) the orbits draw on SE2's own map: zoomed in, the orbit around the planet's globe (screenshot
-  13); zoomed out, the star system over the sectors (14). Vertices are offset to the map entity
-  (MeshBuilder.SetPrimitiveOffset + UpdateEntityTransform): the map is ~1 m across hundreds of km from
-  the origin, where float positions only resolve centimetres.
-- **Moons:** a body within 1000 km of one 10x heavier orbits it (campaign: Palatine around Verdure,
-  Caligo around Kemik); overlapping planet cells go to the nearest centre; each body's gravity reach
-  stops short of its neighbours' SOI.
-- **Constrained grids are never moved:** teleporting one body of a constrained pair (landing gear,
-  connectors) broke Havok's constraint migration and hung the server; attach and lone-grid stow skip them.
-- **Spectator camera (harness):** `cam planet|player|map ...` overrides the render camera
-  (CameraComponent.SetTransformOverride) and rebuilds the proxies for that viewpoint. Screenshot 12.
-- **Total partition incl. legacy space (opt-in):** with `OrbitalConfig.CaptureLegacySpace` (harness
-  `legacy on`) the player and every dynamic grid outside all planet cells are captured into frames,
-  treating that space as a window around the nearest planet. Off by default: objects there sit at
-  rest relative to the planet, so they fall in (verified: 11 grid groups captured, fell, merged,
-  arrived at Verdure at ~1340 m/s in HighSpeed).
-- **Radial states:** zero-angular-momentum states (at rest, or straight in/out) are captured as a
-  needle ellipse (tiny perpendicular nudge) instead of NaN elements. Verified: a=370.7 km e=1.000.
-- **Planet spin (rotating surface chart):** planets spin with the world's own sun period (9600 s
-  in the test world; `OrbitalConfig.PlanetDaySeconds` overrides). SE2 voxels cannot rotate, so the
-  whole planet cell is the rotating chart (terrain at rest); inertial states convert where objects
-  leave or enter the voxel world (stow, arrival, HighSpeed placement, thrust folds), free flight in
-  the cell gets Coriolis + centrifugal (above 20 m/s or 5 km), the observer frame carries the spin
-  so proxies and the sun turn with the day. Verified: the grid-frame cycle (arrival, HighSpeed,
-  re-stow of the player + 5 grids) preserves the orbit exactly as without spin (a 168.6 km).
-- **Sun from the model:** see above; in a spinning cell the sun rises and sets with the chart.
-- **Lone grids** in a planet cell stow into their own frame when they leave the keep (or cross above
-  the shell on an escaping arc), taking grids within 5 km along.
-- **Warp never skips an arrival:** the rails clock stops exactly at the earliest inbound shell
-  crossing and drops to x1, so arrival works at any tick rate.
+**Settings.** World settings (planet spin, legacy-space capture, reentry, asteroids, encounters) are saved with the
+world, with host overrides in `%APPDATA%\SpaceEngineers2\ModSettings\OrbitalMod.world.cfg`; client settings (proxy
+planets, the orbit HUD, the map) in `OrbitalMod.client.cfg` next to it. Both files are re-read every ~2 s.
 
-Remaining limits: local player only (client-driven; SP / listen host), HighSpeed thrust
-verified only as no false folds plus a harness kick (no real key press; grid thrust untested), legacy-space capture is opt-in, relative motion of members is integrated at x1 while the rails warp.
+**Saved with the world:** your orbit and every frame, the clock, maneuver nodes (armed or not), your target, contacts,
+the Contacts tab's pins, names and hidden rows.
 
-## Reentry and the speed cap (2026-10-01)
+## For modders
 
-Inside a planet's frame the world's speed cap applies (1000 m/s, raised from 300; you are the
-planet's guest there, while in your own frame on rails nothing caps you). The planet frame's
-border is 15 km up at Verdure (shell = 1.6 atmosphere heights), where a circular orbit is about
-the cap: inside it everything is physical flight, every orbit is on rails.
-
-- **Braking band** (`Core/Entry/Reentry`, game-free, 32 offline checks): from the entry
-  interface (35 km up) to the border. Only speed over the cap (through the planet's spinning air)
-  is braked, so climbs and ordinary orbits are untouched; what is left at the border is taken
-  there, so the handover to physics is always at or under the cap. Warp-proof (integrated through
-  the band); aerobraking passes lower the apoapsis.
-- **Heat:** the energy shed, against a tolerance of 1.15 MJ/kg (x2 with heavy armour in front);
-  every normal transfer arrival comes in within it. Past it a grid's forward layer is worn in 5%
-  chunks, at most 50% of a block's health per entry: the rule alone never destroys a ship.
-- **Airless bodies** (from the game: Palatine's atmosphere has no density) have no band: an
-  arrival over the cap is clamped at the border, a jolt worth a quarter of the same heat.
-- **Seen ahead:** the orbit card ('Entry in 2:46 · 1,669 -> 990 m/s · heat 82%', then
-  'braking 5.3 g'), map marks (Entry, Max q, No air) and warp stopping 30 s before a pass.
-- **The sun:** the game's sun is vanilla (its own place and day cycle); Delfos is its own globe
-  in the sky (StarProxy), never under the sun's glare.
-- **Plasma** (2026-10-02): while a frame is braked, `EntryHost` feeds the aero mod's reentry
-  plasma (`AeroMod.AeroEntryFx.External`, set by reflection) each member grid's air velocity and a
-  glow (sqrt(decel / 50 m/s^2), 0.15..1): grids on rails sit still in their frame, so the aero mod
-  cannot see their speed itself.
+- **`OrbitalMod.OrbitalApi`**: the system, frames and their orbits, which frame a grid is in, reentry, settings - by
+  reflection, .NET and engine types only, versioned. Reference and example: [docs/API.md](docs/API.md).
+- **With the Aerodynamics Mod:** Aero reads each railed grid's true air state and Orbital's velocity edits through
+  `OrbitalApi`; Orbital registers as Aero's reentry-plasma source through `AeroMod.AeroApi`. `tools/check_contract.sh`
+  (in the fast gate) checks both directions from source. Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#12-the-aero-link).
+- Reflection into the engine (render, the colonization map, UI): every use is listed in
+  [docs/REFLECTION_AND_WHITELIST.md](docs/REFLECTION_AND_WHITELIST.md) - keep it current with every change.
+- Mod scripts: never use `var` for an array of a mod-defined type. The game bans it (VRS1001) and the mod fails to
+  load; the files' `#pragma warning disable` hides that from offline analyzers, ModCheck's rule MODVAR1 catches it.
 
 ## Testing: three tiers
 
 | tier | command | time | what | when |
 |---|---|---|---|---|
-| fast gate | `tools/test_fast.sh` | ~15 s, no game | the scripts compiled as the game compiles them (ModCheck) + every offline suite in `Tests/` (orbits, frames, persistence, rendezvous, time, sensing): ~1200 checks | every change |
+| fast gate | `tools/test_fast.sh` | ~30 s, no game | the scripts compiled as the game compiles them (ModCheck), the cross-mod contract (`tools/check_contract.sh`), every offline suite in `Tests/` (orbits, frames, entry, persistence, player orbit and membership, rendezvous, time, sensing, system definitions): ~1,440 checks | every change |
 | smoke | `tools/harness/test_smoke.sh` | ~3 min, one launch | the game side only: the mod loads (components, sensor blocks), a jointed grid goes on rails, an orbit stows, warp runs, contacts are spotted, the map / ring / Rendezvous tab / porkchop / HUD plot draw, a reentry is predicted, braked and handed over at the cap; no fault, no Havok assertion | engine-facing changes, before a commit |
 | long | `tools/harness/test_all.sh` | ~1 h | jointed-grid moves, regression scenarios, perf budgets, save / load, a random soak | releases, bug hunts |
 
-Logic belongs in the game-free core (`Scripts/Simulation/Core`) where the fast gate can test it; the in-game
-tiers only check what needs the engine. Sensor blocks: `tools/blocks/gen_blocks.py --build` compiles their
-definitions (see the script for why SE2 2.4 needs a stand-in Vanilla to build mod content).
+Logic belongs in the game-free core (`Scripts/Simulation/Core`) where the fast gate can test it; the in-game tiers
+only check what needs the engine. The in-game harness (`DevHarness`, commands through `tools/harness/orb.sh`) is live
+only when `%TEMP%\OrbitalMod\dev.flag` exists (`tools/harness/relaunch.sh` creates it); see
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#13-dev-tooling).
 
-## Performance and profiling (2026-10-02)
+## Performance and profiling
 
-- **Budgets:** `tools/harness/test_perf.sh`: 11 scenes against per-frame budgets. Last run all
-  within: flight 0.15 ms client / 0.04 ms server, map 2.1-2.4 ms.
-- **Per-section timings:** the status line's `mapcost` list (`ModCost.Sec`). It includes every
-  `FrameHost.Guard`ed client system and the map's `ui.*`, `trajectory.*` and `gm.*` sections.
-  Avg/max/peak in ms.
-- **Garbage per system:** the harness command `allocs on|off|show` (bytes per guarded system and
-  per section).
-- **Garbage by type and call site:** `dotnet-trace` plus `D:/aero/tools/AllocReport` (see its
-  header). Tonight's results: map 21 -> 5.8 MB/s, flight 5.3 -> 2.6 MB/s.
-  - Reflection calls reuse their argument arrays; lines draw through the typed `DrawPath`.
-  - `PlayerCache` replaces the engine's per-frame character query.
-- **Mod scripts:** never use `var` for an array of a mod-defined type. The game bans it (VRS1001)
-  and the mod fails to load. The files' `#pragma warning disable` hides that from offline analyzers;
-  ModCheck's own rule MODVAR1 catches it.
-- **The rings lock:** `PlanetRings.Known` must never wait for `PlanetRenderBridge.Lock`. The server
-  calls it holding the frames lock, while the client takes the frames lock inside the render lock:
-  waiting deadlocked both threads (fixed 2026-10-02).
+- **Budgets:** `tools/harness/test_perf.sh`: 11 scenes against per-frame budgets (2026-10-02: flight 0.15 ms client /
+  0.04 ms server, map 2.1-2.4 ms).
+- **Per-section timings:** the status file's `modcost` / `mapcost` lines (`ModCost`): every `FrameHost.Guard`ed client
+  system and the map's `ui.*`, `trajectory.*` and `gm.*` sections; avg / max / peak in ms. `statusfast on` writes the
+  status file every poll.
+- **Garbage per system:** the harness command `allocs on|off|show`. By type and call site: `dotnet-trace` plus
+  `D:/aero/tools/AllocReport` (see its header).
+- **The rings lock:** `PlanetRings.Known` must never wait for `PlanetRenderBridge.Lock`. The server calls it holding the
+  frames lock, while the client takes the frames lock inside the render lock: waiting deadlocked both threads (fixed
+  2026-10-02 with a try-lock).
 
-## Open items, highest value first
+## Limits and open items, highest value first
 
-1. **Multiplayer.** The client host drives only the local player and shares static state with the
-   server half, so it works in single player and on a listen host. A dedicated server needs the
-   player's frame logic server-side and a server-to-client command channel for character moves
-   (characters are client-authoritative). No dedicated server is installed here to test with.
-2. **A piloted ship through the whole loop** (take off, rails, plan, burn with thrusters, arrive by
-   conjunction). Everything above is verified with the character; seated players now get their
-   grid's frame (observer, warp, planning), but no one has flown it yet. Also the map editor with a
-   real mouse (verified through the harness only).
-3. **The speed cap as a setting** (vanilla 300 to 1000): the reentry rules follow any cap (tested
-   with 300), but the physics cap is set at definition load, before a world is known.
-4. **Proxy fidelity.** Done 2026-10-11: proxies wear the planets' own overlay maps (all ten planets baked), are
-   turned as the planet is in your window, their atmosphere spherized as the real one; rings in the game's own lie.
-5. **Gravity patch as the default.** The 1/r^2 patch is applied at runtime and saved with the world;
-   decide whether a world without the mod's first load should be patched automatically.
-6. **Warp and member motion.** While the rails warp, members' relative motion runs at x1 (as KSP
-   keeps vessels on rails); fine for coasting, not for long warps of loose formations.
-7. **Ship shipping checklist.** `PlanetFrameComponent.DevHarness` must be false in a release build.
-8. **Old map code.** Removed: OrbitalMap / UnifiedMap earlier, and MapView's LOCAL / SYSTEM debug layers
-   (2026-10-11); MapView keeps only the map's hooks.
-9. **No auto-planning, ever.** The route planner was removed (2026-09-29): no auto target, no auto
-   rendezvous. Targets are for display only (closest approach, relative-motion plot); you fly the burns.
+1. **Multiplayer.** The client half drives only the local player and shares static state with the server half, so it
+   works in single player and on a listen host. A dedicated server needs the player's frame logic server-side and a
+   server-to-client command channel for character moves (characters are client-authoritative).
+2. **A piloted ship through the whole loop** (take off, rails, plan, burn, arrive by conjunction) is verified piecewise
+   (seated frames, armed burns in `tools/harness/burns.sh`, the multi-grid `hercules.sh`), not yet flown end to end by
+   hand; the map editor with a real mouse is verified through the harness only.
+3. **The speed cap as a setting** (vanilla 300 to 1000): the reentry rules follow any cap (tested with 300), but the
+   physics cap is set at definition load, before a world is known.
+4. **Gravity patch as the default.** The 1/r^2 patch is applied at runtime and saved with the world; decide whether a
+   world without the mod's first load should be patched automatically.
+5. **Legacy space** (world space outside every planet cell and berth) is captured into frames only with the
+   `CaptureLegacySpace` setting: objects there sit at rest relative to the planet, so they fall in.
+6. **No auto-planning, ever.** The route planner was removed (2026-09-29): no auto target, no auto rendezvous. You place
+   the burns; an armed burn flies the burn you placed.
+7. **The ~230 ms stall** when a grid lands in a fresh berth (the engine builds a new physics world) is softened by warm
+   berths kept alive with placeholder grids (`WarmBerths`); a berth layout inside one region would remove it.
+8. The FramesLock is still held across the map draw and single-grid moves (see docs/AUDIT_2026-10-05.md, 2026-10-09).

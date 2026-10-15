@@ -293,21 +293,22 @@ public static class GridGen
     }
 
     static System.Reflection.MethodInfo _flight, _forces, _lift, _ground;
-    static bool _apiLooked;
+    static int _apiGen = -1;   // (the AeroLink generation bound at: bound again after an aero reload - it was once for good)
 
     /// <summary>The grid's aero, from the aerodynamics mod's API (AeroMod.AeroApi, by reflection: the mods compile apart).</summary>
     internal static string AeroReadout(Entity e)
     {
         if (e == null) return "no grid";
-        if (!_apiLooked)
+        int gen = AeroLink.Generation;
+        if (gen != _apiGen)
         {
-            _apiLooked = true;
-            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            _apiGen = gen; _flight = _forces = _lift = _ground = null;
+            var t = AeroLink.Find("AeroMod.AeroApi");
+            if (t != null)
             {
-                var t = asm.GetType("AeroMod.AeroApi"); if (t == null) continue;
                 // (explicit parameter types: an aero overload added later must not make a lookup ambiguous)
                 _flight = t.GetMethod("TryGetFlight", new[] { typeof(Entity), typeof(Vector3).MakeByRefType(), typeof(float).MakeByRefType(), typeof(float).MakeByRefType(), typeof(float).MakeByRefType(), typeof(float).MakeByRefType() }); _forces = t.GetMethod("TryGetForces", new[] { typeof(Entity), typeof(Vector3).MakeByRefType(), typeof(Vector3).MakeByRefType(), typeof(float).MakeByRefType(), typeof(float).MakeByRefType(), typeof(float).MakeByRefType() });
-                _lift = t.GetMethod("TryGetLift", new[] { typeof(Entity), typeof(Vector3).MakeByRefType(), typeof(float).MakeByRefType() }); _ground = t.GetMethod("TryGetGroundHeight", new[] { typeof(Entity), typeof(float).MakeByRefType() }); break;
+                _lift = t.GetMethod("TryGetLift", new[] { typeof(Entity), typeof(Vector3).MakeByRefType(), typeof(float).MakeByRefType() }); _ground = t.GetMethod("TryGetGroundHeight", new[] { typeof(Entity), typeof(float).MakeByRefType() });
             }
         }
         if (_flight == null) return "aero mod's API not found";

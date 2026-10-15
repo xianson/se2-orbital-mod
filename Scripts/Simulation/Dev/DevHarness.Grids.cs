@@ -40,7 +40,7 @@ public static partial class DevHarness
                 var gi = GridMembers.Get((long)D(a[1]));
                 if (gi?.Entity == null || !gi.IsServer) return "no server grid " + a[1];
                 Type ft = null;
-                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies()) { ft = asm.GetType("AeroMod.FlightFixture"); if (ft != null) break; }
+                ft = AeroLink.Find("AeroMod.FlightFixture");
                 if (ft == null) return "aero mod's FlightFixture not found";
                 var text = ft.GetMethod("Build", new[] { typeof(Entity), typeof(string) })?.Invoke(null, new object[] { gi.Entity, a.Length > 2 ? a[2] : "grid" }) as string;
                 return text == null ? "no aero component on " + a[1] : "FIXTURE " + text.TrimEnd('\n').Replace("\n", " ;; ") + " ;; END";
@@ -314,7 +314,7 @@ public static partial class DevHarness
                 var g = GridMembers.Get((long)D(a[1]));
                 if (g?.Entity == null) return "no grid";
                 Type ph = null;
-                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies()) { ph = asm.GetType("AeroMod.PhysicsHack"); if (ph != null) break; }
+                ph = AeroLink.Find("AeroMod.PhysicsHack");
                 var gm = ph?.GetMethod("GetGravityDirection", new[] { typeof(Keen.VRage.DCS.Accessors.DEntityContext) });
                 if (gm == null) return "no AeroMod.PhysicsHack.GetGravityDirection";
                 var down = (Vector3)gm.Invoke(null, new object[] { g.Entity.Data });

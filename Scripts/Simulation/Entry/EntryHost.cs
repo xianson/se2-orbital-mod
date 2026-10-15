@@ -49,12 +49,12 @@ public static class EntryHost
     public const int AeroEntryContract = 2;
     const string AeroOwner = "OrbitalMod";
     static System.Reflection.MethodInfo _aeroRegister, _aeroHas;
-    static int _aeroAsmCount = -1;
+    static int _aeroGen = -1;
     static Func<Entity, ValueTuple<Vector3, float>> _glowSource;
     /// <summary>Diagnostics: why the aero hook is not set ("" when it is).</summary>
     public static string GlowWhy = "not tried";
 
-    /// <summary>Register with the aero mod (about every 10 s): found once per change of the loaded assemblies (no scan
+    /// <summary>Register with the aero mod (about every 10 s): bound once per change of the aero assembly (AeroLink; no scan
     /// otherwise - the aero mod absent costs nothing), then a cheap "still registered?" (a new session or a reloaded
     /// aero mod re-registers).</summary>
     static void HookAero()
@@ -62,15 +62,15 @@ public static class EntryHost
         _glowSource ??= Glow;
         try
         {
-            var asms = AppDomain.CurrentDomain.GetAssemblies();
-            if (asms.Length != _aeroAsmCount)
+            // (bound again whenever the aero assembly changes - AeroLink, the last loaded copy: bound to the first, a hot-reloaded
+            //  aero mod's glow went into its stale copy and still read as hooked, 2026-10-15)
+            int gen = AeroLink.Generation;
+            if (gen != _aeroGen)
             {
-                _aeroAsmCount = asms.Length; _aeroRegister = _aeroHas = null; _glowHooked = false;
-                foreach (var a in asms)
+                _aeroGen = gen; _aeroRegister = _aeroHas = _aeroPredict = _aeroAtmoAt = _aeroRequestTable = null; _glowHooked = false;
+                var t = AeroLink.Find("AeroMod.AeroApi");
+                if (t != null)
                 {
-                    Type t;
-                    try { t = a.GetType("AeroMod.AeroApi"); } catch { continue; }
-                    if (t == null) continue;
                     // (every lookup with its parameter types: an overload added on aero's side must never make one
                     //  ambiguous - AmbiguousMatchException - or bind the wrong one; API.md: public members are never overloaded)
                     var vr = typeof(Vector3).MakeByRefType(); var fr = typeof(float).MakeByRefType();
@@ -79,7 +79,6 @@ public static class EntryHost
                     _aeroPredict = t.GetMethod("PredictHullForces", new[] { typeof(Entity), typeof(Vector3), typeof(float), typeof(float), vr, vr, fr });   // (aerobraking: each ship's drag area)
                     _aeroAtmoAt = t.GetMethod("TryGetAtmosphereAt", new[] { typeof(Vector3D), fr, fr, fr, fr });   // (the border's density: the rails' drag matched to aero's)
                     _aeroRequestTable = t.GetMethod("RequestForceTable", new[] { typeof(Entity) });   // (a railed grid has none until asked)
-                    break;
                 }
                 if (_aeroRegister == null || _aeroHas == null) { GlowWhy = "aero mod not loaded (or older than contract " + AeroEntryContract + ")"; return; }
             }
@@ -89,7 +88,7 @@ public static class EntryHost
             _glowHooked = c == AeroEntryContract;
             GlowWhy = _glowHooked ? "" : $"aero mod speaks contract {c}, this build {AeroEntryContract}";
         }
-        catch (Exception e) { _glowHooked = false; _aeroRegister = null; _aeroAsmCount = -1; GlowWhy = "hook failed: " + e.GetType().Name; }
+        catch (Exception e) { _glowHooked = false; _aeroRegister = null; _aeroGen = -1; GlowWhy = "hook failed: " + e.GetType().Name; }
     }
 
     // ── the ENTRY STATE (OrbitalApi.TryGetEntryState / TryGetEntryState2, 2026-10-14): per grid, written on EVERY tick its

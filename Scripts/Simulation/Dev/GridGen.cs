@@ -55,9 +55,20 @@ public static class GridGen
         return done.Wait(3000) ? result[0] : "timed out waiting for the server thread";
     }
 
+    // (2026-10-15: `hudcheck` enumerated the server's seats from the harness - the client's frame job - and the game asserted
+    //  'Scene.IsCurrentThreadDCS()'. Every harness command that enumerates, reads components of or writes server entities runs
+    //  here instead; when the server's tick is not running - paused, loading, no planet beacon - it is not run at all: waiting
+    //  3 s per command for nothing froze the client, and running it here anyway was the bug.)
+    static long _serverTickAt;
+    /// <summary>The server's job ran ServerTick within the last second (RunOnServer will be answered).</summary>
+    internal static bool ServerTicking => System.Diagnostics.Stopwatch.GetTimestamp() - System.Threading.Volatile.Read(ref _serverTickAt) < System.Diagnostics.Stopwatch.Frequency;
+    /// <summary>Harness: <paramref name="work"/> on the server thread, waited for; or why not.</summary>
+    internal static string OnServerThread(Func<string> work) => ServerTicking ? OnServer(work) : "not run: the server thread is not ticking (paused, loading, or no planet beacon)";
+
     /// <summary>Server thread (ServerPlanetBeacon's job): queued hinge/steer commands, the hinges held.</summary>
     public static void ServerTick()
     {
+        System.Threading.Volatile.Write(ref _serverTickAt, System.Diagnostics.Stopwatch.GetTimestamp());
         while (_server.TryDequeue(out var job))
         {
             try { job.result[0] = job.work(); } catch (Exception e) { var x = e.InnerException ?? e; job.result[0] = "failed: " + x.Message + " @ " + string.Join(" < ", (x.StackTrace ?? "").Split((char)10).Take(4).Select(l => l.Trim())); }

@@ -103,7 +103,7 @@ public static class DevFlight
     public static string ListSeats(Keen.VRage.Core.Game.Systems.Session client, Vector3D at)
     {
         var sb = new System.Text.StringBuilder();
-        void Scan(Keen.VRage.Core.Game.Systems.Session s, string tag)
+        void Scan(Keen.VRage.Core.Game.Systems.Session s, string tag, System.Text.StringBuilder into)
         {
             if (s == null) return;
             int n = 0;
@@ -113,12 +113,15 @@ public static class DevFlight
                 var top = e.GetTopLevelParent();
                 string name = "?";
                 try { name = top?.TryGet<Keen.Game2.Simulation.WorldObjects.CubeGrids.CubeGridComponent>()?.DisplayName.EvaluateText() ?? "?"; } catch { }
-                sb.Append($"{tag} '{name}' {(e.Data.GetWorldTransform().Position - at).Length() / 1000:F2} km; ");
+                into.Append($"{tag} '{name}' {(e.Data.GetWorldTransform().Position - at).Length() / 1000:F2} km; ");
             }
-            sb.Append($"{tag} seats {n}; ");
+            into.Append($"{tag} seats {n}; ");
         }
-        Scan(client, "client");
-        Scan(ServerPlanetBeacon.ServerSession, "server");
+        Scan(client, "client", sb);
+        // (the server's seats on the server thread: enumerated from here - the harness, the client's frame job - the game
+        //  asserted 'Scene.IsCurrentThreadDCS()', 2026-10-15)
+        var srv = ServerPlanetBeacon.ServerSession;
+        if (srv != null) sb.Append(GridGen.OnServerThread(() => { var sbs = new System.Text.StringBuilder(); Scan(srv, "server", sbs); return sbs.ToString(); }));
         return sb.ToString();
     }
 

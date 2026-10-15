@@ -3,7 +3,7 @@
 # speed, the field's status (spot on/off, where, how bright, aimed where), and engine shots with the spot normal, x10 and
 # off. The grid is HELD for the whole run (released last - it then falls, as any unpiloted ship). RELAUNCHES unless
 # NOLAUNCH=1. 5 minutes or less.
-H="$(cd "$(dirname "$0")" && pwd)"; O="$H/orb.sh"; T0=$(date +%s)
+H="$(cd "$(dirname "$0")/.." && pwd)"; O="$H/orb.sh"; T0=$(date +%s)
 SPEED=${SPEED:-900}; DIST=${DIST:-0.05}   # (km)
 q() { timeout 20 "$O" "$@" | grep -a "=>" | tail -1 | sed 's/.*=>  //'; }
 LOG() { ls -t "$APPDATA/SpaceEngineers2/Temp/Logs/"SpaceEngineers2_*[0-9].log | grep -v "Render\|Mission\|Stats" | head -1; }
@@ -13,7 +13,7 @@ shot() { timeout 30 "$O" --eshot 0 "fxcheck" | grep -a -o "[A-Za-z]:[^ ]*\.png" 
 
 if [ "$NOLAUNCH" != 1 ]; then
 powershell -NoProfile -Command "Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Stop-Process -Force"; sleep 2
-. "$(dirname "$0")/launch.sh"; launch
+. "$(dirname "$0")/../launch.sh"; launch
 until_ 300 "grep -aq 'beacon Root Entity\|Loading Failed' \"\$(LOG)\" 2>/dev/null"; until_ 60 "q 'findgrids' | grep -q '='"
 echo "loaded in $(( $(date +%s) - T0 )) s"
 fi

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # atmoab.sh - the proxy atmosphere against the real planet, same view: real, proxy unspherized, proxy spherized as the planet
 # proxy (inner sphere at the hills radius) (5 minutes or less; RELAUNCHES the game and closes it after).
-source "$(dirname "$0")/testlib.sh"
+source "$(dirname "$0")/../testlib.sh"
 T0=$(date +%s)
 shot() { timeout 40 "$SP/orb.sh" --eshot 3 "$1" | grep -a -o "[A-Za-z]:[^ ]*\.png" | tail -1; }
 echo "== launch"; "$SP/relaunch.sh" 2>&1 | tail -1; hold 8

@@ -4,7 +4,7 @@
 # the air is the aero mod's test airflow (AeroEntryFx.TestSpeed along TestAxis in the grid's own frame - a set angle of
 # attack). The speed ramps TestFrom -> TestTo m/s over DUR seconds seated (the hold needs a pilot), a scripted camera orbiting it; the game window is captured
 # live with ffmpeg (gdigrab of the desktop region the game fills - its window by title captures blank, DX12 - 30 fps) - true speed, unlike engine screenshots (~8 s each).
-H="$(cd "$(dirname "$0")" && pwd)"; O="$H/orb.sh"; T0=$(date +%s)
+H="$(cd "$(dirname "$0")/.." && pwd)"; O="$H/orb.sh"; T0=$(date +%s)
 OUTMP4=${1:-$TEMP/supersonic.mp4}
 DUR=${DUR:-14}; V0=${TestFrom:-300}; V1=${TestTo:-700}; AX=${AX:-0,-0.0872,-0.9962}; DIST=${DIST:-0.06}
 q() { timeout 20 "$O" "$@" | grep -a "=>" | tail -1 | sed 's/.*=>  //'; }
@@ -13,7 +13,7 @@ until_() { local n=$1; shift; for i in $(seq 1 $n); do eval "$@" && return 0; sl
 
 if [ "$NOLAUNCH" != 1 ]; then
 powershell -NoProfile -Command "Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Stop-Process -Force"; sleep 2
-. "$(dirname "$0")/launch.sh"; launch
+. "$(dirname "$0")/../launch.sh"; launch
 until_ 300 "grep -aq 'beacon Root Entity\|Loading Failed' \"\$(LOG)\" 2>/dev/null"; until_ 60 "q 'findgrids' | grep -q '='"
 echo "loaded in $(( $(date +%s) - T0 )) s"
 fi

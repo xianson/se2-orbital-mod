@@ -4,12 +4,10 @@
 #  1. its blocks exported for AeroBench (aeroexport on; aero cycled off/on: every grid rebuilds and writes its .boxes)
 #  2. hands off at speeds over Mach 1 (gridlaunch: altitude, speed), its attitude and spin sampled 4 times a second for 10 s
 #     into %TEMP%/OrbitalMod/damp_<km>_<speed>.txt (q and world spin: the pitch rate offline, damp_sum.py)
-source "$(dirname "$0")/testlib.sh"
+source "$(dirname "$0")/../testlib.sh"
 T0=$(date +%s); OUT=/c/Users/slob/AppData/Local/Temp/OrbitalMod; mkdir -p "$OUT"
-LOGF() { ls -t "$LOGDIR"/SpaceEngineers2_*[0-9].log | grep -v "Render\|Mission\|Stats" | head -1; }
 launch
-for i in $(seq 1 300); do grep -aq 'beacon Root Entity\|Loading Failed' "$(LOGF)" 2>/dev/null && break; sleep 1; done
-for i in $(seq 1 60); do "$SP/orb.sh" findgrids | grep -aq '=' && break; sleep 1; done
+waitloaded
 echo "loaded: $(LOGF)"; send "encon off"; hold 8
 g=$("$SP/orb.sh" findgrids | grep -a " => " | grep -o "[0-9]\+=${NAME:-F-7_Interceptor}[^ ]*" | head -1 | cut -d= -f1)
 echo "      grid: $g"

@@ -2,7 +2,7 @@
 # vapourab.sh - the transonic vapour at a few settings, side by side: the Hercules held 2 km up in Verdure's air at
 # Mach ~0.95; per setting (VapourGain,VapourSpeed) the vapour switched off long enough for its emitters to park,
 # then on again (re-spawned with the new parameters), and an engine shot. RELAUNCHES unless NOLAUNCH=1. 5 min or less.
-H="$(cd "$(dirname "$0")" && pwd)"; O="$H/orb.sh"; T0=$(date +%s)
+H="$(cd "$(dirname "$0")/.." && pwd)"; O="$H/orb.sh"; T0=$(date +%s)
 SETS=${SETS:-"1,10 2.5,10 2.5,20 4,25"}; SPEED=${SPEED:-320}   # (SETS: VapourGain,VapourSpeed at the tight size)
 q() { timeout 20 "$O" "$@" | grep -a "=>" | tail -1 | sed 's/.*=>  //'; }
 LOG() { ls -t "$APPDATA/SpaceEngineers2/Temp/Logs/"SpaceEngineers2_*[0-9].log | grep -v "Render\|Mission\|Stats" | head -1; }
@@ -11,7 +11,7 @@ seated() { q "exitcheck $1" | grep -q "seated True"; }
 shot() { timeout 30 "$O" --eshot 0 "fxcheck" | grep -a -o "[A-Za-z]:[^ ]*\.png" | tail -1; }
 if [ "$NOLAUNCH" != 1 ]; then
 powershell -NoProfile -Command "Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Stop-Process -Force"; sleep 2
-. "$(dirname "$0")/launch.sh"; launch
+. "$(dirname "$0")/../launch.sh"; launch
 until_ 300 "grep -aq 'beacon Root Entity\|Loading Failed' \"\$(LOG)\" 2>/dev/null"; until_ 60 "q 'findgrids' | grep -q '='"
 fi
 G=$(q "findgrids"); h=$(echo "$G" | tr ' ' '\n' | grep "=SZ1_-_Hercules\$" | head -1 | cut -d= -f1)

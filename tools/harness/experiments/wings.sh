@@ -3,7 +3,7 @@
 # someone plays). Each candidate: seated (any of its grids with a seat), flown at 150 m/s 3 km up, its own tip report
 # (FlightField.NearTipWhy - the ship the camera is on). The first with 2 tips: the overlay on, shots at 150 and 250 m/s
 # into $TEMP/wings_<speed>_<n>.png.
-H="$(cd "$(dirname "$0")" && pwd)"; O="$H/orb.sh"; T0=$(date +%s)
+H="$(cd "$(dirname "$0")/.." && pwd)"; O="$H/orb.sh"; T0=$(date +%s)
 q() { timeout 20 "$O" "$@" | grep -a "=>" | tail -1 | sed 's/.*=>  //'; }
 LOG() { ls -t "$APPDATA/SpaceEngineers2/Temp/Logs/"SpaceEngineers2_*[0-9].log | grep -v "Render\|Mission\|Stats" | head -1; }
 until_() { local n=$1; shift; for i in $(seq 1 $n); do eval "$@" && return 0; sleep 0.5; done; return 1; }
@@ -12,7 +12,7 @@ shots() { for i in 1 2; do s=$(q "shot" | grep -o "[A-Z]:[^ ]*png" | tr "\\\\" "
 
 if [ "$NOLAUNCH" != 1 ]; then
 powershell -NoProfile -Command "Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Stop-Process -Force"; sleep 2
-. "$(dirname "$0")/launch.sh"; launch
+. "$(dirname "$0")/../launch.sh"; launch
 until_ 300 "grep -aq 'beacon Root Entity\|Loading Failed' \"\$(LOG)\" 2>/dev/null"; until_ 60 "q 'findgrids' | grep -q '='"
 echo "loaded in $(( $(date +%s) - T0 )) s: $(LOG)"
 fi

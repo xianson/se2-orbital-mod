@@ -4,14 +4,12 @@
 # the last second: the simulation thread's time in it (us per second, every grid; and its worst single tick), the
 # background's (ms per second), evaluations per second and grids evaluated. Seated in the Tu-134 at once (the world's
 # Tu-134 glides from load and crashes within minutes): flying (flytest), pulling; then unseated, the world idle.
-source "$(dirname "$0")/testlib.sh"
+source "$(dirname "$0")/../testlib.sh"
 T0=$(date +%s)
-LOGF() { ls -t "$LOGDIR"/SpaceEngineers2_*[0-9].log | grep -v "Render\|Mission\|Stats" | head -1; }
 get() { reply "aeroget StructureLoads.$1" | sed 's/.*=//'; }
 cost() { echo "      $1: sim $(get SimUsPerSec) us/s (worst tick $(get SimMaxUs) us), background $(get BgMsPerSec) ms/s, $(get EvalsPerSec) evals/s, $(get GridsEvaluated) grids evaluated, $(get GridsTicked) ticked, last eval $(get LastEvalMs) ms, builds $(get Builds), wears $(get Wears), breaks $(get Breaks)"; }
 [ -z "$NOLAUNCH" ] && launch
-for i in $(seq 1 300); do grep -aq 'beacon Root Entity\|Loading Failed' "$(LOGF)" 2>/dev/null && break; sleep 1; done
-for i in $(seq 1 60); do "$SP/orb.sh" findgrids | grep -aq '=' && break; sleep 1; done
+waitloaded
 echo "loaded: $(LOGF)"; send "encon off" "aeroset StructureLoads.Enabled true"
 g=$("$SP/orb.sh" findgrids | grep -a " => " | grep -o "[0-9]\+=${NAME:-Tupolev_Tu-134_Big}" | head -1 | cut -d= -f1)
 echo "      grid $g; $("$SP/orb.sh" findgrids | grep -a " => " | grep -o "[0-9]\+=" | wc -l) grids"

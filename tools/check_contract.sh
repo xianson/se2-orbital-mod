@@ -8,9 +8,20 @@
 cd "$(dirname "$0")/.."
 AERO="../Aerodynamics Mod/Scripts"
 [ -d "$AERO" ] || { echo "SKIP  contract (no Aerodynamics Mod source beside this one)"; exit 0; }
-fx="$AERO/Simulation/Integration/AeroEntryFx.cs"
-api="$AERO/Simulation/Integration/AeroApi.cs"
 rc=0; bad() { rc=1; echo "      $1"; }
+# src <tree> <File.cs>: the one file of that name anywhere under the tree (both mods move files between feature folders;
+# the contract follows the name, not the folder). Zero or several matches stop the check: a guess would test the wrong file.
+src() {
+  local hits n; hits=$(find "$1" -name "$2" -type f 2>/dev/null); n=$(printf '%s' "$hits" | grep -c .)
+  [ "$n" -eq 1 ] && { echo "$hits"; return 0; }
+  { echo "FAIL  contract: $n files named $2 under $1"; [ -n "$hits" ] && echo "$hits" | sed 's/^/      /'; } >&2; return 1
+}
+fx=$(src "$AERO" AeroEntryFx.cs) || exit 1
+api=$(src "$AERO" AeroApi.cs) || exit 1
+fixture=$(src "$AERO" FlightFixture.cs) || exit 1
+hack=$(src "$AERO" PhysicsHack.cs) || exit 1
+EH=$(src Scripts EntryHost.cs) || exit 1
+OAPI=$(src Scripts OrbitalApi.cs) || exit 1
 
 # 1. the entry source (EntryHost.cs <-> AeroApi.cs, the aero mod's public API). Two numbers: the API's version (members
 #    are only added, so orbital needs at least the version it was written for) and the entry source's own contract
@@ -19,14 +30,14 @@ NEED_API=2   # (the oldest AeroApi.Version with every member orbital reaches)
 a=$(grep -o 'public const int Version = [0-9]*' "$api" | grep -o '[0-9]*$')
 [ -n "$a" ] && [ "$a" -ge "$NEED_API" ] || bad "aero API version $a, orbital needs >= $NEED_API"
 e=$(grep -o 'public const int EntrySourceContract = [0-9]*' "$fx" | grep -o '[0-9]*$')
-o=$(grep -o 'public const int AeroEntryContract = [0-9]*' Scripts/Simulation/Entry/EntryHost.cs | grep -o '[0-9]*$')
+o=$(grep -o 'public const int AeroEntryContract = [0-9]*' "$EH" | grep -o '[0-9]*$')
 [ -n "$e" ] && [ "$e" = "$o" ] || bad "entry-source contract: aero $e, orbital $o"
 grep -q 'public static int RegisterEntrySource(string owner, Delegate source) => AeroEntryFx.RegisterEntrySource' "$api" || bad "AeroApi.RegisterEntrySource no longer returns AeroEntryFx's contract"
 grep -q 'public static int RegisterEntrySource(string owner, Delegate source)' "$api" || bad "AeroApi.RegisterEntrySource(string, Delegate) missing"
 grep -q 'public static bool HasEntrySource(string owner, Delegate source)' "$api" || bad "AeroApi.HasEntrySource(string, Delegate) missing"
-grep -q '"AeroMod.AeroApi"' Scripts/Simulation/Entry/EntryHost.cs || bad "EntryHost no longer finds AeroMod.AeroApi"
+grep -q '"AeroMod.AeroApi"' "$EH" || bad "EntryHost no longer finds AeroMod.AeroApi"
 grep -q 'Func<Keen.VRage.DCS.Components.Entity, ValueTuple<Vector3, float>>' "$fx" || bad "aero's source delegate is no longer Func<Entity, (Vector3, float)>"
-grep -q 'Func<Entity, ValueTuple<Vector3, float>>' Scripts/Simulation/Entry/EntryHost.cs || bad "orbital's source delegate is no longer Func<Entity, (Vector3, float)>"
+grep -q 'Func<Entity, ValueTuple<Vector3, float>>' "$EH" || bad "orbital's source delegate is no longer Func<Entity, (Vector3, float)>"
 
 # 2. every AeroMod member named in a GetMethod/GetField string here exists in the aero source (dev code included)
 NAMES="RegisterEntrySource HasEntrySource TryGetFlow WingTips EntryStrength TryGetFlight TryGetForces TryGetLift TryGetGroundHeight PredictHullForces RequestForceTable TryGetEntry TryGetAtmosphere TryGetAtmosphereAt GetFxConsistency TryGetStructure SetFocusGrid TryGetStall TryGetLoac NoteMoved Build GetGravityDirection TryDesign GetTopSpeed GetTopSpeedAt GetThrustAlong TryGetCenterOfMass GetMass GetDesignPressures GetControlRatio GetWavePeak"
@@ -47,7 +58,6 @@ sig() {
   | sed 's/^[^(]*(//; s/).*//' | tr ',' '\n' | sed 's/^ *//; s/ *$//; s/ [A-Za-z_][A-Za-z0-9_]*$//; s/[A-Za-z0-9_]*\.//g; s/  */ /g' | paste -sd',' - | sed 's/,/, /g'
 }
 want() { local got; got=$(sig "$1" "$2"); [ "$got" = "$3" ] || bad "$(basename "$1") $2($got): $4 binds $2($3)"; }
-OAPI=Scripts/Simulation/Api/OrbitalApi.cs
 # Orbital -> Aero (AeroApi), shipped: the entry source and aerobraking (EntryHost), the move push (ServerFrames)
 want "$api" RegisterEntrySource "string, Delegate" EntryHost
 want "$api" HasEntrySource "string, Delegate" EntryHost
@@ -76,8 +86,8 @@ want "$api" TryGetGroundHeight "Entity, out float" "GridGen / FlyTest"
 want "$api" TryGetEntry "Entity, out float, out bool" DevReentry
 want "$api" TryGetAtmosphere "Entity, out float, out float, out float, out float" DevReentry
 want "$api" GetFxConsistency "bool" "DevHarness fxcheck"
-want "$AERO/Simulation/Integration/FlightFixture.cs" Build "Entity, string" "DevHarness flightdump"
-want "$AERO/Simulation/Integration/PhysicsHack.cs" GetGravityDirection "DEntityContext" "DevHarness gridup"
+want "$fixture" Build "Entity, string" "DevHarness flightdump"
+want "$hack" GetGravityDirection "DEntityContext" "DevHarness gridup"
 # Aero -> Orbital (OrbitalApi): the railed entry's heat and loads (OrbitalLink, AeroEntryFx), the contact balance (OrbitalLink)
 want "$OAPI" TryGetEntryState "Entity, out Vector3, out float" AeroEntryFx.EntryStateAt
 want "$OAPI" TryGetEntryState2 "Entity, out Vector3, out float, out float, out Vector3" OrbitalLink.TryGetEntryState2

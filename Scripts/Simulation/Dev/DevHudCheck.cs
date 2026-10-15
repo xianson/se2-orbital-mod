@@ -130,7 +130,9 @@ public static class DevHudCheck
         }
         if (r?.Relative != null && !r.RelIsTarget)
         {
-            double leaveAt = ServerFrames.LeaveRadius(ServerFrames.StaticAnchorOf(f, out _));
+            // (the snapshot's anchor, not StaticAnchorOf: that reads the server's entities, from here the cross-scene read the
+            //  game's DataGuard asserts on - the 2026-10-15 scene audit)
+            double leaveAt = ServerFrames.LeaveRadius(ServerFrames.StaticAnchorView(f, out _));
             Line(Math.Abs(r.RelBoundary - leaveAt) < 1, $"the plot's boundary {r.RelBoundary / 1000:F0} km is where you leave ({leaveAt / 1000:F0} km)");
         }
         bool inAnchor = FrameHost.Seated && what.Contains("(the anchor)");

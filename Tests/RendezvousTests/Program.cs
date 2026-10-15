@@ -10,7 +10,7 @@ namespace RendezvousTest
     // solvers but not this harness). No test framework: assert helpers, PASS/FAIL summary,
     // nonzero exit on any failure. The centerpiece is the end-to-end proof that a planned
     // intercept, when actually flown (burn applied + propagated), arrives at the target.
-    internal static class Program
+    internal static partial class Program
     {
         private static int _passed, _failed;
         private const double MuEarth = 3.986004418e14;
@@ -34,6 +34,7 @@ namespace RendezvousTest
             LambertTransferAnglePi();         // M1 degenerate Δθ=π
             LambertOrbitNormalSense();        // M1 orbit-normal branch
             PhasingRelativeRateSelection();   // M3
+            PhasingReportsFlownRelSpeed();    // O24 (2026-10-15; Program.Audit1015.cs)
             ManeuverLvlhDecomposition();      // M4
             TargetModelPlansIntercept();      // Task A: Target -> InterceptPlanner
             TargetErrorBandTightens();        // Task A: sigma -> honest error band

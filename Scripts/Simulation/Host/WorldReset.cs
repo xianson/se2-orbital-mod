@@ -55,6 +55,8 @@ public static class WorldReset
         // what the player knew, had, was waiting for in the last world
         Step("contacts", Contacts.ResetWorld);   // (shown in the next world, and written into its save)
         Step("tombstones", GridMembers.ResetWorld);   // (a grid of the next world took a dead one's id by its name and place)
+        // (at the unload only: the planets' [Init] reads the next world's state BEFORE they join its scene)
+        if (unloading) Step("pending save", SavedState.ResetWorld);   // (the last world's clock, frames and contacts applied to the next)
     }
 
     /// <summary>The system's state: the frames' server state, sites, rocks, entry, our edits; <paramref name="build"/>: for a

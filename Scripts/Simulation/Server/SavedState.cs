@@ -147,7 +147,7 @@ public static class SavedState
     /// <summary>Radar settings from the save (where the block was, its power), set once a radar is there.</summary>
     private static readonly List<(Vector3D at, float power, double since)> _radarPower = new List<(Vector3D, float, double)>();
     private static Pending _pending;
-    private static double _pendingSince = -1, _pendingAt;
+    private static double _pendingSince = -1;
     public static string LastRestore = "none";
 
 
@@ -180,6 +180,13 @@ public static class SavedState
         }
     }
 
+    /// <summary>The world unloaded (WorldReset): its state, if still waiting, and its radar settings are not the next world's.</summary>
+    internal static void ResetWorld()
+    {
+        _pending = null; _pendingSince = -1;
+        lock (_radarPower) _radarPower.Clear();
+    }
+
     /// <summary>No saved state waiting to be applied (frame ids are safe to hand out).</summary>
     public static bool Idle => _pending == null;
 
@@ -200,14 +207,14 @@ public static class SavedState
         else Maneuvers.Restore(nt, np, nn, nr, auto: auto);
     }
 
-    /// <summary>Called from the planets' [Init] on load (both planets carry the same state; first wins).</summary>
+    /// <summary>Called from the planets' [Init] on load (every planet carries the same state; the newest load wins).</summary>
     public static void OnLoaded(EntityNameSessionComponentObjectBuilder b)
     {
-        // (a state left pending from another world - quit before it was applied - is not this world's: replaced, its clock with it)
-        double wallNow = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
-        if (_pending != null && wallNow - _pendingAt > 120) { _pending = null; _pendingSince = -1; }
-        if (b?.NamedEntities == null || b.NamedEntities.Count == 0 || _pending != null) return;
-        _pendingAt = wallNow; _pendingSince = -1;
+        // (the NEWEST load's state wins: every planet of one world carries the same state, so within a load it is the same
+        //  text; a state left pending from another world - quit before it was applied - is replaced, its clock with it.
+        //  2026-10-15: kept while under 120 s old, the last world's clock, frames and contacts were applied to a world loaded
+        //  within 2 min of quitting it. WorldReset drops it at the unload too)
+        if (b?.NamedEntities == null || b.NamedEntities.Count == 0) return;
         var ob = new Pending();
         foreach (var kv in b.NamedEntities)
         {
@@ -218,6 +225,8 @@ public static class SavedState
         }
         if (string.IsNullOrEmpty(ob.State)) return;
         if (!ob.State.StartsWith(Magic)) { Log.Default?.Info("[ORBIT-FRAME] saved state: unknown format, ignored"); return; }
+        if (_pending != null && _pending.State == ob.State) return;   // (the same load's next planet: its copy)
+        _pendingSince = -1;
         _pending = ob;
         Log.Default?.Info($"[ORBIT-FRAME] saved state found: {ob.State.Split('\n').Length - 1} lines, {ob.Entities?.Count ?? 0} grid entities");
     }

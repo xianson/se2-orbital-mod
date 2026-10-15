@@ -18,6 +18,11 @@ public static class WarpBill
 {
     public static bool Enabled = true;
     public static string Status = "";
+    /// <summary>Diagnostics (harness aeroget, tools/harness/test_integrate.sh): the frames billed in warp, and the game seconds
+    /// they billed in all (the surplus). Billed once a frame: over a warp at xN they reach (N-1)/N of the rails clock's advance,
+    /// and one a server tick - twice that was the double bill (2026-10-15). Server thread, the one claiming job: plain writes.</summary>
+    public static int Bills;
+    public static double BilledSeconds;
     private static readonly SEAerospace.Time.FrameClaim _claim = new SEAerospace.Time.FrameClaim();
     /// <summary>A new world: its game clock starts again.</summary>
     internal static void ResetWorld() => _claim.Reset();
@@ -56,6 +61,7 @@ public static class WarpBill
         double warp = SystemHost.Timescale;
         if (!Enabled || !(warp > 1.0) || !(dt > 0) || !SystemHost.Built || SystemHost.Frames == null) return;
         double surplus = (warp - 1.0) * dt;   // s of game time this frame did not simulate
+        Bills++; BilledSeconds += surplus;
 
         // The grids on rails, and which of them are yours (in the player's frame).
         var railed = new Dictionary<Entity, (string name, bool yours)>();

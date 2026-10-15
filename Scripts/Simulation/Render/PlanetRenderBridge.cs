@@ -430,6 +430,18 @@ public static partial class PlanetRenderBridge
         return false;
     }
 
+    /// <summary>A field of a boxed struct by name (public or not, up the type chain); MissingFieldException when none.
+    /// The runtime-mesh builders' (MapRingMesh, PlanetMesh, PlanetRings: each had its own copy).</summary>
+    internal static void SetBoxedField(object boxed, string name, object value)
+    {
+        for (Type t = boxed.GetType(); t != null; t = t.BaseType)
+        {
+            var f = t.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            if (f != null) { f.SetValue(boxed, value); return; }
+        }
+        throw new MissingFieldException(boxed.GetType().Name, name);
+    }
+
     internal static Type FindType(string assemblyName, string typeName)
     {
         foreach (Assembly a in AppDomain.CurrentDomain.GetAssemblies())

@@ -200,14 +200,14 @@ public static class MapRingMesh
             Parts = new[] { new Keen.VRage.Core.Model.Data.MeshData.Section.SectionPart { PartIndex = 0, IndicesOffset = 0, IndicesCount = idx.Count } },
         });
         object rmd = Activator.CreateInstance(_tRmd);
-        SetField(rmd, "_vertexStream0", vs0);
-        SetField(rmd, "_vertexStream1", vs1);
-        SetField(rmd, "_vertexStream2", NewBuffer(typeof(Keen.VRage.Core.Render.Data.VertexFormatNull)));
-        SetField(rmd, "_indices", idx);
-        SetField(rmd, "_subParts", subs);
-        SetField(rmd, "_meshSections", sections);
-        SetField(rmd, "_bones", NewBuffer(typeof(Keen.VRage.Core.Model.ModelBone)));
-        SetField(rmd, "_debugName", "OrbitalMapRing_" + name);
+        PlanetRenderBridge.SetBoxedField(rmd, "_vertexStream0", vs0);
+        PlanetRenderBridge.SetBoxedField(rmd, "_vertexStream1", vs1);
+        PlanetRenderBridge.SetBoxedField(rmd, "_vertexStream2", NewBuffer(typeof(Keen.VRage.Core.Render.Data.VertexFormatNull)));
+        PlanetRenderBridge.SetBoxedField(rmd, "_indices", idx);
+        PlanetRenderBridge.SetBoxedField(rmd, "_subParts", subs);
+        PlanetRenderBridge.SetBoxedField(rmd, "_meshSections", sections);
+        PlanetRenderBridge.SetBoxedField(rmd, "_bones", NewBuffer(typeof(Keen.VRage.Core.Model.ModelBone)));
+        PlanetRenderBridge.SetBoxedField(rmd, "_debugName", "OrbitalMapRing_" + name);
         float e = (float)outer;
         _tRmd.GetProperty("AABB").SetValue(rmd, new BoundingBox(new Vector3(-e, -e * 0.01f, -e), new Vector3(e, e * 0.01f, e)));
 
@@ -232,13 +232,4 @@ public static class MapRingMesh
         r.Shown = r.Colored = false;   // (a rebuilt model needs its colouring again)
     }
 
-    private static void SetField(object boxed, string name, object value)
-    {
-        for (Type t = boxed.GetType(); t != null; t = t.BaseType)
-        {
-            var f = t.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-            if (f != null) { f.SetValue(boxed, value); return; }
-        }
-        throw new MissingFieldException(boxed.GetType().Name, name);
-    }
 }

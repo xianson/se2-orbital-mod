@@ -11,7 +11,7 @@
   with no unload seen (`ServerSession`; the new world's pending save is kept). Every per-world static goes through it -
   a new one is added to its list, not given a reset of its own. `ResetSystem` is the system's part, also run by every
   `SystemHost.Build`.
-- `OrbitalSettings.cs` - the mod's settings: the registry (each setting, its range and its menu metadata); `OrbitalSettings.Store.cs` - the API, the text, the world save (world scope rides `SavedState`), the files (client scope); `docs/API.md`.
+- `OrbitalSettings.cs` - the mod's settings: the registry (each setting, its range and its menu metadata; registration order = screen order); `OrbitalSettings.Store.cs` - the API, who may change what (`CanEditWorld`, host-file forcing, `ResetGroup`), the text (each setting's `Stored` value, never a harness's direct write), the world save (world scope rides `SavedState`), the files (client scope; read on a background task, applied by the next tick's `Poll`); `docs/API.md`. The menu over it: `Ui/`.
 - `ModCost.cs` - `ModCost` / `TickRate`: what the mod's code costs per frame and the tick rates (the `modcost` status
   line, `[HITCH]`).
 - `Num.cs` - `Wall()` and `IsFinite`, shared by server and client/HUD code (`using static OrbitalMod.Num;`).

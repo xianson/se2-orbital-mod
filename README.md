@@ -9,7 +9,7 @@ Docs: [how it works](docs/ARCHITECTURE.md) · [the API for other mods](docs/API.
 [reflection and the whitelist](docs/REFLECTION_AND_WHITELIST.md) · design notes
 ([encounters](docs/design-encounter-frames.md), [maneuver nodes](docs/design-maneuver-nodes.md),
 [colonization on orbits](docs/design-colonization-orbits.md)) · [the 2026-10-05 audit log](docs/AUDIT_2026-10-05.md) ·
-a README in each client folder (`Scripts/Simulation/Flight`, `Hud`, `Map`, `Render`).
+[what changed](CHANGELOG.md) · a README in each folder of `Scripts/Simulation`.
 
 ## Playing it
 
@@ -26,8 +26,8 @@ position and speed, and the game spawns that sector's encounters around you. Bro
 clear. Fast travel is untouched.
 
 **Keys.**
-- `.` faster time warp, `,` slower, `/` back to x1 (on rails only; x1 to x10,000). The warp bar shows the level
-  (clickable on the map).
+- `.` faster time warp, `,` slower, `/` back to x1 (on rails only; x1 to x10,000, or up to the world's
+  `Warp.MaxLevel`). The warp bar shows the level (clickable on the map).
 - `N` targets what is under the crosshair (in flight) or the cursor (on the map).
 - `;` turns the attitude hold on and off; `Ctrl+;` picks the mode (prograde, retrograde, normal, anti-normal, radial
   out / in, level). The cockpit HUD's align button shows it, lit while holding.
@@ -102,26 +102,39 @@ on rails nothing caps you.
   of the same heat.
 - **Seen ahead:** the orbit card ('Entry in 2:46 · 1,669 -> 990 m/s · heat 82%', then 'braking 5.3 g'), map marks
   (Atmosphere entry, Max q, No air) and warp stopping 30 s before a pass.
-- **Plasma:** with the Aerodynamics Mod installed, ships braked on rails glow with its reentry plasma.
+- **Plasma:** with the Aerodynamics Mod installed, ships braked on rails glow with its reentry plasma (and heat, load and
+  scorch its hull as a real entry would).
+
+**Structural alerts.** With the Aerodynamics Mod, a failure on the ship you are seated in shows as a toast ("Structural
+failure: 2 sections broke away, 41 blocks", "Burn-through: 3 blocks burnt through").
 
 **Sensors and contacts.** What you can target beyond your own things is what you have seen: by eye, with a
 **Telescope** (passive: sunlit or warm targets) or a **Radar** (active: everything in range, and it gives you away).
 The blocks come from the companion "Orbital Mod Blocks" content (`tools/blocks/gen_blocks.py`).
 
-**Settings.** World settings (planet spin, legacy-space capture, reentry, asteroids, encounters) are saved with the
-world, with host overrides in `%APPDATA%\SpaceEngineers2\ModSettings\OrbitalMod.world.cfg`; client settings (proxy
-planets, the orbit HUD, the map) in `OrbitalMod.client.cfg` next to it. Both files are re-read every ~2 s.
+**Settings.** In game: pause menu -> Settings -> **Mods** (one tab for both mods, section "Orbital"; inside a world
+only). World settings (planet spin, legacy-space capture, reentry, asteroids, encounters, time warp) are saved with the
+world and can be changed by the host / in single player only; host overrides in
+`%APPDATA%\SpaceEngineers2\ModSettings\OrbitalMod.world.cfg` win and show locked. Client settings (proxy planets, the
+orbit HUD, the map, the autopilot) in `OrbitalMod.client.cfg` next to it. Both files are re-read every ~2 s. Every
+setting: [docs/API.md](docs/API.md#settings).
 
 **Saved with the world:** your orbit and every frame, the clock, maneuver nodes (armed or not), your target, contacts,
 the Contacts tab's pins, names and hidden rows.
 
 ## For modders
 
-- **`OrbitalMod.OrbitalApi`**: the system, frames and their orbits, which frame a grid is in, reentry, settings - by
-  reflection, .NET and engine types only, versioned. Reference and example: [docs/API.md](docs/API.md).
+- **`OrbitalMod.OrbitalApi`** (version 3): the system and its bodies, frames (lock-free `Peek*` reads) and their orbits,
+  any grid's orbit and status, orbit math, time warp, the local player's plan, sites and contacts, reentry, settings - by
+  reflection, .NET and engine types only, versioned. Reference and examples: [docs/API.md](docs/API.md).
+- **A settings section of your own** in the shared Mods tab: the `ModSettings/v1` Tag contract
+  ([docs/API.md](docs/API.md#settings)); no code shared.
 - **With the Aerodynamics Mod:** Aero reads each railed grid's true air state and Orbital's velocity edits through
-  `OrbitalApi`; Orbital registers as Aero's reentry-plasma source through `AeroMod.AeroApi`. `tools/check_contract.sh`
-  (in the fast gate) checks both directions from source. Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#12-the-aero-link).
+  `OrbitalApi`; Orbital registers as Aero's reentry-plasma source, reads its build-hint and flight figures and its
+  structure failure events through `AeroMod.AeroApi`. One link each way: Orbital finds aero only through
+  `Api/AeroLink.cs` (`Frames/BuildHints.cs`, owned by other work, still scans on its own), aero finds Orbital only
+  through its `Api/OrbitalLink.cs` (the last loaded copy, bound again on a
+  reload). `tools/check_contract.sh` (in the fast gate) checks both directions from source. Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#12-the-aero-link).
 - Reflection into the engine (render, the colonization map, UI): every use is listed in
   [docs/REFLECTION_AND_WHITELIST.md](docs/REFLECTION_AND_WHITELIST.md) - keep it current with every change.
 - Mod scripts: never use `var` for an array of a mod-defined type. The game bans it (VRS1001) and the mod fails to
@@ -131,8 +144,9 @@ the Contacts tab's pins, names and hidden rows.
 
 | tier | command | time | what | when |
 |---|---|---|---|---|
-| fast gate | `tools/test_fast.sh` | ~30 s, no game | the scripts compiled as the game compiles them (ModCheck), the cross-mod contract (`tools/check_contract.sh`), every offline suite in `Tests/` (orbits, frames, entry, persistence, player orbit and membership, rendezvous, time, sensing, system definitions): ~1,440 checks | every change |
+| fast gate | `tools/test_fast.sh` | a few minutes, no game | the scripts compiled as the game compiles them (ModCheck), the cross-mod contract (`tools/check_contract.sh`), every offline suite in `Tests/` (orbits, frames, entry, persistence, player orbit and membership, rendezvous, time, sensing, system definitions, the API, the settings and the settings menu): ~4,480 checks | every change |
 | smoke | `tools/harness/test_smoke.sh` | ~3 min, one launch | the game side only: the mod loads (components, sensor blocks), a jointed grid goes on rails, an orbit stows, warp runs, contacts are spotted, the map / ring / Rendezvous tab / porkchop / HUD plot draw, a reentry is predicted, braked and handed over at the cap; no fault, no Havok assertion | engine-facing changes, before a commit |
+| integrate | `tools/harness/test_integrate.sh` | <= 5 min, one launch | a whole integration batch with both mods: API versions, no world reset at load, a structure failure (crack, tear, split, the alert), debris drag, warp billed once a frame, the settings tab; see `tools/harness/RUNBOOK.md` (written 2026-10-15, not yet run) | before merging a batch |
 | long | `tools/harness/test_all.sh` | ~1 h | jointed-grid moves, regression scenarios, perf budgets, save / load, a random soak | releases, bug hunts |
 
 Logic belongs in the game-free core (`Scripts/Simulation/Core`) where the fast gate can test it; the in-game tiers

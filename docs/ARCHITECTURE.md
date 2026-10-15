@@ -1,12 +1,14 @@
 # How the Orbital mod works
 
-The end-to-end picture, for someone about to change the code. Every claim names the code that does it (`Type.Member`);
-server-side types are named without paths because their folders are being reorganised (2026-10-15). Client folders:
-`Scripts/Simulation/Flight`, `Hud`, `Map`, `Render` (each has a README). The engine-free core is `Scripts/Simulation/Core`.
+The end-to-end picture, for someone about to change the code. Every claim names the code that does it (`Type.Member`).
+Folders (2026-10-15 reorg, each with a README): server side `Server/`, `Host/`, `Entry/`, `Encounters/`, `Asteroids/`,
+`Api/`, `Dev/`, `Injection/`; client side `Flight/`, `Hud/`, `Map/`, `Render/`, `Ui/` (the settings tab); `Frames/` keeps
+the rotating chart (`Chart`, `CaptureMath`), `BuildHints` and `BodyMarkers`. The engine-free core is
+`Scripts/Simulation/Core`. What changed lately: `CHANGELOG.md`.
 
 Contents: 1 the model · 2 frames · 3 moving between frames · 4 the server tick · 5 the client tick · 6 time warp ·
-7 entry · 8 encounters and sectors · 9 threading · 10 persistence · 11 Core and its tests · 12 the Aero link ·
-13 dev tooling · 14 known mismatches between comments and code.
+7 entry · 8 encounters and sectors · 9 threading · 10 persistence and settings · 11 Core and its tests · 12 the Aero link ·
+13 dev tooling · 14 known mismatches between comments and code · 15 world changes and per-frame state.
 
 ---
 
@@ -21,7 +23,7 @@ in a model (Core) and uses the SE2 world only as storage: a set of **windows** o
   within 1,000 km of one at least 10x heavier becomes its moon (Palatine round Verdure, Caligo round Kemik). Scale:
   `SystemHost.K` (Verdure plays Earth) x `SystemHost.OrbitScale` (0.1) - a compact, KSP-like system; `SystemHost.AU`
   = 30,000 km. `SystemHost.EnsureBuilt` waits until the beacon count has been stable for `SettleSeconds` (2 s);
-  a world whose planets have all gone (another world loaded) is rebuilt.
+  a world change resets it first (`Host/WorldReset`, section 15), so the next world's system is built afresh.
 - **Planet cells** (`VoxelBerthRegistry`, Core/Berths) are pinned where the SE2 planets sit. Inside one, play is the
   game's own physics, in the planet's **rotating chart** (`Chart`): SE2 voxels cannot rotate, so the whole cell turns
   with the planet's day and objects moving in it get Coriolis + centrifugal (`Chart.Fictitious` = -2w x v - w x (w x r)),
@@ -68,7 +70,7 @@ universe clock (`SystemHost.Now`). The registry is `FrameRegistry` (`SystemHost.
   - a static grid in the frame (in at `ServerFrames.CaptureEnterRadius` 8 km, out at `CaptureRadius` 10 km);
   - a rock near the berth (`ServerFrames.AsteroidAnchorId` = -2, found by `AsteroidBridge.NearestAsteroid`) - only on
     a stable orbit (`MembershipRules.StaticAnchorKind`, `ServerFrames.OrbitStable`: periapsis 5 km over the border);
-    "a frame is always on a static grid or a rock when one is in it" (2026-10-07; `ServerFrames.RockReach` is now unused);
+    "a frame is always on a static grid or a rock when one is in it" (2026-10-07);
   - else the heaviest dynamic player grid (the heaviest grid of a joined ship); NPC grids never anchor;
   - else the player (`FrameHost.PlayerId`). Encounter frames have no anchor: their origin is the berth.
 - **Pin, drain, fold.** Each tick the anchor is held at the berth (re-pinned by shifting the whole frame past
@@ -80,8 +82,8 @@ universe clock (`SystemHost.Now`). The registry is `FrameRegistry` (`SystemHost.
 - **The frame's acceleration** A = the folded slice / (dt x N) is published per frame in `ServerFrames.AnchorAccel`
   (by the server for a grid anchor, by the client when the player anchors).
 - **Fictitious forces on members.** Every other member gets the berth's differential gravity minus A as a velocity
-  change: `(Grav(rA + rRel) - gA) - A` in `ServerFrames.UpdateGridFrame` (exact tidal difference; the comments call it
-  "CW", but `ClohessyWiltshire` is not called at runtime), and the same for an on-foot rider in `FrameHost.UpdateRider`.
+  change: `(Grav(rA + rRel) - gA) - A` in `ServerFrames.UpdateGridFrame` (the exact tidal difference; `ClohessyWiltshire`
+  is not called at runtime), and the same for an on-foot rider in `FrameHost.UpdateRider`.
   Inside a Lagrange region a `Ride` supplies the acceleration instead (`EncounterFrames`). A member holding station
   (dampeners on and able to cancel the pull, `ServerFrames.StationKeeping`) gets nothing and pays for it in power
   (`StationKeepCharge`). NPC grids feel no relative terms: plain Newtonian inside their frame.
@@ -140,11 +142,14 @@ Driven by `ServerPlanetBeacon` (injected into every server planet; it also carri
 - `ServerPlanetBeacon.BeaconJob` (`OnBeaconTick`, after render submission begins): `ServerFrames.Tick`, then the
   player's server-side requests (`ApplyPlayerRequest`: `PendingPlayer`, rider velocity changes, the suit bill,
   `DelfosHeat.Apply`) and a pending gravity patch (`PlanetBeacon.PendingGravity`). Every planet's beacon runs the job;
-  `ServerFrames.Tick` lets one per frame through (an Interlocked compare-exchange on its tick stamp).
+  `ServerFrames.Tick` lets one step run at a time (`_stepping`, Interlocked) and one per **game** frame
+  (`SEAerospace.Time.FrameClaim` on the game time, however late a job starts; with the game paused the head still runs,
+  at most every 0.1 s of wall time; with no game time, the old 8 ms wall gate). `WarpBill.Run` claims its frame the same
+  way.
 
 `ServerFrames.TickBody`, in order:
 
-1. Housekeeping: `OrbitalSettings.Poll`, `SpawnGuard.Tick`, `StationKeepCharge.Sweep`, `GridMembers.SweepTombs`,
+1. Housekeeping: `OrbitalSettings.Poll` (applies what its background read left; section 10), `SpawnGuard.Tick`, `StationKeepCharge.Sweep`, `GridMembers.SweepTombs`,
    `WarmBerths.Tick`, `AsteroidBridge.Tick`; dt from the game clock (`IGameTime`: paused = no step); `SystemHost.SpinNow`.
 2. `EntryHost.ServerBeforeLock`.
 3. Under `ServerFrames.FramesLock`:
@@ -157,8 +162,8 @@ Driven by `ServerPlanetBeacon` (injected into every server planet; it also carri
    - the merge screen's apply (last round's results) and collect; `CheckInvariants` every 60 ticks.
 4. After the lock (slow game calls kept out of it): `AsteroidFrames.ServerAfterLock` (rock volumes),
    `FlushAeroNoteMoved`, `EntryHost.ServerAfterLock` (damage, Aero calls), `ScreenMergesCompute`.
-5. Snapshots for the client: every 5 ticks `BuildViews` (immutable `GridView` / `SensorView` arrays published with
-   `Volatile.Write`), else `RefreshGridPositions`; every 30 ticks `BuildSnapshot` + `AdoptLooseGrids`.
+5. Snapshots for the client: `RefreshGridPositions` every tick, and every 5th tick also `BuildViews` (immutable
+   `GridView` / `SensorView` arrays published with `Volatile.Write`); every 30 ticks `BuildSnapshot` + `AdoptLooseGrids`.
 
 **The merge screen** (`ServerFrames.ScreenMergesCollect` / `Compute` / `Apply`, `ScreenJob`): pairs are sharded over
 `MergeScreenInterval` (30) ticks, screened off the lock with `ClosestApproach.CertainlyApart` / `ClosestApproach.Find`
@@ -173,7 +178,9 @@ after render submission begins) for each planet. Under `PlanetRenderBridge.Lock`
 
 `FrameHost.Tick` (the first planet job of a frame does the work: `SystemHost.AdvanceClock` returns dt <= 0 for the rest):
 
-1. Session change (`NewSession`), `OrbitalSettings.Poll`, `SystemHost.EnsureBuilt`, `SystemHost.AdvanceClock`.
+1. Session change (`NewSession`, through `WorldReset.ClientSession`: the client half of the world reset), the settings tab's
+   timestamp check (`SettingsTab.Tick`, section 10), `OrbitalSettings.Poll`, `SystemHost.EnsureBuilt`,
+   `SystemHost.AdvanceClock`.
 2. A fresh `PlayerState` (`_cur`, Core/Frames) built every tick and published whole (`_pub`, volatile) at the end.
 3. On foot, under `FramesLock`: settle a teleport, apply a loaded save (`SavedState.TryApply`), the server's requests
    (`ApplyServerRequests`: arrival, merge, shift), leave / join checks (`PlayerOrbit`), then `UpdatePlayerFrame`
@@ -185,7 +192,7 @@ after render submission begins) for each planet. Under `PlanetRenderBridge.Lock`
    `MapInput.Poll`, `CrossingFade`, `Invariants`, `AttitudeHold.ClientTick`, `WarpControl.Tick`, `MapView.Tick`,
    `FrameMarkers.Tick`, `Maneuvers.HudTick`, `AutoBurn.Tick`, `OrbitHud.Draw`, `BuildHints.Draw`, `SpdIcon.Draw`,
    `AlignButton.Draw`, `EffectCull.Tick`, `WarpBar`, the HUD speed, `SunDriver.Tick`, `StarProxy.Tick`,
-   `EntryHost.ClientTick` (plus dev systems). `HoldActions.Hook` / `ClientTick` run unguarded.
+   `EntryHost.ClientTick`, `StructureAlerts.Tick` (plus dev systems). `HoldActions.Hook` / `ClientTick` run unguarded.
 
 **What you see.** `FrameHost.PublishObserver` sets `FrameHost.Observer`: in a frame, the berth plus the frame's
 celestial state; in a planet cell, that cell with its spin (`ObserverPlanet`); else none. Each planet then shows its
@@ -201,15 +208,18 @@ editor, targets and closest approach, flying a node from the HUD; `AutoBurn` fli
 jetpack on foot); `AttitudeHold` holds prograde / normal / radial / target through the cockpit's target orientation.
 **HUD** (Hud/): `OrbitDisplay` / `OrbitHud` (orbit card, disc, relative plot), `FrameMarkers` (GPS markers across
 windows), `Contacts`, `Targets`. **Map** (Map/): `MapView` -> `GameMap` -> `CleanMap`, the game's colonization map taken
-over and drawn through `MapPipeline` (Render/). See each folder's README.
+over and drawn through `MapPipeline` (Render/). `StructureAlerts` (Hud/): with the Aerodynamics Mod, the seated ship's
+structure failures (aero's event queue, section 12) as one toast. See each folder's README.
 
 ## 6. Time warp
 
 - **The clock.** `SystemHost.Now` (universe time) advances in `SystemHost.AdvanceClock` by the game's dt (paused: no
   step; capped at 0.25 s) x `SystemHost.Timescale`. Planet spin runs on the game's own clock (`SystemHost.SpinNow`,
   `SpinAt`): warp does not turn the planets' day. Warp only advances the rails, never Havok.
-- **Levels and keys.** `WarpControl.Levels` = 1, 5, 10, 50, 100, 1000, 10000; keys `.` `,` `/` (`WarpControl.Tick`),
-  the warp bar (`WarpBar`, `WarpControl.SetLevel`). Warp above x1 needs your orbit on rails (a frame).
+- **Levels and keys.** `WarpControl.Levels` = 1, 5, 10, 50, 100, 1000, 10000, capped by the world setting
+  `Warp.MaxLevel` (keys, warp bar and `OrbitalApi.RequestTimescale` stop there; warp above a lowered cap drops to it);
+  keys `.` `,` `/` (`WarpControl.Tick`), the warp bar (`WarpBar`, `WarpControl.SetLevel`). Warp above x1 needs your orbit
+  on rails (a frame).
 - **Stops.** Each step `AdvanceClock` finds the earliest of: an inbound shell crossing (`FrameHost.EarliestArrival` -
   the clock stops exactly there, so arrival is never skipped), a maneuver's lead (`Maneuvers.NextBurnStart`,
   `WarpLeadAt`), a rendezvous (`ServerFrames.MergeAhead` - `MergeWarpLead`), the entry interface
@@ -220,10 +230,12 @@ over and drawn through `MapPipeline` (Render/). See each folder's README.
   (N x speed over 0.75 x `WarpMemberSpeed` 800 m/s - the physics cap) lowers warp (`ServerFrames.LimitWarp`); a raise
   is clamped beforehand (`ServerFrames.ClampWarpRaise`, called by `WarpControl.Raise`). Ships at a station are held there
   (`StationHoldMargin`). Server notices reach the player through `WarpControl.PendingSay`.
-- **The bill.** `WarpBill` ages batteries and tanks on railed grids by the warped time; a store on your frame running
-  dry drops warp to x1.
-- Core/Time (`UniverseTime`, `WarpPolicy`) is a tested library that the game side does not use: the live clock and
-  warp are `SystemHost.Now` / `Timescale`.
+- **The bill.** `WarpBill` ages batteries and tanks on railed grids by the warped time - once per game frame
+  (`FrameClaim`), surplus = (warp - 1) x that frame's game seconds; a store on your frame running dry drops warp to x1.
+  `WarpBill.Bills` / `BilledSeconds` count it for the harness.
+- Core/Time: `FrameClaim` (one claim per game frame; a small step back - a straggler job - claims nothing, 1 s or more
+  is a new clock) is used by `WarpBill` and `ServerFrames.Tick`; `UniverseTime` and `WarpPolicy` are tested but not used
+  by the game side (the live clock and warp are `SystemHost.Now` / `Timescale`).
 
 ## 7. Entry (reentry, the speed cap)
 
@@ -265,10 +277,10 @@ over and drawn through `MapPipeline` (Render/). See each folder's README.
 
 | thread | runs | notes |
 |---|---|---|
-| server job (one per planet beacon, in parallel) | `ServerFrames.Tick` (one per frame wins), `ApplyPlayerRequest`, `TeleportJob` | per-thread scratch is `[ThreadStatic]` |
-| client job (one per client planet) | `PlanetFrameJob` -> `FrameHost.Tick`, proxies, map, HUD | serialized by `PlanetRenderBridge.Lock` |
-| Avalonia UI thread | `UiThread.Post` jobs (posted by `AlignButton`: `HudGeom`, `NativeHints`) | results in volatile fields |
-| thread pool | `Prewarm` (JIT warm-up of map/HUD methods) | the only background work |
+| server job (one per planet beacon, in parallel) | `ServerFrames.Tick` (one step at a time, one per game frame), `ApplyPlayerRequest`, `TeleportJob` | per-thread scratch is `[ThreadStatic]` |
+| client job (one per client planet) | `PlanetFrameJob` -> `FrameHost.Tick`, proxies, map, HUD, `StructureAlerts` | serialized by `PlanetRenderBridge.Lock` |
+| Avalonia UI thread | `UiThread.Post` jobs (posted by `AlignButton`: `HudGeom`, `NativeHints`); the settings tab (`SettingsTab.UiTick`, posted every 250 ms: attach to the Options screen, ~4 Hz while its tab is selected) | results in volatile fields; the tab sets values through `OrbitalSettings.Set` |
+| thread pool | `Prewarm` (JIT warm-up of map/HUD methods); `OrbitalSettings.Poll`'s file reads / writes (one task at a time) | what the poll read is applied by the next tick's `Poll`, on the tick thread |
 
 - `ServerFrames.FramesLock` guards the frame registry and frame state on both sides. The server holds it for its whole
   locked step; the map draws under it (`MapView`: `lock (FramesLock) GameMap.Draw`). Lock order: `FramesLock` may be
@@ -280,9 +292,11 @@ over and drawn through `MapPipeline` (Render/). See each folder's README.
   `PlayerSeatGrid` (Interlocked), the `GridView` / `SensorView` snapshots (volatile, immutable), `MergeAhead`,
   `WarpControl.PendingSay`.
 - `SystemHost.Timescale` is written by both sides (warp keys, `LimitWarp`, `WarpBill`) and read once per use.
+- `ContactsTab.Sync` guards the Contacts tab's pinned / hidden / named sets, and `FrameMarkers._sync` the hidden GPS
+  markers, against the save (`SavedState.Capture` on the server thread); nothing else is called under them.
 - Server and client share statics: the mod runs in single player and on a listen host only (one process).
 
-## 10. Persistence
+## 10. Persistence and settings
 
 - **Where.** `ServerPlanetBeacon` holds the engine's `EntityNameSessionComponentObjectBuilder` (string -> entity; a
   mod-defined builder cannot compile). `ServerPlanetBeacon.SerializeState` -> `SavedState.Capture` +
@@ -294,9 +308,22 @@ over and drawn through `MapPipeline` (Render/). See each folder's README.
   entity references (`member:<id>`, `player:<id>`) and remapped to live ids on load (`SavedState.TryApply`, run by the
   client under `FramesLock`, waiting up to 20 s for grids to appear); frames come back through
   `FrameRegistry.RestoreFrame`.
-- **Settings.** `OrbitalSettings`: world-scope values (saved with the world under `settings:`, host overrides in
-  `%APPDATA%\SpaceEngineers2\ModSettings\OrbitalMod.world.cfg`) and client-scope values (`OrbitalMod.client.cfg`),
-  polled about every 2 s; other mods use `OrbitalApi.GetSettings` / `SetSetting`.
+- **Settings.** `OrbitalSettings` (`Host/`: the registry - each setting's field, range, description and menu metadata,
+  registration order = screen order; `OrbitalSettings.Store.cs`: the API, the text, the world save, the files):
+  world-scope values (saved with the world under `settings:`, only those off their default; host overrides in
+  `%APPDATA%\SpaceEngineers2\ModSettings\OrbitalMod.world.cfg` win - `IsForced`, refused by `Set`, dropped with the
+  world) and client-scope values (`OrbitalMod.client.cfg`). `OrbitalSettings.Poll`: a `[ThreadStatic]` 1/4 s gate per
+  thread, the shared 2 s due time, the file I/O on one background task; what it read is applied by the next tick's poll
+  on the tick thread (the host file's names forced at that apply). What is written is each setting's `Stored` value (set
+  through the store), never a harness command's direct field write. Who may change world settings: `CanEditWorld` (the
+  host or single player; the one place an admin check goes later); `WorldUnsaved` marks a change waiting for the save.
+  Other mods: `OrbitalApi` settings members (version 3: the menu metadata and authority).
+- **The settings menu** (`Ui/`): the Options screen's **Mods** tab, one tab for both mods (Tag contract `ModSettings/v1`,
+  a section per mod: `docs/API.md` Settings), rows generated from the registry by the engine-free `SettingsModel` (basic
+  shown, advanced collapsed, hidden left out; a slider's edit applies once it holds still), reset per group, lock and
+  refusal reasons, the world-unsaved hint. `SettingsTab.Tick` (from `FrameHost.Tick`, a timestamp compare) posts
+  `UiTick` to the UI thread every 250 ms. Written once here; `tools/sync_settings_ui.sh "<aero mod>"` copies the shared
+  files into the Aerodynamics Mod (namespace line rewritten), `tools/check_contract.sh` checks the copies.
 - **Core/Persistence** (`FramePersistence`, `FrameRegistrySnapshot`, `FrameSnapshot`): the game uses
   `FramePersistence.Capture` and `IsValidElements`; the XML round trip is exercised only by `Tests/PersistenceTests`.
 
@@ -319,7 +346,10 @@ over and drawn through `MapPipeline` (Render/). See each folder's README.
 `Tests/*` are console projects (`Tests/Directory.Build.props`: net9.0, VRage.Library reference, `$(Core)`) that compile
 Core's sources by folder (FrameMathTests also compiles `FrameMath.cs` from the game side). Suites: EntryTests,
 FrameMathTests, OrbitalTests, PersistenceTests, PlayerOrbitTests (incl. `MembershipCases`), RendezvousTests,
-SensingTests, SystemDefTests, TimeTests - about 1,440 checks (2026-10-15). `tools/test_fast.sh` runs ModCheck (the
+SensingTests, SystemDefTests, TimeTests (about 1,500 checks); and over game-side files compiled with stand-ins: ApiTests
+(the `Peek` snapshot and orbit queries in `Api/Core/`, the API's shape over every partial), SettingsTests (the real
+registry and store, stand-ins seeded from the mod's source), SettingsUiTests (the menu's model; `-- dump` prints it) -
+about 4,480 checks in all (2026-10-15). `tools/test_fast.sh` runs ModCheck (the
 game's compiler and whitelist on the scripts), `tools/check_contract.sh`, then every suite. Rule: logic goes into Core
 where the fast gate can test it; the in-game tiers check only what needs the engine.
 
@@ -327,9 +357,16 @@ where the fast gate can test it; the in-game tiers check only what needs the eng
 
 The mods compile apart and find each other by reflection, by type name; neither needs the other.
 `tools/check_contract.sh` checks the contract both ways from source (names, exact signatures, explicit parameter
-types, no overloads, over every API partial file; and the dev harness's `AeroMod` flags).
+types, no overloads, over every API partial file; the dev harness's `AeroMod` flags; settings API parity; the shared
+settings-tab copies; one link each way).
 
-- **Aero reads Orbital** (`OrbitalApi`, `Version` 1; reference in `docs/API.md`):
+**One link each way.** This mod finds aero's types only through `Api/AeroLink.cs`: the last loaded assembly that has
+`AeroMod.AeroApi`, re-found when the loaded assemblies change (checked at most every 5 s, one thread at a time), with a
+`Generation` each binding site compares to bind again (`EntryHost.HookAero`, `CallNoteMoved`, `StructureAlerts`, the
+dev sites). Aero names `OrbitalApi` only in its `Api/OrbitalLink.cs`, on the same rule (its `Api/CrossModLink.cs`).
+Exception noted by the contract check: `Frames/BuildHints.cs` (owned by other work) still finds aero with its own scan.
+
+- **Aero reads Orbital** (`OrbitalApi`, `Version` 3; reference in `docs/API.md`):
   - `OrbitalApi.TryGetEntryState` / `TryGetEntryState2` - a railed grid sits still in its berth, so Aero cannot see its
     true air velocity; Orbital gives it (travel direction, density, temperature, braking acceleration);
   - `OrbitalApi.TryGetGridEdits` - the running sum of velocity Orbital wrote into a grid and a move stamp
@@ -338,8 +375,10 @@ types, no overloads, over every API partial file; and the dev harness's `AeroMod
 - **Orbital calls Aero** (`AeroMod.AeroApi`): `EntryHost.HookAero` registers Orbital as an entry source
   (`RegisterEntrySource("OrbitalMod", ...)`, contract `EntryHost.AeroEntryContract` = 2): Aero asks it per grid for the
   plasma's air direction and glow. Also `PredictHullForces`, `TryGetAtmosphereAt`, `RequestForceTable` (entry drag), and
-  `NoteMoved` after every move (`ServerFrames.CallNoteMoved`, deferred out of `FramesLock` by `FlushAeroNoteMoved`).
-  The old `AeroEntryFx.External` field is retired.
+  `NoteMoved` after every move (`ServerFrames.CallNoteMoved`, deferred out of `FramesLock` by `FlushAeroNoteMoved`);
+  `GetStructureEventSequence` / `ReadStructureEvents` (AeroApi 7: `StructureAlerts`, typed delegates, every 0.5 s while
+  seated only - asking opens aero's recording - a throw drops the binding for 60 s); the build hints' design-probe and
+  flight members (`BuildHints`). The old `AeroEntryFx.External` field is retired.
 - Dev only: `aeroget` / `aeroset` and other harness commands read and write Aero statics by name
   (`PlanetRenderBridge.ForeignValue`, `SetForeignFlag`).
 
@@ -357,26 +396,46 @@ types, no overloads, over every API partial file; and the dev harness's `AeroMod
   `hold`, `seat`), grids (`grid*`, `gen` - `GridGen`, `hinge` - `HingeRig`, `testship`), encounters (`encounters`,
   `gotosite`, `devsite`, `devfar`, `gps`), checks (`inv` - `Invariants`, `hudcheck` - `DevHudCheck`, `reentrytest` -
   `DevReentry`), perf (`fps`, `perf`, `allocs`, `mem`, `statusfast`), the Aero bridge (`aeroget`, `aeroset`,
-  `flightdump`), `setting`, `shot`.
+  `flightdump`), `setting`, `settingsui open|select|flip|close|report` (the Mods tab), `shot`.
 - **`Invariants`** run in play too (once a second): anchor-alive, past-edge, ship-together, warp-state, on-rails,
   seated-frame, prediction; violations log `[ORBIT-INV] VIOLATION`.
-- **Scripts** (`tools/harness`): `orb.sh` sends a command and waits for it to be taken; `testlib.sh` (log marks,
-  `waitfor`, `check`, `send`, `stat`) and `launch.sh`; suites `test_smoke.sh` (~3 min), `test_all.sh` (joints, regress,
-  perf, save, soak), plus scenario rounds (`scenarios.sh`, `burns.sh`, `airless.sh`, `hercules.sh`, `reentry_e2e.sh`,
-  `fuzz.sh`, ...) and many one-off shot / A-B / diagnostic scripts.
+- **Scripts** (`tools/harness`, indexed in its `README.md`; every command and member they depend on in `COMMANDS.md`):
+  `orb.sh` sends a command and waits for it to be taken; `testlib.sh` (log marks, `waitfor`, `check`, `send`, `stat`,
+  `LOGF`, `waitloaded`) and `launch.sh`; suites `test_smoke.sh` (~3 min), `test_integrate.sh` (<= 5 min, one launch over
+  an integration batch with both mods; `RUNBOOK.md`), `test_all.sh` (joints, regress, perf, save, soak), plus scenario
+  rounds (`scenarios.sh`, `burns.sh`, `airless.sh`, `hercules.sh`, `reentry_e2e.sh`, `fuzz.sh`, `settingsui.sh`, ...);
+  one-off shot / A-B / probe scripts live in `tools/harness/experiments/`.
 - **Content tools:** `tools/blocks/gen_blocks.py` (sensor block definitions), `tools/globes/bake_globes.py` (proxy-globe
   textures for `PlanetMesh`).
 
-## 14. Known mismatches between comments and code (2026-10-15, not fixed: docs only)
+## 14. Known mismatches between comments and code
 
-- The `ServerFrames` and `ClohessyWiltshire` comments say members get the CW acceleration; the code applies the exact
-  differential gravity (`ServerFrames.UpdateGridFrame`).
-- The `ServerFrames` header says arriving grids go "HighSpeed above the cap"; `TryMaterializeGrids` scales dynamic grids
-  to the cap and gives only static grids a conic. The player's HighSpeed is unreachable (`FrameHost.EngageHighSpeed` has
-  no caller); a saved player conic is restored onto rails (`FrameHost.RestoreHighSpeed`).
-- In `ServerFrames`, the summary "Frame id -> the frame's acceleration A" sits on `_trueRel`; `AnchorAccel` is declared
-  further down.
-- `StarProxy`'s header calls `SunDriver` off by default; `SunDriver.Enabled` is true.
-- Comments still giving the frame size as 20 km (it is 10 km, `ServerFrames.SlotRadius`): `RendezvousParams.ExitRangeMeters`,
-  the `Invariants` header, `PlayerOrbit` (the split note).
-- `ServerFrames.RockReach` is declared but unused (the rock rule it served was dropped 2026-10-07).
+The 2026-10-15 list (CW in the comments, a 20 km frame size, `SunDriver` "off", the arriving-grid HighSpeed, a drifted
+`_trueRel` summary, the unused `RockReach`) was fixed in the reorg (4885b94, 9320e68, 90525c4). Still true:
+
+- `Hud/HudMath.cs` is a forwarder with no callers (the shared helpers are `Host/Num.cs`).
+- The harness's `hsfold` sets `FrameHost.HsThrustFold`, which nothing reads since the player HighSpeed went (inert).
+- `Flight/HoldActions.cs` is a disabled prototype whose `Hook` / `ClientTick` still run (its `[BlockDetailProvider]` was
+  removed 2026-10-08).
+- Core types marked NOT WIRED (`InterceptPlanner`, `ArrivalErrorBand`, `EncounterScan`, `ClohessyWiltshire`,
+  `SunPhaseEase`, `SunPlane`, ...) are tested offline but not called at runtime.
+
+## 15. World changes and per-frame state
+
+Statics outlive a world (the mod's assembly stays loaded from one world to the next), so state is dropped by one rule
+per lifetime, never by a reset of its own at each site:
+
+- **Per world: `Host/WorldReset`.** Run once per world change: the last server planet leaving the scene (`Unloaded`), or
+  a server planet joining in a session not the last world's with no unload seen (`ServerSession`). It drops `Built` (the
+  server stops stepping the last world's frames), zeroes the universe clock and warp, resets the server tick's game
+  clock and both `FrameClaim`s, runs the system's resets (`ResetSystem`, also run by every `SystemHost.Build`), and drops
+  contacts, grid tombstones, the player cache and - at an unload only - the pending saved state (the next world's planets
+  read their own state before they join its scene). Its client half, `WorldReset.ClientSession` (the client thread's
+  first tick in a new session), drops the local player's state, the planet globes (`PlanetMesh`), the hidden GPS
+  markers (`FrameMarkers`) and the structure alerts' seat and queue position. A new per-world static goes into its list.
+- **Per frame: `FrameRegistry.Retiring`** (Core, tested), wired to `ServerFrames.FrameRetiring` by `SystemHost.Build`:
+  called by every `Dissolve` and for a merge's incomer, before anything is dropped - the anchor acceleration, the
+  frame-keyed bookkeeping, `EntryHost.Retire` (entry state, glow), and on a dissolve (an arrival) the members' entry wear.
+- **Per grid: `ServerFrames.Forget`** for a grid gone for good (every per-grid set, `_joinedOf` included); tombstones keep
+  a grid's id for 60 s within its own session only (`GridMembers`).
+- **Saves:** the newest load's saved state wins over a pending one (`SavedState.OnLoaded`).

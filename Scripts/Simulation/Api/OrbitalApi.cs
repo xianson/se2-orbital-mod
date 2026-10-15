@@ -187,6 +187,7 @@ public static class OrbitalApi
     {
         if (grid == null) return -1;
         foreach (var c in grid.Components) if (c is OrbitalGridComponent g && g.Id >= GridMembers.IdBase) return g.Id;
+        if (!Num.Alive(grid)) return -1;   // (a destroyed client grid asked through the entry state: its transform threw, ~200 ms - 2026-10-15)
         Vector3D at;
         try { at = grid.Data.GetWorldTransform().Position; } catch (Exception) { return -1; }
         long best = -1; double bestD = 20 * 20;

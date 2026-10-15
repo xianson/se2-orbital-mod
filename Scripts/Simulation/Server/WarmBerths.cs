@@ -119,7 +119,8 @@ public static class WarmBerths
         catch (System.Exception ex) { Status = "warm berths failed: " + ex.Message; Log.Default?.Info("[ORBIT-FRAME] warm berths failed: " + ex); }
     }
 
-    static bool Alive(Entity e) { try { return e.GetSession() != null; } catch { return false; } }
+    // (asked without a throw: GetSession on a deleted placeholder threw, ~200 ms each - 2026-10-15)
+    static bool Alive(Entity e) => Num.Alive(e);
 
     /// <summary>Slots whose placeholder was asked for and has not shown up yet (the spawn is staged): when asked.</summary>
     static readonly Dictionary<int, double> _pending = new Dictionary<int, double>();

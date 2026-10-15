@@ -122,7 +122,7 @@ public static class SavedState
             lock (SensorBlocks.Radars)
                 foreach (var r in SensorBlocks.Radars)
                 {
-                    if (r.Entity == null || !(r.Power < 0.999f)) continue;
+                    if (!Alive(r.Entity) || !(r.Power < 0.999f)) continue;
                     Vector3D at;
                     try { at = r.Entity.Data.GetWorldTransform().Position; } catch { continue; }
                     sb.Append("radarpower ").Append(D(at.X)).Append(' ').Append(D(at.Y)).Append(' ').Append(D(at.Z))
@@ -168,6 +168,7 @@ public static class SavedState
                     foreach (var r in SensorBlocks.Radars)
                     {
                         double d;
+                        if (!Alive(r.Entity)) continue;   // (every server tick while a setting waits: a deleted radar threw each time, ~200 ms)
                         try { d = (r.Entity.Data.GetWorldTransform().Position - at).Length(); } catch { continue; }
                         if (d < bd) { bd = d; best = r; }
                     }

@@ -39,13 +39,18 @@ public static class StructureAlerts
         double now = Wall();
         if (now < _pollAt) return;
         _pollAt = now + PollSeconds;
-        if (now < _faultUntil || !Bind()) return;
+        if (now < _faultUntil) return;
         // (the server copy of the grid you sit in: aero's events name the server grid. The one before is kept 3 s - a
         //  failure that splits the ship may seat you on the new piece, or out, before its events are read)
         var g = FrameHost.Seated && FrameHost.SeatGridServerId != 0 ? GridMembers.Get(FrameHost.SeatGridServerId) : null;
         Entity seat = g != null && g.IsServer ? g.Entity : null;
         if (!ReferenceEquals(seat, _cur)) { if (_cur != null) { _prev = _cur; _prevUntil = now + 3; } _cur = seat; }
         if (now > _prevUntil) _prev = null;
+        // (2026-10-15: asked unseated too - aero records events only once someone asks, and our asking from the menu on held
+        //  its ring of up to 512 destroyed blocks and grids alive all session. Now only seated (or the 3 s after); a new
+        //  seat reads from its own now)
+        if (_cur == null && _prev == null) { _next = -1; return; }
+        if (!Bind()) return;
         try
         {
             if (_next < 0) { _next = _seq(); return; }   // (from now: what failed before we looked is not news)
@@ -78,6 +83,13 @@ public static class StructureAlerts
             Status = "aero's structure events threw: " + e.GetType().Name;
             _seq = null; _read = null; _gen = -1; _next = -1; _faultUntil = now + 60;
         }
+    }
+
+    /// <summary>A new world (WorldReset.ClientSession, the client thread): the last world's grids and queue position go.</summary>
+    internal static void ResetWorld()
+    {
+        _next = -1; _cur = _prev = null; _prevUntil = 0;
+        Sections = Blocks = Burnt = 0;
     }
 
     /// <summary>The two members, once per aero assembly (AeroLink.Generation): typed delegates, looked up by name and parameter

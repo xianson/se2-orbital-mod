@@ -135,6 +135,10 @@ public static partial class OrbitalSettings
         B("Proxy.HideAtmosphere", "client", false, () => OrbitalConfig.HideAtmosphere, v => OrbitalConfig.HideAtmosphere = v,
             "Hide the real planet's atmosphere and clouds with its terrain.")
             .Ui("Hide far atmospheres with terrain", GPlanets, Tier.Advanced);
+        // (the wanted flag only: a failure clears PlanetRenderBridge.ProxyAtmospheresWork, never this)
+        B("Proxy.Atmospheres", "client", false, () => PlanetRenderBridge.ProxyAtmospheres, v => PlanetRenderBridge.ProxyAtmospheres = v,
+            "The distant globes' own atmosphere (the game's, scaled to the globe). Off: bare globes. (If the game refuses to make one, they are off for the session; this stays as set.)")
+            .Ui("Atmospheres on distant globes", GPlanets, Tier.Advanced);
         B("Proxy.Rings", "client", false, () => PlanetRings.ProxyRings, v => PlanetRings.ProxyRings = v,
             "Planetary rings around the distant globes.")
             .Ui("Planet rings", GPlanets, Tier.Basic);

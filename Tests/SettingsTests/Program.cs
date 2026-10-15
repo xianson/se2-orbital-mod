@@ -47,6 +47,7 @@ namespace OrbitalTests.Settings
                 WorldSave();
                 Persistence();
                 Denylist();
+                NoCodeWrites();
             }
             finally { try { Directory.Delete(Dir, true); } catch { } }
             Console.WriteLine($"\n{_passed} passed, {_failed} failed");
@@ -391,6 +392,39 @@ namespace OrbitalTests.Settings
             CleanMap.Enabled = map;
             OrbitalSettings.ResetScope("client");
             Ok("back at the defaults", OrbitalSettings.Text("client", false) == "" && CrossingFade.Enabled == fade);
+        }
+
+        // ── the code never switches a setting itself (2026-10-15: PlanetRenderBridge cleared ProxyAtmospheres on a failure -
+        //    as a setting it would have saved "off" for good; such a runtime state is a separate flag) ──
+
+        static void NoCodeWrites()
+        {
+            Console.WriteLine("-- no code outside the harness writes a setting's field");
+            string reg = File.ReadAllText(Path.Combine(Root(), "Scripts", "Simulation", "Host", "OrbitalSettings.cs"));
+            var targets = Regex.Matches(reg, @"v\s*=>\s*\{?\s*([A-Z]\w*)\.([A-Z]\w*)\s*=(?![=>])").Cast<Match>()
+                .Select(m => (cls: m.Groups[1].Value, field: m.Groups[2].Value)).Distinct().ToList();
+            Ok($"{targets.Count} setting fields found", targets.Count > 40);
+            int files = 0;
+            foreach (var f in Directory.GetFiles(Path.Combine(Root(), "Scripts", "Simulation"), "*.cs", SearchOption.AllDirectories))
+            {
+                string rel = Path.GetRelativePath(Path.Combine(Root(), "Scripts", "Simulation"), f).Replace('\\', '/');
+                if (rel.StartsWith("Dev/") || Path.GetFileName(f).StartsWith("OrbitalSettings")) continue;   // (the harness: dev overrides, never saved)
+                files++;
+                string src = Regex.Replace(File.ReadAllText(f), @"//.*", "");
+                var lines = src.Split('\n');
+                foreach (var (cls, field) in targets)
+                {
+                    bool own = Regex.IsMatch(src, @"\b(class|struct)\s+" + cls + @"\b");
+                    var write = new Regex((own ? @"(?<![\w.])(" + cls + @"\.)?" : @"\b" + cls + @"\.") + field + @"\s*(=(?![=>])|\|=|&=|\^=)");
+                    for (int i = 0; i < lines.Length; i++)
+                    {
+                        string l = lines[i];
+                        if (!write.IsMatch(l) || Regex.IsMatch(l, @"\bstatic\b") || l.Contains("case \"")) continue;   // (its declaration; a harness verb's switch)
+                        Ok($"{rel}:{i + 1}: the code writes {cls}.{field} (a setting): keep a runtime flag of its own", false, l.Trim());
+                    }
+                }
+            }
+            Ok($"{files} files scanned", files > 50);
         }
 
         // ── never a dev knob ──

@@ -349,6 +349,7 @@ A world setting the host file names is **forced**: a change through the API is r
 | `Proxy.Mode` | client | int | 0 | 0..3 | 0 a proxy globe outside the planet's frame, 1 always the proxy, 2 never, 3 alternate. |
 | `Proxy.HideRealPlanets` | client | bool | true | | Hide the real planet where the proxy stands in. |
 | `Proxy.HideAtmosphere` | client | bool | true | | Hide its atmosphere and clouds with it. |
+| `Proxy.Atmospheres` | client | bool | true | | The distant globes' own atmosphere (the game's, scaled). A failure turns them off for the session; the setting stays as set. |
 | `Proxy.Rings` | client | bool | true | | Planetary rings around the distant globes. |
 | `Proxy.GlobeDetail` | client | int | 2 | 0..3 | The distant globes' mesh: 16 × 2^this quads per cube-face edge (Low, Medium, High, Very high). |
 | `Proxy.NormalMaps` | client | bool | true | | The globes' baked surface relief. |

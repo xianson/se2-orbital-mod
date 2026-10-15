@@ -53,6 +53,7 @@ namespace OrbitalMod
     [Mirror] public static class Maneuvers { public static double WarpLead; public static int MaxPatches; }
     [Mirror] public static class ServerFrames { internal static double WarpMemberSpeed; }
     [Mirror] public static class PlanetRings { public static bool ProxyRings, MapRings; }
+    [Mirror] public static class PlanetRenderBridge { public static bool ProxyAtmospheres; }
     [Mirror] public static class PlanetMesh
     {
         public static int Quads; public static bool NormalMaps; public static float TangentSign;

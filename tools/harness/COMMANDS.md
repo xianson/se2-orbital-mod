@@ -106,9 +106,10 @@ How the names are reached:
 | `roids` | rv_cases.sh |
 | `rvtab` | map_compare.sh, map_dim.sh, rv_views.sh, targetshot.sh, test_perf.sh, test_regress.sh, test_smoke.sh, test_soak.sh |
 | `save` | contactsave.sh, test_save.sh |
-| `seat` | fuzz.sh, play.sh, play_grid.sh, quick.sh, reentry_e2e.sh |
+| `seat` | fuzz.sh, play.sh, play_grid.sh, quick.sh, reentry_e2e.sh, test_integrate.sh |
 | `seatid` | 37 scripts (bakedcheck.sh, burns.sh, checkall.sh, combo.sh, ...) |
 | `sensorblocks` | test_smoke.sh |
+| `settingsui` | test_integrate.sh (not a verb yet - the settings UI branch adds it; until then SKIP. The script wants a reply naming the tab with "found" (or true/yes/shown) and "N rows") |
 | `sensornopower` | test_save.sh, test_smoke.sh |
 | `shot` | experiments/fxlook.sh, experiments/herctrail.sh, experiments/tipab.sh, experiments/tipsweep.sh, experiments/wings.sh, holdcharge.sh, orb.sh, trails.sh |
 | `shotui` | 22 scripts (contactsave.sh, contactshot.sh, experiments/ascentshot.sh, experiments/cullab.sh, ...) |
@@ -193,6 +194,17 @@ tools/flightdump.sh.)
 | `AeroMod.ThrustTorque.FlameLookups` | get | checkall | Simulation/Integration/ThrustTorque.cs |
 | `AeroMod.ThrustTorque.FlameHits` | get | checkall | Simulation/Integration/ThrustTorque.cs |
 | `AeroMod.ThrustTorque.FlameLit` | get | checkall | Simulation/Integration/ThrustTorque.cs |
+| `AeroMod.AeroApi.Version` | get | test_integrate (a const: must read 8) | Simulation/Api/AeroApi.cs |
+| `AeroMod.AeroGridComponent.CracksStarted`, `.CracksDone`, `.CracksRunning`, `.CrackLast`, `.CutsForced` | get | test_integrate | Simulation/Structure/Server/StructureServer.Failure.cs (feat/a-break) |
+| `AeroMod.StructureTear.AnchorsMade`, `.AnchorsPeeled`, `.Faults` | get | test_integrate | Simulation/Structure/Server/StructureTear.cs |
+| `AeroMod.AeroDebrisDrag.Steps` | get | test_integrate | Simulation/Debris/AeroDebrisDrag.cs (feat/a-debris) |
+| `AeroMod.StructureLoads.Breaks` | get | test_integrate (also above) | Simulation/Structure/Server/StructureLoads.cs |
+| `AeroMod.ShipStructure.Strength`, `AeroMod.StructureLoads.Damage` / `.Trace`, `AeroMod.AeroEntryFx.TestSpeed`, `AeroMod.FlightField.TrailDebug` | set | test_integrate (its releases) | |
+| `OrbitalMod.OrbitalApi.Version` | get | test_integrate (a const: must read 3) | Simulation/Api/OrbitalApi.cs |
+| `OrbitalMod.WarpBill.Bills`, `.BilledSeconds` | get | test_integrate | Simulation/Server/WarpBill.cs |
+| `OrbitalMod.WorldReset.Count` | get | test_integrate | Simulation/Host/WorldReset.cs |
+| `OrbitalMod.StructureAlerts.Sections`, `.Status` | get | test_integrate | Simulation/Hud/StructureAlerts.cs |
+| `OrbitalMod.StationKeepCharge.Status` | get | test_integrate | Simulation/Server/StationKeepCharge.cs |
 | `OrbitalMod.FrameHost.SeatGridServerId` | get | experiments/fxlook, experiments/herctrail, experiments/tipsweep | Simulation/Host/FrameHost*.cs |
 | `OrbitalMod.FrameHost.Seated` | get | reentry_e2e | Simulation/Host/FrameHost*.cs |
 
@@ -233,7 +245,11 @@ entit`, `not moved: joined to something static`, `gridlaunch: grid N .*refused`,
 phase`, `has no air`, `arrival of frame`, `crossing fade`, `spawn guard: frame`, `+StationKeepCharge`, `auto: burn
 complete`, `Warp stopped`, `warp x10 -> x1`, `warp xA -> xB: a member`, `server planet prefab`, `sensor block prefab.*
 Telescope|Radar`, `radar setting restored: transmit power 25`, `known: N grid(s), N rock(s)`, `backdrop`, `sectorless
-map scene`, `map scene toggle`. Game text: `beacon Root Entity` / `Loading Failed` (world loaded), `not migrated` (Havok),
+map scene`, `map scene toggle`. test_integrate.sh: `[ORBIT] world reset:` (and `another world's planets`), `[ORBIT]
+beacon Root Entity`, `[AERO] Injected`, `[ORBIT-STRUCT] seated ship:`, `[AERO-STRUCT] ... failed whole - N of M members cracked
+across it`, `did not separate`, `[AERO-TEAR] ... failed`, `[AERO-COST] blocks|patch|sim|draw X ms/s`, `Warp stopped`; status
+`warpbill`, `time ... server=N ... rails t=T xW`, `modcost ... client A/M/P server A/M/P ... alloc NMB`, `orbit frame #`;
+game text `GameCoreScene UnloadAllScenes GameServer` (the world-reset audit), stack frames `at AeroMod.` / `at OrbitalMod.`. Game text: `beacon Root Entity` / `Loading Failed` (world loaded), `not migrated` (Havok),
 `Crash Handler]: Fatal`, `Exception occurred`.
 
 ## Suspect references (found 2026-10-15)

@@ -29,6 +29,10 @@ public static class FrameMarkers
 
     private static readonly HashSet<GPSMarker> _hidden = new HashSet<GPSMarker>();
     private static readonly HashSet<string> _restoreKeys = new HashSet<string>();
+    // (guards every CHANGE to _hidden and _restoreKeys and the server thread's reads of them - the save's HiddenKeys, the
+    //  load's RestoreHidden: the client changed them while a save enumerated them, and the save threw - 2026-10-15, as
+    //  ContactsTab.Sync. The client's own reads take no lock: the client is their only writer)
+    private static readonly object _sync = new object();
 
     private struct Proxy { public Vector3D World; public string Name; public double Distance; public ColorSRGB Color; public GPSMarker Marker; }
     private static readonly List<Proxy> _proxies = new List<Proxy>();
@@ -60,10 +64,11 @@ public static class FrameMarkers
         if (markers == null) return;
 
         if (_restoreKeys.Count > 0)
-        {
-            foreach (var m in markers) if (_restoreKeys.Contains(Key(m))) m.Hidden = false;
-            _restoreKeys.Clear();
-        }
+            lock (_sync)
+            {
+                foreach (var m in markers) if (_restoreKeys.Contains(Key(m))) m.Hidden = false;
+                _restoreKeys.Clear();
+            }
         if (!Enabled || !SystemHost.Built) { UnhideAll(); return; }
 
         bool camOk;
@@ -80,7 +85,7 @@ public static class FrameMarkers
             lock (ServerFrames.FramesLock) ok = ModelOf(m.Position, t, out mm, out win, out _);
             if (!camOk || !ok || win == camWin)
             {
-                if (ours) { m.Hidden = false; _hidden.Remove(m); }
+                if (ours) { m.Hidden = false; lock (_sync) _hidden.Remove(m); }
                 continue;
             }
             // Another window: the marker's true place, relative to the camera's.
@@ -88,7 +93,7 @@ public static class FrameMarkers
             Vector3D dw = camChart.FromInertial(d);
             double dist = d.Length();
             if (!IsFinite(dist) || dist < 1) continue;
-            if (!ours) { m.Hidden = true; _hidden.Add(m); }
+            if (!ours) { m.Hidden = true; lock (_sync) _hidden.Add(m); }
             // Draw at a comfortable depth in the true direction (projection only needs the direction).
             Vector3D at = camera.Position + dw * (Math.Min(dist, 5e4) / dist);
             _proxies.Add(new Proxy { World = at, Name = m.Name, Distance = dist, Color = m.Color, Marker = m });
@@ -100,7 +105,7 @@ public static class FrameMarkers
         {
             var gone = _gone; gone.Clear();
             foreach (var h in _hidden) if (!markers.Contains(h)) gone.Add(h);
-            for (int i = 0; i < gone.Count; i++) _hidden.Remove(gone[i]);
+            if (gone.Count > 0) lock (_sync) for (int i = 0; i < gone.Count; i++) _hidden.Remove(gone[i]);
             gone.Clear();
         }
         if (StatusDue(ref _statusAt)) Status = $"gps {markers.Count} marker(s), {moved} frame-transferred{(MapPipeline.GpsError.Length > 0 ? " (game draw: " + MapPipeline.GpsError + ")" : "")}";
@@ -340,14 +345,14 @@ public static class FrameMarkers
     public static void SetUserHidden(GPSMarker m, bool hidden)
     {
         if (m == null) return;
-        _hidden.Remove(m);
+        lock (_sync) _hidden.Remove(m);
         m.Hidden = hidden;
     }
 
     private static void UnhideAll()
     {
         foreach (var m in _hidden) try { m.Hidden = false; } catch { }
-        _hidden.Clear();
+        lock (_sync) _hidden.Clear();
     }
 
     private static string Key(GPSMarker m) => (m.Identifier ?? "") + "|" + m.Name;
@@ -356,11 +361,15 @@ public static class FrameMarkers
     public static List<string> HiddenKeys()
     {
         var l = new List<string>();
-        foreach (var m in _hidden) try { l.Add(Key(m)); } catch { }
+        lock (_sync) foreach (var m in _hidden) try { l.Add(Key(m)); } catch { }
         return l;
     }
 
     /// <summary>Load: markers hidden by this mod at save time are shown again first (then re-evaluated).</summary>
-    public static void RestoreHidden(string key) => _restoreKeys.Add(key);
+    public static void RestoreHidden(string key) { lock (_sync) _restoreKeys.Add(key); }
+
+    /// <summary>A new world (WorldReset.ClientSession): the last world's markers (hidden by us, or to show again) are not this
+    /// one's - kept, they were written into the next world's save.</summary>
+    internal static void ResetWorld() { lock (_sync) { _hidden.Clear(); _restoreKeys.Clear(); } }
 
 }

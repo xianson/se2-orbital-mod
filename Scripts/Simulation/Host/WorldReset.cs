@@ -68,6 +68,7 @@ public static class WorldReset
     {
         FrameHost.NewSession();
         Step("planet meshes", PlanetMesh.ResetWorld);   // (every world's planets' globes held in memory)
+        Step("gps markers", FrameMarkers.ResetWorld);   // (the last world's hidden markers, written into the next one's save)
     }
 
     /// <summary>The system's state: the frames' server state, sites, rocks, entry, our edits; <paramref name="build"/>: for a

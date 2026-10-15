@@ -84,17 +84,20 @@ public static class SavedState
             foreach (var nl in Maneuvers.SaveLines()) sb.Append(nl).Append((char)10);
             // The target: a body, site or rock by name; a ship by its grid (its id mapped on load as members are).
             // The Contacts tab: what you pinned to the HUD, and your names for things (ships by grid, mapped on load).
-            foreach (var pk in ContactsTab.Pinned)
+            // (copied under its lock: the client changes them while a save runs - enumerated live, the save threw)
+            List<string> pinned, hidden; List<KeyValuePair<string, string>> names;
+            lock (ContactsTab.Sync) { pinned = new List<string>(ContactsTab.Pinned); hidden = new List<string>(ContactsTab.HiddenKeys); names = new List<KeyValuePair<string, string>>(ContactsTab.Names); }
+            foreach (var pk in pinned)
             {
                 if (Targets.GridOf(pk, out long pid)) { sb.Append("pingrid ").Append(pid).Append((char)10); Remember(ob, pid); }
                 else sb.Append("pin ").Append(Esc(pk)).Append((char)10);
             }
-            foreach (var hk in ContactsTab.HiddenKeys)
+            foreach (var hk in hidden)
             {
                 if (Targets.GridOf(hk, out long hid)) { sb.Append("chidegrid ").Append(hid).Append((char)10); Remember(ob, hid); }
                 else sb.Append("chide ").Append(Esc(hk)).Append((char)10);
             }
-            foreach (var kv in ContactsTab.Names)
+            foreach (var kv in names)
             {
                 if (Targets.GridOf(kv.Key, out long nid)) { sb.Append("namegrid ").Append(nid).Append(' ').Append(Esc(kv.Value)).Append((char)10); Remember(ob, nid); }
                 else sb.Append("name ").Append(Esc(kv.Key)).Append(' ').Append(Esc(kv.Value)).Append((char)10);
@@ -323,30 +326,30 @@ public static class SavedState
                         Maneuvers.Target = Unesc(p[1]);
                         break;
                     case "pin":
-                        ContactsTab.Pinned.Add(Unesc(p[1]));
+                        lock (ContactsTab.Sync) ContactsTab.Pinned.Add(Unesc(p[1]));
                         break;
                     case "pingrid":
                     {
                         long pg = Map(long.Parse(p[1], Inv));
-                        if (pg != 0) ContactsTab.Pinned.Add(Targets.OfGrid(pg));
+                        if (pg != 0) { string pk = Targets.OfGrid(pg); lock (ContactsTab.Sync) ContactsTab.Pinned.Add(pk); }
                         break;
                     }
                     case "chide":
-                        ContactsTab.HiddenKeys.Add(Unesc(p[1]));
+                        lock (ContactsTab.Sync) ContactsTab.HiddenKeys.Add(Unesc(p[1]));
                         break;
                     case "chidegrid":
                     {
                         long hg = Map(long.Parse(p[1], Inv));
-                        if (hg != 0) ContactsTab.HiddenKeys.Add(Targets.OfGrid(hg));
+                        if (hg != 0) { string hk = Targets.OfGrid(hg); lock (ContactsTab.Sync) ContactsTab.HiddenKeys.Add(hk); }
                         break;
                     }
                     case "name":
-                        ContactsTab.Names[Unesc(p[1])] = Unesc(p[2]);
+                        lock (ContactsTab.Sync) ContactsTab.Names[Unesc(p[1])] = Unesc(p[2]);
                         break;
                     case "namegrid":
                     {
                         long ng = Map(long.Parse(p[1], Inv));
-                        if (ng != 0) ContactsTab.Names[Targets.OfGrid(ng)] = Unesc(p[2]);
+                        if (ng != 0) { string nk = Targets.OfGrid(ng); lock (ContactsTab.Sync) ContactsTab.Names[nk] = Unesc(p[2]); }
                         break;
                     }
                     case "targetgrid":

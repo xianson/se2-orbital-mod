@@ -45,6 +45,10 @@ public static class ContactsTab
     static readonly Dictionary<string, Group> _groups = new Dictionary<string, Group>();
     static readonly HashSet<GPSMarker> _ours = new HashSet<GPSMarker>();
 
+    /// <summary>Guards every CHANGE to <see cref="Pinned"/>, <see cref="Names"/> and <see cref="HiddenKeys"/>, and the save's copy
+    /// of them (SavedState: the server thread, under FramesLock - so nothing but the sets' own calls is made under it).
+    /// 2026-10-15: the client changed them while the save enumerated them, and the save threw.</summary>
+    public static readonly object Sync = new object();
     /// <summary>Pinned to the HUD (target keys), saved.</summary>
     public static readonly HashSet<string> Pinned = new HashSet<string>();
     /// <summary>Your names for things (target key -> name), saved.</summary>
@@ -296,8 +300,12 @@ public static class ContactsTab
                     WarpControl.Say("GPS point deleted: " + real.Name);
                 }
             }
-            else if (HiddenKeys.Remove(r.Key)) WarpControl.Say("Contact back: " + Targets.Name(r.Key));
-            else { HiddenKeys.Add(r.Key); WarpControl.Say("Contact hidden (under Hidden; Del there brings it back): " + Targets.Name(r.Key)); }
+            else
+            {
+                bool back; lock (Sync) { back = HiddenKeys.Remove(r.Key); if (!back) HiddenKeys.Add(r.Key); }
+                if (back) WarpControl.Say("Contact back: " + Targets.Name(r.Key));
+                else WarpControl.Say("Contact hidden (under Hidden; Del there brings it back): " + Targets.Name(r.Key));
+            }
             Refresh(force: true);
             return;
         }
@@ -442,7 +450,8 @@ public static class ContactsTab
             if (r.Shown != null && r.M.Name != r.Shown && !string.IsNullOrWhiteSpace(r.M.Name))
             {
                 if (w.key.StartsWith(PlacePrefix)) { _places[w.key].Name = Strip(r.M.Name); r.Shown = r.M.Name; continue; }   // (its key follows its name: a new row next time)
-                Names[w.key] = Strip(r.M.Name);
+                string nm = Strip(r.M.Name);
+                lock (Sync) Names[w.key] = nm;
             }
             string name = Names.TryGetValue(w.key, out var nn) ? nn : w.name;
             if (w.key == Maneuvers.Target) name = "◆ " + name;
@@ -450,7 +459,7 @@ public static class ContactsTab
             r.Shown = name;
             // the eye: a place's is its GPS point's; anything else's pins it to the HUD
             if (w.key.StartsWith(PlacePrefix)) { var real = _places[w.key]; if (r.M.Hidden != real.Hidden) FrameMarkers.SetUserHidden(real, r.M.Hidden); }
-            else if (r.M.Hidden == Pinned.Contains(w.key)) { if (r.M.Hidden) Pinned.Remove(w.key); else Pinned.Add(w.key); }
+            else if (r.M.Hidden == Pinned.Contains(w.key)) lock (Sync) { if (r.M.Hidden) Pinned.Remove(w.key); else Pinned.Add(w.key); }
             // where it is, from you, at its true distance
             if (Targets.RootAt(w.key, t, out var root))
             {
@@ -487,9 +496,12 @@ public static class ContactsTab
             foreach (var w in want) if (Targets.GridOf(w.key, out _) && Targets.SameShip(w.key, id)) return w.key;
             return null;
         }
-        foreach (var k in new List<string>(Pinned)) { var h = Home(k); if (h != null) { Pinned.Remove(k); Pinned.Add(h); } }
-        foreach (var k in new List<string>(HiddenKeys)) { var h = Home(k); if (h != null) { HiddenKeys.Remove(k); HiddenKeys.Add(h); } }
-        foreach (var k in new List<string>(Names.Keys)) { var h = Home(k); if (h != null) { var v = Names[k]; Names.Remove(k); Names[h] = v; } }
+        // (copied and changed under Sync; Home - the targets - outside it)
+        List<string> pins, hides, named;
+        lock (Sync) { pins = new List<string>(Pinned); hides = new List<string>(HiddenKeys); named = new List<string>(Names.Keys); }
+        foreach (var k in pins) { var h = Home(k); if (h != null) lock (Sync) { Pinned.Remove(k); Pinned.Add(h); } }
+        foreach (var k in hides) { var h = Home(k); if (h != null) lock (Sync) { HiddenKeys.Remove(k); HiddenKeys.Add(h); } }
+        foreach (var k in named) { var h = Home(k); if (h != null) lock (Sync) { if (Names.TryGetValue(k, out var v)) { Names.Remove(k); Names[h] = v; } } }
         if (Maneuvers.Target != null) { var h = Home(Maneuvers.Target); if (h != null) Maneuvers.Target = h; }
     }
 
@@ -537,7 +549,7 @@ public static class ContactsTab
     {
         Reset();
         _rows.Clear(); _groups.Clear(); _ours.Clear(); _places.Clear(); _local = null;
-        Pinned.Clear(); Names.Clear(); HiddenKeys.Clear();
+        lock (Sync) { Pinned.Clear(); Names.Clear(); HiddenKeys.Clear(); }
     }
 
     /// <summary>DEV: open the tab (as a click on it), type a search, pin a row (as its eye), select a row.</summary>

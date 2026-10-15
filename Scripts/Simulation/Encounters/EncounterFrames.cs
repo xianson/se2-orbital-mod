@@ -125,12 +125,17 @@ public static partial class EncounterFrames
                 return (k.npc, k.enc);
             }
         bool npc = false, enc = false;
+        // (a grid deleted before its Unregister ran: not asked - its data read threw, ~200 ms, every 5 s while it stayed listed.
+        //  Answered as the throw did - neither - 2026-10-15; the tries stay for a deletion between the check and the read)
+        bool live = Alive(g.Entity);
+        if (live)
         try
         {
             var own = g.Session?.SessionComponents.TryGet<OwnershipSessionComponent>();
             if (own != null) npc = own.IsNpc(g.Entity) || own.IsHostileNpc(g.Entity);
         }
         catch { }
+        if (live)
         try
         {
             enc = g.Entity.Data.TryGet<Keen.VRage.Core.Game.GameSystems.ProceduralGeneration.ProcedurallyGeneratedTag>(out _)

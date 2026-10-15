@@ -52,6 +52,8 @@ public static class WorldReset
         Step("server clock", ServerFrames.ResetClock);
         Step("warp bill", WarpBill.ResetWorld);
         Step("system state", () => ResetSystem(build: false));
+        // what the player knew, had, was waiting for in the last world
+        Step("contacts", Contacts.ResetWorld);   // (shown in the next world, and written into its save)
     }
 
     /// <summary>The system's state: the frames' server state, sites, rocks, entry, our edits; <paramref name="build"/>: for a

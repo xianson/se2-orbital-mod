@@ -303,6 +303,9 @@ public static class Contacts
     public static List<string> TrackedKeys() { var l = new List<string>(); lock (_dwell) foreach (var kv in _dwell) if (kv.Value >= Tracking.PassiveSeconds) l.Add(kv.Key); return l; }
     public static void RestoreTracked(string key) { lock (_dwell) _dwell[key] = Tracking.PassiveSeconds; Version++; }
     public static void RestoreGrid(long id) { lock (_grids) _grids.Add(id); Version++; }
+    /// <summary>A new world (WorldReset): nothing known of the last one (2026-10-15: its contacts showed in the next world
+    /// and were written into its save; only the dev "forget" cleared them).</summary>
+    public static void ResetWorld() { lock (_rocks) _rocks.Clear(); lock (_grids) _grids.Clear(); lock (_dwell) _dwell.Clear(); lock (_gridKeys) _gridKeys.Clear(); Version++; }
 
     /// <summary>Harness: contacts reveal | forget | (status).</summary>
     public static string Command(string[] a)

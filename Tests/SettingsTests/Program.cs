@@ -46,6 +46,7 @@ namespace OrbitalTests.Settings
                 HostFileForces();
                 WorldSave();
                 Persistence();
+                BackgroundPoll();
                 Denylist();
                 NoCodeWrites();
             }
@@ -373,8 +374,7 @@ namespace OrbitalTests.Settings
                 && text.Contains("\nMap.Orbital = " + (map ? "true" : "false") + "\n") && text.Contains("\nHud.ShowOrbit = false\n"), text);
             // the file itself: the set made it dirty; a poll a second later writes it
             typeof(OrbitalSettings).GetField("_clientDirtyAt", Any).SetValue(null, System.Diagnostics.Stopwatch.GetTimestamp() - 2 * System.Diagnostics.Stopwatch.Frequency);
-            typeof(OrbitalSettings).GetField("_pollAt", Any).SetValue(null, 0L);
-            OrbitalSettings.Poll();
+            PollBackground();
             string file = File.Exists(client) ? File.ReadAllText(client) : "";
             Ok("client.cfg rewritten without the direct writes", file.Contains("\nHud.ShowOrbit = false\n") && file.Contains("\nFx.ArrivalFade = " + (fade ? "true" : "false") + "\n")
                 && file.Contains("\nMap.Orbital = " + (map ? "true" : "false") + "\n"), OrbitalSettings.FileWhy);
@@ -392,6 +392,53 @@ namespace OrbitalTests.Settings
             CleanMap.Enabled = map;
             OrbitalSettings.ResetScope("client");
             Ok("back at the defaults", OrbitalSettings.Text("client", false) == "" && CrossingFade.Enabled == fade);
+        }
+
+        // ── the poll: files off the tick thread, applied on it ──
+
+        /// <summary>A tick's poll as if 2 s had passed: starts the background file task and waits for it (not applied yet).</summary>
+        static bool PollBackground()
+        {
+            typeof(OrbitalSettings).GetField("_pollAt", Any).SetValue(null, 0L);
+            typeof(OrbitalSettings).GetField("_localNext", Any).SetValue(null, 0L);   // (this thread's 1/4 s gate)
+            OrbitalSettings.Poll();
+            var polling = typeof(OrbitalSettings).GetField("_polling", Any);
+            var until = DateTime.UtcNow.AddSeconds(10);
+            while ((int)polling.GetValue(null) != 0 && DateTime.UtcNow < until) System.Threading.Thread.Sleep(5);
+            return (int)polling.GetValue(null) == 0;
+        }
+
+        static void BackgroundPoll()
+        {
+            Console.WriteLine("-- the poll reads the files in the background, a tick applies them (2026-10-15)");
+            OrbitalSettings.ResetScope("client");
+            string client = Path.Combine(Dir, "OrbitalMod.client.cfg");
+            Ok("a poll's file task finishes", PollBackground(), OrbitalSettings.FileWhy);
+            double was = Val("Map.TextScale");
+            File.WriteAllText(client, "Map.TextScale = 2.5\n");   // (edited by hand)
+            File.SetLastWriteTimeUtc(client, DateTime.UtcNow.AddSeconds(20));
+            Ok("the background read finishes", PollBackground(), OrbitalSettings.FileWhy);
+            Ok("read, not applied off the tick", Val("Map.TextScale") == was);
+            typeof(OrbitalSettings).GetField("_localNext", Any).SetValue(null, 0L);
+            OrbitalSettings.Poll();   // (the next tick: not due for the files, but applies what was read)
+            Ok("the next tick applies it", Val("Map.TextScale") == 2.5, Val("Map.TextScale").ToString(Inv));
+            Ok("not again", OrbitalSettings.Set("Map.TextScale", 1.5, out _) && PollBackground() && Val("Map.TextScale") == 1.5);
+            // the host file the same way, its names forced when applied
+            string world = Path.Combine(Dir, "OrbitalMod.world.cfg");
+            File.WriteAllText(world, "Warp.CostsEnergy = off\n");
+            File.SetLastWriteTimeUtc(world, DateTime.UtcNow.AddSeconds(30));
+            Ok("the host file read", PollBackground() && !OrbitalSettings.IsForced("Warp.CostsEnergy"));
+            typeof(OrbitalSettings).GetField("_localNext", Any).SetValue(null, 0L);
+            OrbitalSettings.Poll();
+            Ok("applied on the tick: forced", OrbitalSettings.IsForced("Warp.CostsEnergy") && Val("Warp.CostsEnergy") == 0);
+            File.WriteAllText(world, "# nothing forced\n");
+            File.SetLastWriteTimeUtc(world, DateTime.UtcNow.AddSeconds(40));
+            PollBackground();
+            OrbitalSettings.BeaconAdded(); OrbitalSettings.BeaconRemoved();   // (the world gone: nothing forced, defaults)
+            Ok("unloaded: nothing forced", !OrbitalSettings.IsForced("Warp.CostsEnergy") && Val("Warp.CostsEnergy") == 1);
+            OrbitalSettings.ResetScope("client");
+            PollBackground();
+            Ok("no file problem", OrbitalSettings.FileWhy == "", OrbitalSettings.FileWhy);
         }
 
         // ── the code never switches a setting itself (2026-10-15: PlanetRenderBridge cleared ProxyAtmospheres on a failure -

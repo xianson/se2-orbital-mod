@@ -261,6 +261,7 @@ public static partial class OrbitalSettings
         ResetScope("world");
         _worldFileAt = DateTime.MinValue;
         _forced = null; _worldUnsaved = false;   // (the next world applies the host file again)
+        System.Threading.Volatile.Write(ref _readWorld, null);   // (nor a read of it still waiting for a tick)
     }
 
     // ── the files (~2 s poll from the frame ticks; never a throw per tick: a failing file is left alone) ──
@@ -275,43 +276,85 @@ public static partial class OrbitalSettings
     static string ClientPath => Path.Combine(Folder, "OrbitalMod.client.cfg");
     static string WorldPath => Path.Combine(Folder, "OrbitalMod.world.cfg");
 
-    /// <summary>The frame ticks: cheap (a timestamp compare); the files every ~2 s.</summary>
+    /// <summary>The frame ticks: cheap (a timestamp compare); the files every ~2 s - looked at OFF the tick threads
+    /// (2026-10-15, a review: the poll's file system calls ran on the server / client tick every 2 s; the Aerodynamics
+    /// Mod's AeroSettings.Poll was moved the same way after a profile). One background task at a time reads and writes
+    /// the files (a poll due while one runs is skipped: the next comes 2 s later); what it read is applied HERE, on the
+    /// next tick that polls (the setters touch tick-thread state: the globe mesh, the contact lists). A forced poll (a
+    /// world's beacon added) still reads and applies at once, on its caller's thread, as before.</summary>
     internal static void Poll(bool force = false)
     {
-        long now = System.Diagnostics.Stopwatch.GetTimestamp(), due = System.Threading.Interlocked.Read(ref _pollAt);
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        // (each tick thread looks at the shared state at most 4 times a second, its own clock first)
+        if (!force && now < _localNext) return;
+        _localNext = now + System.Diagnostics.Stopwatch.Frequency / 4;
+        ApplyRead();   // (the last background read, if any)
+        long due = System.Threading.Interlocked.Read(ref _pollAt);
         if (!force && now < due) return;
         if (System.Threading.Interlocked.CompareExchange(ref _pollAt, now + 2 * System.Diagnostics.Stopwatch.Frequency, due) != due && !force) return;
         if (_fileFails >= 3) return;
-        try
+        if (force) { PollFiles(true); ApplyRead(); return; }
+        if (System.Threading.Interlocked.CompareExchange(ref _polling, 1, 0) != 0) return;
+        try { System.Threading.Tasks.Task.Factory.StartNew(_pollTask, System.Threading.CancellationToken.None, System.Threading.Tasks.TaskCreationOptions.None, System.Threading.Tasks.TaskScheduler.Default); }
+        catch { System.Threading.Volatile.Write(ref _polling, 0); }
+    }
+    static int _polling;
+    [ThreadStatic] static long _localNext;
+    static readonly object _filesLock = new object();
+    static readonly Action _pollTask = () => { try { PollFiles(false); } finally { System.Threading.Volatile.Write(ref _polling, 0); } };
+    /// <summary>A file's text read by the poll, waiting for a tick to apply it (null: none).</summary>
+    static string _readClient, _readWorld;
+
+    /// <summary>A tick: the text the background poll read, applied (the client file's values; the host file's, which
+    /// become the forced names).</summary>
+    static void ApplyRead()
+    {
+        if (System.Threading.Volatile.Read(ref _readClient) == null && System.Threading.Volatile.Read(ref _readWorld) == null) return;
+        string client = System.Threading.Interlocked.Exchange(ref _readClient, null);
+        if (client != null) Apply(client, "client");
+        string world = System.Threading.Interlocked.Exchange(ref _readWorld, null);
+        if (world != null)
         {
-            Directory.CreateDirectory(Folder);
-            long dirty = _clientDirtyAt;
-            if ((dirty != 0 && now - dirty > System.Diagnostics.Stopwatch.Frequency) || !File.Exists(ClientPath))
-            {
-                _clientDirtyAt = 0;
-                File.WriteAllText(ClientPath, ClientHeader + Text("client", true));
-                _clientFileAt = File.GetLastWriteTimeUtc(ClientPath);
-            }
-            else
-            {
-                var at = File.GetLastWriteTimeUtc(ClientPath);
-                if (at != _clientFileAt) { _clientFileAt = at; Apply(File.ReadAllText(ClientPath), "client"); }
-            }
-            if (SawServer || force)
-            {
-                if (!File.Exists(WorldPath)) File.WriteAllText(WorldPath, WorldHeader + Commented(Text("world", true)));
-                var at = File.GetLastWriteTimeUtc(WorldPath);
-                if (at != _worldFileAt && WorldWritable)
-                {
-                    _worldFileAt = at;
-                    var named = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    Apply(File.ReadAllText(WorldPath), "world", named);
-                    _forced = named.Count > 0 ? named : null;
-                }
-            }
-            FileWhy = "";
+            var named = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            Apply(world, "world", named);
+            _forced = named.Count > 0 ? named : null;
         }
-        catch (Exception e) { _fileFails++; FileWhy = e.GetType().Name + ": " + e.Message + (_fileFails >= 3 ? " (files given up for this session)" : ""); }
+    }
+
+    /// <summary>The files themselves (one poll at a time: the lock - a forced poll may meet a background one). Writes the
+    /// client file when an API change has settled (1 s) or it is missing; otherwise reads what was edited, for ApplyRead.</summary>
+    static void PollFiles(bool force)
+    {
+        lock (_filesLock)
+        {
+            if (_fileFails >= 3) return;
+            try
+            {
+                long now = System.Diagnostics.Stopwatch.GetTimestamp();
+                Directory.CreateDirectory(Folder);
+                long dirty = System.Threading.Interlocked.Read(ref _clientDirtyAt);
+                if ((dirty != 0 && now - dirty > System.Diagnostics.Stopwatch.Frequency) || !File.Exists(ClientPath))
+                {
+                    // (a set while this writes leaves it dirty for the next poll)
+                    System.Threading.Interlocked.CompareExchange(ref _clientDirtyAt, 0, dirty);
+                    File.WriteAllText(ClientPath, ClientHeader + Text("client", true));
+                    _clientFileAt = File.GetLastWriteTimeUtc(ClientPath);
+                }
+                else
+                {
+                    var at = File.GetLastWriteTimeUtc(ClientPath);
+                    if (at != _clientFileAt) { _clientFileAt = at; System.Threading.Volatile.Write(ref _readClient, File.ReadAllText(ClientPath)); }
+                }
+                if (SawServer || force)
+                {
+                    if (!File.Exists(WorldPath)) File.WriteAllText(WorldPath, WorldHeader + Commented(Text("world", true)));
+                    var at = File.GetLastWriteTimeUtc(WorldPath);
+                    if (at != _worldFileAt && WorldWritable) { _worldFileAt = at; System.Threading.Volatile.Write(ref _readWorld, File.ReadAllText(WorldPath)); }
+                }
+                FileWhy = "";
+            }
+            catch (Exception e) { _fileFails++; FileWhy = e.GetType().Name + ": " + e.Message + (_fileFails >= 3 ? " (files given up for this session)" : ""); }
+        }
     }
 
     static string Commented(string text)

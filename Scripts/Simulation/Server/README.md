@@ -20,7 +20,9 @@ client half (`Host/FrameHost`) under `ServerFrames.FramesLock`; nothing calls in
   state, a dissolved frame's members' entry wear; a grid gone for good runs `ServerFrames.Forget`. Per-WORLD state goes
   through `Host/WorldReset`, never a reset of its own.
 - `GridMembers.cs` - `OrbitalGridComponent` (injected into server grids) and the grid registry: positions, velocity
-  writes (recorded for `Api/GridEdits`), joined sets.
+  writes (recorded for `Api/GridEdits`), joined sets. `Position` never throws: a dead grid (deleted, its `Unregister`
+  not run yet) answers its last place (`LastKnownPosition.cs`, engine-free, Tests/GridPositionTests); whoever moves,
+  frames, anchors or stows on it asks `TryPosition` (false: dead - leave it alone).
 - `SavedState.cs` - the orbital state in the world save (carried by the planets' name-map builder).
 - `WarmBerths.cs`, `StationKeepCharge.cs`, `WarpBill.cs`, `SensorBlocks.cs` - berths kept warm (no stall), holding
   station billed to thrusters, warp billed to batteries/tanks (once per game frame, for its game seconds; `Bills` /

@@ -344,8 +344,8 @@ structure failures (aero's event queue, section 12) as one toast. See each folde
 | Time | universe clock, warp policy (not used by the game side) |
 
 `Tests/*` are console projects (`Tests/Directory.Build.props`: net9.0, VRage.Library reference, `$(Core)`) that compile
-Core's sources by folder (FrameMathTests also compiles `FrameMath.cs` from the game side). Suites: EntryTests,
-FrameMathTests, OrbitalTests, PersistenceTests, PlayerOrbitTests (incl. `MembershipCases`), RendezvousTests,
+Core's sources by folder (FrameMathTests also compiles `FrameMath.cs` from the game side, GridPositionTests
+`Server/LastKnownPosition.cs`). Suites: EntryTests, FrameMathTests, GridPositionTests, OrbitalTests, PersistenceTests, PlayerOrbitTests (incl. `MembershipCases`), RendezvousTests,
 SensingTests, SystemDefTests, TimeTests (about 1,500 checks); and over game-side files compiled with stand-ins: ApiTests
 (the `Peek` snapshot and orbit queries in `Api/Core/`, the API's shape over every partial), SettingsTests (the real
 registry and store, stand-ins seeded from the mod's source), SettingsUiTests (the menu's model; `-- dump` prints it) -

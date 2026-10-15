@@ -113,7 +113,9 @@ public static partial class AsteroidFrames
                     while (qe.MoveNext()) manual++;
                     qe.Dispose();
                 }
-                foreach (var kv in gen.Entities) { try { if ((kv.Value.Data.GetWorldTransform().Position - lv.Berth).Length() < 10000) near++; } catch { } }
+                // (a body the generator dropped this tick is skipped before its transform is read: that read threw, ~200 ms each -
+                //  2026-10-15; the try stays for one deleted between the check and the read)
+                foreach (var kv in gen.Entities) { if (!Alive(kv.Value)) continue; try { if ((kv.Value.Data.GetWorldTransform().Position - lv.Berth).Length() < 10000) near++; } catch { } }
                 object samples = gen.GetType().GetProperty("MaxSectorSpawnSamples", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(gen);
                 double pd = FrameHost.PlayerId != 0 && ServerPlanetBeacon.PlayerState(out Vector3D pp, out _) ? (pp - lv.Berth).Length() : double.NaN;
                 Diag = $"diag {lv.Label}: generator lists {manual} manual volume(s) at its berth; {near} generator bod(ies) within 10 km; spawn samples {samples}; active {gen.IsActive}; comp density {lv.Comp?.Density}; player {pd / 1000:F1} km from it";
@@ -169,6 +171,8 @@ public static partial class AsteroidFrames
         foreach (var kv in gen.Entities)
         {
             BoundingBoxD b;
+            // (a dead body skipped before it is touched: both reads threw for it - two exceptions, ~400 ms, per pass - 2026-10-15)
+            if (!Alive(kv.Value)) continue;
             try { var tb = Keen.VRage.Core.Game.Data.BoundingBoxData.TryGetWorldAABB(kv.Value.Data); if (!tb.HasValue) continue; b = tb.Value; }
             catch { try { var p = kv.Value.Data.GetWorldTransform().Position; b = new BoundingBoxD(p, p); } catch { continue; } }
             foreach (var r in live)

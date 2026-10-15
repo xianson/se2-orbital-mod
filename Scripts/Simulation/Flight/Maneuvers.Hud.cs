@@ -94,7 +94,6 @@ public static partial class Maneuvers
         return OrbitalMath.ToElements(new StateVector(x, v), mu, t0 + tau);
     }
 
-    /// <summary>When the next burn starts: half its duration before the node.</summary>
     /// <summary>The node's burn is over and done with (its second half ended a minute ago): not the next one to fly.</summary>
     public static bool BurnOver(Node n, double t)
     {
@@ -102,6 +101,7 @@ public static partial class Maneuvers
         return n.T + (Accel > 0.01 ? 0.5 * mag / Accel : 0) + 60 < t;
     }
 
+    /// <summary>When the next burn starts: half its duration before the node.</summary>
     public static double BurnStart(Node n)
     {
         double mag = Math.Sqrt(n.Pro * n.Pro + n.Nor * n.Nor + n.Rad * n.Rad);

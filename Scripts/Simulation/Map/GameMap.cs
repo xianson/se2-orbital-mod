@@ -23,8 +23,6 @@ public static class GameMap
     public static string Status = "-";
 
     private static float _baseMax = -1, _baseMin = -1;
-    /// <summary>The game's original farthest map zoom (the unit of CleanMap's zoom u).</summary>
-    public static double BaseMax => _baseMax;
     /// <summary>The game's original opening zoom (camera distance).</summary>
     public static double DefaultDistance;
     /// <summary>The closest zoom (map units), set by the map for the body it is about.</summary>
@@ -295,11 +293,6 @@ public static class GameMap
     }
 
     /// <summary>
-    /// Every frame, first thing (before anything that can fail): the markers renderer's controller is
-    /// back whenever the map is not ours to draw, or the game has switched the renderer on again (its
-    /// ShowMap does; its UpdateMarkers job dereferences the controller unguarded).
-    /// </summary>
-    /// <summary>
     /// THE MAP'S GLOBES OUT OF FLIGHT (2026-10-13, the user: a second Delfos in the sky, "in both frames"). The colonization
     /// map is a diorama in the world: its star and its discovered planets are globe models hung off a map entity the game
     /// spawns at your position - by its colonization tab too, the map itself never opened - and its Deactivate stops only
@@ -327,6 +320,11 @@ public static class GameMap
     }
     static double _strayNext; static bool _strayHidden;
 
+    /// <summary>
+    /// Every frame, first thing (before anything that can fail): the markers renderer's controller is
+    /// back whenever the map is not ours to draw, or the game has switched the renderer on again (its
+    /// ShowMap does; its UpdateMarkers job dereferences the controller unguarded).
+    /// </summary>
     public static void Safety(Keen.VRage.Core.Game.Systems.Session session)
     {
         if (_stashedController == null) return;

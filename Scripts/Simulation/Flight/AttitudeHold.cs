@@ -123,9 +123,6 @@ public static class AttitudeHold
         return true;
     }
 
-    /// <summary>The HUD card's line (null when off).</summary>
-    public static string HudLine() => Current == Mode.Off ? null : $"Hold: {Label(Current)}   ( ; off, Ctrl+; mode )";
-
     public static void ClientTick(Keen.VRage.Core.Game.Systems.Session session)
     {
         if (FrameHost.Seated && MapInput.KeyPressed(KeyboardInputs.OemSemicolon))
@@ -239,7 +236,6 @@ public static class AttitudeHold
         Status = $"holding Level: pitch {pitch:+0.0;-0.0} deg, bank {bank:+0.0;-0.0} deg";
     }
 
-    /// <summary>The orbit modes: the nose along dir (world), by the smallest turn of the held target.</summary>
     /// <summary>The held target's fastest turn toward the wanted direction (deg/s).</summary>
     public static double TurnDegPerSec = 30;
     static Vector3D _lastDir;
@@ -254,6 +250,7 @@ public static class AttitudeHold
         return Quaternion.Normalize(Quaternion.Slerp(a, b, (float)(max / ang)));
     }
 
+    /// <summary>The orbit modes: the nose along dir (world), by the smallest turn of the held target.</summary>
     static void OrbitHold(TargetControlData tcd, Quaternion q, Entity ch, Vector3D dir)
     {
 

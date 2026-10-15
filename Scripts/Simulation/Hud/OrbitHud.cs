@@ -79,7 +79,6 @@ public static class OrbitHud
     static readonly ColorSRGB Orbit = new ColorSRGB(0.35f, 0.88f, 1.00f, 1f);   // your orbit: cyan, as on the map
 
     private static GameUi.Card _card;
-    private static double _refusedUntil;
     private static string _lastTitle, _lastContent;
     private static (string title, string content)? _fallback;
 
@@ -105,7 +104,7 @@ public static class OrbitHud
     /// <summary>The orbit readout is on screen (harness: hudcheck), and why not when it is not.</summary>
     public static bool CardOpen => _infoShown;
     public static string CardWhy = "-";
-    private static double _nextUpdate, _nextCheck;
+    private static double _nextUpdate;
 
     /// <summary>
     /// The readout lives in the game's own notification card (updated in place, twice a second at most),
@@ -267,12 +266,6 @@ public static class OrbitHud
     private static Vector3D _discUp;
 
     /// <summary>
-    /// The orbit disc, just left of the speedometer: your orbit seen from above its plane, turned so the way
-    /// you look points up (heading-up, as a sat-nav). The body at its centre, your orbit, you with a
-    /// prograde tick, Pe / Ap; a view wedge from you; and at its left edge how far above or below the
-    /// orbit plane you are looking.
-    /// </summary>
-    /// <summary>
     /// A plot's scale that holds still (the user, 2026-10-10: "very twitchy from constantly resizing the axis scale to fit"):
     /// the shown extent sits on clean steps (1, 2, 5 x 10^n), GROWS at once when the content reaches GrowAt of it, SHRINKS
     /// only after the content has stayed under ShrinkAt of it for ShrinkHold s, and any change is eased (Tau, in log
@@ -315,6 +308,12 @@ public static class OrbitHud
     static readonly ScaleLatch _discScale = new(), _relScale = new(), _oopScale = new();
     static double _relCx, _relCy, _relCxT, _relCyT, _relCenterAt; static bool _relCenterSet; static string _relFor;
 
+    /// <summary>
+    /// The orbit disc, just left of the speedometer: your orbit seen from above its plane, turned so the way
+    /// you look points up (heading-up, as a sat-nav). The body at its centre, your orbit, you with a
+    /// prograde tick, Pe / Ap; a view wedge from you; and at its left edge how far above or below the
+    /// orbit plane you are looking.
+    /// </summary>
     static void DrawDisc(Readout r, float u)
     {
         if (r.RelPath == null || r.RelPath.Length < 2 || r.Nor.LengthSquared() < 0.5) return;
@@ -661,18 +660,6 @@ public static class OrbitHud
         }
         // (the readout line that was here - name, range, closing rate, relative speed - is on the plot now, above)
         PlotCaptions(c, R, r, u, false);   // (under it: your altitude and speed, the burn, the target...; its header is its own)
-    }
-
-    /// <summary>Your suit's jetpack is on (unknown: treated as on).</summary>
-    static bool JetpackOn(Keen.VRage.Core.Game.Systems.Session session)
-    {
-        try
-        {
-            var ch = FrameHost.PlayerCharacter(session);
-            var st = ch?.TryGet<Keen.Game2.Simulation.WorldObjects.Characters.CharacterStatusProviderComponent>();
-            return st == null || st.IsJetpackEnabled;
-        }
-        catch { return true; }
     }
 
     static bool IsFinite(Vector3D v) => !(double.IsNaN(v.X) || double.IsNaN(v.Y) || double.IsNaN(v.Z) || double.IsInfinity(v.X) || double.IsInfinity(v.Y) || double.IsInfinity(v.Z));

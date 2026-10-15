@@ -81,10 +81,6 @@ public static partial class CleanMap
         CentreOn(Hovered);
     }
 
-    /// <summary>
-    /// A line of the controls, in the map's open area above the game's own hint bar: what the mouse can
-    /// do where it is (on a maneuver, on the path, or on the map).
-    /// </summary>
     /// <summary>A hint line wrapped at its separators to a width (each piece kept whole; one wider than the width is cut).</summary>
     internal static void DrawWrapped(Vector2 at, string text, float width, float scale, ColorSRGB color)
     {
@@ -107,6 +103,10 @@ public static partial class CleanMap
         if (line.Length > 0) MapPipeline.ScreenText(at + new Vector2(0, n * lh), Fit(line, width, scale), color, scale);
     }
 
+    /// <summary>
+    /// A line of the controls, in the map's open area above the game's own hint bar: what the mouse can
+    /// do where it is (on a maneuver, on the path, or on the map).
+    /// </summary>
     static void Hints()
     {
         var scr = MapPipeline.ScreenSize;
@@ -124,11 +124,6 @@ public static partial class CleanMap
 
     private static Keen.VRage.Core.Game.Systems.Session _session;
 
-    /// <summary>
-    /// Right click on the map: what is under the mouse decides the menu. A node: edit its axes exactly,
-    /// delete it (or it and the later ones). The trajectory: add a maneuver there. A sector (orbit,
-    /// marker, list row): plan a route to it. Anywhere with a route: clear it.
-    /// </summary>
     /// <summary>A click is the map's: over its open area (not the panels beside it), with the terminal itself on top (not a
     /// dialog over it - its clicks fell through: a delta-v dialog's OK added a node; a GPS entry refocused the map).</summary>
     static bool MapClickable()
@@ -140,6 +135,11 @@ public static partial class CleanMap
     }
     static bool InCrumbs(Vector2 m) { foreach (var c in _crumbs) if (c.box.Contains(m) == ContainmentType.Contains) return true; return false; }
 
+    /// <summary>
+    /// Right click on the map: what is under the mouse decides the menu. A node: edit its axes exactly,
+    /// delete it (or it and the later ones). The trajectory: add a maneuver there. A sector (orbit,
+    /// marker, list row): plan a route to it. Anywhere with a route: clear it.
+    /// </summary>
     private static void ContextMenu(List<Band> bands, double t)
     {
         float u = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);

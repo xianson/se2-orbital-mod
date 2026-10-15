@@ -270,12 +270,6 @@ public static partial class CleanMap
         MapPipeline.TextScreen(new Vector2(top.X, top.Y - sz.Y * 0.5f - 4f * u), nm, b.Selected ? LineSel : Dim, (0.8f) * MapPipeline.MapText);   // clear of the title lines
     }
 
-    private static double si_own_outer(SectorHomes.Home h) => h.A + h.Size * 0.5 * SystemHost.SectorOrbitScale;
-
-    /// <summary>
-    /// A body's marker ring: padded round the body's true size on the map, never smaller than the
-    /// fixed marker (minPx) so a far-off body still reads.
-    /// </summary>
     /// <summary>A body too small to see as a globe: a small filled dot (KSP), in its colour.</summary>
     private static void BodyDot(Func<Vector3D, Vector3D> W, Vector3D centre, double radiusLocal, ColorSRGB col)
     {

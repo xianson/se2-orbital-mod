@@ -65,9 +65,6 @@ public static partial class CleanMap
         return list;
     }
 
-    static string StateText(Band b) => b.State == Keen.Game2.Simulation.GameSystems.Colonization.SectorColonizationState.Colonized ? "colonized"
-        : b.State == Keen.Game2.Simulation.GameSystems.Colonization.SectorColonizationState.Unlocked ? "open" : "locked";
-
     static string Where(Band b)
     {
         string place = WherePlace(b);
@@ -428,23 +425,14 @@ public static partial class CleanMap
     /// <summary>A sector section's reach along its orbit, each side of where it is (fraction of the period).</summary>
     const double SectorSpan = 0.035;
 
-    /// <summary>A sector's orbit line: faint (bright, a planet's many orbits were a tangle); gold when selected.</summary>
-    static ColorSRGB OrbitLine(Band b)
-    {
-        if (b.Selected) return LineSel;
-        var c = StateColor(b);
-        if (b.Name == Hovered) return HudPanel.Alpha(c, 0.8f);
-        return HudPanel.Alpha(c, Quiet(b) ? 0.10f : 0.22f);
-    }
-
-    /// <summary>
-    /// The sector itself: an area of its orbit (a band section about where it is now), filled in its
-    /// state colour and outlined; its orbit carries it round.
-    /// </summary>
     /// <summary>Map units per metre of a level's toLocal (it is linear).</summary>
     static double LocalScale(Func<Vector3D, Vector3D> toLocal) => (toLocal(new Vector3D(1e6, 0, 0)) - toLocal(Vector3D.Zero)).Length() / 1e6;
 
     static readonly List<Vector2> _saOuter = new List<Vector2>(97), _saInner = new List<Vector2>(97), _saPoly = new List<Vector2>(194);
+    /// <summary>
+    /// The sector itself: an area of its orbit (a band section about where it is now), filled in its
+    /// state colour and outlined; its orbit carries it round.
+    /// </summary>
     static void SectorArea(Func<Vector3D, Vector3D> W, Func<double, Vector3D> relAt, Func<Vector3D, Vector3D> toLocal, Band b, double span = SectorSpan, double kWidth = 0, bool taper = false, bool faint = false)
     {
         float u = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
@@ -481,17 +469,6 @@ public static partial class CleanMap
         else MapStyle.Boundary(poly, true, edge, ew, u);   // round the whole lens
     }
 
-    /// <summary>Height above or below the planet's plane: a dashed drop line to the plane and a dot at its foot.</summary>
-    static void DropLine(Func<Vector3D, Vector3D> W, Vector3D p, ColorSRGB c)
-    {
-        if (!MapPipeline.ToScreen(W(p), out var a) || !MapPipeline.ToScreen(W(new Vector3D(p.X, 0, p.Z)), out var f)) return;
-        if ((a - f).Length() < 6f) return;
-        float u = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
-        MapPipeline.ScreenDashed(a, f, HudPanel.Alpha(c, 0.45f), 1.2f * u, u);
-        MapPipeline.ScreenDisc(f, 2.2f * u, HudPanel.Alpha(c, 0.6f));
-    }
-
-    /// <summary>A sector's orbit line colour: its state, faint; the selected sector in gold.</summary>
     /// <summary>The sector under the mouse (from the last frame's pick).</summary>
     public static string Hovered;
 

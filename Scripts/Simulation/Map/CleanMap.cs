@@ -39,7 +39,6 @@ public static partial class CleanMap
     static readonly ColorSRGB LineSel = new ColorSRGB(1.00f, 0.85f, 0.30f, 0.95f);
     static readonly ColorSRGB You = new ColorSRGB(0.35f, 0.88f, 1.00f, 1f);   // you: cyan (gold is 'selected')
     static readonly ColorSRGB Text = new ColorSRGB(0.94f, 0.97f, 1.00f, 1f);
-    static readonly ColorSRGB BeltLine = new ColorSRGB(0.75f, 0.68f, 0.55f, 0.22f);
     static readonly ColorSRGB Dim = new ColorSRGB(0.70f, 0.78f, 0.88f, 0.9f);
 
     static readonly ColorSRGB TargetText = new ColorSRGB(0.95f, 0.45f, 0.85f, 1f);
@@ -345,14 +344,14 @@ public static partial class CleanMap
         return frame * 1.15;
     }
 
+    /// <summary>Skip curve pieces wholly off the view (harness switch, to compare).</summary>
+    public static bool CullCurves = true;
+
     /// <summary>
     /// A smooth curve at any zoom: sampled coarsely, then split where it is long on screen, and only
     /// near the view (zoomed onto a planet, the sun's circles are a straight line through it; a
     /// fixed number of chords missed the planet by a good part of the screen).
     /// </summary>
-    /// <summary>Skip curve pieces wholly off the view (harness switch, to compare).</summary>
-    public static bool CullCurves = true;
-
     static void Curve(Func<double, Vector3D> at, Func<Vector3D, Vector3D> W, double a0, double a1, int n, ColorSRGB col, float px, bool depthCue = false, Func<Vector2, bool> skip = null)
     {
         var dim = HudPanel.Alpha(col, col.A / 255f * 0.4f);

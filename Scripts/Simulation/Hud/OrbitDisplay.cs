@@ -374,11 +374,6 @@ public static class OrbitDisplay
     }
 
     /// <summary>
-    /// Your motion about the frame's anchor in its curvilinear local frame, for the next revolution of
-    /// the anchor: along-track as arc length on the anchor's orbit (+ ahead), radial as the height
-    /// difference (+ up). Exact: both orbits propagated, not a linearisation.
-    /// </summary>
-    /// <summary>
     /// The disc's escape / entry: the next change of body on your patched path (the planner's trajectory),
     /// where it happens (offset from the body, world axes via toRel), and for an entry the moon then.
     /// </summary>
@@ -447,6 +442,11 @@ public static class OrbitDisplay
         return GridMembers.IsGridId(f.AnchorEntityId) && ServerFrames.View(f.AnchorEntityId, out var v) && v.Name != null ? v.Name : "Anchor";
     }
 
+    /// <summary>
+    /// Your motion about the frame's anchor in its curvilinear local frame, for the next revolution of
+    /// the anchor: along-track as arc length on the anchor's orbit (+ ahead), radial as the height
+    /// difference (+ up). Exact: both orbits propagated, not a linearisation.
+    /// </summary>
     static List<(double along, double radial)> Curvilinear(KeplerianElements anchor, KeplerianElements you, double t, out (double along, double radial) now, int samples = 160, List<double> cross = null, List<(double, double)> into = null)
     {
         (double, double) At(double tk) => At3(tk, out _);
@@ -508,7 +508,6 @@ public static class OrbitDisplay
     }
 
     private static bool IsFinite(double x) => !double.IsNaN(x) && !double.IsInfinity(x);
-    /// <summary>Seconds from t to the orbit's true anomaly nu (the next time round; NaN when behind you on an escape).</summary>
     /// <summary>How long until the orbit is at true anomaly nu. Bounded (2026-10-12, the user on ascent: "Pe 18 km ·
     /// 476181d 10h"): a nearly radial or nearly parabolic path - a climb out - gave the propagation's time absurd values;
     /// a closed orbit is never more than one period from an apsis (wrapped into it), and a period past MaxApsisPeriod or an

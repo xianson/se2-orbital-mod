@@ -118,7 +118,6 @@ public static partial class Maneuvers
         lock (Nodes) Nodes.Add(n);
     }
 
-    /// <summary>DEV: search node time x prograde delta-v for a trajectory that enters `body`'s SOI; keep the first found.</summary>
     /// <summary>DEV: as DevFindEncounter, but the pass must have its periapsis radius within [peMin, peMax] m.</summary>
     public static string DevFindArrival(string body, double t, double peMin, double peMax)
     {
@@ -172,6 +171,7 @@ public static partial class Maneuvers
         return $"capture at {body.Name} Pe in {Clock(tp - t)}: {v - vWant:F1} m/s retrograde (v {v:F0} -> {vWant:F0}), Ap radius {ra / 1000:F0} km of reach {body.SoiRadius / 1000:F0} km";
     }
 
+    /// <summary>DEV: search node time x prograde delta-v for a trajectory that enters `body`'s SOI; keep the first found.</summary>
     public static string DevFindEncounter(string body, double t)
     {
         if (!Base(t, out var b0, out var el)) return "no orbit";

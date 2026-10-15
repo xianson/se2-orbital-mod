@@ -119,7 +119,6 @@ public static partial class MapPipeline
         Seg(sa, sb, color, width);
     }
 
-    /// <summary>Text in the map's own font at a world point, centred.</summary>
     /// <summary>All map text is drawn this much larger than the sizes the callers ask for (legibility).</summary>
     public static float TextScale = 1.3f;
     /// <summary>The HUD's scale for a screen this tall: its sizes are for 1080p (2026-10-12, the user: "not sure our ui scales
@@ -190,6 +189,7 @@ public static partial class MapPipeline
     }
     static bool TextOff => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency < _textOffUntil;
 
+    /// <summary>Text in the map's own font at a world point, centred.</summary>
     public static void Text(Vector3D at, string text, ColorSRGB color, float scale)
     {
         if (TextOff || _batch == null || _drawString == null || _font == null || !Screen(at, out var s)) return;
@@ -229,10 +229,10 @@ public static partial class MapPipeline
         for (int i = 0; i < 4; i++) Seg(d[i], d[i + 1], color, width);
     }
 
-    /// <summary>A world point on screen (false behind the camera).</summary>
-    /// <summary>The map camera's orientation (a screen-aligned offset for sizes on screen).</summary>
     public static Vector3D? CameraPosition => _cam != null ? _cam.Entity.Data.GetWorldTransform().Position : (Vector3D?)null;
+    /// <summary>The map camera's orientation (a screen-aligned offset for sizes on screen).</summary>
     public static Quaternion CameraOrientation => _cam != null ? _cam.Entity.Data.GetWorldTransform().Orientation : Quaternion.Identity;
+    /// <summary>A world point on screen (false behind the camera).</summary>
     public static bool ToScreen(Vector3D world, out Vector2 s) { s = default; return _cam != null && Screen(world, out s); }
 
     /// <summary>A filled screen rectangle (a line as thick as the box is tall).</summary>

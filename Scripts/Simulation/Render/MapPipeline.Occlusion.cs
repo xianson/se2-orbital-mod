@@ -58,8 +58,6 @@ public static partial class MapPipeline
     /// <summary>
     /// A dotted path, the dashes measured along its whole length (the batch's own dashing restarts on
     /// every segment, and a small shape of short segments came out solid).
-    /// </summary>
-    /// <summary>
     /// A dashed polyline. (2026-10-12: entering an orbit frame froze the game for tens of seconds and took the managed heap
     /// to 36 GB - the orbit HUD's disc, its scale easing in from a tiny value, drew a dotted circle millions of px round:
     /// millions of 3 px dashes a frame into the UI command buffer (one 1.4 GB array), and phase, summed in a float over the

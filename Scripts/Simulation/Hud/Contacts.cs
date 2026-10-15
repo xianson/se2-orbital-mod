@@ -32,18 +32,6 @@ public static class Contacts
     public static bool Loud;
     /// <summary>Your strongest radar's power now (0 when none transmits).</summary>
     public static double RadarPowerNow;
-    /// <summary>For the orbit card: you are transmitting (radar or lidar), and roughly how far off you can be
-    /// seen (an echo-free listener hears you twice as far as your radar sees a ship), or null when silent.</summary>
-    public static string LoudLine()
-    {
-        if (!Enabled || !Loud) return null;
-        if (RadarPowerNow > 0)
-        {
-            double reveal = 2 * SensorModel.RadarReach(GridSize, RadarPowerNow);
-            return $"Radar transmitting  ·  seen ~{HudPanel.Km(SEAerospace.Sensing.Tracking.Rough(reveal))} away" + (Lidar ? "  ·  lidar on target" : "");
-        }
-        return Lidar ? "Lidar ranging your target  ·  it can see you" : null;
-    }
 
     /// <summary>Harness: a stand-in sensor at the camera (contacts sensor telescope|radar|off).</summary>
     public static Sensor? DevSensor;
@@ -67,10 +55,10 @@ public static class Contacts
         return site != null && site.Label != null && KnownRock(site.Label);
     }
 
-    /// <summary>Not yours: an NPC's or an encounter's, or owned by someone else (or no one).</summary>
     /// <summary>Not yours (an encounter's, or someone else's), from the server's snapshot (ServerFrames.View): the client
     /// read the server's grid entities for this.</summary>
     public static bool IsContactId(long id) => ServerFrames.View(id, out var v) && IsContact(v);
+    /// <summary>Not yours: an NPC's or an encounter's, or owned by someone else (or no one).</summary>
     public static bool IsContact(ServerFrames.GridView v)
     {
         if (v == null) return false;
@@ -307,9 +295,6 @@ public static class Contacts
         }
         return g.Name;
     }
-
-    /// <summary>The grids you know of (ids), for the flight HUD's contact markers.</summary>
-    public static List<long> KnownGrids() { lock (_grids) return new List<long>(_grids); }
 
     // ── save / load ──
     public static List<string> RockKeys() { lock (_rocks) return new List<string>(_rocks); }

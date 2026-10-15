@@ -404,7 +404,6 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
         return true;
     }
 
-    /// <summary>DEV (DevReentry): where the last proxy was drawn, from the camera (world), which body, when (Stopwatch).</summary>
     /// <summary>DEV (DevReentry): per body, where its proxy was last drawn from the camera (world), its drawn radius, the
     /// body radius it stands for, which path drew it, when (Stopwatch).</summary>
     internal sealed class DrawnProxy { public Vector3D Dir; public double Radius, BodyRadius; public string Path; public long Wall; }

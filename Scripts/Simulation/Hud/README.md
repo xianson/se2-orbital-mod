@@ -6,7 +6,6 @@
 | `OrbitHud.cs` | Shows it: the orbit card, the orbit disc and the relative plot by the speedometer. |
 | `OrbitInfo.cs` | Orbital elements as panels (the map's target panel and hover card use them too). |
 | `HudPanel.cs` | Shared panel, tag and label drawing (HUD and map). |
-| `HudMath.cs` | Forwarder to `Host/Num.cs` (the shared `IsFinite` / `Wall`; HUD files take `using static OrbitalMod.Num`). No callers. |
 | `FrameMarkers.cs` | GPS markers across frames; opens the HUD draw batch (`BeginHud`); ticks `Contacts` and `ContactsTab`. |
 | `Contacts.cs` | Contacts by sight and sensor blocks: what you know of (saved with the world). |
 | `Targets.cs` | What can be targeted and where it is (the key in `Maneuvers.Target`). |

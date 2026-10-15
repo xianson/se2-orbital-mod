@@ -13,7 +13,7 @@ namespace SEAerospace.Frames
         /// <summary>No player yet (before the first tick, a new session).</summary>
         public static readonly PlayerState None = new PlayerState();
 
-        /// <summary>The frame whose orbit is the player's (null: none - a planet's cell, HighSpeed, nothing near).</summary>
+        /// <summary>The frame whose orbit is the player's (null: none - a planet's cell, nothing near).</summary>
         public ProximityFrame Frame;
         /// <summary>The frame the player rides (anchored by something else), -1: not riding (its anchor, or no frame).</summary>
         public long RiderFrame = -1;

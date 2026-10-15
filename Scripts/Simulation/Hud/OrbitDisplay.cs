@@ -34,7 +34,7 @@ public static class OrbitDisplay
         => a.SemiMajorAxis == b.SemiMajorAxis && a.Eccentricity == b.Eccentricity && a.Inclination == b.Inclination
         && a.Raan == b.Raan && a.ArgPeriapsis == b.ArgPeriapsis && a.Mu == b.Mu;
     private const double MinSpeed = 0.5;      // m/s; below this there is no meaningful orbit
-    private const double VelocitySmoothing = 0.05;   // (the fallback estimate: seated / HighSpeed)
+    private const double VelocitySmoothing = 0.05;   // (the fallback estimate: neither a foot nor a seat state)
     private const double DominanceMargin = 1.1;
     private const double NearCameraSkip = 1000.0; // m
 
@@ -135,7 +135,7 @@ public static class OrbitDisplay
         if (Freeze && !_hasFrozen) { _frozen = new StateVector(camera.Position - center, _velocity); _frozenMu = mu; _hasFrozen = true; }
         if (!Freeze) _hasFrozen = false;
         // On foot: the character's own position and physics velocity (exact; the camera-differenced estimate
-        // was noisy: a third-person camera moves on its own). Seated / HighSpeed: the smoothed estimate.
+        // was noisy: a third-person camera moves on its own). Seated: the ship's state; else the smoothed estimate.
         var sv = _hasFrozen ? _frozen
                : FrameHost.FootState(out Vector3D fp, out Vector3D fv) ? new StateVector(fp - center, fv)
                : FrameHost.SeatState(out Vector3D sp, out Vector3D svv) ? new StateVector(sp - center, svv)   // (seated: the ship's own, not the camera's)

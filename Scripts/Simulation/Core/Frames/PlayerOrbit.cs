@@ -124,7 +124,7 @@ namespace SEAerospace.Frames
         }
 
         /// <summary>Farther than this from your frame's berth on foot (m) you are not in it: something else moved you (the
-        /// game's fast travel, a respawn) - berths are 100 km and more apart, a frame splits you off at 20 km.</summary>
+        /// game's fast travel, a respawn) - berths are 100 km and more apart, a frame splits you off at 10 km (ServerFrames.SlotRadius).</summary>
         public const double JumpDistance = 60000.0;
 
         /// <summary>On foot in frame f at pos: moved out of it by something else - leave it quietly (no split onto an orbit

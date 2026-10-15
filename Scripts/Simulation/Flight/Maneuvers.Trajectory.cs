@@ -15,7 +15,7 @@ public static partial class Maneuvers
     public struct Applied { public Node Node; public GravityBody Body; public StateVector Before; public Vector3D Dv; public KeplerianElements After; }
 
     /// <summary>The player's orbit now: the rails frame's - your own in it while you ride a frame something else
-    /// anchors (its orbit plus your offset and velocity: up to 20 km from its centre) - or the local orbit in a planet cell.</summary>
+    /// anchors (its orbit plus your offset and velocity: up to 10 km from its centre) - or the local orbit in a planet cell.</summary>
     public static bool Base(double t, out GravityBody body, out KeplerianElements el)
     {
         body = null; el = default;

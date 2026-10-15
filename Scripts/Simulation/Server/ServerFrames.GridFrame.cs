@@ -225,7 +225,7 @@ public static partial class ServerFrames
             {
                 // A NEW anchor (the old one destroyed, undocked, a handover from the player): the frame's orbit moves onto it
                 // first - the re-pin below shifts every member by its offset, and without this the whole frame jumped that far
-                // in space (up to 20 km: the map, a plan, an arrival point all off by it). A drifting anchor's re-pin keeps the
+                // in space (up to the 10 km frame radius: the map, a plan, an arrival point all off by it). A drifting anchor's re-pin keeps the
                 // rails: its motion is already folded in.
                 // (a rebase refused - the orbit committed to a coming change of body: the re-pin waits for it, tried each tick;
                 //  re-pinned anyway, the frame jumped by the new anchor's offset, up to 10 km)
@@ -284,7 +284,7 @@ public static partial class ServerFrames
         }
         else if (!f.IsEncounter && !isStatic && AnchorAccel.TryGetValue(f.Id, out var pa)) A = pa;   // the player anchors (client folds)
 
-        // Other members: CW differential gravity minus the frame acceleration; split beyond the slot.
+        // Other members: exact differential gravity (not CW) minus the frame acceleration; split beyond the slot.
         // NPC grids are Newtonian inside the frame: no relative-motion terms, and they never split off.
         _ugf[3] = Sw(); double mu = f.Elements.Mu;
         Vector3D rA = cur.Position;

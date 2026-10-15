@@ -5,8 +5,9 @@ namespace OrbitalMod;
 
 /// <summary>
 /// Delfos in the sky in flight: its own globe (the map's star model), at its true direction and angular
-/// size, placed as the planets' proxies are (PlanetBerths.ProjectProxy). The game's sun is not Delfos: it
-/// keeps its own place and day cycle (SunDriver is off by default), so its glare is never drawn on Delfos.
+/// size, placed as the planets' proxies are (PlanetBerths.ProjectProxy). The game's sun is not Delfos: it is a
+/// fixed inertial direction outside the system (SunDriver, on by default, keeps it one sun across frames), so its
+/// glare is never drawn on Delfos.
 /// </summary>
 public static class StarProxy
 {

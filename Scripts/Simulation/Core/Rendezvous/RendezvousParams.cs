@@ -18,7 +18,7 @@ namespace SEAerospace.Frames
     public class RendezvousParams
     {
         public double EnterRangeMeters = 7500.0;   // merge when separation < this (inside the 10 km frame: a merge never lands a member past the edge)
-        public double ExitRangeMeters = 15000.0;   // split when separation > this (>= EnterRange; < SlotRadius 20 km)
+        public double ExitRangeMeters = 15000.0;   // split when separation > this (>= EnterRange; only un-latches the merge tracker: members split at ServerFrames.SlotRadius, 10 km, first)
         public double EnterRelSpeedMps = 1000.0;   // merge when |Δv| < this — ORBITAL rel-speed (km/s-scale), so large; the flyby gate, NOT an exit
         public double EnterDwellSeconds = 2.0;     // merge conditions must hold this long first (0 = instant)
 

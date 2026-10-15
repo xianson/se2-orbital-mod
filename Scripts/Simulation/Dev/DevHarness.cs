@@ -273,6 +273,7 @@ public static partial class DevHarness
                 return $"orbit={OrbitalConfig.ShowOrbit}";
 
             case "hsfold":
+                // (inert since the player HighSpeed removal: sets FrameHost.HsThrustFold, which nothing reads; answers as ever)
                 FrameHost.HsThrustFold = On(a[1]);
                 return $"hsfold={FrameHost.HsThrustFold}";
 
@@ -359,7 +360,7 @@ public static partial class DevHarness
             }
 
             case "kick":
-                // kick <prograde m/s> [radial] [normal]  (HighSpeed only)
+                // kick <prograde m/s> [radial] [normal]  (HighSpeed only: the player's is gone, so always "not in HighSpeed")
                 return FrameHost.Kick(D(a[1]), a.Length > 2 ? D(a[2]) : 0, a.Length > 3 ? D(a[3]) : 0);
 
             case "devrider":

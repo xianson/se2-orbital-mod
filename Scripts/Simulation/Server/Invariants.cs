@@ -7,7 +7,7 @@ namespace OrbitalMod;
 /// second, a violation logged ("[ORBIT-INV] VIOLATION rule: detail" - once per 10 s per case), counted, and listed by the
 /// harness ('inv'). Every in-game suite ends by requiring none. The rules (server side, ServerFrames.CheckInvariants):
 ///  - anchor-alive: a frame's grid anchor is a live grid (or one about to come back: an area respawn);
-///  - past-edge: no dynamic member stays past the frame's edge (20 km; 10 km from a static anchor) unsplit;
+///  - past-edge: no dynamic member stays past the frame's edge (LeaveRadius = SlotRadius, 10 km, for every frame; 5 km slack) unsplit;
 ///  - ship-together: every grid of a joined ship (sub-grids, docked craft) is in the same frame;
 ///  - warp-state: no member is steered (warp's kept state) at x1 once its settle is over;
 ///  - on-rails: a player ship in open space is in a frame (one let go was left with no orbit at all).

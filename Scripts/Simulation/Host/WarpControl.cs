@@ -12,6 +12,10 @@ namespace OrbitalMod;
 public static class WarpControl
 {
     public static readonly double[] Levels = { 1, 5, 10, 50, 100, 1000, 10000 };
+    /// <summary>The highest level warp may reach (an index into Levels; the setting Warp.MaxLevel). Above it, warp drops to it.</summary>
+    public static int MaxLevel = 6;
+    /// <summary>MaxLevel, clamped into Levels.</summary>
+    public static int TopLevel => Math.Clamp(MaxLevel, 0, Levels.Length - 1);
     public static string Notice; private static double _noticeUntil;
 
     /// <summary>A notice from the server thread (said on the next client tick).</summary>
@@ -21,6 +25,9 @@ public static class WarpControl
     {
         var pend = PendingSay;
         if (pend != null) { PendingSay = null; Say(pend); }
+        // (a lowered Warp.MaxLevel: warp above it drops to it; at the top level nothing is held - the harness's 'timescale')
+        int topLevel = TopLevel;
+        if (topLevel < Levels.Length - 1 && SystemHost.Timescale > Levels[topLevel] + 1e-6) { SystemHost.Timescale = Levels[topLevel]; Say($"Warp ×{Levels[topLevel]:N0}: the world's maximum"); }
         // Not while typing: the keys act in flight and on the map, never in a dialog, another terminal
         // tab or a menu (a '.' typed into a name changed the warp).
         string top = Session != null ? GameUi.TopScreenNeedingInput(Session) : null;
@@ -33,14 +40,14 @@ public static class WarpControl
         if (FrameHost.PlayerFrame == null) { SystemHost.Timescale = 1; Say("Needs rails: leave the planet's space first"); return; }
         int i = 0;
         for (int k = 0; k < Levels.Length; k++) if (SystemHost.Timescale >= Levels[k] - 1e-6) i = k;
-        i = Math.Clamp(i + (up ? 1 : -1), 0, Levels.Length - 1);
+        i = Math.Clamp(i + (up ? 1 : -1), 0, topLevel);
         Raise(Levels[i]);
     }
 
     /// <summary>Warp at level i (the warp bar's arrows): x1 always; faster only on rails.</summary>
     public static void SetLevel(int i)
     {
-        i = Math.Clamp(i, 0, Levels.Length - 1);
+        i = Math.Clamp(i, 0, TopLevel);
         if (i > 0 && FrameHost.PlayerFrame == null) { SystemHost.Timescale = 1; Say("Needs rails: leave the planet's space first"); return; }
         Raise(Levels[i]);
     }

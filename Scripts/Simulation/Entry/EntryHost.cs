@@ -19,8 +19,8 @@ public static class EntryHost
     public static double Cap => double.IsNaN(TestCap) ? FrameHost.SpeedCap : TestCap;   // (the arrival's cap: a hair under the world's)
     /// <summary>Harness: a lower cap for the reentry rules only (NaN: the world's).</summary>
     public static double TestCap = double.NaN;
-    /// <summary>Warp stops this long before the braking starts.</summary>
-    public const double WarpLead = 30.0;
+    /// <summary>Warp stops this long before the braking starts (s; the setting Warp.StopLead, with Maneuvers.WarpLead).</summary>
+    public static double WarpLead = 30.0;
 
     static readonly Dictionary<long, double> _last = new Dictionary<long, double>();
     static readonly Dictionary<long, double> _heat = new Dictionary<long, double>();

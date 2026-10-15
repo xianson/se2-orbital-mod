@@ -406,6 +406,9 @@ public static class ContactsTab
         double t = SystemHost.Now;
         // where you are: the player's place (the model's), to set each row's position at its true offset from you
         var player = PlayerCache.Of(_session);
+        // (no player - dead, respawning: PlayerCache answers null - returned before the read, whose null reference threw,
+        //  ~200 ms, every refresh until you respawned - 2026-10-15)
+        if (!Alive(player)) return;
         Vector3D pw; try { pw = player.Data.GetWorldTransform().Position; } catch { return; }
         Vector3D pm; Chart pc; bool ok;
         lock (ServerFrames.FramesLock) ok = FrameMarkers.ModelOf(pw, t, out pm, out _, out pc);

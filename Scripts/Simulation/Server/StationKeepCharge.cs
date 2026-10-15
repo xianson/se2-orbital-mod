@@ -99,7 +99,8 @@ public class StationKeepCharge : Component, IInSceneListener,
         lock (All) { every.Clear(); every.AddRange(All); _byGridVersion = _allVersion; }
         foreach (var c in every)
         {
-            var top = c.Entity?.GetTopLevelParent();
+            if (!Alive(c.Entity)) continue;   // (a thruster deleted before its listener ran: its parent read threw, ~200 ms - 2026-10-15)
+            var top = c.Entity.GetTopLevelParent();
             if (top == null) continue;
             if (!_byGrid.TryGetValue(top, out var l))
             {
@@ -125,9 +126,11 @@ public class StationKeepCharge : Component, IInSceneListener,
         int ver; lock (All) ver = _allVersion;
         if (ver != _byGridVersion || now - _byGridAt > ByGridSeconds) RebuildByGrid(now);
         _byGrid.TryGetValue(grid, out var mine);
-        // (every thruster of this grid's list still on it: one moved to another grid since - a split - and the lists are built anew)
+        // (every thruster of this grid's list still on it: one moved to another grid since - a split - and the lists are built anew.
+        //  A dead one counts as moved, asked before its parent is read - that threw, ~200 ms: the lists are built without it.
+        //  The charge loop below runs on what this checked, its try the backstop - 2026-10-15)
         if (mine != null)
-            foreach (var c in mine) { var top = c.Entity?.GetTopLevelParent(); if (top == null || !top.Equals(grid)) { RebuildByGrid(now); _byGrid.TryGetValue(grid, out mine); break; } }
+            foreach (var c in mine) { var top = Alive(c.Entity) ? c.Entity.GetTopLevelParent() : null; if (top == null || !top.Equals(grid)) { RebuildByGrid(now); _byGrid.TryGetValue(grid, out mine); break; } }
         if (mine == null) { _stState = 1; return; }
         var all = mine;
         // (the air it is in (no water in orbit): a thruster that makes no thrust here - an atmospheric one in vacuum - is not charged)

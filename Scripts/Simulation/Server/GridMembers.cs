@@ -203,7 +203,7 @@ public static class GridMembers
     {
         try
         {
-            if (e == null || !e.Data.Has<Keen.VRage.Core.Game.GameSystems.ManagedWorldAreas.ManagedByWorldAreaTag>()) return;
+            if (!Alive(e) || !e.Data.Has<Keen.VRage.Core.Game.GameSystems.ManagedWorldAreas.ManagedByWorldAreaTag>()) return;   // (a dead one's Has threw, ~200 ms - 2026-10-15)
             var areas = e.GetSession()?.SessionComponents.TryGet<Keen.VRage.Core.Game.GameSystems.ManagedWorldAreas.ManagedWorldAreaSessionComponent>();
             if (areas != null && areas.TryUnmanage(e)) Log.Default?.Info($"[ORBIT-FRAME] an entity released from its world area before a move");
         }
@@ -265,6 +265,9 @@ public static class GridMembers
     }
 
     // ── physics (server thread) ──
+    // (2026-10-15: each accessor asks Alive first - a grid deleted before its Unregister ran (another thread, or later this
+    //  tick) threw from its data read, and an exception costs ~200 ms; these run per grid per tick. The try stays for one
+    //  deleted between the check and the read: the scene changes concurrently with the simulation.)
 
     /// <summary>Where a grid is, or where it is going this tick (a jointed group's move waits for the physics step).</summary>
     public static Vector3D Position(OrbitalGridComponent g)
@@ -295,6 +298,7 @@ public static class GridMembers
 
     internal static bool IsDynamicNow(OrbitalGridComponent g)
     {
+        if (!Alive(g.Entity)) return false;
         try
         {
             var rbc = g.Entity.TryGet<RigidBodyComponent>();
@@ -308,6 +312,7 @@ public static class GridMembers
 
     public static double Mass(OrbitalGridComponent g)
     {
+        if (!Alive(g.Entity)) return 0;
         try { return g.Entity.Data.TryGet<RigidBodyMassProperties>(out var mp) && mp.InvMass > 0 ? 1.0 / mp.InvMass : 0; }
         catch { return 0; }
     }
@@ -316,6 +321,7 @@ public static class GridMembers
     {
         // (no move queued - nearly always: no lock, as Position)
         if (Pending.Count > 0) lock (Pending) if (Pending.TryGetValue(g.Id, out var pm)) return pm.v;
+        if (!Alive(g.Entity)) return Vector3D.Zero;
         try { return g.Entity.Data.TryGet<RigidBodyData>(out var rb) ? (Vector3D)rb.LinearVelocity : Vector3D.Zero; }
         catch { return Vector3D.Zero; }
     }
@@ -327,6 +333,7 @@ public static class GridMembers
     public static bool SetVelocity(OrbitalGridComponent g, Vector3D v)
     {
         if (!Finite(v)) { NaNRefused++; return false; }
+        if (!Alive(g.Entity)) return false;
         try
         {
             ref RigidBodyData rb = ref g.Entity.Data.TryGetWritePtr<RigidBodyData>();
@@ -342,6 +349,7 @@ public static class GridMembers
     /// <summary>Add a velocity change (an acceleration × dt), keep angular.</summary>
     public static bool AddVelocity(OrbitalGridComponent g, Vector3D dv)
     {
+        if (!Alive(g.Entity)) return false;
         try
         {
             ref RigidBodyData rb = ref g.Entity.Data.TryGetWritePtr<RigidBodyData>();
@@ -363,6 +371,7 @@ public static class GridMembers
     /// </summary>
     public static Vector3D ThrustDv(OrbitalGridComponent g)
     {
+        if (!Alive(g.Entity)) return Vector3D.Zero;
         try
         {
             if (!g.Entity.Data.TryGet<Keen.Game2.Simulation.WorldObjects.CubeBlocks.Movement.VoluntaryThrustData>(out var vt) ||
@@ -384,6 +393,7 @@ public static class GridMembers
     /// </summary>
     public static bool IsConstrained(OrbitalGridComponent g)
     {
+        if (!Alive(g.Entity)) return true;   // (gone: as unknown - not moved)
         try
         {
             var physics = g.Session?.Get<Keen.VRage.Physics.IPhysics>();
@@ -407,6 +417,7 @@ public static class GridMembers
     {
         why = null;
         set.Add(g.Entity);
+        if (!Alive(g.Entity)) { why = "grid gone"; set.Clear(); return false; }
         try
         {
             var svc = g.Session?.Get<Keen.Game2.Simulation.GameSystems.Physicss.IFindConnectedEntities>();
@@ -438,7 +449,7 @@ public static class GridMembers
     /// <summary>Turns an entity in place by a rotation: its orientation and its spin.</summary>
     public static void Rotate(Entity e, Quaternion rot)
     {
-        if (e == null) return;
+        if (!Alive(e)) return;
         try
         {
             var wt = e.Data.GetWorldTransform();
@@ -453,6 +464,7 @@ public static class GridMembers
     public static bool SetPosition(OrbitalGridComponent g, Vector3D p)
     {
         if (!Finite(p)) { NaNRefused++; return false; }
+        if (!Alive(g.Entity)) return false;
         Unmanage(g.Entity);
         try
         {

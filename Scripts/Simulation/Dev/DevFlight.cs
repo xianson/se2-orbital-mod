@@ -317,6 +317,9 @@ public static class DevFlight
 
     public static void ClientTick(Keen.VRage.Core.Game.Systems.Session session)
     {
+        // (the client copy kept from an earlier frame, deleted since: let go before any read - its transform read threw out of
+        //  this tick every frame, ~200 ms each; its hand-back below threw and set "-" - 2026-10-15)
+        if (_client != null && !Alive(_client)) { _client = null; _steerMode = "-"; }
         if (_cmdOn && FrameHost.Seated && !Busy)
         {
             var seat = FrameHost.SeatGrid;

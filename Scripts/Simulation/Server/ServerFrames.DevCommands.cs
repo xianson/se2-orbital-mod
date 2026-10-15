@@ -4,7 +4,7 @@ using SEAerospace.Orbital;
 using SEAerospace.Rendezvous;
 using SEAerospace.SystemDef;
 
-#pragma warning disable
+#pragma warning disable CS0649, CS8632, CS1591, CS1573, CS1570, CS1574, CS0419, CS1734
 namespace OrbitalMod;
 
 // ServerFrames (partial): DEV harness requests run on the server thread - launch, level, fly test, dampeners.

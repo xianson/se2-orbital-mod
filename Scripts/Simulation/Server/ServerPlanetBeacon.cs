@@ -7,7 +7,7 @@ using Keen.VRage.DCS.Annotations;
 using Keen.Game2.Simulation.WorldObjects.Movement;
 using Keen.VRage.Physics.Data;
 
-#pragma warning disable
+#pragma warning disable CS0649, CS8632, CS1591, CS1573, CS1570, CS1574, CS0419, CS1734
 namespace OrbitalMod;
 
 /// <summary>What the server knows about a planet that its client twin does not.</summary>

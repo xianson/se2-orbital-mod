@@ -2,7 +2,7 @@ using Keen.VRage.Core;
 using Keen.Game2.Client.GameSystems.CameraSystems;
 using Keen.Game2.Client.GameSystems.PlayerControl;
 
-#pragma warning disable
+#pragma warning disable CS0649, CS8632, CS1591, CS1573, CS1570, CS1574, CS0419, CS1734
 namespace OrbitalMod;
 
 /// <summary>

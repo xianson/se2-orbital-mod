@@ -4,7 +4,7 @@ using SEAerospace.Frames;
 using SEAerospace.Orbital;
 using SEAerospace.SystemDef;
 
-#pragma warning disable
+#pragma warning disable CS0649, CS8632, CS1591, CS1573, CS1570, CS1574, CS0419, CS1734
 namespace OrbitalMod;
 
 // FrameHost (partial): the guarded client systems (a fault logged and skipped, never thrown into the game's job), their

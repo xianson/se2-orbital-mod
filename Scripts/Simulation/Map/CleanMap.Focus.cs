@@ -4,7 +4,7 @@ using SEAerospace;
 using SEAerospace.Orbital;
 using SEAerospace.SystemDef;
 
-#pragma warning disable
+#pragma warning disable CS0649, CS8632, CS1591, CS1573, CS1570, CS1574, CS0419, CS1734
 namespace OrbitalMod;
 
 /// <summary>The map's focus (as KSP: double-click a body, or click the breadcrumb), the title path, the open area.</summary>

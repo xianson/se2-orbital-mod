@@ -5,7 +5,7 @@ using SEAerospace;
 using SEAerospace.Frames;
 using SEAerospace.Orbital;
 
-#pragma warning disable
+#pragma warning disable CS0649, CS8632, CS1591, CS1573, CS1570, CS1574, CS0419, CS1734
 namespace OrbitalMod;
 
 // EncounterFrames (partial): DEV harness requests - a grid made a site, a target site, a far spawn.

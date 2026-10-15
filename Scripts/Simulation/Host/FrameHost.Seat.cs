@@ -3,7 +3,7 @@ using SEAerospace.Frames;
 using SEAerospace.SystemDef;
 using static OrbitalMod.Num;
 
-#pragma warning disable
+#pragma warning disable CS0649, CS8632, CS1591, CS1573, CS1570, CS1574, CS0419, CS1734
 namespace OrbitalMod;
 
 // FrameHost (partial): the seated player - whose orbit (PlayerOrbit.Seated), the seat found and kept, and the seat

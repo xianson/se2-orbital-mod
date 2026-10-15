@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The dev harness's server asks (Scripts/Simulation/Dev/ServerAsks.cs, engine-free) under the game's own tick order: the
+       in-process server's tick runs on its thread between the main thread's Server.Tick and Server.AfterTick, the client's
+       frame - the harness - in between (GameAppComponent.GameUpdate). A harness that waits there for the server deadlocks
+       until its timeout (2026-10-15); one that queues is answered the next frame. -->
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\Scripts\Simulation\Dev\ServerAsks.cs" />
+  </ItemGroup>
+</Project>

@@ -348,7 +348,8 @@ Core's sources by folder (FrameMathTests also compiles `FrameMath.cs` from the g
 `Server/LastKnownPosition.cs`). Suites: EntryTests, FrameMathTests, GridPositionTests, OrbitalTests, PersistenceTests, PlayerOrbitTests (incl. `MembershipCases`), RendezvousTests,
 SensingTests, SystemDefTests, TimeTests (about 1,500 checks); and over game-side files compiled with stand-ins: ApiTests
 (the `Peek` snapshot and orbit queries in `Api/Core/`, the API's shape over every partial), SettingsTests (the real
-registry and store, stand-ins seeded from the mod's source), SettingsUiTests (the menu's model; `-- dump` prints it) -
+registry and store, stand-ins seeded from the mod's source), SettingsUiTests (the menu's model; `-- dump` prints it), HarnessTests (`Dev/ServerAsks.cs`: the
+harness's server work queued, never waited for, under the game's server/client tick order) -
 about 4,480 checks in all (2026-10-15). `tools/test_fast.sh` runs ModCheck (the
 game's compiler and whitelist on the scripts), `tools/check_contract.sh`, then every suite. Rule: logic goes into Core
 where the fast gate can test it; the in-game tiers check only what needs the engine.

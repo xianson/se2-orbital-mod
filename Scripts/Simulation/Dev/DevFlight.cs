@@ -26,18 +26,14 @@ public static class DevFlight
         Vector3D target = ch.Data.GetWorldTransform().Position;
         if (!string.IsNullOrEmpty(gridName))
         {
-            // (the server grid by name - its mass and place read on the server thread: from here they were the cross-scene read
-            //  the game's DataGuard asserts on, the 2026-10-15 scene audit)
-            Vector3D at = default; long id = 0;
-            string found = GridGen.OnServerThread(() =>
-            {
-                foreach (var g in GridMembers.All())
-                    if (g.IsServer && g.DisplayName.IndexOf(gridName, StringComparison.OrdinalIgnoreCase) >= 0 && GridMembers.Mass(g) > 500)
-                    { at = GridMembers.Position(g); id = g.Id; return "ok"; }
-                return "none";
-            });
-            if (found == "none") return $"no grid '{gridName}'";
-            if (found != "ok") return found;
+            // (the server grid by name - its mass and place as the server step publishes them, its views: read from here they
+            //  were the cross-scene read the game's DataGuard asserts on, the 2026-10-15 scene audit; waited for on the server
+            //  thread, a deadlock until a timeout - ServerAsks)
+            Vector3D at = default; long id = 0; bool found = false;
+            foreach (var v in ServerFrames.ViewValues)
+                if (v.Name.IndexOf(gridName, StringComparison.OrdinalIgnoreCase) >= 0 && v.Mass > 500)
+                { at = v.Position; id = v.Id; found = true; break; }
+            if (!found) return $"no grid '{gridName}'";
             target = at; _seatGrid = id;
         }
         Entity best = null; double bd = double.MaxValue;
@@ -129,8 +125,9 @@ public static class DevFlight
         // (the server's seats on the server thread: enumerated from here - the harness, the client's frame job - the game
         //  asserted 'Scene.IsCurrentThreadDCS()', 2026-10-15)
         var srv = ServerPlanetBeacon.ServerSession;
-        if (srv != null) sb.Append(GridGen.OnServerThread(() => { var sbs = new System.Text.StringBuilder(); Scan(srv, "server", sbs); return sbs.ToString(); }));
-        return sb.ToString();
+        if (srv == null) return sb.ToString();
+        return GridGen.Then(GridGen.OnServerThread(() => { var sbs = new System.Text.StringBuilder(); Scan(srv, "server", sbs); return sbs.ToString(); }),
+                            s => sb.Append(s).ToString());
     }
 
     private static async void SeatAsync(ISeat seat, Entity ch)
@@ -273,26 +270,25 @@ public static class DevFlight
         _burn = false;
         if (!FrameHost.Seated) { _move = move; _until = Wall() + seconds; _gridId = -1; return $"jetpack thrust {move} for {seconds:F0} s"; }
         // The grid you sat into (named at `seat`), else the heaviest one within 100 m of you.
-        // (masses and places of the server grids: read on the server thread - the 2026-10-15 scene audit)
-        OrbitalGridComponent best = _seatGrid != 0 ? GridMembers.Get(_seatGrid) : null; double bm = -1;
-        Vector3D me = FrameHost.PlayerPosition;
-        string ran = GridGen.OnServerThread(() =>
+        // (masses and places of the server grids as the server step publishes them, its views: read from the server's entities
+        //  here they were the cross-scene read - the 2026-10-15 scene audit; waited for on the server thread, a deadlock until a
+        //  timeout - ServerAsks)
+        ServerFrames.GridView best = null; double bm = -1;
+        if (_seatGrid != 0 && ServerFrames.View(_seatGrid, out var sv)) { best = sv; bm = sv.Mass; }
+        else
         {
-            if (best != null) { bm = GridMembers.Mass(best); return "ok"; }
-            foreach (var g in GridMembers.All())
+            Vector3D me = FrameHost.PlayerPosition;
+            foreach (var v in ServerFrames.ViewValues)
             {
-                if (!g.IsServer || (GridMembers.Position(g) - me).Length() > 100) continue;
-                double m = GridMembers.Mass(g);
-                if (m > bm) { bm = m; best = g; }
+                if ((v.Position - me).Length() > 100) continue;
+                if (v.Mass > bm) { bm = v.Mass; best = v; }
             }
-            return "ok";
-        });
-        if (ran != "ok") return ran;
+        }
         if (best == null) return "no grid under you";
         _gridId = best.Id;
         _move = move;
         _until = Wall() + seconds;
-        return $"thrust {move} for {seconds:F0} s on '{best.DisplayName}' ({bm:F0} kg)";
+        return $"thrust {move} for {seconds:F0} s on '{best.Name}' ({bm:F0} kg)";
     }
 
     /// <summary>Every frame on the server tick: write the command while it lasts.</summary>

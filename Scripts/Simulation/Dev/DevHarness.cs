@@ -84,6 +84,21 @@ public static partial class DevHarness
         catch (Exception e) { SpecCam.Status = "error " + e.Message; }
         GridGen.ClientTick(); // (DEV: generated grids - hinge heads spawned and flaps grown, here as spawning works here)
         try { _clientGravityMultiplier = session.Get<Keen.VRage.Physics.IPhysics>().GravityMultiplier; } catch { }
+        // (a command file waiting on the server thread: finished the frame its answer is in - ServerAsks; the status then, as
+        //  the scripts read it a second after the file is taken)
+        if (_batch.Busy || _panel.Busy)
+        {
+            try
+            {
+                if (_panel.Busy) _panel.Pump(l => RunLine(session, camera, l), Finished, ServerWaitSeconds);
+                if (_batch.Busy)
+                {
+                    _batch.Pump(l => RunLine(session, camera, l), Finished, ServerWaitSeconds);
+                    if (!_batch.Busy) { _statusAt = System.Diagnostics.Stopwatch.GetTimestamp(); WriteStatus(camera); }
+                }
+            }
+            catch (Exception e) { Log.Default?.Warning($"[ORBIT-DEV] poll failed: {e.Message}"); }
+        }
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
         if (now - _lastPoll < PollSeconds * System.Diagnostics.Stopwatch.Frequency) return;
         _lastPoll = now;
@@ -93,7 +108,8 @@ public static partial class DevHarness
             _dir ??= Path.Combine(Path.GetTempPath(), "OrbitalMod");
             Directory.CreateDirectory(_dir);
             string cmdPath = Path.Combine(_dir, "cmd.txt");
-            if (File.Exists(cmdPath))
+            // (the next file only once the last one's lines are all answered: they run in order)
+            if (!_batch.Busy && File.Exists(cmdPath))
             {
                 string[] lines = File.ReadAllLines(cmdPath);
                 _cmdAt = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -102,17 +118,9 @@ public static partial class DevHarness
                 {
                     string line = raw.Trim();
                     if (line.Length == 0 || line.StartsWith("#")) continue;
-                    string result;
-                    try { result = Execute(session, camera, line); }
-                    catch (Exception e)
-                    {
-                        result = "ERROR " + e.Message;
-                        string st = e.ToString().Replace('\n', ' ');
-                        Log.Default?.Info("[ORBIT-DEV] stack: " + st.Substring(0, Math.Min(1500, st.Length)));
-                    }
-                    Note($"> {line}  =>  {result}");
-                    Log.Default?.Info($"[ORBIT-DEV] {line} => {result}");
+                    _batch.Add(line);
                 }
+                _batch.Pump(l => RunLine(session, camera, l), Finished, ServerWaitSeconds);
             }
             // (the status - a page of text - twice a second only while the harness is being used: a command in the last 30 s;
             //  else every 5 s. It was 160 KB/s of garbage in everyone's game - a profile, 2026-10-14)
@@ -126,6 +134,30 @@ public static partial class DevHarness
     }
 
     private static WorldTransform _lastCamera;
+
+    /// <summary>The command file's lines, in order; one waiting on the server thread holds the rest (ServerAsks).</summary>
+    private static readonly ServerAsks.Batch _batch = new ServerAsks.Batch();
+    /// <summary>A debug panel command (Run) waiting on the server thread.</summary>
+    private static readonly ServerAsks.Batch _panel = new ServerAsks.Batch();
+    /// <summary>How long a command waits for the server thread's answer before "timed out" (the old in-frame wait's 3 s).</summary>
+    public static double ServerWaitSeconds = 3;
+
+    private static string RunLine(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera, string line)
+    {
+        try { return Execute(session, camera, line); }
+        catch (Exception e)
+        {
+            string st = e.ToString().Replace('\n', ' ');
+            Log.Default?.Info("[ORBIT-DEV] stack: " + st.Substring(0, Math.Min(1500, st.Length)));
+            return "ERROR " + e.Message;
+        }
+    }
+
+    private static void Finished(string line, string result)
+    {
+        Note($"> {line}  =>  {result}");
+        Log.Default?.Info($"[ORBIT-DEV] {line} => {result}");
+    }
 
     /// <summary>
     /// Toggle the camera in the phase where the game's input does it (before the camera update). Called
@@ -146,8 +178,13 @@ public static partial class DevHarness
     /// <summary>Run one harness command now (the debug panel's entries), as the file-driven poll would.</summary>
     public static string Run(Keen.VRage.Core.Game.Systems.Session session, string line)
     {
-        try { return Execute(session, _lastCamera, line); }
+        string r;
+        try { r = Execute(session, _lastCamera, line); }
         catch (Exception e) { return "ERROR " + e.Message; }
+        if (r != ServerAsks.Pending) return r;
+        // (waiting on the server thread: finished by the poll - its answer in the log and the status notes)
+        return _panel.Hold(line) ? "asked the server thread: the answer goes to the harness log"
+                                 : "not finished: the last panel command still waits on the server thread";
     }
 
     private static string Execute(Keen.VRage.Core.Game.Systems.Session session, WorldTransform camera, string line)

@@ -44,16 +44,16 @@ public static class GridGen
 
     // ── the SERVER thread owns the server's entities: every spawn, hinge command and read runs there (the harness runs on
     //    the client thread; a hinge's SetVelocity from it raced the server's entity storage and crashed the game) ──
-    static readonly System.Collections.Concurrent.ConcurrentQueue<(Func<string> work, System.Threading.ManualResetEventSlim done, string[] result)> _server = new();
+    // (2026-10-15: never waited for. The server's next tick starts only after the client's frame, so a wait in it - 3 s here -
+    //  was a deadlock until its timeout, under load nearly every call: ServerAsks. The answer is ServerAsks.Pending, the
+    //  harness finishes the command once the server ran it; a command's client side after the answer goes in Then.)
 
-    /// <summary>Run on the server thread (ServerPlanetBeacon's job) and wait for it (3 s); the answer, or why not.</summary>
-    internal static string RunOnServer(Func<string> work) => OnServer(work);
-    static string OnServer(Func<string> work)
-    {
-        var done = new System.Threading.ManualResetEventSlim(false); var result = new string[1];
-        _server.Enqueue((work, done, result));
-        return done.Wait(3000) ? result[0] : "timed out waiting for the server thread";
-    }
+    /// <summary>Queue <paramref name="work"/> for the server thread (ServerPlanetBeacon's job): ServerAsks.Pending - the
+    /// harness's batch waits for the answer, never the frame.</summary>
+    internal static string RunOnServer(Func<string> work) => ServerAsks.Queue(work);
+    /// <summary>A command's client side after its server work: <paramref name="next"/> of the answer, now when it is already
+    /// in ("not run: ..."), else once the server has given it.</summary>
+    internal static string Then(string answer, Func<string, string> next) => ServerAsks.Then(answer, next);
 
     // (2026-10-15: `hudcheck` enumerated the server's seats from the harness - the client's frame job - and the game asserted
     //  'Scene.IsCurrentThreadDCS()'. Every harness command that enumerates, reads components of or writes server entities runs
@@ -62,18 +62,14 @@ public static class GridGen
     static long _serverTickAt;
     /// <summary>The server's job ran ServerTick within the last second (RunOnServer will be answered).</summary>
     internal static bool ServerTicking => System.Diagnostics.Stopwatch.GetTimestamp() - System.Threading.Volatile.Read(ref _serverTickAt) < System.Diagnostics.Stopwatch.Frequency;
-    /// <summary>Harness: <paramref name="work"/> on the server thread, waited for; or why not.</summary>
-    internal static string OnServerThread(Func<string> work) => ServerTicking ? OnServer(work) : "not run: the server thread is not ticking (paused, loading, or no planet beacon)";
+    /// <summary>Harness: <paramref name="work"/> queued for the server thread (ServerAsks.Pending); or why not.</summary>
+    internal static string OnServerThread(Func<string> work) => ServerTicking ? RunOnServer(work) : "not run: the server thread is not ticking (paused, loading, or no planet beacon)";
 
     /// <summary>Server thread (ServerPlanetBeacon's job): queued hinge/steer commands, the hinges held.</summary>
     public static void ServerTick()
     {
         System.Threading.Volatile.Write(ref _serverTickAt, System.Diagnostics.Stopwatch.GetTimestamp());
-        while (_server.TryDequeue(out var job))
-        {
-            try { job.result[0] = job.work(); } catch (Exception e) { var x = e.InnerException ?? e; job.result[0] = "failed: " + x.Message + " @ " + string.Join(" < ", (x.StackTrace ?? "").Split((char)10).Take(4).Select(l => l.Trim())); }
-            job.done.Set();
-        }
+        ServerAsks.Drain();
         Hold();
         HingeRig.Tick();
     }
@@ -92,7 +88,7 @@ public static class GridGen
         string sub = a.Length > 1 ? a[1] : "status";
         // (clear too: deleting from here raced the server's own access to those grids - "Concurrent access", then a crash;
         //  the asteroid frames delete from the server's job the same way)
-        if (sub == "hold" || sub == "free" || sub == "steer" || sub == "clear") return OnServer(() => CommandOnServer(me, camera, a));
+        if (sub == "hold" || sub == "free" || sub == "steer" || sub == "clear") return RunOnServer(() => CommandOnServer(me, camera, a));
         // (and the reads of the server's grids - a body, a transform, blocks, hinges, the aero readout, a mass: from here they
         //  were the cross-scene read the game's DataGuard asserts on - the 2026-10-15 scene audit. Spawning and growing blocks
         //  stay here, as measured above.)

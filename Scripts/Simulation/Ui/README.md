@@ -15,4 +15,10 @@ into the Aerodynamics Mod (only the namespace line differs) and `tools/check_con
 compare; every 250 ms it finds `SharedUIComponent` and posts `UiTick`). Everything else runs on Avalonia's UI thread: find
 the open `OptionsScreen`, attach once per screen instance, and while the tab is selected (~4 Hz) read the controls, `Set`
 through the registry, refresh on a `Version` change. Offline tests: `Tests/SettingsUiTests` (`-- dump` prints the menu).
-In game (dev): DevHarness `settingsui open | select | report | close`.
+In game (dev): DevHarness `settingsui open | select | report | close | flip <setting> | expand all|none|section|advanced |
+scroll top|bottom|<px>|<setting>` (the last two: for screenshots of every part, with `shot <name>`).
+
+**The look** uses the game's own styling, never our colours: the `Flat` expander, the `TextBlock` classes of its Options
+views (`OptionTitle`, `SubTitle` `Bright`, `OptionSubTitle`, `Small`), its resources (`SpaceWidth`, `ValueWidth`, the text
+brushes) looked up from the open screen, one shared label column per section; the Slider template's raw number hidden.
+The keys and their fallbacks are at `SettingsModel`'s top.

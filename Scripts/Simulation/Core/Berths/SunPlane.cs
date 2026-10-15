@@ -3,6 +3,7 @@ using System;
 namespace SEAerospace
 {
     /// <summary>
+    /// NOT WIRED: tests only (2026-10-15): no runtime caller; kept as tested library code.
     /// The ENGINE SUN PLANE — pure math (VRageMath only, offline-pinned): SE's baked sun-sweep
     /// model, vendored from the decompile. Since the 2026-06-12 RSS-LITERAL sun decision this
     /// is REFERENCE/FALLBACK knowledge only — the system layout is always canonical and never

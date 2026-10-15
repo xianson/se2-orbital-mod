@@ -28,7 +28,7 @@ namespace SEAerospace.Orbital
         }
     }
 
-    /// <summary>The inertial root (a star system frame). Identity, no parent.</summary>
+    /// <summary>NOT WIRED: tests only (2026-10-15). The inertial root (a star system frame). Identity, no parent.</summary>
     public sealed class InertialFrame : Frame
     {
         public InertialFrame(string name) { Name = name; Parent = null; }
@@ -64,6 +64,7 @@ namespace SEAerospace.Orbital
     }
 
     /// <summary>
+    /// NOT WIRED: tests only (2026-10-15): no runtime caller; kept as tested library code.
     /// Perifocal (PQW) frame: fixed rotation of a body-inertial frame so +X points at
     /// periapsis, +Z along the orbit normal. Same origin as the body. Pure element math.
     /// </summary>
@@ -92,6 +93,7 @@ namespace SEAerospace.Orbital
     }
 
     /// <summary>
+    /// NOT WIRED: tests only (2026-10-15): no runtime caller; kept as tested library code.
     /// Body-fixed (rotating) frame: shares the body's origin, axes spin about a fixed axis
     /// at a constant rate. For lat/lon/alt, day-night, ground sites. (SE voxel planets do
     /// not actually spin, so this rotation is logical-only — see the architecture doc.)
@@ -123,6 +125,7 @@ namespace SEAerospace.Orbital
     }
 
     /// <summary>
+    /// NOT WIRED: tests only (2026-10-15): no runtime caller; kept as tested library code.
     /// LVLH / RIC frame riding an orbiting object: origin at the object, axes
     /// X=radial (away from body), Y=in-track, Z=cross-track; rotates at the orbital rate.
     /// "Body down" = -X. This is the proximity-frame orientation and the rendezvous frame.
@@ -157,6 +160,7 @@ namespace SEAerospace.Orbital
     }
 
     /// <summary>
+    /// NOT WIRED: tests only (2026-10-15): no runtime caller; kept as tested library code.
     /// Topocentric ENU frame at a surface point (X=east, Y=north, Z=up). Fixed within a
     /// body-fixed frame, so it co-rotates with the body. Launch/landing guidance.
     /// </summary>

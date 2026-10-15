@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace SEAerospace.Orbital
 {
-    /// <summary>What an encounter resolves to downstream — the two mechanisms unified here.</summary>
+    /// <summary>NOT WIRED: tests only (2026-10-15). What an encounter resolves to downstream — the two mechanisms unified here.</summary>
     public enum EncounterKind
     {
         SoiEntry,     // entered a body's SOI sphere -> a gravity reparent (SoiReparent)
@@ -11,6 +11,7 @@ namespace SEAerospace.Orbital
     }
 
     /// <summary>
+    /// NOT WIRED: tests only (2026-10-15): no runtime caller; kept as tested library code.
     /// One thing the subject's trajectory may run into: a moving center (the target's
     /// motion in the SUBJECT'S parent frame, via any <see cref="IEphemeris"/>) plus the
     /// sphere radius around it. Same shape for a real body (center = body's parent-relative
@@ -52,6 +53,7 @@ namespace SEAerospace.Orbital
     }
 
     /// <summary>
+    /// NOT WIRED: tests only (2026-10-15): no runtime caller; kept as tested library code.
     /// One predicted encounter: the absolute time the subject's separation from a target
     /// dropped onto/below its sphere, which target, what it resolves to, the separation at
     /// that time, and the relative state (subject-relative-to-target) there.
@@ -75,6 +77,7 @@ namespace SEAerospace.Orbital
     }
 
     /// <summary>
+    /// NOT WIRED: tests only (2026-10-15): no runtime caller; kept as tested library code.
     /// The UNIFIED ENCOUNTER SCAN (Pillar A): one scan over the subject's propagated
     /// trajectory that finds BOTH body-SOI crossings AND clump conjunctions as one ordered
     /// timeline. The math is identical for both — propagate the two orbits, find when the

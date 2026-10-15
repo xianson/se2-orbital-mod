@@ -3,6 +3,7 @@ using System;
 namespace SEAerospace
 {
     /// <summary>
+    /// NOT WIRED: tests only (2026-10-15): no runtime caller; kept as tested library code.
     /// Day-fraction phase sources for the engine-sun TERMINATOR drive
     /// (<c>CelestialSceneSnapshot.DriveSun</c>'s GameDateTime bake). Pure phase math (no game
     /// references) so the offline suite can pin it. NOTE (2026-06-12 RSS-literal): the phase

@@ -3,16 +3,17 @@ using System;
 namespace SEAerospace.Orbital
 {
     /// <summary>
+    /// NOT WIRED: tests only (2026-10-15): no runtime caller; kept as tested library code.
     /// Clohessy-Wiltshire (Hill) linearized relative motion in the LVLH frame of a
     /// reference orbit with mean motion n. Coordinates: X = radial (away from the body),
     /// Y = along-track, Z = cross-track. Velocities are RELATIVE TO THE ROTATING LVLH
     /// frame.
     ///
     /// This is the natural relative-orbital drift of a member offset from the frame
-    /// origin: two grids in slightly different orbits separate exactly this way. In the
-    /// berth we apply m·<see cref="Acceleration"/> as a force to each member grid (on top
-    /// of the apparent force −m·A from anchor thrust); a member's own dampeners then
-    /// either hold formation against it or let it drift toward a split.
+    /// origin: two grids in slightly different orbits separate exactly this way, to first
+    /// order. The berth does NOT use it: the game side applies the exact differential
+    /// gravity g(anchor + offset) − g(anchor) (on top of the apparent force −A from anchor
+    /// thrust; ServerFrames' grid-frame step).
     /// </summary>
     public static class ClohessyWiltshire
     {

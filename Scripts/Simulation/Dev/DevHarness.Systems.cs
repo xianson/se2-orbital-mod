@@ -53,6 +53,12 @@ public static partial class DevHarness
                 return OrbitalSettings.Set(a[1], D(a[2]), out string why) ? $"{a[1]} = {D(a[2])}" : $"not set: {why}";
             }
 
+            case "settingsui":   // settingsui open|select|flip <setting>|close|report: the Options screen's Mods tab (Ui/SettingsTab.cs) -
+                                 // open the screen (SharedUIComponent.OpenOptionsScreen), select the tab, change a row's control as a
+                                 // player would (the tab's pump applies it), close what it opened; report (ask twice: the first asks the
+                                 // UI thread): tab found, each section's rows counted / declared, ours vs the registry
+                return SettingsTab.Dev(a.Length > 1 ? string.Join(" ", a, 1, a.Length - 1) : "report");
+
             case "hints":   // hints <gridId> | off | overlay <0|1|2> | status: the build hints on a grid without holding a block
                 if (a.Length > 1 && a[1] == "off") { BuildHints.DevGridId = 0; return "build hints: building only"; }
                 if (a.Length > 2 && a[1] == "overlay") { BuildHints.Overlay = (int)D(a[2]); return $"overlay {BuildHints.Overlay}"; }

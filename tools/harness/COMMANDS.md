@@ -110,6 +110,8 @@ How the names are reached:
 | `seatid` | 37 scripts (bakedcheck.sh, burns.sh, checkall.sh, combo.sh, ...) |
 | `sensorblocks` | test_smoke.sh |
 | `sensornopower` | test_save.sh, test_smoke.sh |
+| `setting` | settingsui.sh |
+| `settingsui` | settingsui.sh (`open`, `select`, `flip <setting>`, `close`, `report`) |
 | `shot` | experiments/fxlook.sh, experiments/herctrail.sh, experiments/tipab.sh, experiments/tipsweep.sh, experiments/wings.sh, holdcharge.sh, orb.sh, trails.sh |
 | `shotui` | 22 scripts (contactsave.sh, contactshot.sh, experiments/ascentshot.sh, experiments/cullab.sh, ...) |
 | `sites` | map_compare.sh, rv_cases.sh, rv_views.sh |
@@ -132,7 +134,7 @@ DevHarness verbs no script sends (kept for hand use and the debug panel; not a r
 aeroflames allocs atmohills bigs blockhealth breakblocks buildmenu burn camdiag clean clock crossfade curvecull cutgrid
 debugdraw debugpanel devbtn devfar encounters fakevel flightdump floaters fps framedv freegrids front gc gen gotosite gps
 gpsat gravity gridup gridvel hide hidesectors hinge hsfold kick lagstop lagtest look lookat mapcamon mapclick mapdiag
-mapview meshrebuild nearcenter npcrel numdialog perf planets proxyring seats sectors sectorvis selrock setting starproxy
+mapview meshrebuild nearcenter npcrel numdialog perf planets proxyring seats sectors sectorvis selrock starproxy
 starscale stow sun targets tp turntest ui unified view warpbill warphere. (`flightdump` is used by the aero mod's
 tools/flightdump.sh.)
 
@@ -197,6 +199,8 @@ tools/flightdump.sh.)
 | `OrbitalMod.FrameHost.Seated` | get | reentry_e2e | Simulation/Host/FrameHost*.cs |
 
 ## Text the scripts grep (keep the wording)
+
+**settingsui.sh** (2026-10-15) greps the `settingsui report` reply: `Mods tab: found`, `<ModId> rows N/M` per section, `OrbitalMod: N rows built, registry shows M`, `selected True` (Ui/SettingsTab.cs `MakeReport`); and `setting <name>`'s `<name> = <value>`.
 
 **status.txt** (`%TEMP%\OrbitalMod\status.txt`, DevHarness.WriteStatus): the ` => ` reply marker and `> verb` echo
 lines; line prefixes `server=` (relaunch.sh: the game is up), `shot ` (orb.sh --eshot), `frame server` (perf_phase.sh),

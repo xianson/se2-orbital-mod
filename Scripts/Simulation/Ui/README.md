@@ -20,5 +20,7 @@ scroll top|bottom|<px>|<setting>` (the last two: for screenshots of every part, 
 
 **The look** uses the game's own styling, never our colours: the `Flat` expander, the `TextBlock` classes of its Options
 views (`OptionTitle`, `SubTitle` `Bright`, `OptionSubTitle`, `Small`), its resources (`SpaceWidth`, `ValueWidth`, the text
-brushes) looked up from the open screen, one shared label column per section; the Slider template's raw number hidden.
+brushes) looked up from the open screen, one fixed label column per section (its widest label in the game's font:
+`SettingsModel.LabelWidth`; Advanced rows less the expander's inset - every control at one x); the Slider template's raw
+number hidden.
 The keys and their fallbacks are at `SettingsModel`'s top.

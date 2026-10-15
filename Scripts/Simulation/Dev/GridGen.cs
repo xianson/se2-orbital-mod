@@ -313,13 +313,23 @@ public static class GridGen
         if (_flight == null) return "aero mod's API not found";
         var f = new object[] { e, null, null, null, null, null };
         if (!(bool)_flight.Invoke(null, f)) return "not flying (no published flow)";
-        var g = new object[] { e, null, null, null, null, null };
-        _forces.Invoke(null, g);
-        var l = new object[] { e, null, null };
-        _lift.Invoke(null, l);
+        // (forces / lift each looked up on their own: an aero build without one made the unboxing below throw - 2026-10-15)
+        string forces = "force: no TryGetForces", lift = "lift: no TryGetLift";
+        if (_forces != null)
+        {
+            var g = new object[] { e, null, null, null, null, null };
+            _forces.Invoke(null, g);
+            forces = $"force {V((Vector3)g[1])} N torque {V((Vector3)g[2])} N m drag {(float)g[3]:F0} lift {(float)g[4]:F0} frontal {(float)g[5]:F1} m2";
+        }
+        if (_lift != null)
+        {
+            var l = new object[] { e, null, null };
+            _lift.Invoke(null, l);
+            lift = $"lift dir {V((Vector3)l[1])} CL(frontal) {(float)l[2]:F3}";
+        }
         var gh = new object[] { e, null };
         if (_ground != null) _ground.Invoke(null, gh);
-        return $"M {(float)f[3]:F2} v {(float)f[2]:F0} m/s rho {(float)f[4]:F2} q {(float)f[5]:F0} Pa travel {V((Vector3)f[1])} | force {V((Vector3)g[1])} N torque {V((Vector3)g[2])} N m drag {(float)g[3]:F0} lift {(float)g[4]:F0} frontal {(float)g[5]:F1} m2 | lift dir {V((Vector3)l[1])} CL(frontal) {(float)l[2]:F3} | ground {(gh[1] is float gm ? gm : -1f):F1} m";
+        return $"M {(float)f[3]:F2} v {(float)f[2]:F0} m/s rho {(float)f[4]:F2} q {(float)f[5]:F0} Pa travel {V((Vector3)f[1])} | {forces} | {lift} | ground {(gh[1] is float gm ? gm : -1f):F1} m";
     }
 
     /// <summary>The harness id of a grid entity (its OrbitalGridComponent), 0 while not registered.</summary>

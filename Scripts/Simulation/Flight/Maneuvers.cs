@@ -104,5 +104,4 @@ public static partial class Maneuvers
     static readonly ColorSRGB NorColor = new ColorSRGB(0.85f, 0.45f, 1.00f, 1f);
     static readonly ColorSRGB RadColor = new ColorSRGB(0.35f, 0.85f, 1.00f, 1f);
 
-    private static bool IsFinite(double x) => !double.IsNaN(x) && !double.IsInfinity(x);
 }

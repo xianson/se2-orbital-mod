@@ -529,6 +529,4 @@ public static class MapView
         if (_builder != null && _drew) { _builder.Commit(); _drew = false; }
     }
 
-    private static bool IsFinite(double x) => !double.IsNaN(x) && !double.IsInfinity(x);
-    private static bool IsFinite(Vector3D v) => IsFinite(v.X) && IsFinite(v.Y) && IsFinite(v.Z);
 }

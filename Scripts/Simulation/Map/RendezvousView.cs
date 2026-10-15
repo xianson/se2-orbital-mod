@@ -3,6 +3,7 @@ using Keen.VRage.Core;
 using SEAerospace;
 using SEAerospace.Orbital;
 using SEAerospace.SystemDef;
+using static OrbitalMod.HudMath;
 
 #pragma warning disable
 namespace OrbitalMod;
@@ -231,12 +232,6 @@ public static class RendezvousView
         return IsFinite(q.X) && IsFinite(q.Y) && IsFinite(q.Z);
     }
 
-    /// <summary>
-    /// The view, inside the map's UI batch (instead of the map's own contents). W: map space to world
-    /// (the map camera's: its wheel zooms, its drag pans).
-    /// </summary>
-    static bool IsFinite(double x) => !double.IsNaN(x) && !double.IsInfinity(x);
-
     private static double _hudAt = -1;
     private static List<(double along, double radial)> _hudPath;
     private static List<double> _hudCross;
@@ -361,6 +356,10 @@ public static class RendezvousView
         Status = $"windows to {to.Name} about {c.Name}: {Porkchop.Status}; plan dep {(double.IsNaN(dep) ? "-" : Maneuvers.Clock(dep - t))} entry {(double.IsNaN(arr) ? "-" : Maneuvers.Clock(arr - t))} dv {dv:F0} {note}";
     }
 
+    /// <summary>
+    /// The view, inside the map's UI batch (instead of the map's own contents). W: map space to world
+    /// (the map camera's: its wheel zooms, its drag pans).
+    /// </summary>
     public static void Draw(Keen.VRage.Core.Game.Systems.Session session, SystemRegistry reg, double t, Func<Vector3D, Vector3D> W, Vector2 mouse)
     {
         var scr = MapPipeline.ScreenSize;

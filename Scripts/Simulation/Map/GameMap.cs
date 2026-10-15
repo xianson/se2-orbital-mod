@@ -545,6 +545,4 @@ public static class GameMap
         double k = Math.Max(0, Math.Min(1, (x - a) / (b - a)));
         return k * k * (3 - 2 * k);
     }
-    private static bool IsFinite(double x) => !double.IsNaN(x) && !double.IsInfinity(x);
-    private static bool IsFinite(Vector3D v) => IsFinite(v.X) && IsFinite(v.Y) && IsFinite(v.Z);
 }

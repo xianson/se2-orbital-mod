@@ -3,6 +3,7 @@ using SEAerospace;
 using SEAerospace.Frames;
 using SEAerospace.Orbital;
 using SEAerospace.SystemDef;
+using static OrbitalMod.HudMath;
 
 #pragma warning disable
 namespace OrbitalMod;
@@ -276,5 +277,4 @@ public static class Targets
 
     public static bool HasGrid(ProximityFrame f) { foreach (long id in f.Members) if (GridMembers.IsGridId(id)) return true; return false; }
 
-    static bool IsFinite(Vector3D v) => !double.IsNaN(v.X) && !double.IsInfinity(v.X) && !double.IsNaN(v.Y) && !double.IsInfinity(v.Y) && !double.IsNaN(v.Z) && !double.IsInfinity(v.Z);
 }

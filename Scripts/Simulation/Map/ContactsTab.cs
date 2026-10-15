@@ -5,6 +5,7 @@ using Keen.VRage.Core.Input;
 using Keen.VRage.Library.Utils;
 using SEAerospace;
 using SEAerospace.Orbital;
+using static OrbitalMod.HudMath;
 
 #pragma warning disable
 namespace OrbitalMod;
@@ -588,5 +589,4 @@ public static class ContactsTab
         return sb.ToString();
     }
 
-    static bool IsFinite(Vector3D v) => !double.IsNaN(v.X) && !double.IsInfinity(v.X) && !double.IsNaN(v.Y) && !double.IsInfinity(v.Y) && !double.IsNaN(v.Z) && !double.IsInfinity(v.Z);
 }

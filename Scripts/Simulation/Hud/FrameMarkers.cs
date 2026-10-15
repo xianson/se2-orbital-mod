@@ -6,6 +6,7 @@ using Keen.VRage.Core;
 using SEAerospace;
 using SEAerospace.Frames;
 using SEAerospace.Orbital;
+using static OrbitalMod.HudMath;
 
 #pragma warning disable
 namespace OrbitalMod;
@@ -362,6 +363,4 @@ public static class FrameMarkers
     /// <summary>Load: markers hidden by this mod at save time are shown again first (then re-evaluated).</summary>
     public static void RestoreHidden(string key) => _restoreKeys.Add(key);
 
-    private static bool IsFinite(double x) => !double.IsNaN(x) && !double.IsInfinity(x);
-    private static bool IsFinite(Vector3D v) => IsFinite(v.X) && IsFinite(v.Y) && IsFinite(v.Z);
 }

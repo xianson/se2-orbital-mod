@@ -1,6 +1,7 @@
 using Keen.VRage.Core;
 using Keen.VRage.Core.Render;
 using SEAerospace.Orbital;
+using static OrbitalMod.HudMath;
 
 #pragma warning disable
 namespace OrbitalMod;
@@ -507,7 +508,6 @@ public static class OrbitDisplay
         }
     }
 
-    private static bool IsFinite(double x) => !double.IsNaN(x) && !double.IsInfinity(x);
     /// <summary>How long until the orbit is at true anomaly nu. Bounded (2026-10-12, the user on ascent: "Pe 18 km ·
     /// 476181d 10h"): a nearly radial or nearly parabolic path - a climb out - gave the propagation's time absurd values;
     /// a closed orbit is never more than one period from an apsis (wrapped into it), and a period past MaxApsisPeriod or an

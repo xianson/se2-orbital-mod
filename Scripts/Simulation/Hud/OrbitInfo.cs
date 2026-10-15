@@ -1,6 +1,7 @@
 using Keen.VRage.Core;
 using SEAerospace;
 using SEAerospace.Orbital;
+using static OrbitalMod.HudMath;
 
 #pragma warning disable
 namespace OrbitalMod;
@@ -201,5 +202,4 @@ public static class OrbitInfo
     }
 
     static double Norm(double a) { a %= 2 * Math.PI; return a < 0 ? a + 2 * Math.PI : a; }
-    static bool IsFinite(double x) => !double.IsNaN(x) && !double.IsInfinity(x);
 }

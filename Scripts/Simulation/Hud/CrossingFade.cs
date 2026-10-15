@@ -1,6 +1,7 @@
 using System;
 using Keen.VRage.Core;
 using SEAerospace.Frames;
+using static OrbitalMod.HudMath;
 
 #pragma warning disable
 namespace OrbitalMod;
@@ -83,5 +84,4 @@ public static class CrossingFade
         finally { MapPipeline.UiEnd(); }
     }
 
-    static double Wall() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
 }

@@ -1,5 +1,6 @@
 using Keen.VRage.Core;
 using SEAerospace.Orbital;
+using static OrbitalMod.HudMath;
 
 #pragma warning disable
 namespace OrbitalMod;
@@ -662,8 +663,6 @@ public static class OrbitHud
         PlotCaptions(c, R, r, u, false);   // (under it: your altitude and speed, the burn, the target...; its header is its own)
     }
 
-    static bool IsFinite(Vector3D v) => !(double.IsNaN(v.X) || double.IsNaN(v.Y) || double.IsNaN(v.Z) || double.IsInfinity(v.X) || double.IsInfinity(v.Y) || double.IsInfinity(v.Z));
-
     /// <summary>
     /// Your orbit in flight: a smooth screen-space curve (as on the map), hidden behind the planet.
     /// (It was 3D line geometry: widths guessed from the distance, jagged, through the globe.)
@@ -688,5 +687,4 @@ public static class OrbitHud
         else Flush();
     }
 
-    static double Wall() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
 }

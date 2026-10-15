@@ -2,6 +2,7 @@ using Keen.VRage.Core;
 using SEAerospace;
 using SEAerospace.Orbital;
 using SEAerospace.SystemDef;
+using static OrbitalMod.HudMath;
 
 #pragma warning disable
 namespace OrbitalMod;
@@ -425,7 +426,6 @@ public static partial class CleanMap
         float d = (a + ab * k - Mouse).Length();
         if (d < _hoverOrbitD) { _hoverOrbitD = d; _hoverOrbit = key; }
     }
-    static double Wall() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
     private static Func<Vector3D, double, Vector3D> _toMap;
     private static double _limit;
     public static bool ManeuverEditor = true; private static Vector2 _lastClickAt; private static bool _lastSolar;
@@ -446,5 +446,4 @@ public static partial class CleanMap
     /// <summary>The planet the view is about (null: the system view). Only its own things are drawn.</summary>
     private static GravityBody _viewBody;
 
-    private static bool IsFinite(double x) => !double.IsNaN(x) && !double.IsInfinity(x);
 }

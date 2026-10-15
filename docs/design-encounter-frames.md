@@ -1,5 +1,10 @@
 # Encounters as conjunction frames
 
+> **Status 2026-10-15: implemented** (`EncounterFrames`, `SectorHomes`, `FrameMarkers`; see `docs/ARCHITECTURE.md` §8).
+> Numbers below are updated to the code: the frame / site bubble is 10 km (`ServerFrames.SlotRadius`), merges happen
+> within 7.5 km below 1000 m/s (`RendezvousParams`). Additions since: spawns on a frame near a planet's border are
+> despawned or moved to a safe orbit (`EncounterFrames.OnPlanetBorder`); a static grid in a frame anchors it.
+
 An encounter is a conjunction frame. Everything the game spawns or authors outside the planet
 cells lives in frame space, with an orbit, and you reach it by conjunction (your orbit meets its
 orbit), never by flying through the meaningless world space between windows.
@@ -19,18 +24,19 @@ orbit), never by flying through the meaningless world space between windows.
 - Anchors keep clear of hazards: a sector centre inside a brown dwarf's killing field (Delfos:
   700 km, lethal within about 430 km in one 1.5 s tick) is moved radially out to 1.08 x the field
   radius in the chart plane, towards the sector's planet. The anchor's orbit stays its sector's home.
-- Anything unframed in a site's bubble (20 km) belongs to the site: grids, the player.
+- Anything unframed in a site's bubble (`EncounterFrames.SiteRadius` = `ServerFrames.SlotRadius`, 10 km) belongs to the site: grids, the player.
 - Sites are rebuilt from the world on load (not saved); their members are re-adopted.
 
 ## Conjunction
 
-- The merge screen (closest approach over 30 min, sticky rendezvous tracker, 10 km / 290 m/s
-  gates) runs between a player-carrying frame and any other frame. NPC-only frames never screen
+- The merge screen (closest approach over 30 min, sticky rendezvous tracker, 7.5 km / 1000 m/s
+  gates held 2 s, `RendezvousParams`) runs between any pair with a non-NPC member. NPC-only frames never screen
   against each other; two sites never merge.
-- **Host priority**: a site (never moves) > a frame with players > an NPC-only frame. The incomer
+- **Host priority** (`EncounterFrames.HostPriority`, then mass): a site (never moves) > a static-anchored frame > a
+  frame with player things > an NPC-only frame. The incomer
   is moved into the host's berth at its true relative position and velocity: arriving at a site
   puts you at your real offset from it.
-- Leaving: past the slot radius (20 km) a player grid or the player splits into a frame of its
+- Leaving: past the slot radius (10 km) a player grid or the player splits into a frame of its
   own on the rails (a lattice berth).
 
 ## Procedural spawns
@@ -43,7 +49,7 @@ A grid that appears outside the planet cells near a frame's berth is framed by d
   which is not a grid and cannot be moved with it): stays where it spawned, in that frame.
 - **Far**: it (and everything spawned with it, 2 km cluster) gets a frame of its own on a
   slightly different orbit: the spawning frame's state plus an offset along the spawn's bearing
-  but 25-60 km out (beyond the 10 km merge range), plus a deterministic 2-15 m/s kick, mostly in
+  but 25-60 km out (beyond the 7.5 km merge range), plus a deterministic 2-15 m/s kick, mostly in
   the orbit plane. The relative orbit is eccentric; the encounter drifts
   off and may come round again as a conjunction.
 - The game's procedural lifetime still applies: when the player leaves the originating procedural
@@ -77,7 +83,7 @@ frame's berth / site bubble, or plain world space.
 
 ## Map
 
-Both map views draw every encounter frame that is not a sector anchor (anchors are the sector
+The map (one map since OrbitalMap / UnifiedMap were removed; `CleanMap`) draws every encounter frame that is not a sector anchor (anchors are the sector
 orbit lines already): its orbit (orange) and where it is now; and every GPS marker at its true
 place (a diamond in its colour), pinned to the view edge with an arrow when beyond it.
 

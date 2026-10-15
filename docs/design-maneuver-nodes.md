@@ -1,6 +1,12 @@
 # Maneuver nodes
 
-KSP-style planning on the unified map: place burns on your orbit, see the resulting trajectory
+> **Status 2026-10-15.** Implemented: nodes, the patched-conic preview, the manual editor (milestone 2), the HUD
+> marker and flying a node, warp stops, armed nodes that fly themselves (`AutoBurn`), the Rendezvous tab.
+> **Not implemented, by decision:** auto-planning (the "Auto-plan" creation path below; the route planner was removed
+> 2026-09-29 and `InterceptPlanner.Plan` has no caller in the game). Milestone 3 (interplanetary) is **partial**: a
+> display-only porkchop plot (`Map/Porkchop.cs`), no planner. Code: `Scripts/Simulation/Flight/` (see its README).
+
+KSP-style planning on the map (the game's colonization map, taken over; there is no separate "unified" map any more): place burns on your orbit, see the resulting trajectory
 (through SOI changes), see how close it brings you to a target, then fly the burn with a HUD
 marker. Fast travel stays as it is.
 
@@ -40,7 +46,7 @@ target (the selected sector's site, or an encounter frame): closest approach on 
 trajectory, both positions marked, "3.2 km in 2 h 14 m, 41 m/s".
 
 **Creating nodes**:
-1. *Auto-plan* (first): select a sector, press the plan key (polled) or click a "Plan" row we
+1. *Auto-plan* (first) - **NOT IMPLEMENTED (retired 2026-09-29)**: select a sector, press the plan key (polled) or click a "Plan" row we
    draw: `InterceptPlanner` to its site's orbit gives the burns as nodes; the preview shows the
    predicted arrival. Same SOI first (all of Kemik's sectors from Kemik orbit).
 2. *Manual editor* (second): click your orbit line to add a node (picked like the sectors);
@@ -72,11 +78,12 @@ planet. `PatchedConic` already previews the result.
   each frame (`GetDigitalState(MouseInputs.Left/Right)`), edges tracked; the position is the
   window's `ClientMousePosition` (as the map's own picking).
 - **Map** (system and solar views): the trajectory through every node is patched-conic
-  (`PatchedConic.Propagate`), the planned part dashed. Hover the trajectory: "add node (in T)";
-  click adds a node there. A node: ring; the selected one gets six handles (P / R, N / AN on
+  (`PatchedConic.Propagate`), the planned part dashed. Hover the trajectory: "Add maneuver (in T)";
+  click adds a node there (or right-click: **Add maneuver**). A node: ring; the selected one gets six handles (P / R, N / AN on
   the diagonals since normal points out of the map, RO / RI). Pull a handle: delta-v grows at
   0.5 x (pull / 20 px)^2 m/s per second (20 px 0.5, 60 px 4.5, 120 px 18; sizes scale from
-  1080p). Drag a node along the trajectory to slide it; right-click deletes. Readout: delta-v,
+  1080p). Drag a node along the trajectory to slide it; right-click opens its menu (**Remove maneuver**, exact values,
+  **Auto-burn: on / off**; anywhere: **Remove all maneuvers**). Readout: delta-v,
   time to go, P / N / R, the post-burn Pe / Ap (or escape). With a sector selected, the closest
   approach to its site is marked on both paths: distance and time.
 - **Target**: a node's P / N / R fix a target post-burn orbit when set (editing re-targets);
@@ -85,10 +92,11 @@ planet. `PatchedConic` already previews the result.
   3.7 left (the burn was 45 s early, so some is left, as it should be).
 - **Flight**: the next node is a HUD marker in the burn direction (chart-aware in a planet
   cell), "Burn 25.0 m/s  T-2:51", edge-clamped like the game's markers; it completes below
-  0.1 m/s. Warp stops 30 s before a node.
+  0.1 m/s. Warp stops 30 s before a node (`Maneuvers.WarpLead`; 5 s before an armed one, `AutoWarpLead`). An
+  armed node flies itself (`AutoBurn`: the seated ship's thrusters, the jetpack on foot).
 - While the editor has the mouse (over the trajectory, a node or a handle, or dragging), the
   map does not select a sector.
-- Saved: `node T pro nor rad` lines (re-targeted from the loaded orbit).
+- Saved: `node T pro nor rad` lines plus the node's fixed target orbit and its armed flag (`Maneuvers.SaveLines`).
 - Harness: `node add/list/select/clear/pull/clickat/rclick`, `framedv`, `devbtn`.
 
 ## Patched conics on the map, handles, HUD (round 2)

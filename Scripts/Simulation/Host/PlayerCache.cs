@@ -37,6 +37,10 @@ public static class PlayerCache
         }
     }
 
+    /// <summary>A new world (WorldReset): the last world's sessions and characters let go (kept by session, every world's
+    /// stayed in memory - 2026-10-15).</summary>
+    internal static void ResetWorld() { lock (_by) _by.Clear(); }
+
     static Entity LocalCharacter(Keen.VRage.Core.Game.Systems.Session session)
     {
         try

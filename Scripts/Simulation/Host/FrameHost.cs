@@ -120,7 +120,7 @@ public static partial class FrameHost
 
     /// <summary>A new session (another world loaded in the same process, should statics outlive it): nothing of the last
     /// one's player - its frame, ride, seat, pending teleport / arrival / merge, warp scale, observer - and its game clock.</summary>
-    private static void NewSession()
+    internal static void NewSession()
     {
         _cur = new PlayerState(); _pub = PlayerState.None;
         SeatGrid = null; SeatBlock = null; _seatChar = null; _lastChar = null; _seatVelOk = false;
@@ -141,7 +141,7 @@ public static partial class FrameHost
     {
         TickRate.Client.Count();
         PlanetRenderBridge.CameraPos = camera.Position;
-        if (!ReferenceEquals(session, _session)) { _session = session; NewSession(); }
+        if (!ReferenceEquals(session, _session)) { _session = session; WorldReset.ClientSession(); }
         if (!OrbitalSettings.SawClient) OrbitalSettings.SawClient = true;
         OrbitalSettings.Poll();   // (the settings files, every ~2 s)
         if (!SystemHost.Built)

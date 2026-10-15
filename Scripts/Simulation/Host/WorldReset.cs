@@ -14,6 +14,7 @@ namespace OrbitalMod;
 ///  - <see cref="Unloaded"/>: the last server planet leaves the scene (ServerPlanetBeacon) - the world unloads.
 ///  - <see cref="ServerSession"/>: a server planet joins the scene in a session not the last world's, with no unload
 ///    seen in between. The new world's saved state (SavedState, read at the planets' [Init], just before) is kept.
+/// The client's half runs on the client thread at its first tick in a new client session (<see cref="ClientSession"/>).
 /// <see cref="SystemHost"/>.Build resets the system's own state again on every build (<see cref="ResetSystem"/>).
 /// </summary>
 public static class WorldReset
@@ -55,8 +56,18 @@ public static class WorldReset
         // what the player knew, had, was waiting for in the last world
         Step("contacts", Contacts.ResetWorld);   // (shown in the next world, and written into its save)
         Step("tombstones", GridMembers.ResetWorld);   // (a grid of the next world took a dead one's id by its name and place)
+        Step("player cache", PlayerCache.ResetWorld);   // (kept by session: every world's sessions and characters in memory)
         // (at the unload only: the planets' [Init] reads the next world's state BEFORE they join its scene)
         if (unloading) Step("pending save", SavedState.ResetWorld);   // (the last world's clock, frames and contacts applied to the next)
+    }
+
+    /// <summary>The client's half, on the client thread: its first tick in a new client session (FrameHost.Tick). The local
+    /// player's state (its frame, ride, seat, pending moves, observer, own orbit, the client clock) and the client's render
+    /// caches of the last world's planets.</summary>
+    internal static void ClientSession()
+    {
+        FrameHost.NewSession();
+        Step("planet meshes", PlanetMesh.ResetWorld);   // (every world's planets' globes held in memory)
     }
 
     /// <summary>The system's state: the frames' server state, sites, rocks, entry, our edits; <paramref name="build"/>: for a

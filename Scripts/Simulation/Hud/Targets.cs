@@ -3,7 +3,7 @@ using SEAerospace;
 using SEAerospace.Frames;
 using SEAerospace.Orbital;
 using SEAerospace.SystemDef;
-using static OrbitalMod.HudMath;
+using static OrbitalMod.Num;
 
 #pragma warning disable
 namespace OrbitalMod;

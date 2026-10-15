@@ -369,7 +369,7 @@ namespace SEAerospace
         /// <summary>The unexplained-jump test (RSS ZoneManager.cs:466): TRUE per-check
         /// displacement minus the velocity-explained displacement exceeds
         /// <see cref="ZoneTeleportThreshold"/>. <paramref name="trueVel"/> must be the TRUE
-        /// velocity (HighSpeedFlight's virtual velocity while engaged — a stepped grid moves
+        /// velocity (a grid HighSpeed conic's velocity while on it — a stepped grid moves
         /// v·dt per tick by OUR OWN teleports, an explained move), which is how rails/HighSpeed
         /// stepping is exempted; the seam conversions exempt themselves by re-seeding lastPos
         /// after every conversion (the GridTeleport external-jump-guard pattern). Non-finite

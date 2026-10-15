@@ -159,8 +159,8 @@ public static partial class Maneuvers
     private static double _crossAt = -1; private static long _crossSig = long.MinValue; private static object _crossSites;
 
     /// <summary>
-    /// When the path comes within the merge range (10 km) of a sector's site, and when it is 20 km away
-    /// again (the split range), on every leg about the site's own body. Recomputed at most once a
+    /// When the path comes within the merge range (10 km) of a sector's site, and when it is 10 km away
+    /// again (the split range, ServerFrames.SlotRadius), on every leg about the site's own body. Recomputed at most once a
     /// second, or when the plan changes.
     /// </summary>
     public static List<Crossing> SectorCrossings(double t, List<Leg> legs)

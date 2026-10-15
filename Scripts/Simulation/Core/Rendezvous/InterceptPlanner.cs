@@ -4,11 +4,7 @@ using SEAerospace.Frames;
 
 namespace SEAerospace.Rendezvous
 {
-    /// <summary>
-    /// Options controlling the intercept sweep. All have sane defaults; a caller can
-    /// override the arrival-time window or ask for a velocity-matching arrival burn.
-    /// </summary>
-    /// <summary>What the arrival-time sweep optimizes for. Surfaced to the player as
+    /// <summary>NOT WIRED: tests only (2026-10-15). What the arrival-time sweep optimizes for. Surfaced to the player as
     /// "fastest" vs "most efficient" (the porkchop trade, reduced to named options).</summary>
     public enum InterceptObjective
     {
@@ -16,6 +12,11 @@ namespace SEAerospace.Rendezvous
         Fastest      // earliest feasible arrival (aggressive; pricier)
     }
 
+    /// <summary>
+    /// NOT WIRED: tests only (2026-10-15): no runtime caller; kept as tested library code.
+    /// Options controlling the intercept sweep. All have sane defaults; a caller can
+    /// override the arrival-time window or ask for a velocity-matching arrival burn.
+    /// </summary>
     public class InterceptOptions
     {
         /// <summary>Fastest (earliest arrival) vs MinDeltaV (cheapest). Default cheapest.</summary>
@@ -50,6 +51,7 @@ namespace SEAerospace.Rendezvous
     }
 
     /// <summary>
+    /// NOT WIRED: tests only (2026-10-15): no runtime caller; kept as tested library code.
     /// The unified "plot intercept" entry point. Given my current state, the target's
     /// orbit, mu, the current time, and the capture thresholds, returns a ManeuverPlan:
     /// a departure burn (optionally a matching arrival burn) plus an honest arrival

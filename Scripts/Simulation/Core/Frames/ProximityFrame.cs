@@ -13,7 +13,8 @@ namespace SEAerospace.Frames
     ///
     /// Orbital velocity lives in the frame's elements, never in a Havok body. The anchor's
     /// per-tick Δv is drained into <see cref="VirtualVelocity"/> (the orbit) and zeroed; the
-    /// other members get the apparent + Clohessy-Wiltshire forces. This type is the pure
+    /// other members get the apparent force plus the exact differential gravity (the game side applies
+    /// g(anchor + offset) - g(anchor); Clohessy-Wiltshire is not used at runtime). This type is the pure
     /// STATE of a frame — the per-tick dynamics live in the game-side FrameManager. Members
     /// are entity ids (long), not game handles, so the model stays game-free and testable.
     /// </summary>

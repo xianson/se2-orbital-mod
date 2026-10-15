@@ -3,6 +3,7 @@ using SEAerospace.Frames;
 namespace SEAerospace.Rendezvous
 {
     /// <summary>
+    /// NOT WIRED: tests only (2026-10-15): no runtime caller; kept as tested library code.
     /// The honest error band on an intercept's predicted arrival miss, produced by
     /// <see cref="InterceptBand.BandFor"/>. A point-estimate miss (<see cref="MissNominal"/>)
     /// plus the target-uncertainty-derived 1-σ/2-σ envelope — the capture bubble's numeric
@@ -19,6 +20,7 @@ namespace SEAerospace.Rendezvous
     }
 
     /// <summary>
+    /// NOT WIRED: tests only (2026-10-15): no runtime caller; kept as tested library code.
     /// Decoupled "capture bubble" arithmetic over a <see cref="ManeuverPlan"/> and a SCALAR
     /// position uncertainty — the band math that used to live on the (now-deleted) Rendezvous
     /// Target. It needs only the estimated orbit's POSITION sigma and its growth, never the

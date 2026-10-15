@@ -5,7 +5,7 @@ using SEAerospace.SystemDef;
 
 namespace SEAerospace.Frames
 {
-    /// <summary>Which realm a resolved target lands in, for the observer.</summary>
+    /// <summary>NOT WIRED: tests only (2026-10-15). Which realm a resolved target lands in, for the observer.</summary>
     public enum ResolveKind
     {
         InBerth,   // same berth/frame as the observer: a real world-space position
@@ -13,7 +13,7 @@ namespace SEAerospace.Frames
         Occluded   // line of sight blocked by a body between observer and target
     }
 
-    /// <summary>The three-way result of a <see cref="Resolve"/> call (a small POCO a HUD /
+    /// <summary>NOT WIRED: tests only (2026-10-15). The three-way result of a <see cref="Resolve"/> call (a small POCO a HUD /
     /// proxy feed / comms graph turns into a marker, a sky dot, or "no line of sight").</summary>
     public struct ResolveResult
     {
@@ -59,7 +59,7 @@ namespace SEAerospace.Frames
         }
     }
 
-    /// <summary>A body that can block a line of sight, in the common (parent) frame.</summary>
+    /// <summary>NOT WIRED: tests only (2026-10-15). A body that can block a line of sight, in the common (parent) frame.</summary>
     public struct ResolveBody
     {
         public string Name;
@@ -75,6 +75,7 @@ namespace SEAerospace.Frames
     }
 
     /// <summary>
+    /// NOT WIRED: tests only (2026-10-15): no runtime caller; kept as tested library code.
     /// The load-bearing door between realms (docs/celestial-addressing.md): given the
     /// observer's frame state and a target — both expressed in a COMMON (parent/celestial)
     /// frame — decide InBerth / OnSky / Occluded. This is the pure geometric core, game-free

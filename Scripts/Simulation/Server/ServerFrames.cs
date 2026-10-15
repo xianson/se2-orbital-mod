@@ -18,13 +18,15 @@ namespace OrbitalMod;
 ///  - ANCHOR = the heaviest dynamic grid (SE1 ElectAnchor). The server pins it to the berth, reads its
 ///    velocity, zeroes it, and folds it into the rails (FrameRails.FoldDrain). The folded slice / dt is
 ///    the frame's acceleration A, published in <see cref="AnchorAccel"/>.
-///  - OTHER MEMBERS get the differential gravity of the berth (CW) minus A, as a velocity change
+///  - OTHER MEMBERS get the exact differential gravity of the berth (g(anchor + offset) - g(anchor), not the
+///    linearised Clohessy-Wiltshire form) minus A, as a velocity change
 ///    (SE2 has no force accumulator; the engine's own impulse helpers do the same). Characters get the
 ///    same from the client half. A member beyond the slot radius SPLITS into its own frame.
 ///  - When the anchor is the player (no grids), the client drains and publishes A; grid members here
-///    still get CW − A.
+///    still get that differential gravity − A.
 ///  - ARRIVAL for a grid-anchored frame happens here: every grid member is relocated into the planet
-///    cell at the crossing state (HighSpeed above the cap), and the player member is handed to the
+///    cell at the crossing state (a dynamic grid's velocity scaled down to the cap; a static grid rides its
+///    conic as a grid HighSpeed entry), and the player member is handed to the
 ///    client with its offset.
 /// </summary>
 public static partial class ServerFrames

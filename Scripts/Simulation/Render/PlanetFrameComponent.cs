@@ -238,6 +238,13 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
 
     private bool _inKeep;
 
+    /// <summary>Warm the real terrain before showing it (PlanetRenderBridge.WarmTerrain): at least WarmMinFrames, then
+    /// three settled frames in a row, at most WarmMaxSeconds.</summary>
+    public static bool WarmBeforeShow = true;
+    public static int WarmMinFrames = 10;
+    public static double WarmMaxSeconds = 8.0;   // (the proxy stands in meanwhile: a late real planet beats a coarse one)
+    private int _warmFrames, _settledFrames; private long _warmStart;
+
     /// <summary>
     /// Rendering under the frames model. Returns false when there is no published observer frame
     /// (legacy space: the literal world, handled by the older gravity-reach logic).
@@ -247,13 +254,6 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
     ///    frame-relative celestial offset (PlanetBerths.ProjectProxy: true direction, true angular
     ///    size, render distance clamped at 2000 km).
     /// </summary>
-    /// <summary>Warm the real terrain before showing it (PlanetRenderBridge.WarmTerrain): at least WarmMinFrames, then
-    /// three settled frames in a row, at most WarmMaxSeconds.</summary>
-    public static bool WarmBeforeShow = true;
-    public static int WarmMinFrames = 10;
-    public static double WarmMaxSeconds = 8.0;   // (the proxy stands in meanwhile: a late real planet beats a coarse one)
-    private int _warmFrames, _settledFrames; private long _warmStart;
-
     private bool TickFramesMode(WorldTransform camera, double distance)
     {
         if (!SystemHost.Built || !FrameHost.Observer.HasValue) return false;

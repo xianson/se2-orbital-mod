@@ -93,7 +93,7 @@ public static partial class FrameHost
     public static string HighSpeedElements => "-";
     public static double HsResidualAvg, HsResidualMax;
     public static int HsFolds;
-    public static bool HsThrustFold = true;
+    public static bool HsThrustFold = true;   // INERT since the player HighSpeed removal: the harness 'hsfold' sets it, nothing reads it
     public static string HsDiag = "";
     /// <summary>DEV: give the HighSpeed player a velocity - never in HighSpeed now.</summary>
     public static string Kick(double pro, double rad, double nor) => "not in HighSpeed";

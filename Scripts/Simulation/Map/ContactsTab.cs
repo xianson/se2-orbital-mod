@@ -5,7 +5,7 @@ using Keen.VRage.Core.Input;
 using Keen.VRage.Library.Utils;
 using SEAerospace;
 using SEAerospace.Orbital;
-using static OrbitalMod.HudMath;
+using static OrbitalMod.Num;
 
 #pragma warning disable
 namespace OrbitalMod;

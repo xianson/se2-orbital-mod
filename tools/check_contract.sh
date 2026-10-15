@@ -22,6 +22,10 @@ fixture=$(src "$AERO" FlightFixture.cs) || exit 1
 hack=$(src "$AERO" PhysicsHack.cs) || exit 1
 EH=$(src Scripts EntryHost.cs) || exit 1
 OAPI=$(src Scripts OrbitalApi.cs) || exit 1
+# Both APIs are partial classes over several files (AeroApi.cs, AeroApi.Flight.cs, ...; OrbitalApi.cs, OrbitalApi.Grids.cs,
+# ...): the signature and overload checks read every partial beside the main file (2026-10-15).
+mapfile -t APIS < <(find "$(dirname "$api")" -maxdepth 1 -name 'AeroApi*.cs' -type f | sort)
+mapfile -t OAPIS < <(find "$(dirname "$OAPI")" -maxdepth 1 -name 'OrbitalApi*.cs' -type f | sort)
 
 # 1. the entry source (EntryHost.cs <-> AeroApi.cs, the aero mod's public API). Two numbers: the API's version (members
 #    are only added, so orbital needs at least the version it was written for) and the entry source's own contract
@@ -53,45 +57,56 @@ grep -rq '"AeroMod.AeroEntryFx", "External"' Scripts && bad "the retired AeroEnt
 #    caller binds (its typed delegate, its typeof list, or the Invoke argument array's shape). sig: a declaration's parameter
 #    types, names dropped, namespaces stripped ("Entity, out Vector3, out float"). A change here is a contract change: members
 #    are never changed nor overloaded - the new shape gets a new name (TryGetEntryState2), the old one stays.
+# sig <name> <file...>: the first declaration of <name> in those files (no overloads, step 5, so the first is the only one).
 sig() {
-  awk -v n="$2" 'BEGIN{re="public static [^(=]* " n "[(]"} $0 ~ re {on=1; buf=""} on {buf = buf " " $0; if (index($0, ")")) {print buf; exit}}' "$1" \
+  local n="$1"; shift
+  awk -v n="$n" 'BEGIN{re="public static [^(=]* " n "[(]"} $0 ~ re {on=1; buf=""} on {buf = buf " " $0; if (index($0, ")")) {print buf; exit}}' "$@" \
   | sed 's/^[^(]*(//; s/).*//' | tr ',' '\n' | sed 's/^ *//; s/ *$//; s/ [A-Za-z_][A-Za-z0-9_]*$//; s/[A-Za-z0-9_]*\.//g; s/  */ /g' | paste -sd',' - | sed 's/,/, /g'
 }
-want() { local got; got=$(sig "$1" "$2"); [ "$got" = "$3" ] || bad "$(basename "$1") $2($got): $4 binds $2($3)"; }
+# want <aero|orbital|file> <name> <params> <caller>: aero = every AeroApi*.cs, orbital = every OrbitalApi*.cs.
+want() {
+  local got where
+  case "$1" in
+    aero) got=$(sig "$2" "${APIS[@]}"); where=AeroApi ;;
+    orbital) got=$(sig "$2" "${OAPIS[@]}"); where=OrbitalApi ;;
+    *) got=$(sig "$2" "$1"); where=$(basename "$1") ;;
+  esac
+  [ "$got" = "$3" ] || bad "$where $2($got): $4 binds $2($3)"
+}
 # Orbital -> Aero (AeroApi), shipped: the entry source and aerobraking (EntryHost), the move push (ServerFrames)
-want "$api" RegisterEntrySource "string, Delegate" EntryHost
-want "$api" HasEntrySource "string, Delegate" EntryHost
-want "$api" PredictHullForces "Entity, Vector3, float, float, out Vector3, out Vector3, out float" EntryHost.MeasureBeta
-want "$api" RequestForceTable "Entity" EntryHost.MeasureBeta
-want "$api" TryGetAtmosphereAt "Vector3D, out float, out float, out float, out float" EntryHost.SampleBorder
-want "$api" NoteMoved "Entity" ServerFrames.CallNoteMoved
+want aero RegisterEntrySource "string, Delegate" EntryHost
+want aero HasEntrySource "string, Delegate" EntryHost
+want aero PredictHullForces "Entity, Vector3, float, float, out Vector3, out Vector3, out float" EntryHost.MeasureBeta
+want aero RequestForceTable "Entity" EntryHost.MeasureBeta
+want aero TryGetAtmosphereAt "Vector3D, out float, out float, out float, out float" EntryHost.SampleBorder
+want aero NoteMoved "Entity" ServerFrames.CallNoteMoved
 # ... the build hints and flight gauges (BuildHints, aero-2c's: bound by name; these are its Invoke arrays' shapes)
-want "$api" TryGetFlight "Entity, out Vector3, out float, out float, out float, out float" "BuildHints / DevReentry / GridGen"
-want "$api" TryGetForces "Entity, out Vector3, out Vector3, out float, out float, out float" "BuildHints / DevReentry / GridGen"
-want "$api" SetFocusGrid "Entity" BuildHints
-want "$api" TryGetStructure "Entity, out float, out float, out float" BuildHints
-want "$api" TryGetStall "Entity, out int, out float, out float, out float" BuildHints
-want "$api" TryGetLoac "Entity, out int, out float" BuildHints
-want "$api" TryDesign "Entity, Vector3, float, out Vector3, out Vector3, out Vector3, out float, out float, out float" BuildHints
-want "$api" GetTopSpeed "Entity, Vector3" BuildHints
-want "$api" GetTopSpeedAt "Entity, Vector3, float" "BuildHints / FlyTest"
-want "$api" GetThrustAlong "Entity, Vector3, float, out Vector3" BuildHints
-want "$api" TryGetCenterOfMass "Entity, out Vector3" BuildHints
-want "$api" GetMass "Entity" BuildHints
-want "$api" GetDesignPressures "Entity, Vector3, float, List<Vector3>, List<Vector3>, List<float>, List<float>, int" BuildHints
-want "$api" GetControlRatio "Entity, Vector3, float" BuildHints
+want aero TryGetFlight "Entity, out Vector3, out float, out float, out float, out float" "BuildHints / DevReentry / GridGen"
+want aero TryGetForces "Entity, out Vector3, out Vector3, out float, out float, out float" "BuildHints / DevReentry / GridGen"
+want aero SetFocusGrid "Entity" BuildHints
+want aero TryGetStructure "Entity, out float, out float, out float" BuildHints
+want aero TryGetStall "Entity, out int, out float, out float, out float" BuildHints
+want aero TryGetLoac "Entity, out int, out float" BuildHints
+want aero TryDesign "Entity, Vector3, float, out Vector3, out Vector3, out Vector3, out float, out float, out float" BuildHints
+want aero GetTopSpeed "Entity, Vector3" BuildHints
+want aero GetTopSpeedAt "Entity, Vector3, float" "BuildHints / FlyTest"
+want aero GetThrustAlong "Entity, Vector3, float, out Vector3" BuildHints
+want aero TryGetCenterOfMass "Entity, out Vector3" BuildHints
+want aero GetMass "Entity" BuildHints
+want aero GetDesignPressures "Entity, Vector3, float, List<Vector3>, List<Vector3>, List<float>, List<float>, int" BuildHints
+want aero GetControlRatio "Entity, Vector3, float" BuildHints
 # ... dev (the harness, the reentry test, generated grids, the fly test)
-want "$api" TryGetLift "Entity, out Vector3, out float" GridGen
-want "$api" TryGetGroundHeight "Entity, out float" "GridGen / FlyTest"
-want "$api" TryGetEntry "Entity, out float, out bool" DevReentry
-want "$api" TryGetAtmosphere "Entity, out float, out float, out float, out float" DevReentry
-want "$api" GetFxConsistency "bool" "DevHarness fxcheck"
+want aero TryGetLift "Entity, out Vector3, out float" GridGen
+want aero TryGetGroundHeight "Entity, out float" "GridGen / FlyTest"
+want aero TryGetEntry "Entity, out float, out bool" DevReentry
+want aero TryGetAtmosphere "Entity, out float, out float, out float, out float" DevReentry
+want aero GetFxConsistency "bool" "DevHarness fxcheck"
 want "$fixture" Build "Entity, string" "DevHarness flightdump"
 want "$hack" GetGravityDirection "DEntityContext" "DevHarness gridup"
 # Aero -> Orbital (OrbitalApi): the railed entry's heat and loads (OrbitalLink, AeroEntryFx), the contact balance (OrbitalLink)
-want "$OAPI" TryGetEntryState "Entity, out Vector3, out float" AeroEntryFx.EntryStateAt
-want "$OAPI" TryGetEntryState2 "Entity, out Vector3, out float, out float, out Vector3" OrbitalLink.TryGetEntryState2
-want "$OAPI" TryGetGridEdits "Entity, out Vector3D, out long" OrbitalLink.TryGetGridEdits
+want orbital TryGetEntryState "Entity, out Vector3, out float" AeroEntryFx.EntryStateAt
+want orbital TryGetEntryState2 "Entity, out Vector3, out float, out float, out Vector3" OrbitalLink.TryGetEntryState2
+want orbital TryGetGridEdits "Entity, out Vector3D, out long" OrbitalLink.TryGetGridEdits
 
 # 4. EXPLICIT PARAMETER TYPES: every cross-mod lookup passes them (a later overload must never make one ambiguous). BuildHints
 #    is aero-2c's: reported, not failed, until it passes them too.
@@ -111,10 +126,32 @@ done
 [ -n "$warn" ] && echo "      (note: BuildHints.cs looks up by name only:$warn)"
 
 # 5. NO OVERLOADS in either public API (a name-only lookup would throw AmbiguousMatchException)
-for f in "$api" "$OAPI"; do
-  d=$(grep -o 'public static [^(=]* [A-Za-z0-9_]*(' "$f" | sed 's/($//; s/.* //' | sort | uniq -d | tr '\n' ' ')
-  [ -z "$d" ] || bad "$(basename "$f"): overloaded public member(s): $d"
-done
+#    (over all of a class's partial files: an overload split across two partials is still one)
+d=$(cat "${APIS[@]}" | grep -o 'public static [^(=]* [A-Za-z0-9_]*(' | sed 's/($//; s/.* //' | sort | uniq -d | tr '\n' ' ')
+[ -z "$d" ] || bad "AeroApi: overloaded public member(s): $d"
+d=$(cat "${OAPIS[@]}" | grep -o 'public static [^(=]* [A-Za-z0-9_]*(' | sed 's/($//; s/.* //' | sort | uniq -d | tr '\n' ' ')
+[ -z "$d" ] || bad "OrbitalApi: overloaded public member(s): $d"
 
-[ $rc -eq 0 ] && echo "PASS  contract (aero API $a, entry source $e; names, signatures both ways, explicit lookups, no overloads)" || echo "FAIL  contract"
+# 6. THE HARNESS'S FLAGS (2026-10-15, AUDIT item 7): every AeroMod static the dev code sets or reads by a literal string
+#    (SetForeignFlag / SetForeignString / ForeignValue("AeroMod.Type[+Nested]", "Member"): DevHarness, GridGen) is a static
+#    field or property of that type in the aero source - a rename there leaves the harness command answering "not found".
+#    OPTIONAL: types that live only in a local, untracked aero file (absent from a clean checkout: noted, not failed).
+OPTIONAL=" AeroSpeedSpike "
+nflags=0; opt=""
+while IFS= read -r hit; do
+  t=$(echo "$hit" | sed -E 's/^[^"]*"AeroMod\.([A-Za-z0-9_.+]+)", *"([A-Za-z0-9_]+)".*/\1/')
+  m=$(echo "$hit" | sed -E 's/^[^"]*"AeroMod\.([A-Za-z0-9_.+]+)", *"([A-Za-z0-9_]+)".*/\2/')
+  leaf=${t##*[.+]}; nflags=$((nflags + 1))
+  decl=$(grep -rlE "(class|struct) $leaf\b" "$AERO" --include=*.cs)
+  if [ -z "$decl" ]; then
+    case "$OPTIONAL" in *" $leaf "*) opt="$opt $t.$m" ;; *) bad "harness: AeroMod.$t not found (for .$m)" ;; esac
+    continue
+  fi
+  found=""
+  while IFS= read -r df; do grep -qE "static [^=(;]*\b$m\b *(=|;|\{)" "$df" && { found=y; break; }; done <<< "$decl"
+  [ -n "$found" ] || bad "harness: AeroMod.$t.$m is no static field/property in the aero source"
+done < <(grep -rhoE '(SetForeignFlag|SetForeignString|ForeignValue)\("AeroMod\.[A-Za-z0-9_.+]+", *"[A-Za-z0-9_]+"' Scripts --include=*.cs | sort -u)
+[ -n "$opt" ] && echo "      (note: local-only aero type(s) absent, not checked:$opt)"
+
+[ $rc -eq 0 ] && echo "PASS  contract (aero API $a, entry source $e; names, signatures both ways, explicit lookups, no overloads, $nflags harness flags)" || echo "FAIL  contract"
 exit $rc

@@ -18,7 +18,6 @@ namespace OrbitalMod;
 /// </summary>
 public static partial class MapPipeline
 {
-
     // ───────────────────────────── UI layer ─────────────────────────────
 
     private static object _batch;

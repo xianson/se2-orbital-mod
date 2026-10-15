@@ -74,7 +74,6 @@ namespace SEAerospace.SystemDef
         /// <summary>ClosestApproach window sample count for the intercept TCA search.</summary>
         public const int InterceptApproachSamples = 256;
         private const double DegToRad = Math.PI / 180.0;
-        private const double TwoPi = 2.0 * Math.PI;
 
         /// <summary>
         /// The parent-body context the assigner needs — game-free primitives the eyes-on hook fills

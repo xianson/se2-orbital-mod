@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # quick.sh [seed] - the in-game check, 5 minutes or less end to end (one launch; waits poll the condition, never sleep blind).
-# The invariant checker (Frames/Invariants.cs) runs every second throughout; the run ends requiring it saw nothing.
+# The invariant checker (Server/Invariants.cs) runs every second throughout; the run ends requiring it saw nothing.
 #  Q1 the SZ1 Hercules (a multi-grid ship) and a Blue Fighter in one frame: all of the Hercules together
 #  Q2 seated in the fighter (a member), dampeners off, warp x10: the plot's prediction judged and held
 #  Q3 in the Hercules' own cockpit: the HUD check; out (by the ship, in its frame) and back in

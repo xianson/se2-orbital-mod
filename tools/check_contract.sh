@@ -19,14 +19,14 @@ NEED_API=2   # (the oldest AeroApi.Version with every member orbital reaches)
 a=$(grep -o 'public const int Version = [0-9]*' "$api" | grep -o '[0-9]*$')
 [ -n "$a" ] && [ "$a" -ge "$NEED_API" ] || bad "aero API version $a, orbital needs >= $NEED_API"
 e=$(grep -o 'public const int EntrySourceContract = [0-9]*' "$fx" | grep -o '[0-9]*$')
-o=$(grep -o 'public const int AeroEntryContract = [0-9]*' Scripts/Simulation/Frames/EntryHost.cs | grep -o '[0-9]*$')
+o=$(grep -o 'public const int AeroEntryContract = [0-9]*' Scripts/Simulation/Entry/EntryHost.cs | grep -o '[0-9]*$')
 [ -n "$e" ] && [ "$e" = "$o" ] || bad "entry-source contract: aero $e, orbital $o"
 grep -q 'public static int RegisterEntrySource(string owner, Delegate source) => AeroEntryFx.RegisterEntrySource' "$api" || bad "AeroApi.RegisterEntrySource no longer returns AeroEntryFx's contract"
 grep -q 'public static int RegisterEntrySource(string owner, Delegate source)' "$api" || bad "AeroApi.RegisterEntrySource(string, Delegate) missing"
 grep -q 'public static bool HasEntrySource(string owner, Delegate source)' "$api" || bad "AeroApi.HasEntrySource(string, Delegate) missing"
-grep -q '"AeroMod.AeroApi"' Scripts/Simulation/Frames/EntryHost.cs || bad "EntryHost no longer finds AeroMod.AeroApi"
+grep -q '"AeroMod.AeroApi"' Scripts/Simulation/Entry/EntryHost.cs || bad "EntryHost no longer finds AeroMod.AeroApi"
 grep -q 'Func<Keen.VRage.DCS.Components.Entity, ValueTuple<Vector3, float>>' "$fx" || bad "aero's source delegate is no longer Func<Entity, (Vector3, float)>"
-grep -q 'Func<Entity, ValueTuple<Vector3, float>>' Scripts/Simulation/Frames/EntryHost.cs || bad "orbital's source delegate is no longer Func<Entity, (Vector3, float)>"
+grep -q 'Func<Entity, ValueTuple<Vector3, float>>' Scripts/Simulation/Entry/EntryHost.cs || bad "orbital's source delegate is no longer Func<Entity, (Vector3, float)>"
 
 # 2. every AeroMod member named in a GetMethod/GetField string here exists in the aero source (dev code included)
 NAMES="RegisterEntrySource HasEntrySource TryGetFlow WingTips EntryStrength TryGetFlight TryGetForces TryGetLift TryGetGroundHeight PredictHullForces RequestForceTable TryGetEntry TryGetAtmosphere TryGetAtmosphereAt GetFxConsistency TryGetStructure SetFocusGrid TryGetStall TryGetLoac NoteMoved Build GetGravityDirection TryDesign GetTopSpeed GetTopSpeedAt GetThrustAlong TryGetCenterOfMass GetMass GetDesignPressures GetControlRatio GetWavePeak"
@@ -47,7 +47,7 @@ sig() {
   | sed 's/^[^(]*(//; s/).*//' | tr ',' '\n' | sed 's/^ *//; s/ *$//; s/ [A-Za-z_][A-Za-z0-9_]*$//; s/[A-Za-z0-9_]*\.//g; s/  */ /g' | paste -sd',' - | sed 's/,/, /g'
 }
 want() { local got; got=$(sig "$1" "$2"); [ "$got" = "$3" ] || bad "$(basename "$1") $2($got): $4 binds $2($3)"; }
-OAPI=Scripts/Simulation/Frames/OrbitalApi.cs
+OAPI=Scripts/Simulation/Api/OrbitalApi.cs
 # Orbital -> Aero (AeroApi), shipped: the entry source and aerobraking (EntryHost), the move push (ServerFrames)
 want "$api" RegisterEntrySource "string, Delegate" EntryHost
 want "$api" HasEntrySource "string, Delegate" EntryHost

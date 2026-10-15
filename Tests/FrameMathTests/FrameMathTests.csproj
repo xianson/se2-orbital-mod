@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
-    <Compile Include="$(MSBuildThisFileDirectory)..\..\Scripts\Simulation\Frames\FrameMath.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\Scripts\Simulation\Host\FrameMath.cs" />
   </ItemGroup>
 </Project>

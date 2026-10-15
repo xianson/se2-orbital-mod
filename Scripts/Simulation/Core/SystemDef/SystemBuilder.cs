@@ -317,16 +317,6 @@ namespace SEAerospace.SystemDef
                 return v * _cos + Vector3D.Cross(_axis, v) * _sin
                      + _axis * (Vector3D.Dot(_axis, v) * (1.0 - _cos));
             }
-
-            /// <summary>The INVERSE rotation (tilted plane -&gt; canonical +Z): Rodrigues with
-            /// −angle (sin negated). Used to bring a world/tilted-frame position back to the
-            /// canonical frame the OrbitAssigner samples in.</summary>
-            public Vector3D RotateInverse(Vector3D v)
-            {
-                if (!Active) return v;
-                return v * _cos - Vector3D.Cross(_axis, v) * _sin
-                     + _axis * (Vector3D.Dot(_axis, v) * (1.0 - _cos));
-            }
         }
 
         /// <summary>Rotate a canonical-plane conic onto the system plane: elements -&gt; epoch

@@ -60,18 +60,6 @@ namespace SEAerospace.Frames
         /// it came from). Persisted via FrameSnapshot, so it survives a save/reload.</summary>
         public bool IsEncounter;
 
-        /// <summary>Set each tick by FrameManager: true when the frame is anchored by a live VOXEL
-        /// (a charted asteroid) rather than a grid. The voxel-anchored update path does NOT yet
-        /// warp-step its members, so the clock must hold those members at x1 (else their relative orbit
-        /// about the rock advances at ~1/warp the correct rate). Runtime-only; not persisted.</summary>
-        public bool VoxelAnchored;
-
-        /// <summary>Universe-time (seconds) at which an encounter berth self-dissolves AND deletes its
-        /// grids/voxels (rob 2026-06-16: "dissolve and delete themselves after a timer"). 0 = unset;
-        /// FrameManager seeds it on first sight (boot, or re-seeds after a reload — NOT persisted, so a
-        /// reload restarts the countdown). Only meaningful when <see cref="IsEncounter"/>.</summary>
-        public double EncounterExpiry;
-
         /// <summary>Drained anchor delta-v awaiting fold into the orbit (the FrameManager's
         /// fold==feed accumulator, 2026-06-11): per-tick drains below the micro-impact fold
         /// threshold are ACCUMULATED here instead of discarded (so a sustained weak burn —

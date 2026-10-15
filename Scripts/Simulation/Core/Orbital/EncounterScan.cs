@@ -150,19 +150,32 @@ namespace SEAerospace.Orbital
             double dt = horizon / n;
 
             double prevT = t0;
-            double prevF = gap0;
+            double prevF = gap0, prev2F = double.PositiveInfinity;
             for (int k = 1; k <= n; k++)
             {
                 double tau = (k == n) ? tEnd : (t0 + dt * k);
                 double f = Gap(subject, target, tau);
+                // a sampled closest approach outside: the pass may dip inside between samples (2026-10-15, as
+                // PatchedConic.FindEarliestEncounter)
+                if (prevF > 0.0 && f > 0.0 && prevF < prev2F && prevF <= f)
+                {
+                    double dip = DipEntry(subject, target, Math.Max(t0, prevT - dt), tau);
+                    if (!double.IsNaN(dip)) { ev = Evaluate(subject, target, dip); return true; }
+                }
                 if (prevF > 0.0 && f <= 0.0) // crossing inward = entering the sphere
                 {
                     double root = BisectGap(subject, target, prevT, tau, 64);
                     ev = Evaluate(subject, target, root);
                     return true;
                 }
+                prev2F = prevF;
                 prevT = tau;
                 prevF = f;
+            }
+            if (prevF > 0.0 && prevF < prev2F)   // (the window's last sample a minimum still falling)
+            {
+                double dip = DipEntry(subject, target, Math.Max(t0, prevT - dt), prevT);
+                if (!double.IsNaN(dip)) { ev = Evaluate(subject, target, dip); return true; }
             }
             return false; // closest pass never reached the sphere -> no encounter
         }
@@ -190,6 +203,23 @@ namespace SEAerospace.Orbital
             e.RelativePosition = rRel;
             e.RelativeVelocity = vRel;
             return e;
+        }
+
+        // A between-samples dip over [lo, hi] (both ends outside): ternary search for the minimum, and where it goes
+        // inside, the entry bisected from lo. NaN: the pass stays outside.
+        private static double DipEntry(KeplerianElements subject, EncounterTarget target, double lo, double hi)
+        {
+            double a = lo, b = hi;
+            for (int k = 0; k < 60 && b - a > 1e-3; k++)
+            {
+                double m1 = a + (b - a) / 3.0, m2 = b - (b - a) / 3.0;
+                double g1 = Gap(subject, target, m1), g2 = Gap(subject, target, m2);
+                if (double.IsNaN(g1) || double.IsNaN(g2)) return double.NaN;
+                if (g1 <= 0.0) return BisectGap(subject, target, lo, m1, 64);
+                if (g2 <= 0.0) return BisectGap(subject, target, lo, m2, 64);
+                if (g1 < g2) b = m2; else a = m1;
+            }
+            return double.NaN;
         }
 
         // Bisection on the signed gap between an outside (gap>0) and inside-or-on (gap<=0)

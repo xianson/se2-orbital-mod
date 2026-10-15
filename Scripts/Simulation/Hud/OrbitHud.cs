@@ -356,7 +356,8 @@ public static class OrbitHud
         float br = Math.Max(3f * u, (float)(r.BodyRadius * k));
         MapPipeline.ScreenDisc(c, br, new ColorSRGB(0.55f, 0.6f, 0.68f, 0.9f));
         float ar = (float)(r.BodyRadius * (1 + SystemHost.AtmosphereFraction) * k);
-        if (ar > br + 1.5f * u) MapStyle.BoundaryCircle(c, ar, new ColorSRGB(0.55f, 0.85f, 1f, 0.45f), MapStyle.Thin(u), u);
+        bool air = SystemHost.Registry?.FindDefinition(r.Body)?.HasAtmosphere ?? true;   // (airless bodies drew one too: 2026-10-15)
+        if (air && ar > br + 1.5f * u) MapStyle.BoundaryCircle(c, ar, new ColorSRGB(0.55f, 0.85f, 1f, 0.45f), MapStyle.Thin(u), u);
         // The body's sphere of influence (a boundary: dotted), when your path reaches toward it.
         if (showSoi) MapStyle.BoundaryCircle(c, (float)(r.SoiRadius * k), HudPanel.Alpha(new ColorSRGB(0.75f, 0.8f, 0.88f, 1f), 0.55f), MapStyle.Thin(u), u);
         // A moon you will meet: where it will be then, and its sphere.

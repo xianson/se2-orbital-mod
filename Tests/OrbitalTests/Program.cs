@@ -10,7 +10,7 @@ namespace Orbital.Tests
 {
     // Offline validation of the orbital core. No test framework: tiny assert
     // helpers, PASS/FAIL summary, nonzero exit code on any failure.
-    internal static class Program
+    internal static partial class Program
     {
         private static int _passed, _failed, _pending;
         private const double Deg = Math.PI / 180.0;
@@ -124,6 +124,9 @@ namespace Orbital.Tests
 
             // === 2026-06-12 seam-coherence hardening (frames-vs-rss audit S4) ===
             ZoneSeamHardening();               // teleport detector, ambiguity-band re-latch, sweep guard, same-θ rigidity
+
+            // === 2026-10-15 audit bug fixes (O15-O25; Program.Audit1015.cs) ===
+            AuditFixes1015();
 
             Console.WriteLine($"\n=== {_passed} passed, {_failed} failed, {_pending} pending ===");
             if (_pending > 0)

@@ -580,8 +580,9 @@ public static class EntryHost
     static void Log(ProximityFrame f, double heat)
         => FrameHost.Event($"ENTRY frame #{f.Id}: out of the band, heat {Reentry.Share(heat, false):P0} of tolerance, a={f.Elements.SemiMajorAxis / 1000:F0} km e={f.Elements.Eccentricity:F3}");
 
+    // (MeanMotion +Inf - a = 0 - passed when this tested it for NaN only: 2026-10-15)
     static bool IsFinite(KeplerianElements el)
-        => !double.IsNaN(el.SemiMajorAxis) && !double.IsInfinity(el.SemiMajorAxis) && !double.IsNaN(el.Eccentricity) && !double.IsNaN(el.MeanMotion);
+        => double.IsFinite(el.SemiMajorAxis) && double.IsFinite(el.Eccentricity) && double.IsFinite(el.MeanMotion);
 
     // ── your own frame's next pass (client) ──
     public static Pass Prediction;

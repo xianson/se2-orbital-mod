@@ -275,7 +275,7 @@ namespace SEAerospace.Orbital
         {
             x %= TwoPi;
             if (x < 0) x += TwoPi;
-            return x;
+            return x < TwoPi ? x : 0.0;   // (a tiny negative x rounded up to exactly 2pi: 2026-10-15)
         }
 
         /// <summary>Wrap to (-pi, pi] (for the elliptic Kepler solve).</summary>

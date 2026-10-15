@@ -92,23 +92,10 @@ public static partial class Maneuvers
             var l = legs[i];
             double R = SystemHost.Registry?.FindDefinition(l.Body.Name)?.RadiusMeters ?? 0;
             if (!(R > 0) || !(l.El.PeriapsisRadius < R) || !(l.T1 > l.T0)) continue;
-            double span = l.T1 - l.T0, prev = l.T0, hit = double.NaN;
             if (OrbitPropagation.StateAt(l.El, l.T0).Position.Length() < R) continue;   // starts inside: leave it
-            // At least 64 samples a revolution (a long leg spans many; one dip is a small part of each).
-            int n = 240;
-            if (l.El.IsElliptic && IsFinite(l.El.Period) && l.El.Period > 0) n = (int)Math.Min(20000, Math.Max(240, span / l.El.Period * 64));
-            for (int k = 1; k <= n; k++)
-            {
-                double tk = l.T0 + span * k / n;
-                if (OrbitPropagation.StateAt(l.El, tk).Position.Length() < R)
-                {
-                    double a = prev, b = tk;
-                    for (int q = 0; q < 30; q++) { double m = 0.5 * (a + b); if (OrbitPropagation.StateAt(l.El, m).Position.Length() < R) b = m; else a = m; }
-                    hit = 0.5 * (a + b); break;
-                }
-                prev = tk;
-            }
-            if (double.IsNaN(hit)) continue;
+            // The inbound crossing of the surface, solved on the conic (2026-10-15: 240 samples per hyperbolic leg were
+            // 100+ s apart against a 15-40 s pass over a ~50 km moon - the path was drawn through it and out as an escape).
+            if (!OrbitPropagation.TryFirstInboundCrossing(l.El, R, l.T0, l.T1, out double hit)) continue;
             l.T1 = hit; l.Impact = true; legs[i] = l;
             legs.RemoveRange(i + 1, legs.Count - i - 1);
             applied?.RemoveAll(a => a.Node != null && a.Node.T > hit);   // nothing is flown after the impact

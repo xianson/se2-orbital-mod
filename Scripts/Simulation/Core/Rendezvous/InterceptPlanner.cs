@@ -525,7 +525,7 @@ namespace SEAerospace.Rendezvous
 
         // Propagate "apply enterDv now, coast driftTime on the phasing orbit" and compare
         // to the target — the honest miss/rel-speed the phasing plan actually achieves
-        // (before the circularizing burn nulls the relative velocity).
+        // (the rel speed after the exit burn).
         private static ArrivalPrediction PredictPhasingArrival(StateVector myState, double mu,
             double now, Vector3D enterDv, double driftTime, KeplerianElements targetOrbit)
         {
@@ -538,10 +538,10 @@ namespace SEAerospace.Rendezvous
             pred.ArrivalTime = now + driftTime;
             pred.TimeFromNowSeconds = driftTime;
             pred.MissDistance = (sTgArr.Position - sMeArr.Position).Length();
-            // After the exit burn we're back on (near) the target's orbit, so the relative
-            // velocity is ~0; report the post-circularization figure.
-            pred.RelativeVelocity = Vector3D.Zero;
-            pred.RelativeSpeed = 0.0;
+            // The post-exit-burn figure, as flown: the exit burn (-enterDv) restores MY orbit, which is up to the 2% gate
+            // off the target's - it was reported as 0 ("back on the target's orbit"; ~70 m/s in the M3 case, 2026-10-15).
+            pred.RelativeVelocity = sMeArr.Velocity - enterDv - sTgArr.Velocity;
+            pred.RelativeSpeed = pred.RelativeVelocity.Length();
             return pred;
         }
 

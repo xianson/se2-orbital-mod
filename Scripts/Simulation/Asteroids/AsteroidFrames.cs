@@ -50,6 +50,8 @@ public static partial class AsteroidFrames
     public const int SlotBase = 150;
     /// <summary>Ring rocks' own slots: from here, ring by ring (RingRocks.Belts order), one per seeded rock.</summary>
     public const int RingSlotBase = 1000;
+    /// <summary>A ring rock whose own slot is refused takes RingOverflowBase + the same offset (rings 0-18 fit below it).</summary>
+    public const int RingOverflowBase = 20000;
     static int RingSlot(RingRocks.Belt b, int i)
     {
         var belts = RingRocks.Belts();
@@ -251,23 +253,36 @@ public static partial class AsteroidFrames
         int slot = RingSlot(b, i);
         var home = RingRocks.Home(b, i);
         // A frame already on its berth (saved as a plain frame because you were in the site): its site again.
-        Vector3D own = alloc.SlotCenter(slot);
-        ProximityFrame there = null;
+        // (its own slot, or its overflow one: where it went when its own was refused)
+        int overSlot = RingOverflowBase + (slot - RingSlotBase);
+        Vector3D own = alloc.SlotCenter(slot), overC = alloc.SlotCenter(overSlot);
+        ProximityFrame there = null; int thereSlot = slot;
         foreach (var fr in SystemHost.Frames.Frames)
-            if ((fr.BerthCenter - own).Length() < 1.0 && !EncounterFrames.IsSite(fr)) { there = fr; break; }
+        {
+            if (EncounterFrames.IsSite(fr)) continue;
+            if ((fr.BerthCenter - own).Length() < 1.0) { there = fr; thereSlot = slot; break; }
+            if ((fr.BerthCenter - overC).Length() < 1.0) { there = fr; thereSlot = overSlot; }
+        }
         int sid; Vector3D berth; ProximityFrame f;
         EncounterFrames.Site site;
         if (there != null)
         {
-            sid = slot; berth = own;
-            if (!alloc.IsOccupied(slot)) alloc.Reserve(slot);   // (a frame already sits there: kept even if refused - its grids are there)
+            sid = thereSlot; berth = thereSlot == slot ? own : overC;
+            if (!alloc.IsOccupied(sid)) alloc.Reserve(sid);   // (a frame already sits there: kept even if refused - its grids are there)
             site = new EncounterFrames.Site { Sector = label, Host = b.Host, Home = home, World = berth, Label = label, Anchor = true };
             f = EncounterFrames.AdoptAsSite(site, there);
             Event($"ring rock {label}: frame #{there.Id} is on its berth (you loaded there): it is the rock's site again");
         }
         else
         {
-            if (!ReserveBerth(alloc, reg, ref slot, out sid, out berth)) { Warn("ringslot", "no free lattice slot for a ring rock"); return; }
+            // Its own slot only; refused (or taken), its own overflow slot and on from there - never the walk to slot+1,
+            // the next rock's own slot (2026-10-15: berths then depended on which rock you met first).
+            int own1 = slot;
+            if (!ReserveBerth(alloc, reg, ref own1, out sid, out berth, 1))
+            {
+                int over = overSlot;
+                if (!ReserveBerth(alloc, reg, ref over, out sid, out berth)) { Warn("ringslot", "no free lattice slot for a ring rock"); return; }
+            }
             site = new EncounterFrames.Site { Sector = label, Host = b.Host, Home = home, World = berth, Label = label, Anchor = true };
             f = EncounterFrames.AddSite(site, t);
         }
@@ -296,10 +311,10 @@ public static partial class AsteroidFrames
     /// The next lattice slot from <paramref name="slot"/> that no frame holds and no planet cell is near, reserved
     /// on the allocator (so no frame is ever given it). The same slot every load: frames take the lowest free ids.
     /// </summary>
-    internal static bool ReserveBerth(BerthAllocator alloc, SystemRegistry reg, ref int slot, out int id, out Vector3D centre)
+    internal static bool ReserveBerth(BerthAllocator alloc, SystemRegistry reg, ref int slot, out int id, out Vector3D centre, int maxTries = 4096)
     {
         id = -1; centre = default;
-        for (int tries = 0; tries < 4096; tries++, slot++)
+        for (int tries = 0; tries < maxTries; tries++, slot++)
         {
             if (alloc.IsOccupied(slot)) continue;
             Vector3D c = alloc.SlotCenter(slot);

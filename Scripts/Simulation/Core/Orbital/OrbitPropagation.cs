@@ -86,6 +86,32 @@ namespace SEAerospace.Orbital
             return true;
         }
 
+        /// <summary>
+        /// The first INBOUND crossing of <paramref name="radius"/> in [tFrom, tTo] (absolute times): where a path whose
+        /// periapsis is below a body's surface meets it. Exact (the conic solve, not a sampled search: 2026-10-15, the
+        /// map's 240 samples per hyperbolic leg were 100+ s apart against a 15-40 s surface pass on a ~50 km moon, and drew
+        /// the path through the planet and out as an escape). False: none in the window.
+        /// </summary>
+        public static bool TryFirstInboundCrossing(KeplerianElements el, double radius, double tFrom, double tTo, out double t)
+        {
+            t = double.NaN;
+            if (!(tTo >= tFrom)) return false;
+            double tOutUnused, ti;
+            if (!TryTimeToRadius(el, radius, out tOutUnused, out ti)) return false;
+            double tIn = el.Epoch + ti;
+            if (el.IsElliptic)
+            {
+                // (ti is the next one after the epoch: step to the first at/after tFrom, either way)
+                double P = el.Period;
+                if (IsNotFinite(P) || !(P > 0)) return false;
+                tIn += Math.Ceiling((tFrom - tIn) / P) * P;
+                if (tIn < tFrom) tIn += P;
+            }
+            if (!(tIn >= tFrom && tIn <= tTo)) return false;
+            t = tIn;
+            return true;
+        }
+
         private static bool IsNotFinite(double x)
         {
             return double.IsNaN(x) || double.IsInfinity(x);

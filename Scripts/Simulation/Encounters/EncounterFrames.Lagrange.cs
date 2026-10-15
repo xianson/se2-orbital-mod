@@ -161,9 +161,10 @@ public static partial class EncounterFrames
                 double dtAll = t - ride.T;
                 int nSub = Math.Max(1, (int)Math.Ceiling(dtAll / 60.0));
                 double h = dtAll / nSub, tt = ride.T;
+                bool stepped = true;
                 for (int k = 0; k < nSub && dtAll > 0; k++)
                 {
-                    if (!SectorHomes.LagrangeOrbit(body, tt, out var om, out var w)) break;
+                    if (!SectorHomes.LagrangeOrbit(body, tt, out var om, out var w)) { stepped = false; break; }
                     double core = SectorHomes.LagrangeCore(ride.Site.Home, reg);
                     Vector3D omDot = SectorHomes.LagrangeTurnRate(body, tt);
                     Vector3D a1 = SectorHomes.LagrangeAccel(ride.D, ride.V, om, w, core, omDot);
@@ -171,6 +172,16 @@ public static partial class EncounterFrames
                     Vector3D a2 = SectorHomes.LagrangeAccel(dMid, vMid, om, w, core, omDot);
                     ride.D += vMid * h; ride.V += a2 * h;
                     tt += h;
+                }
+                // A substep that failed left the ride at tt, not t: stamping t lost the rest of the gap (up to ~167 s a
+                // tick at x10000) and the re-fit put the frame where it was then (2026-10-15). Kept at tt (the next tick
+                // carries on from it), the frame on its plain orbit meanwhile; no step at all: the ride is over.
+                if (!stepped)
+                {
+                    if (tt > ride.T) { ride.T = tt; continue; }
+                    _rides.Remove(f.Id); RidesChanged();
+                    Event($"LAGRANGE lost: frame #{f.Id} leaves {ride.Site.Sector} (no turning frame for {ride.Site.Home.Host})");
+                    continue;
                 }
                 ride.T = t;
                 SectorHomes.LagrangeState(ride.Site.Home, reg, t, out var lp, out var lv);

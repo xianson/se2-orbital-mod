@@ -71,6 +71,10 @@ namespace SEAerospace.Frames
         /// burn/ram of part of its effect across a reload.</summary>
         public Vector3D PendingDrainDv;
 
+        /// <summary>Not persisted: universe time of the last SOI poll (FrameHost.TryReparent; NaN: none yet) - the start of
+        /// the gap SoiReparent.Repatch sweeps for a sphere passed through between two polls.</summary>
+        public double SoiCheckedT = double.NaN;
+
         public ProximityFrame() { }
 
         public ProximityFrame(long id, string parentBodyName, KeplerianElements elements, long anchorEntityId)

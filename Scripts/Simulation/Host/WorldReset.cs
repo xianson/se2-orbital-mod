@@ -54,6 +54,7 @@ public static class WorldReset
         Step("system state", () => ResetSystem(build: false));
         // what the player knew, had, was waiting for in the last world
         Step("contacts", Contacts.ResetWorld);   // (shown in the next world, and written into its save)
+        Step("tombstones", GridMembers.ResetWorld);   // (a grid of the next world took a dead one's id by its name and place)
     }
 
     /// <summary>The system's state: the frames' server state, sites, rocks, entry, our edits; <paramref name="build"/>: for a

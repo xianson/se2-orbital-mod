@@ -88,7 +88,10 @@ public static class GridMembers
     // id back, so its frame, anchor role, orbit and contact state stay valid. A grid gone for good is forgotten after
     // TombstoneSeconds (its per-grid state then, and the frames prune it).
     public const double TombstoneSeconds = 60.0, RelinkMeters = 100.0;
-    struct Tomb { public string Name; public Vector3D At; public double Wall; }
+    // (Session: the scene it left - only a grid of the same session takes its id back. 2026-10-15: the tombs outlived the
+    //  world, and a grid of the next world with the same name within 100 m inside 60 s took the last world's id - and with
+    //  it its id-keyed frame and contact state)
+    struct Tomb { public string Name; public Vector3D At; public double Wall; public Keen.VRage.Core.Game.Systems.Session Session; }
     private static readonly Dictionary<long, Tomb> _tombs = new Dictionary<long, Tomb>();
     /// <summary>A grid id that left the scene lately and may come back (frames keep it, anchors wait for it).</summary>
     // (no tombs - nearly always: no lock. _tombN is _tombs.Count, written under _lock after every change: a reader that sees 0
@@ -113,7 +116,7 @@ public static class GridMembers
                     long best = 0; double bd = RelinkMeters;
                     foreach (var kv in _tombs)
                     {
-                        if (kv.Value.Name != name || _byId.ContainsKey(kv.Key)) continue;
+                        if (kv.Value.Name != name || !ReferenceEquals(kv.Value.Session, g.Session) || _byId.ContainsKey(kv.Key)) continue;
                         double d = (kv.Value.At - at).Length();
                         if (d <= bd) { bd = d; best = kv.Key; }
                     }
@@ -137,7 +140,7 @@ public static class GridMembers
                 lock (_lock)
                 {
                     string n = g.LiveName(); double w = Wall();
-                    _tombs[g.Id] = new Tomb { Name = n, At = at, Wall = w }; TombsChanged();
+                    _tombs[g.Id] = new Tomb { Name = n, At = at, Wall = w, Session = g.Session }; TombsChanged();
                     if (w + TombstoneSeconds < _tombDue) System.Threading.Volatile.Write(ref _tombDue, w + TombstoneSeconds);
                 }
                 tomb = true;
@@ -170,6 +173,19 @@ public static class GridMembers
     // true earliest (a relink removing the earliest only leaves it early: one walk that expires nothing). A tomb is "past its
     // time" only when now - Wall > TombstoneSeconds, i.e. now > its due: nothing expires before _tombDue.
     static double _tombDue = double.PositiveInfinity;
+    /// <summary>A new world (WorldReset): the last one's tombstones dropped (none of its grids comes back), their grids forgotten.
+    /// Ids are not restarted: they stay unique in the process (the next world's grids may have registered already).</summary>
+    public static void ResetWorld()
+    {
+        List<long> dead = null;
+        lock (_lock)
+        {
+            if (_tombs.Count > 0) { dead = new List<long>(_tombs.Keys); _tombs.Clear(); TombsChanged(); }
+            System.Threading.Volatile.Write(ref _tombDue, double.PositiveInfinity);
+        }
+        if (dead != null) foreach (long id in dead) ServerFrames.Forget(id);   // (after the lock, as SweepTombs)
+    }
+
     /// <summary>From the server tick: grids gone for good forgotten.</summary>
     public static void SweepTombs()
     {

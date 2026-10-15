@@ -186,7 +186,9 @@ public static partial class OrbitalApi
     public static long GetMemberId(Entity grid)
     {
         if (grid == null) return -1;
-        foreach (var c in grid.Components) if (c is OrbitalGridComponent g && g.Id >= GridMembers.IdBase) return g.Id;
+        // (the server copy's own id only: a client copy carries an OrbitalGridComponent too, registered with an id of its own that
+        //  no frame or view lists - it answered that, and every client-copy query came back empty, 2026-10-15 scene audit)
+        foreach (var c in grid.Components) if (c is OrbitalGridComponent g && g.IsServer && g.Id >= GridMembers.IdBase) return g.Id;
         if (!Num.Alive(grid)) return -1;   // (a destroyed client grid asked through the entry state: its transform threw, ~200 ms - 2026-10-15)
         Vector3D at;
         try { at = grid.Data.GetWorldTransform().Position; } catch (Exception) { return -1; }

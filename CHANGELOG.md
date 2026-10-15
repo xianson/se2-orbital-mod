@@ -60,6 +60,13 @@ bug fixes (warp billing, orbit prediction, world changes, threading).
   overflow slot, never the next rock's. (d29af45)
 - **Lagrange rides** no longer jump a frame after a failed substep. (ebfa3b4)
 - **A phasing plan reports its flown arrival speed** (was 0; ~68 m/s in the test case). (fbb113d)
+- **Stray generated asteroids are removed again, safely.** The bridge that switches the game's own asteroids off was meant
+  to delete procedural rocks that slipped through, but its "is it player-edited" lookup never found its type, so it kept
+  every one. Now it deletes a generator rock only when it is provably untouched and procedural and nobody is at it: never
+  one a player edited (or saved with the world), an asteroid frame's, one with a grid within 100 m or a player within
+  300 m, or anything it cannot classify. Each deletion is logged (`[ORBIT-ROIDS] deleted generator body ...`). The
+  encounter clean-up (a rock left when an encounter moves off a planet's border) uses the same rule (before, it deleted
+  anything in reach). New world setting `World.DeleteGeneratedAsteroids` (Advanced, default on) turns it off.
 
 ### Fixes
 

@@ -14,13 +14,17 @@ namespace OrbitalMod;
 /// separate path (encounter sectors) and are untouched. Definitions are saved by name only, so
 /// nothing of this reaches the world file; the densities are put back on unload.
 /// Asteroids the generator has already spawned are deleted through the generator itself (not the
-/// player's delete, which would exclude them in the save); player-edited ones (marked manual) stay.
+/// player's delete, which would exclude them in the save) - only those AsteroidRules proves untouched and
+/// procedural with nobody at them; player-edited ones (marked manual) stay. Switch: DeleteGenerated.
 /// The one exception is our own: an asteroid frame's volume (AsteroidFrames) and the rocks in it, whose
 /// composition is a reserved definition the game does not use (never zeroed here).
 /// </summary>
 public static class AsteroidBridge
 {
     public static bool Block = true;
+    /// <summary>World.DeleteGeneratedAsteroids: the generator's untouched procedural rocks are deleted (AsteroidRules). Off: none
+    /// is (every body kept as an anchor, as before 2026-10-15), the encounter clean-up included.</summary>
+    public static bool DeleteGenerated = true;
     public static string Status = "-";
 
     /// <summary>The game's rings (manual volumes) as found: type, transform, bounds (for the map and the sectors).</summary>
@@ -97,7 +101,17 @@ public static class AsteroidBridge
     //  runs in the server's frame step)
     static readonly List<string> _tInfo = new List<string>();
     static readonly List<(Vector3D, double, double, double)> _tRings = new List<(Vector3D, double, double, double)>();
-    static readonly List<SpaceEntityId> _tIds = new List<SpaceEntityId>(), _tGone = new List<SpaceEntityId>();
+    static readonly List<(SpaceEntityId Id, RockFacts F, BoundingBoxD Box, Vector3D Pos)> _tBodies = new List<(SpaceEntityId, RockFacts, BoundingBoxD, Vector3D)>();
+    static readonly List<(SpaceEntityId Id, BoundingBoxD Box, bool Encounter)> _tDelete = new List<(SpaceEntityId, BoundingBoxD, bool)>();
+    static readonly HashSet<SpaceEntityId> _tNear = new HashSet<SpaceEntityId>();
+    static readonly List<BoundingBoxD> _tGrids = new List<BoundingBoxD>();
+    static readonly List<Vector3D> _tChars = new List<Vector3D>();
+    static readonly List<Entity> _tCharBuf = new List<Entity>();
+    static readonly int[] _tCount = new int[(int)RockVerdict.PlayerNear + 1];
+    /// <summary>Bodies whose 'kept' reason was logged (once each); the log's rate (deletions and keeps).</summary>
+    static readonly HashSet<SpaceEntityId> _heldLogged = new HashSet<SpaceEntityId>();
+    static readonly LogLimiter _logRate = new LogLimiter(8, 30);
+    private static string _lastPass = "";
     static readonly List<Vector3D> _tKept = new List<Vector3D>(), _tDoomed = new List<Vector3D>();
     static readonly List<BoundingBoxD> _tBoxes = new List<BoundingBoxD>();
     /// <summary>A point within 1 m of one in the list (the closures' Exists, without a closure per rock).</summary>
@@ -161,38 +175,55 @@ public static class AsteroidBridge
             var col = session.SessionComponents.TryGet<Keen.Game2.Simulation.GameSystems.ProceduralGeneration.ColonizationSectorProceduralGenerationDataSessionComponent>();
             if (col?.Definition != null) foreach (var kv in col.Definition.SectorVolumes) Kill(kv.Value);
 
-            // Encounters moved off a planet's border leave their rock behind (voxels cannot move): gone too.
+            // Encounters moved off a planet's border leave their rock behind (voxels cannot move): gone too, by the same rule as
+            // every other generator body below (2026-10-15: this deleted every body in reach, manual or not, a grid on it or not;
+            // the engine only forgot a manual one, but nothing checked who was there). Here only marked, for the log.
+            var near = _tNear; near.Clear();
             while (_deleteNear.TryDequeue(out var dn))
-            {
-                var gone = _tGone; gone.Clear();
                 foreach (var kv in gen.Entities)
                 {
-                    try
-                    {
-                        Vector3D ep = kv.Value.Data.GetWorldTransform().Position;
-                        if ((ep - dn.at).Length() <= dn.r && !AsteroidFrames.Protects(ep)) gone.Add(kv.Key);
-                    }
-                    catch { }
+                    if (!Num.Alive(kv.Value)) continue;   // (a dead body's transform read threw, ~200 ms an exception - 2026-10-15)
+                    Vector3D ep = kv.Value.Data.GetWorldTransform().Position;
+                    if ((ep - dn.at).Length() <= dn.r) near.Add(kv.Key);
                 }
-                foreach (var id in gone) { try { gen.DeleteEntity(id); _deleted++; } catch { } }
-                if (gone.Count > 0) Log.Default?.Info($"[ORBIT-ROIDS] deleted {gone.Count} generator bod(ies) left by an encounter moved off a planet's border");
-                gone.Clear();
-            }
-            // What the generator already spawned (not player-edited ones).
-            var ids = _tIds; ids.Clear();
+            // What the generator already spawned: each body's facts, then AsteroidRules' verdict. Kept ones are anchors as before;
+            // deleted ones never are (they were, for a pass).
+            bool server = gen.GetType().Name.Contains("Server");
+            bool framesKnown = AsteroidFrames.ScanOk;   // (Scan ran at the top of this pass)
+            var gd = gen.GenerationData;
+            var bodies = _tBodies; bodies.Clear();
             var kept = _tKept; kept.Clear();
             var boxes = _tBoxes; boxes.Clear();
-            var doomed = _tDoomed; doomed.Clear();   // generator rocks deleted this pass: never offered as anchors (they were, for a pass)
+            var doomed = _tDoomed; doomed.Clear();
+            var del = _tDelete; del.Clear();
+            Array.Clear(_tCount, 0, _tCount.Length);
+            bool any = false;
             foreach (var kv in gen.Entities)
             {
-                // A rock of an asteroid frame's volume (AsteroidFrames): placed on purpose, an anchor like a manual one.
-                // (By its box's middle: a voxel body's position is its storage corner.)
-                bool manual = false;
-                try { manual = AsteroidFrames.Protects(Keen.VRage.Core.Game.Data.BoundingBoxData.GetWorldAABB(kv.Value).Center); } catch { }
-                if (!manual) try { manual = IsManual(kv.Value); } catch { }
-                if (!manual) { ids.Add(kv.Key); try { doomed.Add(kv.Value.Data.GetWorldTransform().Position); } catch { } }
-                else try { kept.Add(kv.Value.Data.GetWorldTransform().Position); boxes.Add(Keen.VRage.Core.Game.Data.BoundingBoxData.GetWorldAABB(kv.Value)); } catch { }   // an asteroid placed on purpose: a frame anchor
+                var f = Facts(gd, kv.Key, kv.Value, out var box, out var pos);
+                if (AsteroidRules.Classify(DeleteGenerated, server, framesKnown, in f) == RockVerdict.Delete) any = true;
+                bodies.Add((kv.Key, f, box, pos));
             }
+            bool nearKnown = any && FillNear(session);   // (grids and characters asked only when a body may go)
+            foreach (var b in bodies)
+            {
+                var f = b.F;
+                if (AsteroidRules.Classify(DeleteGenerated, server, framesKnown, in f) == RockVerdict.Delete)
+                {
+                    f.GridNear = !nearKnown || GridNear(b.Box);   // (not known: someone may be there - kept)
+                    f.PlayerNear = !nearKnown || PlayerNear(b.Box);
+                }
+                var v = AsteroidRules.Classify(DeleteGenerated, server, framesKnown, in f);
+                _tCount[(int)v]++;
+                if (v == RockVerdict.Delete) { del.Add((b.Id, b.Box, near.Contains(b.Id))); doomed.Add(b.Pos); }
+                else if (AsteroidRules.Persists(v))
+                {
+                    kept.Add(b.Pos); boxes.Add(f.HasBox ? b.Box : new BoundingBoxD(b.Pos, b.Pos));   // an asteroid placed on purpose: a frame anchor
+                    if (AsteroidRules.LogKeep(v) && _heldLogged.Add(b.Id))
+                        Say($"[ORBIT-ROIDS] kept generator body {b.Id} at {Km(f.HasBox ? b.Box.Center : b.Pos)}: {AsteroidRules.Why(v)}", now);
+                }
+            }
+            bodies.Clear(); near.Clear();
             int persistentCount = kept.Count;   // (those so far: placed on purpose, ours, player-edited)
             // Every other voxel body that is not a planet (an encounter's rock, one spawned with a prefab,
             // not through the generator): planets are the voxel bodies at a planet's centre.
@@ -209,7 +240,7 @@ public static class AsteroidBridge
                 if (found != null)
                 foreach (var o in found)
                 {
-                    if (!(o is Entity ve)) continue;
+                    if (!(o is Entity ve) || !Num.Alive(ve)) continue;   // (a dead one's read threw: the rest of the list was lost)
                     Vector3D vp = ve.Data.GetWorldTransform().Position;
                     bool planet = false;
                     foreach (var b in SystemHost.BeaconOf.Values) if ((b.Center - vp).Length() < 5000) { planet = true; break; }
@@ -217,7 +248,8 @@ public static class AsteroidBridge
                     if (!planet && !Within1m(kept, vp))
                     {
                         kept.Add(vp);
-                        try { boxes.Add(Keen.VRage.Core.Game.Data.BoundingBoxData.GetWorldAABB(ve)); } catch { boxes.Add(new BoundingBoxD(vp, vp)); }
+                        var vb = Keen.VRage.Core.Game.Data.BoundingBoxData.TryGetWorldAABB(ve.Data);   // (a body may have no box: GetWorldAABB threw)
+                        boxes.Add(vb.HasValue ? vb.Value : new BoundingBoxD(vp, vp));
                     }
                 }
             }
@@ -231,15 +263,21 @@ public static class AsteroidBridge
                 AsteroidBoxes.Clear(); AsteroidBoxes.AddRange(boxes);
                 AsteroidPersistent.Clear(); for (int i = 0; i < kept.Count; i++) AsteroidPersistent.Add(i < persistentCount);
             }
-            foreach (var id in ids) { try { gen.DeleteEntity(id); _deleted++; } catch { } }
-            ids.Clear(); kept.Clear(); boxes.Clear(); doomed.Clear();
-            Status = $"asteroids blocked: {_orig.Count} volume definition(s) at no density, {_deleted} deleted, {RingInfo.Count} ring(s), {Asteroids.Count} asteroid(s) as anchors";
+            foreach (var d in del)
+            {
+                bool ok = false;
+                try { gen.DeleteEntity(d.Id); _deleted++; ok = true; } catch { }
+                Say(ok ? $"[ORBIT-ROIDS] deleted generator body {d.Id} at {Km(d.Box.Center)}, {(d.Box.Max - d.Box.Min).Length():F0} m across: {AsteroidRules.Why(RockVerdict.Delete)}{(d.Encounter ? "; left by an encounter moved off a planet's border" : "")}"
+                       : $"[ORBIT-ROIDS] delete of generator body {d.Id} failed", now);
+            }
+            del.Clear(); kept.Clear(); boxes.Clear(); doomed.Clear();
+            _lastPass = AsteroidRules.PassLine(DeleteGenerated, server, framesKnown, _tCount);
+            Status = $"asteroids blocked: {_orig.Count} volume definition(s) at no density, {_deleted} deleted, {RingInfo.Count} ring(s), {Asteroids.Count} asteroid(s) as anchors{_lastPass}";
         }
         catch (Exception e) { Status = "asteroid block failed: " + (e.InnerException ?? e).Message; }
     }
 
-    // The server generator and the voxel component live in assemblies mods cannot reference: by name.
-    private static MethodInfo _entityTryGet;
+    // The server generator lives in an assembly mods cannot reference: by name.
     // (the server's generator kept per session, once found: the server's frame step asks every tick - a walk over the session's
     //  components with a new closure and delegate each time, 2026-10-15. Not kept until the server's own one is there: a
     //  plain one found first is asked again, as before)
@@ -269,23 +307,68 @@ public static class AsteroidBridge
         return server ?? any;
     }
 
-    // (the lookup's failure remembered: it searched every assembly and Entity's methods again for every generator body, every
-    //  pass - 0.3 MB/s, a profile, 2026-10-15. It never finds one: Entity.TryGet<T> takes a tag (REFLECTION_AND_WHITELIST.md
-    //  §6) - so every body is "manual", kept, as it has been; the answer is unchanged, only no longer looked up each time)
-    static bool _manualUnsure;
-    static bool IsManual(Entity e)
+    // What a generator body is (AsteroidRules' facts, all but who is near). 2026-10-15: this was IsManual, a reflected
+    // Entity.TryGet<T>() with no parameters for ProceduralVoxelEntityComponent - the real one takes a tag
+    // (REFLECTION_AND_WHITELIST.md §6), so it never matched and every body was "manual": none deleted. Now typed, no reflection:
+    // the component's public base (VRage.Core.Game; the one the engine's own DeleteEntity asks) and its
+    // IEditableProceduralEntity; the voxel one known by its type's name (VRage.Voxels cannot be referenced). A read failing:
+    // not alive - neither deleted nor an anchor (as a body whose read threw before).
+    static RockFacts Facts(ProceduralGenerationDataSessionComponent gd, SpaceEntityId key, Entity e, out BoundingBoxD box, out Vector3D pos)
     {
-        if (e == null) return false;
-        if (_entityTryGet == null)
+        var f = new RockFacts(); box = default; pos = default;
+        if (!Num.Alive(e)) return f;
+        try
         {
-            if (_manualUnsure) return true;
-            Type t = PlanetRenderBridge.FindType("VRage.Voxels", "Keen.VRage.Voxels.Components.ProceduralVoxelEntityComponent");
-            var m = typeof(Entity).GetMethods().FirstOrDefault(x => x.Name == "TryGet" && x.IsGenericMethodDefinition && x.GetParameters().Length == 0);
-            if (t == null || m == null) { _manualUnsure = true; return true; }   // unsure: leave it be
-            _entityTryGet = m.MakeGenericMethod(t);
+            pos = e.Data.GetWorldTransform().Position;
+            var tb = Keen.VRage.Core.Game.Data.BoundingBoxData.TryGetWorldAABB(e.Data);
+            // (ours by the box's middle: a voxel body's position is its storage corner)
+            if (tb.HasValue) { box = tb.Value; f.HasBox = true; f.Ours = AsteroidFrames.Protects(box.Center); }
+            var p = e.TryGet<ProceduralEntityComponentBase>();
+            if (p != null)
+            {
+                f.Procedural = true;
+                var ed = p as IEditableProceduralEntity;
+                f.Voxel = ed != null && p.GetType().Name == "ProceduralVoxelEntityComponent";
+                f.Manual = p.MarkedAsManual || (ed != null && ed.IsManual);
+                f.IdMatches = p.ID.HasValue && p.ID.Value.Equals(key);
+            }
+            f.Skipped = gd == null || gd.SkippedEntityIds.Contains(key);   // (no generation data: cannot tell - as excluded)
+            f.Alive = true;
         }
-        object c = _entityTryGet.Invoke(e, null);
-        return c != null && PlanetRenderBridge.GetMember(c, "IsManual") is bool b && b;
+        catch { f = new RockFacts(); }
+        return f;
+    }
+
+    /// <summary>The grids' boxes and the characters' positions, for GridNear / PlayerNear. False: not known (then all kept).</summary>
+    static bool FillNear(Keen.VRage.Core.Game.Systems.Session session)
+    {
+        _tGrids.Clear(); _tChars.Clear(); _tCharBuf.Clear();
+        try
+        {
+            foreach (var g in session.GetEntitiesOfType<Keen.Game2.Simulation.WorldObjects.CubeGrids.CubeGridComponent>())
+            {
+                if (!Num.Alive(g)) continue;
+                var gb = Keen.VRage.Core.Game.Data.BoundingBoxData.TryGetWorldAABB(g.Data);
+                if (gb.HasValue) _tGrids.Add(gb.Value);
+                else { var gp = g.Data.GetWorldTransform().Position; _tGrids.Add(new BoundingBoxD(gp - new Vector3D(500, 500, 500), gp + new Vector3D(500, 500, 500))); }   // (no box: its size unknown - a wide one)
+            }
+            if (session.TryFillAliveCharacters(_tCharBuf))
+                foreach (var c in _tCharBuf) if (Num.Alive(c)) _tChars.Add(c.Data.GetWorldTransform().Position);
+            _tCharBuf.Clear();
+            return true;
+        }
+        catch { _tGrids.Clear(); _tChars.Clear(); _tCharBuf.Clear(); return false; }
+    }
+
+    static bool GridNear(BoundingBoxD rock) { foreach (var g in _tGrids) if (AsteroidRules.Gap(rock, g) <= AsteroidRules.GridMargin) return true; return false; }
+    static bool PlayerNear(BoundingBoxD rock) { foreach (var c in _tChars) if (BoxDistance(rock, c) <= AsteroidRules.PlayerMargin) return true; return false; }
+
+    /// <summary>A rate-limited log line (deletions and keeps: at most 8 per 30 s; what was held back is counted).</summary>
+    static void Say(string line, double now)
+    {
+        bool ok = _logRate.Allow(now, out int held);
+        if (held > 0) Log.Default?.Info($"[ORBIT-ROIDS] ({held} line(s) not logged in the last {_logRate.Window:F0} s)");
+        if (ok) Log.Default?.Info(line);
     }
 
     static void Kill(VolumeDefinition v)
@@ -303,7 +386,7 @@ public static class AsteroidBridge
         AsteroidFrames.Restore();   // first: a definition both zeroed here and reserved there gets its first-known density
         if (_density != null) foreach (var (v, d) in _orig) { try { _density.SetValue(v, d); } catch { } }
         _orig.Clear(); _seen.Clear(); _loggedRings = false;
-        _manualUnsure = false; System.Threading.Volatile.Write(ref _genServer, null); System.Threading.Volatile.Write(ref _genSession, null);
+        _heldLogged.Clear(); _logRate.Reset(); _lastPass = ""; System.Threading.Volatile.Write(ref _genServer, null); System.Threading.Volatile.Write(ref _genSession, null);
     }
 
     static string Km(Vector3D v) => $"({v.X / 1000:F1}, {v.Y / 1000:F1}, {v.Z / 1000:F1}) km";

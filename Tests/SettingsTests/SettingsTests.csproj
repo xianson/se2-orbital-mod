@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The settings registry and store (Scripts/Simulation/Host/OrbitalSettings*.cs), compiled as they are, over stand-ins
+       for the fields they set (Mirrors.cs: same names and types, their starting values read from the mod's own source at
+       start-up, so a default here is the default in game). -->
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\Scripts\Simulation\Host\OrbitalSettings.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\Scripts\Simulation\Host\OrbitalSettings.Store.cs" />
+  </ItemGroup>
+</Project>

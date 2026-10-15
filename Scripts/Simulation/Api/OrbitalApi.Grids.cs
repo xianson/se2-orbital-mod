@@ -11,7 +11,7 @@ namespace OrbitalMod;
 /// placed in the solar system as TryWorldToBody does: on rails, its frame's orbit plus its place and motion in the berth (in time
 /// warp: the true relative velocity the mod's steering keeps, not the physics' N x one); in a planet's cell, through the planet's
 /// rotating chart. So a grid drifting in its berth has an orbit a little off its frame's, as it truly does.
-/// Pass a live grid (a closed or removed one may throw from the engine's own reads). Threads: any, best the one that updates the
+/// A closed or removed grid answers false (asked without a throw - Num.Alive). Threads: any, best the one that updates the
 /// grid (another may read a transform mid-step). No frame lock (the Peek snapshot), no allocation.
 /// </summary>
 public static partial class OrbitalApi
@@ -21,7 +21,9 @@ public static partial class OrbitalApi
     public static bool TryGetGridState(Entity grid, out string body, out long frameId, out Vector3D position, out Vector3D velocity)
     {
         body = null; frameId = -1; position = velocity = default;
-        if (grid == null || !SystemHost.Built) return false;
+        // (2026-10-15: a dead grid's transform read threw - ~200 ms in SE2 - where GetMemberId already guarded; every other
+        //  Entity member goes through GetMemberId or a dictionary lookup)
+        if (grid == null || !SystemHost.Built || !Num.Alive(grid)) return false;
         Vector3D at = grid.Data.GetWorldTransform().Position;
         Vector3D vel = grid.Data.TryGet<RigidBodyData>(out var rb) ? (Vector3D)rb.LinearVelocity : Vector3D.Zero;
         long id = GetMemberId(grid);

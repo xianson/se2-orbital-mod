@@ -207,6 +207,9 @@ public static partial class ServerFrames
 
     private static long _lastTickStamp;
     private static DateTime _lastGameTime;
+    /// <summary>A new world (WorldReset): its game clock starts again (a game time earlier than the last world's read as
+    /// paused - no server step until it caught up).</summary>
+    internal static void ResetClock() { System.Threading.Interlocked.Exchange(ref _lastTickStamp, 0); _lastGameTime = default; }
     private static int _tick;
 
     /// <summary>Server-side view of the player character's position.</summary>

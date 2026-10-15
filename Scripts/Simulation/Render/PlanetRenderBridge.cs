@@ -150,7 +150,8 @@ public static partial class PlanetRenderBridge
             planet = GetMember(env, "_planet");
             h.Radius = planet != null ? Convert.ToDouble(GetMember(planet, "Radius")) : 0;
             // Proxy size: the visible limb sits between the base radius and the max-hills radius;
-            // the base radius alone drew the globe ~5% small next to the real planet (screenshots 02/03).
+            // the base radius alone drew the globe ~5% small next to the real planet (proxy vs real
+            // Verdure at 200 km, 2026).
             object maxHills = GetMember(planet, "RadiusWithMaxHills");
             h.SurfaceRadius = maxHills != null ? 0.5 * (h.Radius + Convert.ToDouble(maxHills)) : h.Radius;
         }

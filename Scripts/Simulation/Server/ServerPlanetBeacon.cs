@@ -1,0 +1,346 @@
+using Keen.Game2.Simulation.GameSystems.Discoveries.Discoverables;
+using Keen.Game2.Simulation.GameSystems.RangedAffectGenerators.Gravity;
+using Keen.VRage.Core;
+using Keen.VRage.Core.Game.Definitions;
+using Keen.VRage.Core.Systems;
+using Keen.VRage.DCS.Annotations;
+using Keen.Game2.Simulation.WorldObjects.Movement;
+using Keen.VRage.Physics.Data;
+
+#pragma warning disable
+namespace OrbitalMod;
+
+/// <summary>What the server knows about a planet that its client twin does not.</summary>
+public sealed class PlanetBeacon
+{
+    public Vector3D Center;
+    public PrefabDefinition MapVisual;
+    public double GravityReach;
+    public GravityLaw Gravity;
+    /// <summary>The planet's law as loaded, for restoring.</summary>
+    public GravityLaw OriginalGravity;
+    public string Name;
+    /// <summary>The game gives it an atmosphere (an atmosphere generator; null: not known).</summary>
+    public bool? HasAtmosphere;
+    public double AtmosphereReach, AtmosphereDensity;
+
+    /// <summary>A gravity change requested from any thread; applied on the server thread by the beacon job.</summary>
+    public volatile GravityRequest PendingGravity;
+}
+
+public sealed class GravityRequest
+{
+    public bool Restore;
+    public float Falloff;
+    public float Reach;
+}
+
+/// <summary>
+/// Process-wide registry of server planets, so a client planet can find its server twin by
+/// position. Works in single player and on a listen host, where both scenes share a process.
+/// A pure dedicated-server client never sees these; it needs a replicated or definition-level
+/// pairing instead (see README, open item).
+/// </summary>
+public static class PlanetBeacons
+{
+    private static readonly List<PlanetBeacon> _beacons = new List<PlanetBeacon>();
+
+    public static void Add(PlanetBeacon beacon)
+    {
+        lock (_beacons) _beacons.Add(beacon);
+    }
+
+    public static void Remove(PlanetBeacon beacon)
+    {
+        lock (_beacons) _beacons.Remove(beacon);
+    }
+
+    /// <summary>Nearest beacon within <paramref name="tolerance"/> metres of <paramref name="center"/>.</summary>
+    public static PlanetBeacon Find(Vector3D center, double tolerance)
+    {
+        lock (_beacons)
+        {
+            PlanetBeacon best = null;
+            double bestSq = tolerance * tolerance;
+            foreach (var b in _beacons)
+            {
+                double d = (b.Center - center).LengthSquared();
+                if (d <= bestSq) { bestSq = d; best = b; }
+            }
+            return best;
+        }
+    }
+
+    /// <summary>Snapshot copy, safe to iterate.</summary>
+    public static List<PlanetBeacon> All()
+    {
+        lock (_beacons) return new List<PlanetBeacon>(_beacons);
+    }
+
+    public static int Count
+    {
+        get { lock (_beacons) return _beacons.Count; }
+    }
+}
+
+/// <summary>
+/// Injected into server planet compositions. Publishes the planet's map globe prefab and
+/// gravity reach for the client-side <see cref="PlanetFrameComponent"/>.
+/// </summary>
+public partial class ServerPlanetBeacon : Component, IInSceneListener
+{
+    [Keen.VRage.DCS.Annotations.Component]
+    private readonly DiscoverablePlanetComponent _discoverable;
+
+    [Keen.VRage.DCS.Annotations.Component]
+    private readonly GravityGeneratorComponent _gravity;
+
+    private PlanetBeacon _beacon;
+
+    /// <summary>The server scene's session (set by the first server planet).</summary>
+    public static Keen.VRage.Core.Game.Systems.Session ServerSession;
+
+    /// <summary>Load: the saved orbital state (frames, clock, HighSpeed conics). See <see cref="SavedState"/>.</summary>
+    [Keen.VRage.DCS.Annotations.Init]
+    private void InitState(Keen.Game2.Simulation.GameSystems.EntityNameSessionComponentObjectBuilder ob) { OrbitalSettings.Load(ob); SavedState.OnLoaded(ob); }
+
+    /// <summary>Save: every planet writes the same global state (the first one read on load wins).</summary>
+    [Keen.VRage.DCS.Annotations.Serializer]
+    private void SerializeState(Keen.Game2.Simulation.GameSystems.EntityNameSessionComponentObjectBuilder ob) { SavedState.Capture(ob, Entity); OrbitalSettings.Save(ob, Entity); }
+
+    void IInSceneListener.OnAddedToScene()
+    {
+        // (this world's server session, every load: set once per process, a second world loaded kept the first one's dead
+        //  session, and IsServer was false for every grid in it - nothing framed)
+        ServerSession = Entity.GetSession();
+        OrbitalSettings.BeaconAdded();   // (the world's settings: the host's overrides file, the server side seen)
+        _beacon = new PlanetBeacon
+        {
+            Center = Entity.Data.GetWorldTransform().Position,
+            MapVisual = PlanetRenderBridge.GetMapVisualPrefab(_discoverable),
+            GravityReach = _gravity.AffectDistance,
+            Name = Entity?.DebugName ?? "planet",
+        };
+        try
+        {
+            var air = Entity.TryGet<Keen.Game2.Simulation.GameSystems.RangedAffectGenerators.Atmosphere.AtmosphereGeneratorComponent>();
+            _beacon.AtmosphereReach = air != null ? air.AffectDistance : 0;
+            // (every body has a generator; an airless one's density is nil)
+            object dens = air != null ? PlanetRenderBridge.GetMember(PlanetRenderBridge.GetMember(air, "_definition"), "Density") : null;
+            _beacon.AtmosphereDensity = dens != null ? System.Convert.ToDouble(dens) : double.NaN;
+            _beacon.HasAtmosphere = air == null ? false : double.IsNaN(_beacon.AtmosphereDensity) ? (bool?)null : _beacon.AtmosphereDensity > 0.05;
+        }
+        catch { _beacon.HasAtmosphere = null; }
+        PlanetRenderBridge.TryGetGravityLaw(_gravity, out double g0, out double r0, out double falloff);
+        _beacon.Gravity = new GravityLaw { G0 = g0, R0 = r0, Falloff = falloff, Reach = _gravity.AffectDistance };
+        _beacon.OriginalGravity = _beacon.Gravity;
+        PlanetBeacons.Add(_beacon);
+        Log.Default?.Info($"[ORBIT] beacon {_beacon.Name}: center={Fmt(_beacon.Center)} " +
+                          $"gravity g0={g0:F2} m/s² r0={r0 / 1000:F1} km falloff={falloff:F2} reach={_beacon.GravityReach / 1000:F1} km " +
+                          $"mapVisual={_beacon.MapVisual?.DebugName ?? "none"} atmosphere={(_beacon.HasAtmosphere?.ToString() ?? "unknown")} reach={_beacon.AtmosphereReach / 1000:F1} km (r0 {r0 / 1000:F1} km) density={_beacon.AtmosphereDensity:F2}");
+    }
+
+    void IInSceneListener.OnBeforeRemovedFromScene()
+    {
+        AsteroidBridge.Restore();   // the session ends: shared definitions get their densities back
+        OrbitalSettings.BeaconRemoved();   // (the last one: world settings back to defaults for the next world)
+        if (_beacon != null) PlanetBeacons.Remove(_beacon);
+        _beacon = null;
+    }
+
+    internal static string Fmt(Vector3D v) => $"({v.X / 1000:F1}, {v.Y / 1000:F1}, {v.Z / 1000:F1}) km";
+}
+
+public partial class ServerPlanetBeacon
+{
+    /// <summary>
+    /// Where the game's fast travel moves ships (FastTravelUpdate.Teleport): before the physics step. Grids
+    /// joined by constraints (wheels, rotors, docked) can only be carried across the physics world's regions
+    /// here; moved later in the frame, Havok's constraint migration asserts and the server dies.
+    /// </summary>
+    [Before(typeof(Keen.VRage.Core.Systems.Simulation))]
+    private class OnTeleportPhase : JobGroup;
+
+    [OnTeleportPhase]
+    [MustHave(typeof(ServerPlanetBeacon))]
+    private static void TeleportJob(ServerPlanetBeacon beacon)
+    {
+        try { ServerFrames.RunDeferredMoves(); }
+        catch (Exception ex) { FrameHost.Fault("Teleport job", ex); }
+        try { WarpBill.Run(beacon.Entity.GetSession()); }   // (warp's surplus time billed to the railed grids' stores)
+        catch (Exception ex) { FrameHost.Fault("WarpBill", ex); }
+    }
+
+    [After(typeof(RenderSubmissionBegin))]
+    private class OnBeaconTick : JobGroup;
+
+    /// <summary>Applies queued gravity changes on the thread that owns this (server) entity.</summary>
+    [OnBeaconTick]
+    [MustHave(typeof(ServerPlanetBeacon))]
+    private static void BeaconJob(ServerPlanetBeacon beacon)
+    {
+        // Guarded as a whole (an exception here escapes into the engine's job).
+        try { BeaconJobBody(beacon); }
+        catch (Exception ex) { FrameHost.Fault("Beacon job", ex); }
+    }
+
+    private static void BeaconJobBody(ServerPlanetBeacon beacon)
+    {
+        long c0 = ModCost.Start();
+        long tk0 = System.Diagnostics.Stopwatch.GetTimestamp();
+        try { ServerFrames.Tick(beacon.Entity.GetSession()); }
+        catch (Exception ex) { FrameHost.Fault("ServerFrames", ex); }
+        { double tkMs = (System.Diagnostics.Stopwatch.GetTimestamp() - tk0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+          if (tkMs > 30) Keen.VRage.Library.Diagnostics.Log.Default?.Info($"[HITCH] the frames' server tick took {tkMs:F0} ms ({ServerFrames.LastSlow}{ServerFrames.LastFrameCount} frames)"); }
+        // (every planet's beacon runs this job, in parallel: the once-a-frame work - the player's dv and heat, the dev
+        //  generator - is claimed by one; it ran once per planet, concurrently on the same server character)
+        bool mine = ClaimFrame();
+        if (mine && OrbitalConfig.DevHarness)
+            try { GridGen.ServerTick(); }   // (DEV: generated grids and hinges - on the thread that owns the server's entities)
+            catch (Exception ex) { FrameHost.Fault("GridGen", ex); }
+        ModCost.Server.Stop(c0);
+        try { ServerGravityMultiplier = beacon.Entity.GetSession().Get<Keen.VRage.Physics.IPhysics>().GravityMultiplier; } catch { }
+        if (mine) ApplyPlayerRequest(beacon);
+        var b = beacon._beacon;
+        var req = b?.PendingGravity;
+        if (req == null) return;
+        b.PendingGravity = null;
+
+        float falloff = req.Restore ? (float)b.OriginalGravity.Falloff : req.Falloff;
+        float reach = req.Restore ? (float)b.OriginalGravity.Reach : req.Reach;
+        bool ok = PlanetRenderBridge.SetGravityLaw(beacon._gravity, falloff, reach);
+
+        PlanetRenderBridge.TryGetGravityLaw(beacon._gravity, out double g0, out double r0, out double f);
+        b.Gravity = new GravityLaw { G0 = g0, R0 = r0, Falloff = f, Reach = beacon._gravity.AffectDistance };
+        b.GravityReach = b.Gravity.Reach;
+        Log.Default?.Info($"[ORBIT] {b.Name}: gravity {(ok ? "set" : "FAILED")} -> falloff={f:F2} r0={r0 / 1000:F1} km reach={b.Gravity.Reach / 1000:F1} km");
+    }
+}
+
+/// <summary>DEV: a change to the player's character, applied server-side by a beacon job.</summary>
+public sealed class PlayerRequest
+{
+    public bool? Dampeners;
+    public Vector3D? Velocity;
+    /// <summary>Set the character's world position (orientation kept): a frame's berth shift (FrameHost).</summary>
+    public Vector3D? Position;
+}
+
+public partial class ServerPlanetBeacon
+{
+    /// <summary>Queued from the (client-side) harness; taken by whichever beacon job runs first.</summary>
+    public static PlayerRequest PendingPlayer;
+
+    /// <summary>Server physics scene GravityMultiplier (world setting; the aero mod forces 1).</summary>
+    public static float ServerGravityMultiplier = float.NaN;
+
+    /// <summary>
+    /// A rider's per-tick velocity changes for the server's copy of the character (the client's alone
+    /// are overwritten by it): a delta (relative gravity: added to what the server has, so thrust is
+    /// kept), or an absolute velocity (warp steering). Quiet: every tick.
+    /// </summary>
+    private static readonly object _riderLock = new object();
+    private static Vector3D _riderDv; private static Vector3D? _riderVel;
+    public static void AddRiderDv(Vector3D dv) { lock (_riderLock) _riderDv += dv; }
+    /// <summary>The rider held station: game seconds at the full jetpack thrust it would have taken (summed), to bill the suit.</summary>
+    public static void AddRiderHold(double fullThrustSeconds) { if (fullThrustSeconds > 0 && !double.IsNaN(fullThrustSeconds)) lock (_riderLock) _riderHold += fullThrustSeconds; }
+    private static double _riderHold;
+    private static System.Reflection.FieldInfo _jetDef;
+    public static string SuitBill = "-";
+    /// <summary>What the jetpack's thrust costs over hovering (the game's precision-flight fuel less its stationary fuel,
+    /// per second), times those seconds, from the suit's stat (its energy).</summary>
+    static void BillSuit(Entity ch, double secs)
+    {
+        try
+        {
+            var jet = ch.TryGet<Keen.Game2.Simulation.WorldObjects.Characters.JetpackFuelComponent>();
+            var stats = ch.TryGet<Keen.Game2.Simulation.WorldObjects.Characters.Stats.StatCollectionComponent>();
+            if (jet == null || stats == null) return;
+            _jetDef ??= typeof(Keen.Game2.Simulation.WorldObjects.Characters.JetpackFuelComponent).GetField("_definition", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            if (!(_jetDef?.GetValue(jet) is Keen.Game2.Simulation.WorldObjects.Characters.JetpackFuelComponentDefinition d)) return;
+            var p = d.PrecisionFlightFuel; var s = d.StationaryFuel;
+            double perS = p.Amount - (s.Stat == p.Stat ? s.Amount : 0);
+            if (!(perS > 0)) return;
+            float cost = (float)(perS * secs);
+            bool ok = stats.TryUpdateValue(p.Stat, -cost);
+            bool creative = false;
+            try { creative = ch.GetSession()?.SessionComponents.TryGet<Keen.Game2.Simulation.GameSystems.Player.GameModeSessionComponent>()?.IsCreative(ch) ?? false; } catch { }
+            SuitBill = $"suit billed {cost:G3} for {secs:G3} s of full thrust ({(ok ? "taken" : creative ? "refused: creative" : "refused")})";
+        }
+        catch (Exception e) { SuitBill = "suit bill failed: " + e.Message; }
+    }
+    public static void SetRiderVelocity(Vector3D v) { lock (_riderLock) { _riderVel = v; _riderDv = Vector3D.Zero; } }
+
+    /// <summary>The player's character on the server (position, velocity), as last seen by a beacon job.</summary>
+    private static Vector3D _playerPos, _playerVel; private static bool _playerSeen;
+    public static bool PlayerState(out Vector3D pos, out Vector3D vel) { pos = _playerPos; vel = _playerVel; return _playerSeen; }
+
+    private static long _frameStamp;
+    /// <summary>True for the first beacon job of a frame (atomic).</summary>
+    private static bool ClaimFrame()
+    {
+        long now = System.Diagnostics.Stopwatch.GetTimestamp(), last = System.Threading.Interlocked.Read(ref _frameStamp);
+        if (last != 0 && now - last < System.Diagnostics.Stopwatch.Frequency / 250) return false;
+        return System.Threading.Interlocked.CompareExchange(ref _frameStamp, now, last) == last;
+    }
+
+    private static void ApplyPlayerRequest(ServerPlanetBeacon beacon)
+    {
+        Vector3D dv; Vector3D? vset;
+        double hold;
+        lock (_riderLock) { dv = _riderDv; vset = _riderVel; _riderDv = Vector3D.Zero; _riderVel = null; hold = _riderHold; _riderHold = 0; }
+        if (hold > 0) { var hc = PlayerCache.Of(beacon.Entity.GetSession()); if (hc != null) BillSuit(hc, hold); }
+        if (vset.HasValue || dv.LengthSquared() > 0)
+        {
+            var ch = PlayerCache.Of(beacon.Entity.GetSession());
+            if (ch != null)
+            {
+                var ctx = ch.Data;
+                Vector3D v = vset ?? (Vector3D)ctx.Get<RigidBodyData>().LinearVelocity;
+                v += dv;
+                if (!double.IsNaN(v.X + v.Y + v.Z)) ctx.Set(new RigidBodyData { LinearVelocity = (Vector3)v });
+            }
+        }
+        try
+        {
+            var ss = beacon.Entity.GetSession();
+            var pc0 = PlayerCache.Of(ss);
+            if (pc0 != null)
+            {
+                _playerPos = pc0.Data.GetWorldTransform().Position;
+                _playerVel = (Vector3D)pc0.Data.Get<RigidBodyData>().LinearVelocity;
+                _playerSeen = true;
+                DelfosHeat.Apply(ss, pc0, _playerPos);   // Delfos's heat on the server copy (the damage)
+            }
+        }
+        catch { }
+        var req = System.Threading.Interlocked.Exchange(ref PendingPlayer, null);
+        if (req == null) return;
+        ApplyToCharacter(beacon.Entity.GetSession(), req, "server");
+    }
+
+    /// <summary>Apply a player request to the first alive character of <paramref name="session"/>.</summary>
+    public static string ApplyToCharacter(Keen.VRage.Core.Game.Systems.Session session, PlayerRequest req, string side)
+    {
+        var chars = new List<Entity>();
+        if (session == null || !session.TryFillAliveCharacters(chars) || chars.Count == 0)
+        {
+            Log.Default?.Warning($"[ORBIT-DEV] no alive character ({side})");
+            return "no character";
+        }
+        var ctx = chars[0].Data;
+        // Toggle is a structural change (DampeningData added/removed), visible next frame.
+        if (req.Dampeners.HasValue && ctx.Has<DampeningData>() != req.Dampeners.Value)
+            ctx.ToggleDampeners(clearRelativeDampeners: true);
+        if (req.Velocity.HasValue)
+            ctx.Set(new RigidBodyData { LinearVelocity = (Vector3)req.Velocity.Value });
+        if (req.Position.HasValue)
+        {
+            var wt = ctx.GetWorldTransform();
+            ctx.Set(new WorldTransform(req.Position.Value, wt.Orientation));
+        }
+        string s = $"{side}: had dampeners={ctx.Has<DampeningData>()} vel={(req.Velocity.HasValue ? req.Velocity.Value.Length().ToString("F1") : "unchanged")}";
+        Log.Default?.Info("[ORBIT-DEV] player " + s);
+        return s;
+    }
+}

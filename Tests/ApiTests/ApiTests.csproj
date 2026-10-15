@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The public API's engine-free parts (Scripts/Simulation/Api/Core: the Peek snapshot, the orbit queries) and the API's
+       SHAPE, checked from source: no overloaded name, only the allowed parameter types, every member documented. -->
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\Scripts\Simulation\Api\Core\*.cs" />
+    <Compile Include="$(Core)\Orbital\*.cs" />
+    <Compile Include="$(Core)\Frames\*.cs" />
+    <Compile Include="$(Core)\SystemDef\*.cs" />
+    <Compile Include="$(Core)\Rendezvous\*.cs" />
+    <Compile Include="$(Core)\Berths\*.cs" />
+    <Compile Include="$(Core)\Time\*.cs" />
+  </ItemGroup>
+</Project>

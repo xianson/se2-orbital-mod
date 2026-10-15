@@ -5,11 +5,9 @@
 # applied this tick, and the reach by source.
 source "$(dirname "$0")/testlib.sh"
 T0=$(date +%s)
-LOGF() { ls -t "$LOGDIR"/SpaceEngineers2_*[0-9].log | grep -v "Render\|Mission\|Stats" | head -1; }
 get() { reply "aeroget $1" | sed 's/.*=>  //' | cut -c1-${2:-400}; }
 [ -z "$NOLAUNCH" ] && launch
-for i in $(seq 1 300); do grep -aq 'beacon Root Entity\|Loading Failed' "$(LOGF)" 2>/dev/null && break; sleep 1; done
-for i in $(seq 1 60); do "$SP/orb.sh" findgrids | grep -aq '=' && break; sleep 1; done
+waitloaded
 echo "loaded: $(LOGF)"; send "encon off"
 g=$("$SP/orb.sh" findgrids | grep -a " => " | grep -o "[0-9]\+=${NAME:-Tupolev_Tu-134_Big}" | head -1 | cut -d= -f1)
 send "unseat" "gridhold $g 1"; hold 2; send "tpgrid $g 15"; hold 1

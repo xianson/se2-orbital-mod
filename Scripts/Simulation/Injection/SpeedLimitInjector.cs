@@ -1,5 +1,4 @@
 using Keen.Game2.Simulation.GameSystems.Physicss;
-using Keen.VRage.Core.Game.Definitions;
 
 #pragma warning disable
 namespace OrbitalMod;

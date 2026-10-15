@@ -151,7 +151,6 @@ namespace SEAerospace.Frames
         /// The game side (WarmBerths) keeps a few warm; marking is the allocator's only part.
         /// </summary>
         public void SetWarm(int slotId, bool warm) { if (warm) _warm.Add(slotId); else _warm.Remove(slotId); }
-        public bool IsWarm(int slotId) { return _warm.Contains(slotId); }
         /// <summary>Warm slots not occupied by a frame (the pool ready to hand out).</summary>
         public int FreeWarmCount { get { int n = 0; foreach (int w in _warm) if (!_occupied.Contains(w)) n++; return n; } }
         /// <summary>The warm slot ids (a copy).</summary>

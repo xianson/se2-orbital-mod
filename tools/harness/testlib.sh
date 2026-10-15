@@ -32,5 +32,14 @@ reply() { "$SP/orb.sh" "$@" | grep -a " => " | tail -1; }
 stat() { grep -a -- "$1" "$ST" | head -1; }
 summary() { echo; echo "== summary: $pass passed, $fail failed"; for r in "${results[@]}"; do echo "  $r"; done; [ "$fail" -eq 0 ]; }
 
+# LOGF: the newest game log as log() finds it, but stricter (the name ends in a digit; the stats log left out too).
+# waitloaded: the opening of a one-launch script - the world loaded or failed (up to 300 s), then the
+# harness answering with grids (up to 60 s); waits only, no verdict.
+LOGF() { ls -t "$LOGDIR"/SpaceEngineers2_*[0-9].log | grep -v "Render\|Mission\|Stats" | head -1; }
+waitloaded() {
+    for i in $(seq 1 300); do grep -aq 'beacon Root Entity\|Loading Failed' "$(LOGF)" 2>/dev/null && break; sleep 1; done
+    for i in $(seq 1 60); do "$SP/orb.sh" findgrids | grep -aq '=' && break; sleep 1; done
+}
+
 # launch(): the game started once - launch.sh
 source "$(dirname "${BASH_SOURCE[0]}")/launch.sh"

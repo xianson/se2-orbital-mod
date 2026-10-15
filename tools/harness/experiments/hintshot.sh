@@ -7,11 +7,9 @@
 #  plus engine shots (overlay off / subsonic / supersonic) and no mod fault
 source "$(dirname "$0")/../testlib.sh"
 T0=$(date +%s); G=f7a663bd
-LOGF() { ls -t "$LOGDIR"/SpaceEngineers2_*[0-9].log | grep -v "Render\|Mission\|Stats" | head -1; }
 powershell -NoProfile -Command "Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Stop-Process -Force"; sleep 2
 launch
-for i in $(seq 1 300); do grep -aq 'beacon Root Entity\|Loading Failed' "$(LOGF)" 2>/dev/null && break; sleep 1; done
-for i in $(seq 1 60); do "$SP/orb.sh" findgrids | grep -aq '=' && break; sleep 1; done
+waitloaded
 echo "loaded: $(LOGF)"; send "encon off" "unseat"; hold 3
 fg=$("$SP/orb.sh" findgrids | grep -a " => ")
 id=$(echo "$fg" | grep -o "[0-9]\+=[^ ]*" | grep -i "$G" | head -1 | cut -d= -f1)

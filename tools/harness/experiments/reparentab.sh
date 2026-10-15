@@ -4,11 +4,9 @@
 # 'reparent' (each pooled effect parented to its owner's render root again), a census and a screenshot.
 source "$(dirname "$0")/../testlib.sh"
 T0=$(date +%s); OUT=/c/Users/slob/AppData/Local/Temp/OrbitalMod; mkdir -p "$OUT"
-LOGF() { ls -t "$LOGDIR"/SpaceEngineers2_*[0-9].log | grep -v "Render\|Mission\|Stats" | head -1; }
 shot() { send "shotui on"; timeout 40 "$SP/orb.sh" --eshot 3 "$1" | grep -a -o "[A-Za-z]:[^ ]*\.png" | tail -1; }
 launch
-for i in $(seq 1 300); do grep -aq 'beacon Root Entity\|Loading Failed' "$(LOGF)" 2>/dev/null && break; sleep 1; done
-for i in $(seq 1 60); do "$SP/orb.sh" findgrids | grep -aq '=' && break; sleep 1; done
+waitloaded
 echo "loaded: $(LOGF)"; send "encon off"; hold ${SETTLE:-20}
 census() { "$SP/orb.sh" particles >/dev/null 2>&1; grep -a "ORBIT-PARTICLES" "$(LOGF)" | tail -1 | sed 's/ || /\n/g' | grep -a "Generic\|AeroFlight\|live effects" | sed 's/BlockEffectComponentBase Particle: //; s/Vanilla.System.Particles.//g; s/_ParticleEffect\(Flame\)\?\.def//g' | head -${1:-12}; }
 echo "== before"; census 14

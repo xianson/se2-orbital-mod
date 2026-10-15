@@ -6,11 +6,9 @@
 source "$(dirname "$0")/testlib.sh"
 T0=$(date +%s); TAG="${1:-run}"; OUT=/c/Users/slob/AppData/Local/Temp/OrbitalMod/aeroab_$TAG.txt
 # (the Steam launch, as globesun.sh: the world it opens has the aero mod - the test world's relaunch has not; never saved)
-LOGF() { ls -t "$LOGDIR"/SpaceEngineers2_*[0-9].log | grep -v "Render\|Mission\|Stats" | head -1; }
 powershell -NoProfile -Command "Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Stop-Process -Force"; sleep 2
 launch
-for i in $(seq 1 300); do grep -aq 'beacon Root Entity\|Loading Failed' "$(LOGF)" 2>/dev/null && break; sleep 1; done
-for i in $(seq 1 60); do "$SP/orb.sh" findgrids | grep -aq '=' && break; sleep 1; done
+waitloaded
 echo "loaded: $(LOGF)"; send "encon off" "unseat"; hold 3
 [ -n "$PRESEND" ] && send "$PRESEND"
 mark; send "aeroflight on ${SUBJECT:-f7a663bd}"   # (the jetliner - SUBJECT= for another)

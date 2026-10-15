@@ -5,10 +5,8 @@
 # per sample, and their sample-to-sample spread (orbitjitter_sum.py).
 source "$(dirname "$0")/../testlib.sh"
 T0=$(date +%s); OUT=/c/Users/slob/AppData/Local/Temp/OrbitalMod; mkdir -p "$OUT"
-LOGF() { ls -t "$LOGDIR"/SpaceEngineers2_*[0-9].log | grep -v "Render\|Mission\|Stats" | head -1; }
 launch
-for i in $(seq 1 300); do grep -aq 'beacon Root Entity\|Loading Failed' "$(LOGF)" 2>/dev/null && break; sleep 1; done
-for i in $(seq 1 60); do "$SP/orb.sh" findgrids | grep -aq '=' && break; sleep 1; done
+waitloaded
 echo "loaded"; send "encon off"; hold 10
 f="$OUT/orbitjitter.txt"; : > "$f"
 for i in $(seq 1 ${N:-40}); do echo "$(date +%s.%N) $(reply "orbitnow" | sed 's/.*=>  //')" >> "$f"; done

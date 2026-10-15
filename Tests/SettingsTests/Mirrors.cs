@@ -42,6 +42,7 @@ namespace OrbitalMod
     }
     [Mirror] public static class EntryHost { public static bool Enabled; public static double WarpLead; }
     [Mirror] public static class AsteroidFrames { public static bool Enabled; }
+    [Mirror] public static class AsteroidBridge { public static bool DeleteGenerated; }
     [Mirror] public static class EncounterFrames { public static bool Enabled, SectorAnchors; }
     [Mirror] public static class RingRocks { public static bool Enabled; public static int PerRing; }
     [Mirror] public static class WarpControl

@@ -7,4 +7,5 @@
   near them are rendezvous on the map and the flight disc.
 - `AsteroidBridge.cs` - the game's own asteroids switched off (its volume definitions get a negative density for the
   session; ones already spawned deleted through the generator), our asteroid frames' reserved compositions exempt;
-  distances to asteroids for frames. (Known, pending a decision: `IsManual`, docs/REFLECTION_AND_WHITELIST.md.)
+  distances to asteroids for frames. Which generator bodies it may delete: `AsteroidRules.cs` (engine-free, Tests/AsteroidTests;
+  switch `World.DeleteGeneratedAsteroids`). Server thread only (ServerFrames' step).

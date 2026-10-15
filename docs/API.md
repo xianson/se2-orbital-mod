@@ -344,6 +344,7 @@ A world setting the host file names is **forced**: a change through the API is r
 | `World.SectorAnchors` | world | bool | true |  | Encounters near sectors · Orbits and world · advanced | An encounter site on orbit at every deep-space sector's centre. **Reload.** |
 | `World.RingRocks` | world | bool | true |  | Ring rocks · Orbits and world · basic | Rocks in planetary rings. **Reload.** |
 | `World.RingRocksPerRing` | world | int | 120 | 0..1000 | Rocks per ring · Orbits and world · advanced | Rocks per ring. |
+| `World.DeleteGeneratedAsteroids` | world | bool | true |  | Remove stray generated asteroids · Orbits and world · advanced | Delete the game's own procedural asteroids that slipped through - only untouched ones nobody is at (never player-edited, an asteroid frame's, a grid within 100 m, a player within 300 m, or not provably generated). Each deletion logged. Off: none deleted. |
 | `Warp.MaxLevel` | world | int | 6 | 0..6 | Maximum time warp · Time warp · basic | The highest time warp (a level: ×1, ×5, ×10, ×50, ×100, ×1,000, ×10,000). Warp above it drops to it. |
 | `Warp.CostsEnergy` | world | bool | true |  | Warp uses energy · Time warp · basic | Warping drains batteries and tanks. |
 | `Warp.StopLead` | world | float | 30 | 5..120 | Warp stops before events · Time warp · advanced | Warp drops to ×1 this long (s) before a maneuver burn or a planet's air. |

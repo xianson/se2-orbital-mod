@@ -97,9 +97,14 @@ public static partial class AsteroidFrames
 
     // ───────────────────────────── AsteroidBridge (server thread, every pass) ─────────────────────────────
 
+    /// <summary>The last Scan found our volumes (or belts are off): false, Protects may miss a frame's rocks - the bridge
+    /// deletes none that pass (2026-10-15).</summary>
+    internal static bool ScanOk;
+
     /// <summary>Find every volume of ours in the world (live or from a save). Called before the bridge zeroes and deletes.</summary>
     public static void Scan(Keen.VRage.Core.Game.Systems.Session session)
     {
+        ScanOk = !Enabled;   // (off: nothing of ours to protect)
         if (!Enabled || session == null) return;
         try
         {
@@ -121,6 +126,7 @@ public static partial class AsteroidFrames
                 _owned = found;
             }
             foreach (var o in found) Undiscoverable(session, o.E);
+            ScanOk = true;
         }
         catch (Exception e) { Warn("scan", "volume scan: " + (e.InnerException ?? e).Message); }
     }

@@ -111,6 +111,9 @@ public static partial class OrbitalSettings
         I("World.RingRocksPerRing", "world", 0, 1000, false, () => RingRocks.PerRing, v => RingRocks.PerRing = (int)v,
             "Rocks per ring.")
             .Ui("Rocks per ring", GWorld, Tier.Advanced, "", 10);
+        B("World.DeleteGeneratedAsteroids", "world", false, () => AsteroidBridge.DeleteGenerated, v => AsteroidBridge.DeleteGenerated = v,
+            "Delete the game's own procedural asteroids that slipped through (spawned before the mod blocked them, or left by an encounter moved off a planet's border): only untouched ones nobody is at - never one a player edited, one a grid is on or near (100 m), one a player is near (300 m), an asteroid frame's, or anything not provably generated. Each deletion is logged. Off: none is deleted.")
+            .Ui("Remove stray generated asteroids", GWorld, Tier.Advanced);
 
         I("Warp.MaxLevel", "world", 0, WarpControl.Levels.Length - 1, false, () => WarpControl.MaxLevel, v => WarpControl.MaxLevel = (int)v,
             "The highest time warp the keys, the warp bar and other mods can ask for (a level of the warp bar; warp above it drops to it).")

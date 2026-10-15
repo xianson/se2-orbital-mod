@@ -1,3 +1,4 @@
+using System;
 using SEAerospace.Orbital;
 using SEAerospace.SystemDef;
 
@@ -196,6 +197,101 @@ namespace SEAerospace.Frames
             if (cel.Position.Length() <= nodeSoi * EscapePad) return Change.None;
             StateVector inParent = node.ConvertStateTo(parent, cel, t);
             return Rebind(frame, parent, inParent, t) ? Change.Escape : Change.None;
+        }
+
+        /// <summary>Longest gap between two polls that <see cref="Repatch"/> sweeps for a skipped SOI (s): past it (a load,
+        /// a long pause) the poll alone decides.</summary>
+        public const double SkipSweepMaxSeconds = 3600.0;
+
+        /// <summary>
+        /// The body a root-frame position belongs to, from the frame's <paramref name="current"/> parent, with the
+        /// escape hysteresis: up only past SoiRadius x <see cref="EscapePad"/>, down strictly below a child's SoiRadius.
+        /// (2026-10-15: the live poll used DeepestSoiContaining alone - strict on both sides - so an orbit with its
+        /// apoapsis at the SOI flipped parent every pass, re-fit each time and dropped the plan cache.)
+        /// </summary>
+        public static GravityBody ParentWithPad(GravityBody current, Vector3D rootPos, double t)
+        {
+            GravityBody b = current;
+            while (b.Parent != null && !((rootPos - b.OriginInRoot(t).Position).Length() <= b.SoiRadius * EscapePad)) b = b.Parent;
+            return b.DeepestSoiContaining(rootPos, t);
+        }
+
+        /// <summary>
+        /// The live frames' SOI patch (FrameHost.TryReparent), from the orbit about <paramref name="parent"/> polled at
+        /// <paramref name="t"/>, the last poll having been at <paramref name="tFrom"/> (NaN: none). A child sphere the orbit
+        /// passed through between the polls (x10000 warp: ~170 s a tick) is sub-stepped - patched in at its entry, the
+        /// orbit carried on about the child - instead of skipped; then the position at t is judged with
+        /// <see cref="ParentWithPad"/>. Elements are captured as the stow does (RendezvousPlot.Capture). False: no change
+        /// (or the new elements would not be finite). The new parent's velocity at t is <paramref name="newVelocity"/>.
+        /// </summary>
+        public static bool Repatch(GravityBody parent, KeplerianElements el, double tFrom, double t,
+            out GravityBody newParent, out KeplerianElements newEl, out Vector3D newVelocity)
+        {
+            newParent = parent; newEl = el; newVelocity = Vector3D.Zero;
+            if (parent == null) return false;
+            bool changed = false;
+            for (int pass = 0; pass < 4; pass++)
+            {
+                // (the orbit has been these elements only since their epoch: no sweep of a back-propagated past)
+                double a = Math.Max(tFrom, newEl.Epoch);
+                GravityBody into = null; double tX = double.PositiveInfinity;
+                if (t - a > 0.0 && t - a <= SkipSweepMaxSeconds)
+                    for (int i = 0; i < newParent.Children.Count; i++)
+                    {
+                        GravityBody c = newParent.Children[i];
+                        double tc;
+                        if (c != null && TrySkippedEntry(newEl, c, a, t, out tc) && tc < tX) { tX = tc; into = c; }
+                    }
+                if (into != null)
+                {
+                    StateVector rel = newParent.ConvertStateTo(into, OrbitPropagation.StateAt(newEl, tX), tX);
+                    KeplerianElements ce = RendezvousPlot.Capture(rel, into.Mu, tX);
+                    if (!IsFinite(ce.SemiMajorAxis) || !IsFinite(ce.MeanMotion)) break;
+                    newParent = into; newEl = ce; changed = true;
+                    continue;   // (and on about the child, from tX)
+                }
+                StateVector cel = newParent.StateInRoot(OrbitPropagation.StateAt(newEl, t), t);
+                GravityBody now = ParentWithPad(newParent, cel.Position, t);
+                if (now != null && now != newParent)
+                {
+                    StateVector norg = now.OriginInRoot(t);
+                    KeplerianElements pe = RendezvousPlot.Capture(new StateVector(cel.Position - norg.Position, cel.Velocity - norg.Velocity), now.Mu, t);
+                    if (IsFinite(pe.SemiMajorAxis) && IsFinite(pe.MeanMotion)) { newParent = now; newEl = pe; changed = true; }
+                }
+                break;
+            }
+            if (changed) newVelocity = OrbitPropagation.StateAt(newEl, t).Velocity;
+            return changed;
+        }
+
+        // The orbit's entry into a child's sphere in (tA, tB] when it is outside at tA - a transit the poll at tB may not
+        // see. Scratch-free (the client and the server thread both poll). Cheap reject first: the separation changes no
+        // faster than the relative speed (x2: the speeds change over the gap), so two far ends cannot hide a dip.
+        private static bool TrySkippedEntry(KeplerianElements el, GravityBody child, double tA, double tB, out double tEntry)
+        {
+            tEntry = double.NaN;
+            double soi = child.SoiRadius;
+            if (soi <= 0.0 || double.IsInfinity(soi)) return false;
+            StateVector sa = OrbitPropagation.StateAt(el, tA), sb = OrbitPropagation.StateAt(el, tB);
+            StateVector ca = child.StateInParentAt(tA), cb = child.StateInParentAt(tB);
+            double da = (sa.Position - ca.Position).Length(), db = (sb.Position - cb.Position).Length();
+            if (!(da >= soi)) return false;   // inside at the start (or NaN): the poll's
+            double vr = 2.0 * Math.Max((sa.Velocity - ca.Velocity).Length(), (sb.Velocity - cb.Velocity).Length());
+            double span = tB - tA;
+            if (0.5 * (da + db - vr * span) > soi) return false;
+            if (db < soi) { tEntry = BisectEntry(el, child, tA, tB, soi); return !double.IsNaN(tEntry); }
+            // sampled: the first inside sample, or a sampled minimum's dip
+            double prevT = tA, prevD = da, prev2D = double.PositiveInfinity, step = span / EncounterSamples;
+            for (int k = 1; k <= EncounterSamples; k++)
+            {
+                double tk = k == EncounterSamples ? tB : tA + k * step;
+                double d = Separation(el, child, tk);
+                if (double.IsNaN(d)) return false;
+                if (d < soi) { tEntry = BisectEntry(el, child, prevT, tk, soi); return !double.IsNaN(tEntry); }
+                if (prevD < prev2D && prevD <= d && ProbeDip(el, child, tA, span, soi, prevT, step, out tEntry)) return true;
+                prev2D = prevD; prevT = tk; prevD = d;
+            }
+            return prevD < prev2D && ProbeDip(el, child, tA, span, soi, prevT, step, out tEntry);
         }
 
         // Sampled-separation scratch for TryFindSoiEntry (no per-call alloc). The runtime is

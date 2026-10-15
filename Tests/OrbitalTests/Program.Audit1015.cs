@@ -14,6 +14,7 @@ namespace Orbital.Tests
         {
             ImpactOnLowPeriapsisPass();   // O15
             EncounterFlyThroughBetweenSamples();   // O16
+            LiveReparentPadAndSkippedSoi();   // O17
         }
 
         // O15: an arrival whose periapsis is below a small body's surface. The map's CutAtImpact sampled the
@@ -92,5 +93,54 @@ namespace Orbital.Tests
             Ok("EncounterScan kernel finds it too", EncounterScan.TryFindEarliest(el, 0.0, H, EncounterTarget.FromBody(moon), n, out var ev)
                 && Math.Abs((OrbitPropagation.StateAt(el, ev.Time).Position - moonPos).Length() - soi) < 100.0);
         }
+
+        // O17: FrameHost.TryReparent (the live frames' SOI poll) took DeepestSoiContaining strictly on both sides - an
+        // orbit with its apoapsis at a moon's SOI flipped parent every pass - and only polled the position, so at x10000
+        // (~170 s a tick) a whole moon's sphere could pass between two polls with no patch (no bend).
+        private static void LiveReparentPadAndSkippedSoi()
+        {
+            Section("O17: live SOI repatch - escape pad, skipped-sphere sub-step, velocity in the new parent");
+            SystemRegistry.Build(SampleSystems.SunEarthMoon());
+            SystemRegistry sys = SystemRegistry.Active;
+            GravityBody earth = sys.Find("Earth"), moon = sys.Find("Moon");
+            double t = 100.0;
+
+            // just outside the Moon's SOI (inside the pad): stays the Moon's (the old poll went to Earth)
+            var el = OrbitalMath.ToElements(new StateVector(new Vector3D(moon.SoiRadius * 1.01, 0, 0), new Vector3D(0, 60.0, 0)), moon.Mu, t);
+            Ok("1.01 SOI: no flip to Earth", !SoiReparent.Repatch(moon, el, t - 0.1, t, out var np, out var ne, out var nv));
+            Ok("premise: the bare containment says Earth", sys.Root.DeepestSoiContaining(
+                moon.StateInRoot(OrbitPropagation.StateAt(el, t), t).Position, t) == earth);
+            // past the pad: up to Earth, the velocity re-expressed there
+            el = OrbitalMath.ToElements(new StateVector(new Vector3D(moon.SoiRadius * 1.05, 0, 0), new Vector3D(0, 60.0, 0)), moon.Mu, t);
+            Ok("1.05 SOI: escapes to Earth", SoiReparent.Repatch(moon, el, t - 0.1, t, out np, out ne, out nv) && np == earth);
+            StateVector want = moon.ConvertStateTo(earth, OrbitPropagation.StateAt(el, t), t);
+            NearVec("velocity is Earth-relative", nv, want.Velocity, 1e-6);
+            NearVec("position continuous", OrbitPropagation.StateAt(ne, t).Position, want.Position, 1e-3);
+
+            // a whole Moon-SOI transit between two polls (the warp-tunnel geometry, at a speed the Moon can bend)
+            double window = 170.0, tEnc = t + window * 0.5;
+            Vector3D pEnc = moon.StateInParentAt(tEnc).Position;
+            Vector3D vDir = Vector3D.Normalize(Vector3D.Cross(Vector3D.UnitZ, pEnc));
+            Vector3D v = moon.StateInParentAt(tEnc).Velocity + vDir * (6.0 * moon.SoiRadius / window);
+            Vector3D p0 = pEnc + Vector3D.Normalize(Vector3D.Cross(vDir, Vector3D.UnitZ)) * (0.3 * moon.SoiRadius) - v * (tEnc - t);
+            var el0 = OrbitalMath.ToElements(new StateVector(p0, v), earth.Mu, t);
+            double sep0 = (OrbitPropagation.StateAt(el0, t).Position - moon.StateInParentAt(t).Position).Length();
+            double sep1 = (OrbitPropagation.StateAt(el0, t + window).Position - moon.StateInParentAt(t + window).Position).Length();
+            Ok($"premise: outside the sphere at both polls ({sep0 / moon.SoiRadius:F2}, {sep1 / moon.SoiRadius:F2} SOI)", sep0 > moon.SoiRadius * EscapePadOf() && sep1 > moon.SoiRadius * EscapePadOf());
+            Ok("premise: the bare poll sees nothing", sys.Root.DeepestSoiContaining(
+                earth.StateInRoot(OrbitPropagation.StateAt(el0, t + window), t + window).Position, t + window) == earth);
+            bool ch = SoiReparent.Repatch(earth, el0, t, t + window, out np, out ne, out nv);
+            Ok("sub-stepped through the Moon and back out to Earth", ch && np == earth);
+            double bend = (OrbitPropagation.StateAt(ne, t + window).Velocity - OrbitPropagation.StateAt(el0, t + window).Velocity).Length();
+            Ok($"the pass bent the orbit ({bend:F2} m/s)", bend > 0.1);   // (~0.26 m/s for this ~90 km/s pass; the old poll: none)
+            // the same gap seen from just before the transit only (the frame inside at the poll): parented to the Moon
+            ch = SoiReparent.Repatch(earth, el0, t, tEnc, out np, out ne, out nv);
+            Ok("mid-transit poll: the Moon's, entered at the sphere", ch && np == moon && Math.Abs(OrbitPropagation.StateAt(ne, ne.Epoch).Position.Length() - moon.SoiRadius) < 0.01 * moon.SoiRadius);
+            // no last poll (NaN) or a gap past the cap: the poll alone (nothing swept)
+            Ok("no last poll: nothing swept", !SoiReparent.Repatch(earth, el0, double.NaN, t + window, out np, out ne, out nv));
+            VoxelBerthRegistry.Clear();
+        }
+
+        private static double EscapePadOf() => SoiReparent.EscapePad;
     }
 }

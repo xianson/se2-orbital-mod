@@ -191,21 +191,19 @@ public static partial class FrameHost
         return d > 1 ? r * (-mu / (d * d * d)) : Vector3D.Zero;
     }
 
-    /// <summary>Patched conics: leave the parent's SOI or enter a child's -> re-express the orbit there.</summary>
+    /// <summary>Patched conics: leave the parent's SOI or enter a child's -> re-express the orbit there.
+    /// (2026-10-15: through SoiReparent.Repatch - the escape pad, a sphere skipped between two polls at high warp
+    /// sub-stepped, and VirtualVelocity re-expressed in the new parent: it was left in the old one, and saved so.)</summary>
     internal static void TryReparent(ProximityFrame f, double t)
     {
         var reg = SystemHost.Registry;
         GravityBody parent = reg.Find(f.ParentBodyName);
         if (parent == null) return;
-        StateVector cur = OrbitPropagation.StateAt(f.Elements, t);
-        StateVector cel = parent.StateInRoot(cur, t);
-        GravityBody now = reg.Root.DeepestSoiContaining(cel.Position, t);
-        if (now == null || now == parent) return;
-        StateVector norg = now.OriginInRoot(t);
-        var el = CaptureMath.CaptureElements(new StateVector(cel.Position - norg.Position, cel.Velocity - norg.Velocity), now.Mu, t);
-        if (!IsFinite(el.SemiMajorAxis) || !IsFinite(el.MeanMotion)) return;
+        double from = f.SoiCheckedT; f.SoiCheckedT = t;
+        if (!SoiReparent.Repatch(parent, f.Elements, from, t, out GravityBody now, out KeplerianElements el, out Vector3D vel)) return;
         Event($"SOI {f.ParentBodyName} -> {now.Name} (frame #{f.Id}, a={el.SemiMajorAxis / 1000:F0} km e={el.Eccentricity:F3})");
         f.ParentBodyName = now.Name;
         f.Elements = el;
+        if (IsFinite(vel)) f.VirtualVelocity = vel;
     }
 }

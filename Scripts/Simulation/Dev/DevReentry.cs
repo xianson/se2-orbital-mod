@@ -100,7 +100,7 @@ public static class DevReentry
         if (!_armed) return;
         double wall = Wall(), dt = gameDt;
         var g = GridMembers.Get(_id);
-        if (g?.Entity == null) { Finish("the grid is gone"); return; }
+        if (!Alive(g?.Entity)) { Finish("the grid is gone"); return; }   // (deleted, not yet unregistered: Air's reads threw each tick, ~200 ms - 2026-10-15)
         ProximityFrame f; lock (ServerFrames.FramesLock) f = SystemHost.Frames?.FindByMember(_id);
         if (f != null) Rails(f);
         else Air(g, dt);

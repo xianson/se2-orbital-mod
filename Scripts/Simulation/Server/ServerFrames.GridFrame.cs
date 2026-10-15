@@ -120,7 +120,7 @@ public static partial class ServerFrames
         {
             int made = 0;
             foreach (long m in new List<long>(f.Members))
-                if (GridMembers.IsGridId(m) && GridMembers.Get(m) is OrbitalGridComponent sg && sg.IsServer && !GridMembers.IsDynamic(sg))
+                if (GridMembers.IsGridId(m) && GridMembers.Get(m) is OrbitalGridComponent sg && sg.IsServer && !GridMembers.IsDynamic(sg) && EntityAlive(sg.Entity))   // (a dead one reads as static: its switch threw - 2026-10-15)
                     try { var gp = sg.Entity.TryGet<Keen.Game2.Simulation.WorldObjects.CubeGrids.Physicss.GridPhysicsComponent>(); if (gp != null) { gp.SetGridMotion(false); GridMembers.ForgetMotion(sg); made++; } } catch { }
             if (made > 0) Event($"frame #{f.Id}: its orbit meets {f.ParentBodyName}'s border (periapsis {(f.Elements.PeriapsisRadius / 1000):F0} km): {made} static grid(s) made ship(s) - a station needs a stable orbit");
             staticHit = StaticAnchor(f, out sid, out staticPos);

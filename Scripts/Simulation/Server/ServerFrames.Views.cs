@@ -138,7 +138,8 @@ public static partial class ServerFrames
         bool changed = false;
         foreach (var g in GridMembers.All())
         {
-            if (!g.IsServer || g.Entity == null) continue;
+            // (a grid deleted before its Unregister ran is left out: its Position threw out of the whole build, ~200 ms - 2026-10-15)
+            if (!g.IsServer || !EntityAlive(g.Entity)) continue;
             Vector3D pos = GridMembers.Position(g); bool dyn = GridMembers.IsDynamic(g); string name = g.DisplayName; double mass = GridMembers.Mass(g);
             bool hold = holding.Contains(g.Id), joined = joinedAll.Contains(g.Entity);
             bool hasTr = trueRel.TryGetValue(g.Id, out var tr);
@@ -215,15 +216,19 @@ public static partial class ServerFrames
         {
             var scopes = _bvScopes; scopes.Clear(); lock (SensorBlocks.Telescopes) scopes.AddRange(SensorBlocks.Telescopes);
             var radars = _bvRadars; radars.Clear(); lock (SensorBlocks.Radars) radars.AddRange(SensorBlocks.Radars);
+            // (a sensor block whose entity is gone is skipped before it is read: it threw and ended the pass, ~200 ms, every
+            //  build until its list let it go - 2026-10-15)
             foreach (var c in scopes)
             {
-                var top = c.Entity?.GetTopLevelParent();
+                if (!EntityAlive(c.Entity)) continue;
+                var top = c.Entity.GetTopLevelParent();
                 if (top != null && byEntity.TryGetValue(top, out long gid))
                     sens.Add(new SensorView { Grid = gid, Position = c.Entity.Data.GetWorldTransform().Position, Radar = false, Working = c.Working });
             }
             foreach (var c in radars)
             {
-                var top = c.Entity?.GetTopLevelParent();
+                if (!EntityAlive(c.Entity)) continue;
+                var top = c.Entity.GetTopLevelParent();
                 if (top != null && byEntity.TryGetValue(top, out long gid))
                     sens.Add(new SensorView { Grid = gid, Position = c.Entity.Data.GetWorldTransform().Position, Radar = true, Working = c.Working, Power = c.Power });
             }
@@ -259,7 +264,7 @@ public static partial class ServerFrames
         try
         {
             var grids = GridMembers.All();
-            lock (GridPositions) foreach (var gg in grids) if (gg.IsServer) GridPositions[gg.Id] = GridMembers.Position(gg);
+            lock (GridPositions) foreach (var gg in grids) if (gg.IsServer && EntityAlive(gg.Entity)) GridPositions[gg.Id] = GridMembers.Position(gg);   // (a dead one threw: see BuildViews)
         }
         catch { }
     }
@@ -272,7 +277,7 @@ public static partial class ServerFrames
     private static void BuildSnapshot()
     {
         // (the positions every time, the text only when wanted - GridSnapshot)
-        try { var every = GridMembers.All(); lock (GridPositions) foreach (var gg in every) if (gg.IsServer) GridPositions[gg.Id] = GridMembers.Position(gg); }
+        try { var every = GridMembers.All(); lock (GridPositions) foreach (var gg in every) if (gg.IsServer && EntityAlive(gg.Entity)) GridPositions[gg.Id] = GridMembers.Position(gg); }
         catch { }
         double wallNow = Wall();
         if (!(wallNow - System.Threading.Volatile.Read(ref _snapAsked) < SnapshotAskedSeconds) && wallNow - _snapBuilt < SnapshotIdleSeconds) return;

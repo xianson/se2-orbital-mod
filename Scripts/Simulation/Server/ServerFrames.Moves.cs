@@ -183,6 +183,8 @@ public static partial class ServerFrames
         }
         foreach (var (e, p, v) in todo)
         {
+            // (deleted since it was queued: skipped before its transform is read - that threw, ~200 ms - 2026-10-15)
+            if (!EntityAlive(e)) { lock (_deferredRot) _deferredRot.Remove(e); continue; }
             try
             {
                 GridMembers.Unmanage(e);   // (out of its world area first: else the game unloads and respawns it)

@@ -45,6 +45,7 @@ namespace OrbitalTests.Settings
                 WorldEditRefused();
                 HostFileForces();
                 WorldSave();
+                Persistence();
                 Denylist();
             }
             finally { try { Directory.Delete(Dir, true); } catch { } }
@@ -353,6 +354,43 @@ namespace OrbitalTests.Settings
             OrbitalSettings.Save(empty, new Entity());
             Ok("all defaults: nothing saved", empty.NamedEntities == null || empty.NamedEntities.Count == 0);
             OrbitalSettings.ResetScope("client");
+        }
+
+        // ── a direct field write (the DevHarness's crossfade, cleanmap, contacts on/off ...) is never persisted ──
+
+        static void Persistence()
+        {
+            Console.WriteLine("-- a direct field write is never saved (2026-10-15)");
+            OrbitalSettings.ResetScope("client"); OrbitalSettings.ResetScope("world");
+            string client = Path.Combine(Dir, "OrbitalMod.client.cfg");
+            bool fade = CrossingFade.Enabled, map = CleanMap.Enabled, rocks = AsteroidFrames.Enabled;
+            CrossingFade.Enabled = !fade; CleanMap.Enabled = !map;   // (as the harness writes them: the fields, not Set)
+            Ok("the direct writes are live", Val("Fx.ArrivalFade") == (fade ? 0 : 1) && Val("Map.Orbital") == (map ? 0 : 1));
+            Ok("an unrelated client set", OrbitalSettings.Set("Hud.ShowOrbit", 0, out _));
+            string text = OrbitalSettings.Text("client", true);
+            Ok("the client text keeps the player's values", text.Contains("\nFx.ArrivalFade = " + (fade ? "true" : "false") + "\n")
+                && text.Contains("\nMap.Orbital = " + (map ? "true" : "false") + "\n") && text.Contains("\nHud.ShowOrbit = false\n"), text);
+            // the file itself: the set made it dirty; a poll a second later writes it
+            typeof(OrbitalSettings).GetField("_clientDirtyAt", Any).SetValue(null, System.Diagnostics.Stopwatch.GetTimestamp() - 2 * System.Diagnostics.Stopwatch.Frequency);
+            typeof(OrbitalSettings).GetField("_pollAt", Any).SetValue(null, 0L);
+            OrbitalSettings.Poll();
+            string file = File.Exists(client) ? File.ReadAllText(client) : "";
+            Ok("client.cfg rewritten without the direct writes", file.Contains("\nHud.ShowOrbit = false\n") && file.Contains("\nFx.ArrivalFade = " + (fade ? "true" : "false") + "\n")
+                && file.Contains("\nMap.Orbital = " + (map ? "true" : "false") + "\n"), OrbitalSettings.FileWhy);
+            Ok("the live fields keep the harness's values (the file's own time was recorded, not re-read)", CrossingFade.Enabled == !fade && CleanMap.Enabled == !map);
+            AsteroidFrames.Enabled = !rocks;
+            Ok("an unrelated world set", OrbitalSettings.Set("Warp.MaxLevel", 2, out _));
+            var ob = new Keen.Game2.Simulation.GameSystems.EntityNameSessionComponentObjectBuilder();
+            OrbitalSettings.Save(ob, new Entity());
+            string saved = ob.NamedEntities?.Keys.First() ?? "";
+            Ok("the world save holds only the set value", saved == OrbitalSettings.SaveKey + "Warp.MaxLevel = 2\n", saved);
+            Ok("a Set of the live value makes it the player's", OrbitalSettings.Set("Fx.ArrivalFade", fade ? 0 : 1, out _)
+                && OrbitalSettings.Text("client", true).Contains("\nFx.ArrivalFade = " + (fade ? "false" : "true") + "\n"));
+            OrbitalSettings.ResetScope("world");
+            Ok("a world reset restores the directly written field", AsteroidFrames.Enabled == rocks && OrbitalSettings.Text("world", false) == "");
+            CleanMap.Enabled = map;
+            OrbitalSettings.ResetScope("client");
+            Ok("back at the defaults", OrbitalSettings.Text("client", false) == "" && CrossingFade.Enabled == fade);
         }
 
         // ── never a dev knob ──

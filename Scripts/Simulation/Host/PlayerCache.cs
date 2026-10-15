@@ -25,13 +25,7 @@ public static class PlayerCache
             if (e.E != null && now - e.At < System.Diagnostics.Stopwatch.Frequency / 2 && Alive(e.E)) return e.E;
             // the LOCAL player's own character where there is one (the client: its player controller's possession stack - the
             //  character at the bottom, a seat above it): the first alive character was any player's on a listen server
-            e.E = LocalCharacter(session);
-            if (e.E == null)
-            {
-                _buf.Clear();
-                e.E = session.TryFillAliveCharacters(_buf) && _buf.Count > 0 ? _buf[0] : null;
-                _buf.Clear();
-            }
+            e.E = LocalCharacter(session) ?? OwnCharacter(session);
             e.At = now;
             return e.E;
         }
@@ -39,14 +33,44 @@ public static class PlayerCache
 
     /// <summary>A new world (WorldReset): the last world's sessions and characters let go (kept by session, every world's
     /// stayed in memory - 2026-10-15).</summary>
-    internal static void ResetWorld() { lock (_by) _by.Clear(); }
+    internal static void ResetWorld() { lock (_by) { _by.Clear(); _hasLocalId = false; } }
+
+    // The local player's identity, from the client session (its players component): what its character on the SERVER is owned by.
+    static Keen.Game2.Simulation.GameSystems.Ownership.IdentityId _localId;
+    static bool _hasLocalId;
+
+    /// <summary>A session without a local player (the server's): the local player's character there - the alive character
+    /// owned by the client's local identity. 2026-10-15: it was the first alive character, on a listen host with remote
+    /// players any of theirs - the local player's rider velocity, suit bill and Delfos heat applied to someone else. Unknown
+    /// (the client not seen yet, or no owner match): the only character if there is just one (single player), else none -
+    /// never a guess. Caller holds _by.</summary>
+    static Entity OwnCharacter(Keen.VRage.Core.Game.Systems.Session session)
+    {
+        _buf.Clear();
+        Entity found = null;
+        if (session.TryFillAliveCharacters(_buf))
+        {
+            if (_hasLocalId)
+                foreach (var c in _buf)
+                {
+                    var own = c.TryGet<Keen.Game2.Simulation.GameSystems.Ownership.OwnershipComponent>();
+                    if (own != null && own.Owner.Equals(_localId)) { found = c; break; }
+                }
+            if (found == null && _buf.Count == 1) found = _buf[0];
+        }
+        _buf.Clear();
+        return found;
+    }
 
     static Entity LocalCharacter(Keen.VRage.Core.Game.Systems.Session session)
     {
         try
         {
-            var pc = session.SessionComponents.TryGet<Keen.Game2.Client.GameSystems.PlayerControl.ClientPlayersSessionComponent>()?.LocalPlayerController;
+            var players = session.SessionComponents.TryGet<Keen.Game2.Client.GameSystems.PlayerControl.ClientPlayersSessionComponent>();
+            var pc = players?.LocalPlayerController;
             if (pc == null) return null;
+            var id = players.LocalPlayerIdentity;
+            if (id.IsValid()) { _localId = id; _hasLocalId = true; }
             foreach (var (c, _) in pc.ControlledEntities)
             {
                 var ent = c?.Entity;

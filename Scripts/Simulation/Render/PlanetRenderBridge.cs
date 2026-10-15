@@ -12,12 +12,13 @@ using Keen.VRage.Core.Model;
 namespace OrbitalMod;
 
 /// <summary>
-/// THE ONLY FILE THAT USES REFLECTION. Everything else in the mod is whitelisted API.
+/// THE RENDER-SIDE REFLECTION, and the shared reflection helpers the rest of the mod uses (GetMember, SetMember,
+/// FindType, CallAdd, WarnOnce). Every use, here and elsewhere, is listed in docs/REFLECTION_AND_WHITELIST.md.
 ///
 /// Mod scripts compile against a fixed set of engine assemblies. Planet terrain rendering
 /// (VRage.Voxels.Client) and the render service (VRage.Render) are not in that set, so the
 /// calls below are late-bound. Reflection is only allowed today because the whitelist admits all
-/// of CoreLib; if Keen bans it, this file stops compiling and nothing else should. If Keen instead
+/// of CoreLib. If Keen instead
 /// adds VRage.Voxels.Client + VRage.Render to the mod compile references, every call here can
 /// become a direct call.
 ///
@@ -400,7 +401,7 @@ public static class PlanetRenderBridge
     /// <summary>
     /// A globe from the planet's map-visual model, or its hi-res globe while <see cref="PlanetMesh.Enabled"/>
     /// and one can be built. mapOnly: EntityType.Map, drawn only while the renderer is in map mode
-    /// (<see cref="SetDraw3DMap"/>): the orbital map's globes.
+    /// (RenderSystem.SetDraw3DMap, which the game's map turns on): the orbital map's globes.
     /// </summary>
     public static Proxy CreateProxy(PlanetHandles h, Vector3D center, bool mapOnly)
     {
@@ -726,24 +727,6 @@ public static class PlanetRenderBridge
     // Internals
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// The renderer's map mode (RenderSystem.SetDraw3DMap): only EntityType.Map models are drawn,
-    /// the world is hidden. What the strategic map uses; the orbital map uses it the same way.
-    /// </summary>
-    public static bool SetDraw3DMap(bool enable)
-    {
-        try
-        {
-            if (!ResolveRender()) return false;
-            object rs = _contracts.GetType().GetMethod("GetRenderSystem", Type.EmptyTypes)?.Invoke(_contracts, null);
-            var m = rs?.GetType().GetMethod("SetDraw3DMap");
-            if (m == null) { WarnOnce("draw3dmap", "SetDraw3DMap not found"); return false; }
-            m.Invoke(rs, new object[] { enable });
-            return true;
-        }
-        catch (Exception e) { WarnOnce("draw3dmap2", $"SetDraw3DMap failed: {Inner(e)}"); return false; }
-    }
-
     private static Assembly _renderAsm;
 
     private static bool ResolveRender()
@@ -940,12 +923,6 @@ public static class PlanetRenderBridge
         catch (Exception e) { Log.Default?.Warning($"[ORBIT] gravity law write failed: {Inner(e)}"); return false; }
     }
 
-    /// <summary>
-    /// DEV HARNESS: an ENGINE screenshot (RenderContracts.GetMainTarget().TakeScreenshotAsync), the
-    /// path the blueprint tool uses. Rendered by the engine into the game's temp folder, so it works
-    /// when desktop capture (GDI CopyFromScreen) fails because the display is asleep.
-    /// Returns the absolute path it will be written to, or null.
-    /// </summary>
     /// <summary>Engine screenshots leave out the 2D UI (HUD, terminal); 3D labels stay.</summary>
     public static bool ShotWithoutUi = true;
 
@@ -1102,6 +1079,12 @@ public static class PlanetRenderBridge
         catch (Exception e) { WarnOnce("map-settle", "map zoom settle failed: " + Inner(e)); return false; }
     }
 
+    /// <summary>
+    /// DEV HARNESS: an ENGINE screenshot (RenderContracts.GetMainTarget().TakeScreenshotAsync), the
+    /// path the blueprint tool uses. Rendered by the engine into the game's temp folder, so it works
+    /// when desktop capture (GDI CopyFromScreen) fails because the display is asleep.
+    /// Returns the absolute path it will be written to, or null.
+    /// </summary>
     public static string EngineScreenshot(string name)
     {
         try
@@ -1158,27 +1141,6 @@ public static class PlanetRenderBridge
             return $"{typeName} not loaded";
         }
         catch (Exception e) { return "failed: " + Inner(e); }
-    }
-
-    /// <summary>Set a static field of another mod's type to an object of a type it accepts (e.g. a hook delegate:
-    /// the aero mod's AeroEntryFx.External). False if the mod or field is absent or the type does not fit.</summary>
-    public static bool SetForeignStatic(string typeName, string field, object value)
-    {
-        try
-        {
-            foreach (Assembly a in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                Type t;
-                try { t = a.GetType(typeName); } catch { continue; }
-                if (t == null) continue;
-                FieldInfo f = t.GetField(field, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                if (f == null || (value != null && !f.FieldType.IsInstanceOfType(value))) return false;
-                f.SetValue(null, value);
-                return true;
-            }
-        }
-        catch { }
-        return false;
     }
 
     public static string SetForeignFlag(string typeName, string field, bool value)

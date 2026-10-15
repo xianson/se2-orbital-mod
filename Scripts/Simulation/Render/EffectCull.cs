@@ -17,7 +17,7 @@ namespace OrbitalMod;
 /// camera has its emitters hidden (ParticleEffectHandle.SetEmittersVisible(false)); shown again inside ShowKm (a band:
 /// no flicker at the edge). Only the ones this hid are shown again. By reflection (VRage.Game.Client is not
 /// referenceable). Client only.
-/// (The file keeps its first name, EffectReparent.cs - the re-parent experiment it held is gone.)
+/// (The file was EffectReparent.cs until the 2026-10 reorg - the re-parent experiment it held is gone.)
 /// </summary>
 public static class EffectCull
 {

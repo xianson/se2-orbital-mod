@@ -1,4 +1,3 @@
-using Keen.Game2.Simulation.Utils;
 using Keen.VRage.DCS.Components;
 
 #pragma warning disable

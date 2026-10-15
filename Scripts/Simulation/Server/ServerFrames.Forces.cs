@@ -1,7 +1,5 @@
-using System.Collections.Concurrent;
 using Keen.VRage.Core;
 using SEAerospace;
-using SEAerospace.Frames;
 using SEAerospace.Orbital;
 using SEAerospace.Rendezvous;
 using SEAerospace.SystemDef;

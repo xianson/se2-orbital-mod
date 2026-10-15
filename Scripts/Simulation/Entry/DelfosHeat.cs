@@ -1,5 +1,4 @@
 using Keen.Game2.Simulation.WorldObjects.BrownDwarf;
-using Keen.VRage.Core;
 using Keen.VRage.DCS.Internal;
 using SEAerospace.Orbital;
 

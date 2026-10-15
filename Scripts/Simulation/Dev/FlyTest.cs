@@ -1,4 +1,3 @@
-using System;
 using Keen.VRage.Core;
 using Keen.VRage.Core.Input;
 

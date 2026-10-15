@@ -1,6 +1,5 @@
 using Keen.Game2.Simulation.StreamedUI.Terminal.ControlPanel.BlockDetails;
 using Keen.Game2.Simulation.WorldObjects.CubeBlocks;
-using Keen.VRage.Core;
 using Keen.VRage.Library.Serialization.Validation;
 using Keen.VRage.Library.UI.PropertyInspector;
 

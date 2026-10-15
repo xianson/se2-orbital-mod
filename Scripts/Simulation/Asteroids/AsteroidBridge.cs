@@ -1,8 +1,6 @@
 using System.Reflection;
-using Keen.VRage.Core;
 using Keen.VRage.Core.Game.GameSystems.ProceduralGeneration;
 using Keen.VRage.Core.Game.GameSystems.ProceduralGeneration.Volume;
-using Keen.VRage.Library.Memory;
 
 #pragma warning disable
 namespace OrbitalMod;

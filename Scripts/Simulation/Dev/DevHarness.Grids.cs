@@ -1,4 +1,3 @@
-using System.IO;
 using Keen.VRage.Core;
 
 #pragma warning disable

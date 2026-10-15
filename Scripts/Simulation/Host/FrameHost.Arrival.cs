@@ -1,5 +1,4 @@
 using Keen.VRage.Core;
-using Keen.VRage.Physics.Data;
 using SEAerospace;
 using SEAerospace.Frames;
 using SEAerospace.Orbital;

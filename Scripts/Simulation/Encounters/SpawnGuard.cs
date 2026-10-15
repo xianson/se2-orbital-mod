@@ -1,8 +1,6 @@
 using System.Reflection;
-using Keen.VRage.Core;
 using Keen.VRage.Core.Game.GameSystems.ProceduralGeneration;
 using Keen.VRage.Core.Game.GameSystems.ProceduralGeneration.SpawnPrevention;
-using SEAerospace.Orbital;
 
 #pragma warning disable
 namespace OrbitalMod;

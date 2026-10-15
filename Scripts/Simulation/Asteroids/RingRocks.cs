@@ -1,7 +1,5 @@
-using Keen.VRage.Core;
 using SEAerospace;
 using SEAerospace.Orbital;
-using SEAerospace.SystemDef;
 
 #pragma warning disable
 namespace OrbitalMod;

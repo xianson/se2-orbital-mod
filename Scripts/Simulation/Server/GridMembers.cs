@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using Keen.Game2.Simulation.WorldObjects.CubeGrids;
 using Keen.VRage.Core;
 using Keen.VRage.Physics.Components;

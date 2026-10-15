@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Keen.Game2.Simulation.GameSystems.Colonization;
 using Keen.Game2.Simulation.GameSystems.Encounters;
 using Keen.Game2.Simulation.GameSystems.Ownership;
@@ -6,7 +5,6 @@ using Keen.VRage.Core;
 using SEAerospace;
 using SEAerospace.Frames;
 using SEAerospace.Orbital;
-using SEAerospace.SystemDef;
 using static OrbitalMod.Num;
 
 #pragma warning disable

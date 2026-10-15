@@ -1,8 +1,6 @@
 using System.Globalization;
 using System.Text;
-using Keen.VRage.DCS.Components;
 using Keen.Game2.Simulation.GameSystems;
-using SEAerospace;
 using SEAerospace.Frames;
 using SEAerospace.Orbital;
 using SEAerospace.Persistence;

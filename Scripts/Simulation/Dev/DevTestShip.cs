@@ -2,7 +2,6 @@ using Keen.Game2.Client.GameSystems.PlayerControl;
 using Keen.Game2.Simulation.GameSystems.Ownership;
 using Keen.Game2.Simulation.WorldObjects.CubeBlocks.ResourceDistribution.Resources;
 using Keen.VRage.Core;
-using Keen.VRage.Core.Game.Components;
 using Keen.VRage.Core.Game.Definitions;
 using Keen.VRage.DCS.ObjectBuilders;
 

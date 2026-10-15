@@ -1,7 +1,6 @@
 using Keen.Game2.Simulation.WorldObjects.CubeBlocks;
 using Keen.Game2.Simulation.WorldObjects.CubeGrids;
 using Keen.Game2.Simulation.WorldObjects.CubeGrids.Damage;
-using Keen.VRage.Core;
 using SEAerospace.Entry;
 
 #pragma warning disable

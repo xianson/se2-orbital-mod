@@ -1,11 +1,9 @@
 using System.Reflection;
 using Keen.Game2.Simulation.GameSystems.Colonization;
 using Keen.Game2.Simulation.GameSystems.ProceduralGeneration;
-using Keen.VRage.Core;
 using Keen.VRage.Core.Game.Definitions;
 using Keen.VRage.Core.Game.GameSystems.ProceduralGeneration;
 using Keen.VRage.Core.Game.GameSystems.ProceduralGeneration.Volume;
-using Keen.VRage.DCS.ObjectBuilders;
 using SEAerospace;
 using SEAerospace.Frames;
 using SEAerospace.Orbital;

@@ -1,4 +1,3 @@
-using SEAerospace;
 using SEAerospace.Entry;
 using SEAerospace.Frames;
 using SEAerospace.Orbital;

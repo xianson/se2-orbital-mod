@@ -91,7 +91,7 @@ public class StationKeepCharge : Component, IInSceneListener,
     static volatile int _stState; static int _stN; static double _stTotal;
 
     /// <summary>The thrusters by grid built again (ChargeGrid's: server thread). Its old lists back to the pool.</summary>
-    static void RebuildByGrid(double now)
+    static void RebuildByGrid(double now, Keen.VRage.DCS.Scenes.Scene scene)
     {
         foreach (var l in _byGrid.Values) { l.Clear(); _listPool.Add(l); }
         _byGrid.Clear();
@@ -99,6 +99,10 @@ public class StationKeepCharge : Component, IInSceneListener,
         lock (All) { every.Clear(); every.AddRange(All); _byGridVersion = _allVersion; }
         foreach (var c in every)
         {
+            // (only the server scene's thrusters: All holds the client scene's copies too, and reading theirs from the server
+            //  thread trips the game's DataGuard ("Concurrent access (read) - IsEntityAlive"; the in-game integration run,
+            //  2026-10-15) - their parents were read across threads before the alive guard, unnoticed)
+            if (c.Entity == null || !ReferenceEquals(c.Entity.Data.Scene, scene)) continue;
             if (!Alive(c.Entity)) continue;   // (a thruster deleted before its listener ran: its parent read threw, ~200 ms - 2026-10-15)
             var top = c.Entity.GetTopLevelParent();
             if (top == null) continue;
@@ -124,13 +128,13 @@ public class StationKeepCharge : Component, IInSceneListener,
         double now = Wall(), total = 0; int n = 0;
         // (the thrusters by grid: kept - see _byGrid - built again when thrusters came or went, or ByGridSeconds on)
         int ver; lock (All) ver = _allVersion;
-        if (ver != _byGridVersion || now - _byGridAt > ByGridSeconds) RebuildByGrid(now);
+        if (ver != _byGridVersion || now - _byGridAt > ByGridSeconds) RebuildByGrid(now, grid.Data.Scene);
         _byGrid.TryGetValue(grid, out var mine);
         // (every thruster of this grid's list still on it: one moved to another grid since - a split - and the lists are built anew.
         //  A dead one counts as moved, asked before its parent is read - that threw, ~200 ms: the lists are built without it.
         //  The charge loop below runs on what this checked, its try the backstop - 2026-10-15)
         if (mine != null)
-            foreach (var c in mine) { var top = Alive(c.Entity) ? c.Entity.GetTopLevelParent() : null; if (top == null || !top.Equals(grid)) { RebuildByGrid(now); _byGrid.TryGetValue(grid, out mine); break; } }
+            foreach (var c in mine) { var top = Alive(c.Entity) ? c.Entity.GetTopLevelParent() : null; if (top == null || !top.Equals(grid)) { RebuildByGrid(now, grid.Data.Scene); _byGrid.TryGetValue(grid, out mine); break; } }
         if (mine == null) { _stState = 1; return; }
         var all = mine;
         // (the air it is in (no water in orbit): a thruster that makes no thrust here - an atmospheric one in vacuum - is not charged)

@@ -4,11 +4,11 @@
 # rendezvous, time, sensing). Exit 0 only if everything passes. Run on every change; the in-game suites
 # (tools/harness/test_*.sh) are for engine-facing work and releases.
 cd "$(dirname "$0")/.."
-MODCHECK=/d/aero/tools/ModCheck/ModCheck.csproj
+MODCHECK=${MODCHECK:-/d/aero/tools/ModCheck/ModCheck.csproj}   # (env override: a private ModCheck copy, own obj/)
 rc=0; t0=$(date +%s)
 
 s=$(date +%s)
-out=$(dotnet build "$MODCHECK" -nologo -v q 2>&1)
+out=$(dotnet build "$MODCHECK" -nologo -v q "-p:ModDir=$(cygpath -w "$PWD")" 2>&1)   # (this checkout, not the live mod folder)
 if echo "$out" | grep -q "Build succeeded"; then echo "PASS  compile (ModCheck)  $(( $(date +%s)-s ))s"
 else rc=1; echo "FAIL  compile (ModCheck)"; echo "$out" | grep -E " error " | sort -u | head -20; fi
 

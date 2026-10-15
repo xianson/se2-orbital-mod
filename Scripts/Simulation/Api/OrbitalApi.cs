@@ -31,10 +31,10 @@ namespace OrbitalMod;
 /// name (TryGetEntryState2).
 /// Documented in docs/API.md (the same text, with an example).
 /// </summary>
-public static class OrbitalApi
+public static partial class OrbitalApi
 {
-    /// <summary>The API contract. 1: the first published API.</summary>
-    public const int Version = 1;
+    /// <summary>The API contract. 1: the first published API. 2: the Peek* snapshot reads, bodies in the world, grid orbits, orbit math, time warp, the player's plan, targets, sites, contacts (docs/API.md, Version 2; the members in Scripts/Simulation/Api/).</summary>
+    public const int Version = 2;
 
     // ── the solar system ──
 

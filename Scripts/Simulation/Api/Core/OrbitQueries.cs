@@ -15,13 +15,14 @@ namespace SEAerospace.Api
         public static KeplerianElements Elements(double a, double e, double i, double raan, double argp, double nu, double epoch, double mu)
             => new KeplerianElements { SemiMajorAxis = a, Eccentricity = e, Inclination = i, Raan = raan, ArgPeriapsis = argp, TrueAnomaly = nu, Epoch = epoch, Mu = mu };
 
-        /// <summary>A set the conic math can use: all finite, mu &gt; 0, e &gt;= 0 and not the parabolic knife-edge, and a's sign
-        /// matching the regime (a &gt; 0 elliptic, a &lt; 0 hyperbolic).</summary>
+        /// <summary>A set the conic math can use: all finite, mu &gt; 0, e &gt;= 0 and not exactly the parabolic knife-edge (e == 1; the
+        /// capture's needle ellipses sit a hair under it, and propagate fine), and a's sign matching the regime (a &gt; 0 elliptic,
+        /// a &lt; 0 hyperbolic).</summary>
         public static bool Usable(KeplerianElements el)
         {
             if (!Finite(el.SemiMajorAxis) || !Finite(el.Eccentricity) || !Finite(el.Inclination) || !Finite(el.Raan)
                 || !Finite(el.ArgPeriapsis) || !Finite(el.TrueAnomaly) || !Finite(el.Epoch) || !Finite(el.Mu)) return false;
-            if (!(el.Mu > 0) || el.Eccentricity < 0 || Math.Abs(el.Eccentricity - 1.0) < 1e-9) return false;
+            if (!(el.Mu > 0) || el.Eccentricity < 0 || el.Eccentricity == 1.0) return false;
             return el.Eccentricity < 1.0 ? el.SemiMajorAxis > 0 : el.SemiMajorAxis < 0;
         }
 
@@ -42,6 +43,14 @@ namespace SEAerospace.Api
             el = default;
             if (!Finite(position) || !Finite(velocity) || !(mu > 0) || !Finite(mu) || !Finite(t) || position.LengthSquared() < 1.0) return false;
             el = SEAerospace.Frames.RendezvousPlot.Capture(new StateVector(position, velocity), mu, t);
+            if (Usable(el)) return true;
+            // (at rest, the capture's 1 cm/s nudge leaves e within 1e-11 of 1 and a infinite: nudged by 1 m/s instead - still a
+            //  fall to the centre, periapsis centimetres from it)
+            double rm = position.Length();
+            Vector3D radial = position / rm;
+            Vector3D axis = Math.Abs(radial.Z) < 0.9 ? Vector3D.UnitZ : Vector3D.UnitX;
+            Vector3D perp = Vector3D.Normalize(Vector3D.Cross(axis, radial));
+            el = OrbitalMath.ToElements(new StateVector(position, velocity + perp), mu, t);
             return Usable(el);
         }
 

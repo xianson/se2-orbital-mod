@@ -22,14 +22,12 @@ namespace OrbitalMod;
 ///    crossing state is converted into the planet cell and the player is teleported there with
 ///    that velocity (the exact state patch), and the frame dissolves.
 ///
-/// v1 limits (all documented in the README):
+/// Limits:
 ///  - Runs on the CLIENT thread for the LOCAL player: SE2 character movement is client-authoritative
-///    (server-only velocity writes did not stick in testing). Single player / listen host.
-///  - Only an EVA character is framed; a seated player is skipped. Grids and multi-member frames
-///    (CW forces, split, merge) come next.
-///  - Above the world speed cap the planet cell runs HighSpeed v1 (StepHighSpeed): virtual velocity,
-///    model gravity, per-tick position stepping written on client and server. No thrust while in
-///    HighSpeed yet, and client/server writes jitter the observed speed.
+///    (server-only velocity writes did not stick in testing). Single player / listen host. Grids are the
+///    server half's (ServerFrames); seated, the grid you sit in carries you and its frame is yours.
+///  - Over the world speed cap in a planet's cell there is no HighSpeed for the player any more: an arrival
+///    comes in capped (TryMaterialize), a saved HighSpeed conic goes onto the rails (RestoreHighSpeed).
 ///  - Capture requires having been inside a planet's keep first (or the harness `stow` command),
 ///    instead of the full total-partition axiom, so loading a world never yanks the player away.
 /// </summary>
@@ -49,13 +47,13 @@ public static class FrameHost
     public static string ObserverPlanetName => ObserverPlanet;
 
     private static Vector3D _lastPos, _lastVel;
-    /// <summary>On foot (not seated, not HighSpeed): the character's own position and physics velocity this
+    /// <summary>On foot (not seated): the character's own position and physics velocity this
     /// tick (world), for the orbit readout (the camera-differenced estimate was noisy).</summary>
     public static bool FootState(out Vector3D pos, out Vector3D vel)
     {
         pos = _lastPos; vel = _lastVel;
         double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
-        return !Seated && !_hsActive && now - _footWall < 0.25 && IsFinite(pos) && IsFinite(vel);
+        return !Seated && now - _footWall < 0.25 && IsFinite(pos) && IsFinite(vel);
     }
     private static double _footWall;
 
@@ -66,14 +64,13 @@ public static class FrameHost
     public static bool SeatState(out Vector3D pos, out Vector3D vel)
     {
         pos = _lastPos; vel = _seatVel;
-        return Seated && !_hsActive && _seatVelOk && IsFinite(pos) && IsFinite(vel);
+        return Seated && _seatVelOk && IsFinite(pos) && IsFinite(vel);
     }
 
-    /// <summary>The player's orbit about a planet while materialized in its cell (HighSpeed: its conic).</summary>
+    /// <summary>The player's orbit about a planet while materialized in its cell.</summary>
     public static bool TryGetLocalOrbit(string body, double t, out KeplerianElements el)
     {
         el = default;
-        if (_hsActive && _hsBody == body) { el = _hsEl; return true; }
         var reg = SystemHost.Registry;
         var node = reg?.Find(body);
         if (node == null || !VoxelBerthRegistry.TryGetCell(body, reg, out Vector3D cell)) return false;
@@ -128,7 +125,7 @@ public static class FrameHost
     {
         _cur = new PlayerState(); _pub = PlayerState.None;
         SeatGrid = null; SeatBlock = null; _seatChar = null; _lastChar = null; _seatVelOk = false;
-        _tpPending = false; _riderN = 0; _riderFrame = -1; _wasInKeep = false; _hsActive = false;
+        _tpPending = false; _riderN = 0; _riderFrame = -1; _wasInKeep = false;
         DropPending(); _pendingOrbit = null; ForceStow = false;
         Observer = null; ObserverPlanet = null;
         Maneuvers.ResetOwnOrbit();
@@ -148,7 +145,6 @@ public static class FrameHost
         if (!ReferenceEquals(session, _session)) { _session = session; NewSession(); }
         if (!OrbitalSettings.SawClient) OrbitalSettings.SawClient = true;
         OrbitalSettings.Poll();   // (the settings files, every ~2 s)
-        _mult = gravityMultiplier > 0 ? gravityMultiplier : 1.0;
         if (!SystemHost.Built)
         {
             try
@@ -191,7 +187,7 @@ public static class FrameHost
             bool landed = false;
             if (_tpPending) { SettleTeleport(session, ch, pos, t); landed = !_tpPending; }
             if (landed) vel = _tpVelocity;
-            _lastPos = pos; _lastVel = _hsActive ? _hsVel : vel; _footWall = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+            _lastPos = pos; _lastVel = vel; _footWall = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
 
             _playerId = id;
             lock (ServerFrames.FramesLock)
@@ -201,7 +197,7 @@ public static class FrameHost
                 var frame = frames.FindByMember(id);
                 // Far from your frame's berth (the game's fast travel, a respawn elsewhere): you are not in it any more - left
                 // quietly (no split onto an orbit made of a berth-to-berth offset; no pin back as its anchor). PlayerOrbit.MovedOut.
-                if (frame != null && !_tpPending && !_hsActive && frame.PendingBerthShift.LengthSquared() < 1 && PlayerOrbit.MovedOut(frame, pos))
+                if (frame != null && !_tpPending && frame.PendingBerthShift.LengthSquared() < 1 && PlayerOrbit.MovedOut(frame, pos))
                 {
                     frames.RemoveMember(id);
                     Event($"player left frame #{frame.Id}: {(pos - frame.BerthCenter).Length() / 1000:F0} km from its berth (moved by something else)");
@@ -210,7 +206,7 @@ public static class FrameHost
                 // Stood up in a ship that was stowed with you seated in it: a seated character is no grid, so it was never
                 // made a member - you walked off into no frame (no orbit; left behind when the frame moved). Out in the
                 // rails' space, beside a framed ship: its frame (PlayerOrbit.FrameToJoin; tested offline).
-                if (frame == null && !_tpPending && !_hsActive && !ForceStow && !_pendingOrbit.HasValue && !VoxelBerthRegistry.TryCellContaining(pos, reg, out _, out _))
+                if (frame == null && !_tpPending && !ForceStow && !_pendingOrbit.HasValue && !VoxelBerthRegistry.TryCellContaining(pos, reg, out _, out _))
                 {
                     _joinGrids.Clear();
                     // (with their boxes, from the server's snapshot: measured to a ship's hull, not its origin)
@@ -232,13 +228,12 @@ public static class FrameHost
                 _cur.Frame = frame;
                 SeatGrid = null; SeatBlock = null; SeatGridServerId = 0;
                 if (frame == null) _riderN = 0;   // (no frame: the state's defaults - not riding, not at an anchor; no walk's warp scale)
-                if (frame != null) { _hsActive = false; UpdatePlayerFrame(session, ch, frame, pos, vel, t, dt); }
+                if (frame != null) UpdatePlayerFrame(session, ch, frame, pos, vel, t, dt);
                 else if (!_tpPending)
                 {
-                    if (_hsActive && !landed) vel = StepHighSpeed(ch, pos, vel, dt);
-                    else if (!landed) vel = ApplyFictitious(ch, pos, vel, dt);
-                    if (!_hsActive && !ForceStow && EncounterFrames.TryAdoptPlayer(id, pos)) { _cur.Frame = frames.FindByMember(id); PublishObserver(camera.Position, reg, t); return; }
-                    TryStow(session, ch, id, pos, _hsActive ? _hsVel : vel, t);
+                    if (!landed) vel = ApplyFictitious(ch, pos, vel, dt);
+                    if (!ForceStow && EncounterFrames.TryAdoptPlayer(id, pos)) { _cur.Frame = frames.FindByMember(id); PublishObserver(camera.Position, reg, t); return; }
+                    TryStow(session, ch, id, pos, vel, t);
                 }
             }
         }
@@ -324,10 +319,10 @@ public static class FrameHost
         Guard("Maneuvers.HudTick", static a => Maneuvers.HudTick(a.Session, a.Camera, a.T), ta);
         Guard("AutoBurn.Tick", static a => AutoBurn.Tick(a.Session, a.T), ta);
         Guard("OrbitHud.Draw", static a => OrbitHud.Draw(a.Session), ta);
-        Guard("BuildHints.Draw", static a => BuildHints.Draw(a.Session), ta);
-        Guard("SpdIcon.Draw", static a => SpdIcon.Draw(a.Session), ta);
-        Guard("AlignButton.Draw", static a => AlignButton.Draw(a.Session), ta);
-        Guard("EffectCull.Tick", static a => EffectCull.Tick(a.Session, a.Camera.Position), ta);   // (far grids' looping block effects hidden: drawn on the sky past the far plane)   // (seated: the attitude hold's toggle after the dampeners, its hint)   // (seated: the cockpit SPD box's missing speedometer)   // (holding a block: the aimed ship's stability, top speed)
+        Guard("BuildHints.Draw", static a => BuildHints.Draw(a.Session), ta);   // (holding a block: the aimed ship's stability, top speed)
+        Guard("SpdIcon.Draw", static a => SpdIcon.Draw(a.Session), ta);   // (seated: the cockpit SPD box's missing speedometer)
+        Guard("AlignButton.Draw", static a => AlignButton.Draw(a.Session), ta);   // (seated: the attitude hold's toggle after the dampeners, its hint)
+        Guard("EffectCull.Tick", static a => EffectCull.Tick(a.Session, a.Camera.Position), ta);   // (far grids' looping block effects hidden: drawn on the sky past the far plane)
         Guard("WarpBar", static a => WarpBar.DrawHud(a.Session), ta);
         // On rails the game's SPD (your velocity in the frame) is 0: show your speed about the body.
         Guard("HudSpeed", static a => { if (_cur.Frame != null && OrbitHud.Current != null) GameUi.SetHudSpeed(a.Session, (float)OrbitHud.Current.Speed); }, ta);
@@ -350,7 +345,6 @@ public static class FrameHost
             ForceStow = false;
             var pf = SystemHost.Frames.CreateFrame(pb, pel, id);
             if (pf == null) return;
-            _hsActive = false;
             _wasInKeep = false;
             StartTeleport(session, pf.BerthCenter, Vector3D.Zero, t);
             // Unconstrained grids within the attach radius come along (constrained ones never move: Havok).
@@ -375,7 +369,7 @@ public static class FrameHost
         Vector3D relChart = pos - cell;
         double chartSpeed = vel.Length();   // speed in the planet's world (before the inertial conversion)
         Vector3D rel = chart.ToInertial(relChart);
-        if (!_hsActive) vel = chart.VelToInertial(relChart, vel);   // HighSpeed carries the inertial velocity
+        vel = chart.VelToInertial(relChart, vel);
         Vector3D cel = borg.Position + rel;
         Vector3D celVel = borg.Velocity + vel;
         double d = rel.Length();
@@ -407,7 +401,6 @@ public static class FrameHost
 
         var frame = SystemHost.Frames.CreateFrame(parent.Name, el, id);
         if (frame == null) return;
-        _hsActive = false;
         ForceStow = false;
         _wasInKeep = false;
         ServerFrames.Attach.Enqueue(new ServerFrames.AttachRequest { FrameId = frame.Id, RefPos = pos, RefVel = vel, Berth = frame.BerthCenter, Body = legacy ? null : body, Time = t });
@@ -657,7 +650,6 @@ public static class FrameHost
         _overCapWait = 0;
         bool capped = speed > SpeedCap * 1.001;
         Vector3D applied = capped ? worldVel * (SpeedCap / speed) : worldVel;
-        _hsActive = false;
 
         // (a frame with grids in it arrives on the server - grids and the player together, RequestArrival)
         foreach (long mid in f.Members) if (GridMembers.IsGridId(mid)) return;
@@ -676,10 +668,6 @@ public static class FrameHost
     private static int _overCapWait;
     public const double SurfaceGuard = 2000.0;        // m above the body radius: never step closer
 
-    private static bool _hsActive;
-    private static double _mult = 1.0;
-    private static Vector3D _hsVel;
-    public static bool HighSpeedActive => _hsActive;
     public static long PlayerId => _playerId;
     public static Vector3D PlayerPosition => _lastPos;
     /// <summary>The player riding a frame: its id, offset from the frame's centre and velocity relative to it (last tick).</summary>
@@ -687,11 +675,11 @@ public static class FrameHost
     public static Vector3D RiderOffset => _pub.RiderOffset;
     public static Vector3D RiderVelocity => _pub.RiderVelocity;
 
-    /// <summary>Save: the player's HighSpeed conic, if riding one.</summary>
+    /// <summary>Save: the player's HighSpeed conic - never one now (the save's format keeps the entry: SavedState).</summary>
     public static bool TryGetHighSpeed(out string body, out KeplerianElements el)
     {
-        body = _hsBody; el = _hsEl;
-        return _hsActive && !string.IsNullOrEmpty(_hsBody);
+        body = null; el = default;
+        return false;
     }
 
     /// <summary>Load: back onto the saved HighSpeed conic (the saved position is already on it).</summary>
@@ -704,111 +692,18 @@ public static class FrameHost
         _pendingOrbit = (body, el);
         ForceStow = true;
     }
-    public static Vector3D HighSpeedVelocity => _hsVel;
-    public static string HighSpeedElements => _hsActive ? $"a={_hsEl.SemiMajorAxis / 1000:F2}km,e={_hsEl.Eccentricity:F4}" : "-";
 
-    /// <summary>
-    /// SE-Aerospace's HighSpeed, SE2 form: ANALYTIC. Inside a planet cell gravity is exactly the patched
-    /// inverse-square law, so the true motion is a Kepler conic. On engage the state is converted to
-    /// elements about the body (<see cref="_hsEl"/>); every tick the character is PLACED at the conic's
-    /// position for the current time (client and server writes), with physics velocity zeroed. A write
-    /// lost to the client/server tug is corrected by the next one instead of accumulating (the first,
-    /// integrating version sank below periapsis in game for exactly that reason).
-    /// Below cap × 0.9 it hands back to physics with the conic's velocity; near the surface it stops
-    /// (surface guard) and hands back at the cap: no tunnelling into terrain.
-    /// Thrust is not folded in yet (SE1 re-osculated from GetAcceleration). Returns the velocity.
-    /// </summary>
-    private static KeplerianElements _hsEl;
-    private static string _hsBody;
-
-    private static void EngageHighSpeed(string body, Vector3D relPos, Vector3D relVel, double t)
-    {
-        var node = SystemHost.Registry?.Find(body);
-        if (node == null) { _hsActive = false; return; }
-        _hsEl = CaptureMath.CaptureElements(new StateVector(relPos, relVel), node.Mu, t);
-        _hsBody = body;
-        _hsVel = relVel;
-        _hsActive = IsFinite(_hsEl.SemiMajorAxis);
-    }
-
-    private static Vector3D _kick;
-    /// <summary>DEV: give the HighSpeed player a velocity (prograde, radial, normal m/s) through physics.</summary>
-    public static string Kick(double pro, double rad, double nor)
-    {
-        if (!_hsActive) return "not in HighSpeed";
-        _kick = new Vector3D(pro, rad, nor);
-        return "kick queued";
-    }
-
-    /// <summary>HighSpeed: a velocity jump the thrust does not explain, above this, is a push (collision, harness kick).</summary>
-    public const double HsPushThreshold = 2.0;   // m/s per tick
+    // (the player's analytic HighSpeed - its conic, thrust fold and harness kick - went with it; what the harness reads and
+    //  sets of it stays, reading "not in HighSpeed": the status line's host row, 'kick', 'hsfold')
+    public static bool HighSpeedActive => false;
+    public static Vector3D HighSpeedVelocity => Vector3D.Zero;
+    public static string HighSpeedElements => "-";
     public static double HsResidualAvg, HsResidualMax;
     public static int HsFolds;
     public static bool HsThrustFold = true;
     public static string HsDiag = "";
-    private static double _hsFoldLogAt;
-    private static Vector3D _hsFoldedSinceLog;
-
-    /// <summary>
-    /// HighSpeed keeps the player's own delta-v. The character's thrust component applies one
-    /// impulse per frame (ActiveThrustData.ComputedThrustPerFrame, body-local); that impulse times
-    /// the inverse mass is the exact thrust delta-v, folded into the conic by re-osculating. The
-    /// physics velocity itself is no use for small changes: the thrust job zeroes components below
-    /// the movement minimum speed, which swallows a frame of gravity (~0.2 m/s). Large unexplained
-    /// jumps (a collision, the harness kick) are folded from the velocity instead.
-    /// </summary>
-    private static void FoldHighSpeedThrust(Entity ch, Vector3D relPos, Vector3D measured, double dt, double t)
-    {
-        if (dt <= 0) return;
-        var node = SystemHost.Registry?.Find(_hsBody);
-        if (node == null) return;
-
-        Vector3D thrust = Vector3D.Zero;
-        try
-        {
-            if (ch.Data.TryGet<Keen.Game2.Simulation.WorldObjects.Movement.ActiveThrustData>(out var at) &&
-                ch.Data.TryGet<Keen.VRage.Physics.Data.RigidBodyMassProperties>(out var mp) && mp.InvMass > 0)
-            {
-                var wt = ch.Data.GetWorldTransform();
-                thrust = (Vector3D)WorldTransform.TransformDirection(at.ComputedThrustPerFrame, wt) * mp.InvMass;
-            }
-        }
-        catch { thrust = Vector3D.Zero; }
-
-        double r = relPos.Length();
-        Vector3D gPhys = r > 1 ? relPos * (-node.Mu / (r * r * r)) : Vector3D.Zero;
-        Vector3D push = IsFinite(measured) ? measured - gPhys * dt - thrust : Vector3D.Zero;
-        double pm = push.Length();
-        HsResidualAvg = HsResidualAvg * 0.98 + pm * 0.02;
-        if (pm > HsResidualMax) HsResidualMax = pm;
-        HsDiag = $"thrust={thrust.Length():F3} meas={(IsFinite(measured) ? measured.Length() : -1):F3} gdt={gPhys.Length() * dt:F3}";
-
-        Vector3D dv = Chart.Of(_hsBody, t).ToInertial(thrust + (pm > HsPushThreshold ? push : Vector3D.Zero));   // chart axes -> inertial
-        if (_kick.LengthSquared() > 0)
-        {
-            // DEV kick: prograde / radial / normal, injected as a push (tests the fold, not the engine).
-            StateVector k = OrbitPropagation.StateAt(_hsEl, t);
-            Vector3D pro = Vector3D.Normalize(k.Velocity), rad = Vector3D.Normalize(k.Position);
-            Vector3D kv = pro * _kick.X + rad * _kick.Y + Vector3D.Cross(rad, pro) * _kick.Z;
-            Event($"DEV kick {kv.Length():F1} m/s (prograde {_kick.X:F1}, radial {_kick.Y:F1}, normal {_kick.Z:F1})");
-            dv += kv;
-            _kick = Vector3D.Zero;
-        }
-        if (!HsThrustFold || !IsFinite(dv) || dv.LengthSquared() < 1e-12) return;
-        StateVector st = OrbitPropagation.StateAt(_hsEl, t);
-        var el = CaptureMath.CaptureElements(new StateVector(st.Position, st.Velocity + dv), node.Mu, t);
-        if (!IsFinite(el.SemiMajorAxis) || !IsFinite(el.MeanMotion)) return;
-        _hsEl = el;
-        HsFolds++;
-        _hsFoldedSinceLog += dv;
-        double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
-        if (now - _hsFoldLogAt > 1.0)
-        {
-            _hsFoldLogAt = now;
-            Event($"HighSpeed dv folded: {_hsFoldedSinceLog.Length():F2} m/s -> a={el.SemiMajorAxis / 1000:F2} km e={el.Eccentricity:F4} (folds {HsFolds})");
-            _hsFoldedSinceLog = Vector3D.Zero;
-        }
-    }
+    /// <summary>DEV: give the HighSpeed player a velocity - never in HighSpeed now.</summary>
+    public static string Kick(double pro, double rad, double nor) => "not in HighSpeed";
 
     /// <summary>Free flight in a spinning planet's cell (the rotating chart): Coriolis + centrifugal.</summary>
     private static Vector3D ApplyFictitious(Entity ch, Vector3D pos, Vector3D vel, double dt)
@@ -825,46 +720,6 @@ public static class FrameHost
         if (!IsFinite(nv)) return vel;
         SetVelocity(ch, nv);
         return nv;
-    }
-
-    private static Vector3D StepHighSpeed(Entity ch, Vector3D pos, Vector3D measured, double dt)
-    {
-        var reg = SystemHost.Registry;
-        if (!VoxelBerthRegistry.TryGetCell(_hsBody, reg, out Vector3D cell)) { _hsActive = false; return measured; }
-        var def = reg.FindDefinition(_hsBody);
-        double t = SystemHost.Now;
-        FoldHighSpeedThrust(ch, pos - cell, measured, dt, t);
-        StateVector st = OrbitPropagation.StateAt(_hsEl, t);
-        _hsVel = st.Velocity;
-        Vector3D vChart = Chart.Of(_hsBody, t).VelFromInertial(st.Position, st.Velocity);
-        double speed = vChart.Length();
-
-        if (speed < SpeedCap * HighSpeedExitFraction)
-        {
-            _hsActive = false;
-            SetVelocity(ch, vChart);
-            Event($"HighSpeed off at {speed:F0} m/s (physics takes over)");
-            return _hsVel;
-        }
-        double floor = (def != null ? def.RadiusMeters : 0) + SurfaceGuard;
-        if (st.Position.Length() < floor)
-        {
-            _hsActive = false;
-            Vector3D capped = vChart * (SpeedCap / speed);
-            SetVelocity(ch, capped);
-            Event($"HighSpeed surface guard at {(st.Position.Length() - (def?.RadiusMeters ?? 0)) / 1000:F1} km alt: {speed:F0} m/s -> {SpeedCap:F0} m/s physics");
-            return capped;
-        }
-
-        Vector3D target = cell + Chart.Of(_hsBody, t).FromInertial(st.Position);
-        SetVelocity(ch, Vector3D.Zero);
-        if (!GridMembers.Finite(target)) { GridMembers.NaNRefused++; _hsActive = false; Event("HighSpeed left: non-finite state"); return measured; }   // bad orbital state: back to physics
-        var wt = ch.Data.GetWorldTransform();
-        ch.Data.Set(new WorldTransform(target, wt.Orientation));
-        // The client write alone is overridden by the character controller (seen in game);
-        // the transform also goes through the server, the way EntityAdmin teleports.
-        ServerPlanetBeacon.PendingPlayer = new PlayerRequest { Position = target, Velocity = Vector3D.Zero };
-        return _hsVel;
     }
 
     /// <summary>
@@ -1048,12 +903,11 @@ public static class FrameHost
             //  in HighSpeed a hair over the cap (1010 vs 990) re-stowed the player inside the planet's frame and the
             //  whole frame arrived a second time)
             if (speed > SpeedCap) { chartVel *= SpeedCap / speed; speed = SpeedCap; }
-            bool hs = false;
             _cur.Frame = null;
             _wasInKeep = true;
-            StartTeleport(session, arriveAt, hs ? Vector3D.Zero : chartVel, t, achart.FromInertialRotation());
+            StartTeleport(session, arriveAt, chartVel, t, achart.FromInertialRotation());
             // (the grids the server turned into the chart: their cockpits' targets with them - ServerFrames.TargetTurns)
-            Event($"player arrives with its grid frame at {a.Body}{(hs ? " (HighSpeed)" : "")}");
+            Event($"player arrives with its grid frame at {a.Body}");
             return true;
         }
         if (_pendingMerge)

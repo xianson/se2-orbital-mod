@@ -112,7 +112,6 @@ public static partial class ServerFrames
     /// <summary>Grid moves done where fast travel does them (ServerPlanetBeacon's teleport phase, before the physics step).</summary>
     private static readonly List<(Entity e, Vector3D p, Vector3D v)> _deferred = new List<(Entity, Vector3D, Vector3D)>();
     private static readonly Dictionary<Entity, Quaternion> _deferredRot = new Dictionary<Entity, Quaternion>();
-    private static long _deferredStamp;
 
     /// <summary>Piloted grids the server just turned (crossing between a planet's rotating chart and the inertial frames): the
     /// client turns their cockpit's target with them (TargetControlData is the client's - what the mouse moves; left
@@ -183,7 +182,6 @@ public static partial class ServerFrames
     /// <summary>The queued moves, all in one go (once a frame, whichever beacon's job comes first).</summary>
     public static void RunDeferredMoves()
     {
-        long now = System.Diagnostics.Stopwatch.GetTimestamp();
         List<(Entity e, Vector3D p, Vector3D v)> todo;
         List<long> done;
         lock (_deferred)
@@ -193,7 +191,6 @@ public static partial class ServerFrames
             _deferred.Clear();
             lock (GridMembers.Pending) done = new List<long>(GridMembers.Pending.Keys);   // (queued with these moves, under this lock)
         }
-        _deferredStamp = now;
         foreach (var (e, p, v) in todo)
         {
             try

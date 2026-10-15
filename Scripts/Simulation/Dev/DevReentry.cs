@@ -26,7 +26,7 @@ public static class DevReentry
     static long _id;
     static bool _armed;
     static string _phase = "idle", _body;
-    static double _t0, _lastWall, _armWall;
+    static double _armWall;
     static readonly List<string> _log = new List<string>();
     static readonly List<string> _fails = new List<string>();
     static int _checks, _followTicks = -1;
@@ -39,8 +39,8 @@ public static class DevReentry
     // handover
     static bool _expect; static int _expectTicks;
     static Vector3D _expPos, _expVel, _expFrom; static Quaternion _expQ; static Vector3 _expW; static double _expWall = double.NaN;
-    static double _railWall, _railTicksWall, _airWall0 = double.NaN, _lagS = double.NaN, _restSince = double.NaN;
-    static double _handPosErr = double.NaN, _handVelErr = double.NaN, _handAngErr = double.NaN, _handSpeed = double.NaN;
+    static double _airWall0 = double.NaN, _restSince = double.NaN;
+    static double _handPosErr = double.NaN, _handSpeed = double.NaN;
     // air
     static Vector3D _lastP, _lastV; static bool _haveLast;
     /// <summary>The test ends here (m above the radius): a ship falling with its dampeners off is not crashed.</summary>
@@ -50,7 +50,7 @@ public static class DevReentry
     // drag: the deceleration it causes, over 0.5 s windows
     static bool _haveAcc; static Vector3D _accV0; static double _accT, _accF, _accG, _lastDrag; static int _accN, _decelChecks, _decelBad; static string _decelWorst = "";
     static readonly List<string> _timeline = new List<string>();
-    static double _airTicks, _maxJump, _maxJumpAt, _flowTicks, _atmoTicks, _maxMach, _plasmaTicks, _maxPlasma, _minAlt = double.MaxValue, _touchdownSpeed = double.NaN;
+    static double _airTicks, _maxJump, _maxJumpAt, _flowTicks, _maxMach, _plasmaTicks, _maxPlasma, _minAlt = double.MaxValue;
     static System.Reflection.MethodInfo _flight, _entry;
 
     public static string Arm(long id)
@@ -62,11 +62,11 @@ public static class DevReentry
         _railsTicks = _railsNaN = _bandTicks = _brakeOutside = _heatOutside = _maxHeat = _brakeTicks = _glowAtBrake = 0; _entrySpeed = double.NaN; _lastAirSpeed = double.NaN; _lastHeat = 0;
         _glowWritesStart = EntryHost.GlowWrites;
         _followTicks = -1;
-        _expect = false; _handPosErr = _handVelErr = _handAngErr = _handSpeed = double.NaN;
+        _expect = false; _handPosErr = _handSpeed = double.NaN;
         _atmoMoving = 0; _airFrom = double.NaN; _haveAcc = false; _decelChecks = _decelBad = 0; _decelWorst = ""; _timeline.Clear();
         _cFrames = 0; _cHitches = 0; _cCamAng = _cCamPos = _cShipJump = _cPlanetJump = _cPlasma = 0; _cHaveLast = false; _cWorst = ""; _cEvents = 0; _cSpeed = -1f; _cRailLog = 0; _cRailErrMax = 0; _cRailSamples = 0; _cLookLog = 0; _cAfter = 0; _shotBand = _shot15 = _shot3 = false; _contacts = 0; _contactMax = 0; _contactLogs = 0; _contactTried = false; _airWall0 = double.NaN; _lagS = double.NaN; _restSince = double.NaN; _railWall = Wall();
-        _haveLast = false; _airTicks = _maxJump = _maxJumpAt = _flowTicks = _atmoTicks = _maxMach = _plasmaTicks = _maxPlasma = 0; _minAlt = double.MaxValue; _touchdownSpeed = double.NaN;
-        _armWall = Wall(); _t0 = SystemHost.Now; _lastWall = _armWall;
+        _haveLast = false; _airTicks = _maxJump = _maxJumpAt = _flowTicks = _maxMach = _plasmaTicks = _maxPlasma = 0; _minAlt = double.MaxValue;
+        _armWall = Wall();
         _expWall = double.NaN; _cLastWall = _armWall;
         // the grids joined to it (sub-grids, docked): they must arrive with it
         _joined.Clear();
@@ -98,7 +98,7 @@ public static class DevReentry
     public static void ServerTick(double gameDt)
     {
         if (!_armed) return;
-        double wall = Wall(), dt = gameDt; _lastWall = wall;
+        double wall = Wall(), dt = gameDt;
         var g = GridMembers.Get(_id);
         if (g?.Entity == null) { Finish("the grid is gone"); return; }
         ProximityFrame f; lock (ServerFrames.FramesLock) f = SystemHost.Frames?.FindByMember(_id);
@@ -153,9 +153,9 @@ public static class DevReentry
             try { ae = Angle(e.Data.GetWorldTransform().Orientation, _expQ) * 180 / Math.PI; } catch { }
             if (moved || _expectTicks > 30)
             {
-                _lagS = since; _followTicks = 0;
+                _followTicks = 0;
                 Log($"handover: placed {since * 1000:F0} ms after the arrival computed it (behind its orbit by {since * _expVel.Length():F0} m at {_expVel.Length():F0} m/s)");
-                _handPosErr = pe; _handVelErr = ve; _handAngErr = ae; _handSpeed = v.Length();
+                _handPosErr = pe; _handSpeed = v.Length();
                 _expect = false;
                 Check(moved, "handover: moved into the planet's frame (off its berth)");
                 Check(pe < 2 + v.Length() / 60.0 * 2, $"handover: placed where the arrival sent it ({pe:F1} m off, its motion since included)");
@@ -207,7 +207,6 @@ public static class DevReentry
         bool inAtmo = def != null && alt < def.AtmosphereHeightMeters;
         if (inAtmo)
         {
-            _atmoTicks++;
             float rho = Density(g.Entity);
             if (rho > 1e-4f && double.IsNaN(_airFrom)) { _airFrom = alt; Log($"air: density over 1e-4 kg/m3 from {alt:F0} m (the atmosphere's top {def.AtmosphereHeightMeters:F0} m)"); }
             if (v.Length() > 5 && rho > 1e-4f)
@@ -245,7 +244,7 @@ public static class DevReentry
         }
         if (v.Length() < 2) { if (double.IsNaN(_restSince)) _restSince = Wall(); else if (Wall() - _restSince > 10) { Finish($"at rest at {alt:F0} m"); return; } }
         else _restSince = double.NaN;
-        if (alt < StopAltitude) { _touchdownSpeed = v.Length(); Finish($"down to {alt:F0} m at {v.Length():F0} m/s"); }
+        if (alt < StopAltitude) { Finish($"down to {alt:F0} m at {v.Length():F0} m/s"); }
     }
 
     // ── the view: the client, every frame ──

@@ -112,6 +112,8 @@ start() {
     local lw; lw=$(logworld "$L")
     [ "$lw" = "$W" ] || { record "$1: the game loaded the test world" "its -start: is '$lw', the args file's '$W'"; return 1; }
     poll 60 bash -c "\"$ORB\" findgrids | grep -aq '='" || { record "$1: the harness answers" "findgrids unanswered 60 s after the load"; return 1; }
+    # (the grids stream in after the first answer: wait for GRID itself, up to 60 s - a partial list missed the SSTO, 2026-10-15)
+    poll 60 bash -c "\"$ORB\" findgrids | tr ' ' '\n' | grep -aiq '=$GRID\$'" || true
     record "$1: '$W' loaded, the harness answers ($(el) s)" ""
 }
 
@@ -125,7 +127,8 @@ if ! num "$(val AeroBlockSave.Restored)"; then
     record "aero: the per-block save's dev statics (AeroBlockSave.Restored, DevDump)" "not in this build: '$(val AeroBlockSave.Restored)' - deploy an aero build with Dev/AeroBlockSaveDev.cs"
     exit 1
 fi
-gid=$(ask findgrids | tr ' ' '\n' | grep -i "=$GRID\$" | head -1 | cut -d= -f1)
+# (the grids stream in after the harness first answers: a partial list missed the SSTO - wait up to 60 s for it, 2026-10-15)
+gid=""; for _i in $(seq 1 30); do gid=$(ask findgrids | tr ' ' '\n' | grep -i "=$GRID\$" | head -1 | cut -d= -f1); [ -n "$gid" ] && break; sleep 2; done
 [ -z "$gid" ] && { record "setup: a grid named $GRID in this world" "none (findgrids) - the test world must be a copy of the SSTO's (Concordia Research Facility 7)"; exit 1; }
 poll 30 ndump; dodump
 mapfile -t D0 < <(tokens)

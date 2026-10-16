@@ -105,7 +105,7 @@ How the names are reached:
 | `ringrocks` | test_regress.sh, test_soak.sh |
 | `roids` | rv_cases.sh |
 | `rvtab` | map_compare.sh, map_dim.sh, rv_views.sh, targetshot.sh, test_perf.sh, test_regress.sh, test_smoke.sh, test_soak.sh |
-| `save` | contactsave.sh, test_save.sh |
+| `save` | contactsave.sh, test_blocksave.sh (`save <the loaded 'Orbital Test...' world>`), test_save.sh |
 | `seat` | fuzz.sh, play.sh, play_grid.sh, quick.sh, reentry_e2e.sh, test_integrate.sh |
 | `seatid` | 37 scripts (bakedcheck.sh, burns.sh, checkall.sh, combo.sh, ...) |
 | `sensorblocks` | test_smoke.sh |
@@ -202,6 +202,8 @@ tools/flightdump.sh.)
 | `AeroMod.AeroDebrisDrag.Steps` | get | test_integrate | Simulation/Debris/AeroDebrisDrag.cs (feat/a-debris) |
 | `AeroMod.StructureLoads.Breaks` | get | test_integrate (also above) | Simulation/Structure/Server/StructureLoads.cs |
 | `AeroMod.ShipStructure.Strength`, `AeroMod.StructureLoads.Damage` / `.Trace`, `AeroMod.AeroEntryFx.TestSpeed`, `AeroMod.FlightField.TrailDebug` | set | test_integrate (its releases) | |
+| `AeroMod.AeroBlockSave.Restored`, `.Written`, `.LegacyClaimed`, `.Counts`, `.Last` | get | test_blocksave | Simulation/Dev/AeroBlockSaveDev.cs |
+| `AeroMod.AeroBlockSave.DevDump` (`grid` -> `dump 'grid': N block(s) on G grid(s): kind@x,y,z=name:v;...;rb:0/1 ...`), `.DevSet` (`grid\|kind\|index-or-x,y,z\|value` -> `set <token> -> <values>`) | set, then get the answer (`asked...` until the server step gave it) | test_blocksave | Simulation/Dev/AeroBlockSaveDev.cs (text: AeroBlockSaveDevForm.cs) |
 | `OrbitalMod.OrbitalApi.Version` | get | test_integrate (a const: must read 3) | Simulation/Api/OrbitalApi.cs |
 | `OrbitalMod.WarpBill.Bills`, `.BilledSeconds` | get | test_integrate | Simulation/Server/WarpBill.cs |
 | `OrbitalMod.WorldReset.Count` | get | test_integrate | Simulation/Host/WorldReset.cs |
@@ -235,7 +237,7 @@ unlocked True ... Radar: kind yes ... unlocked True`, `N in the world (N working
 `targets` -> `[grid:N 'Name' yours`, `| list [..`, `| ships ..`, `| under ..`, `target .*[key]`; `targetpanel` -> `panel
 shown`, `Orbit: Apoapsis=...Periapsis=...Inclination=`, `From you: Closest approach=`; `hiresglobe status` ->
 `materials=ok`, `mesh=ok`, `pinned 12`, `error=`; `warm` -> `warm berths:`, `(N free`; `frameof` -> `in frame #N`,
-`anchor <id>`; `save` -> `save -> 'Orbital Test World':`.
+`anchor <id>`; `save` -> `save -> 'Orbital Test World':` (test_blocksave: `save -> '<world>': Success`).
 
 **Game log** (Orbital `Event`/`Log` lines and aero log lines): tags `[ORBIT-FAULT]`, `[AERO-FAULT]` (every suite's
 "no mod fault"), `[ORBIT-INV] VIOLATION prediction`, `[ORBIT-CONTACT] ... rocks spotted`, `[ORBIT-PARTICLES]`

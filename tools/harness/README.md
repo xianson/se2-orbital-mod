@@ -49,6 +49,7 @@ are listed in [COMMANDS.md](COMMANDS.md) - keep them when changing either mod.
 | run | what |
 |---|---|
 | `test_integrate.sh` | an integration batch checked once before a merge (~3.5 min, one launch of the SSTO's world, both mods): load and API versions, the structure failure (crack, tear anchors, split, the Orbital alert), debris drag, warp billed once a frame, the settings UI, our exceptions; perf numbers; `--release`, `--audit-log`. How to run, kill and read it: [RUNBOOK.md](RUNBOOK.md) |
+| `test_blocksave.sh` | the aero blocks' own saved data through save -> kill -> reload (~4 min, two launches of an `Orbital Test...` copy of the SSTO's world - refuses any other): one surface, gear, airbrake, thruster and Airshock set, saved into the same container, compared after the reload from the aero mod's dumps and counters (`AeroBlockSave.*`); `--release`; `DRY=1` with a mock harness. [RUNBOOK.md](RUNBOOK.md) |
 | `test_smoke.sh` | the in-game smoke run (~3 min, one launch): the mod loads, an orbit stows, a jointed grid on rails, warp, the map, contacts, no fault |
 | `quick.sh [seed]` | the 5-minute in-game check: multi-grid ship in a frame, exits, warp, random actions, invariants |
 | `checkall.sh` | the 2026-10-09 round (attitude hold, flames, the effects ramp) |

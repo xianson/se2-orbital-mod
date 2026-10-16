@@ -67,3 +67,52 @@ The `-- numbers` block (no verdict): the aero mod's `[AERO-COST]` top sections (
 ticks, the process's GC allocation (MB/s, the whole game), against the 2026-10 baseline (mods 140 ms/s, 1.74 MB/s - that
 one a dotnet-trace profile of the mods' frames, so compare trends, not digits); the failure counters before / after; the
 warp window.
+
+## test_blocksave.sh - the aero blocks' own saved data survives save -> reload
+
+Two launches of an **'Orbital Test ...' copy** of the SSTO's world: dump the SSTO's aero blocks, set one control surface
+(trim, max), one gear (up) and its Airshock (off), one airbrake (max), one thruster (attitude fraction 0.73) through
+`aeroset AeroBlockSave.DevSet` (applied on the server step), `save` into the SAME container, kill, relaunch into it, dump
+again and compare. Every value read from the aero mod (`AeroBlockSave.DevDump`, `.Restored`, `.Written`, `.LegacyClaimed`).
+Typically ~200-260 s, cut at 290 s.
+
+**Before** (the orchestrator - the script edits neither the saves nor the args file):
+1. Copy `%APPDATA%\SpaceEngineers2\AppData\SaveGames\Concordia Research Facility 7` to a NEW folder next to it whose name
+   starts with `Orbital Test` (e.g. `Orbital Test SSTO Blocksave`) - the script saves into it, so never a player's world.
+2. Point `-start:` in `D:\aero\se2-launch-args.txt` at it: `"-start:Orbital Test SSTO Blocksave"` (keep the other args).
+   Put the old value back afterwards.
+3. Deploy both mods with the dev additions (aero: `Dev/AeroBlockSaveDev.cs`), `tools/test_fast.sh` green; nobody playing.
+
+**Run it**:
+
+```
+Bash(run_in_background: true):
+  KILL_GAME=1 bash "C:/Users/slob/Documents/SpaceEngineers2/Mods/Orbital Mod/tools/harness/test_blocksave.sh" \
+      > C:/Users/slob/AppData/Local/Temp/OrbitalMod/blocksave.out 2>&1
+Monitor: until grep -q "== summary:" C:/Users/slob/AppData/Local/Temp/OrbitalMod/blocksave.out; do sleep 5; done   (cap 6 min)
+```
+
+Refuses (exit 2) unless the args file's `-start:` is an `Orbital Test...` world, and while a game runs without
+`KILL_GAME=1`. Exit 0 all passed (SKIPs listed: a block kind the grid has none of), 1 a FAIL, 3 cut by the deadline.
+`GRID=<name as findgrids prints it>` tests another grid. Kill it as test_integrate (match `test_blocksave|orb\.sh`), then
+`test_blocksave.sh --release`.
+
+**PASS looks like**: `launch 1/2: '<world>' loaded`; `dump: SSTO's aero blocks listed (N)`; `set: every change took`;
+`save: written to the test world ('save -> '<world>': Success')`, `Written grew`; one `reload: kind@x,y,z name = value (from
+its own data, rb:1)` per changed value (6 with every kind present); `every aero block ... came back`, `every block's state as
+saved`; `Restored N > 0`; `LegacyClaimed 0 = 0`; both logs clean; `game still running`.
+
+| line | a FAIL means |
+|---|---|
+| `aero: the per-block save's dev statics` | the deployed aero build predates `Dev/AeroBlockSaveDev.cs` |
+| `launch N: the game loaded the test world` | the game ran another world than the args file's (`Running application with arguments` in the log) |
+| `set: ...` | `DevSet` answered `no <kind> at ...` / `bad request` - the dump and the set disagree (AeroBlockSaveDev.cs) |
+| `save: written ...` / `Written grew` | the save failed (the reply's result), or the blocks' `[Serializer]` methods never ran (no keys) |
+| `reload: kind@cell name = value` | that value did not come back from the block's own data: `rb:0` = the block's `[Init]` got no key (the injection's fixed id / builder: EntityInjector, AeroBlockSave.Info); right `rb` but wrong value = the key's text (AeroBlockSaveForm) |
+| `every block's state as saved` | an unchanged block changed over the reload (an old line or a client copy claimed it) |
+| `LegacyClaimed = 0` | an old position-matched line was still in the world after the first save and claimed a block (AeroSurfaceSaved) |
+| `log ...: no exception` | an exception in our code in that run's log (the first hits printed) |
+
+**After**: the game is left running in the test world, the overrides released and the changed blocks set back (that session
+only - the test world keeps the saved values; it is a copy). Close it if the user is not about to play, and restore
+`-start:`.

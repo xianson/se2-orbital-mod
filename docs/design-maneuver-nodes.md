@@ -92,7 +92,8 @@ planet. `PatchedConic` already previews the result.
   3.7 left (the burn was 45 s early, so some is left, as it should be).
 - **Flight**: the next node is a HUD marker in the burn direction (chart-aware in a planet
   cell), "Burn 25.0 m/s  T-2:51", edge-clamped like the game's markers; it completes below
-  0.1 m/s. Warp stops 30 s before a node (`Maneuvers.WarpLead`; 5 s before an armed one, `AutoWarpLead`). An
+  0.1 m/s. Warp stops 30 s before a node (`Maneuvers.WarpLead`, the setting `Warp.StopLead`; 5 s, `AutoWarpLead`, before an armed one
+  whose ship already points within 5° of the burn - `Maneuvers.WarpLeadAt`; further off it gets the full lead). An
   armed node flies itself (`AutoBurn`: the seated ship's thrusters, the jetpack on foot).
 - While the editor has the mouse (over the trajectory, a node or a handle, or dragging), the
   map does not select a sector.

@@ -375,7 +375,7 @@ settings-tab copies; one link each way).
 `AeroMod.AeroApi`, re-found when the loaded assemblies change (checked at most every 5 s, one thread at a time), with a
 `Generation` each binding site compares to bind again (`EntryHost.HookAero`, `CallNoteMoved`, `StructureAlerts`, the
 dev sites). Aero names `OrbitalApi` only in its `Api/OrbitalLink.cs`, on the same rule (its `Api/CrossModLink.cs`).
-Exception noted by the contract check: `Frames/BuildHints.cs` (owned by other work) still finds aero with its own scan.
+`Frames/BuildHints.cs` binds through `AeroLink` too (since 2026-10-15; it used to scan on its own and keep the first copy).
 
 - **Aero reads Orbital** (`OrbitalApi`, `Version` 3; reference in `docs/API.md`):
   - `OrbitalApi.TryGetEntryState` / `TryGetEntryState2` - a railed grid sits still in its berth, so Aero cannot see its

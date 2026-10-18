@@ -35,7 +35,8 @@ clear. Fast travel is untouched.
 - `;` turns the attitude hold on and off; `Ctrl+;` picks the mode (prograde, retrograde, normal, anti-normal, radial
   out / in, level). The cockpit HUD's align button shows it, lit while holding.
 
-**Warp stops by itself** at arrivals, 30 s before a maneuver's burn (5 s for an armed one), ahead of a rendezvous,
+**Warp stops by itself** at arrivals, 30 s before a maneuver's burn (the setting
+"Warp stops before events"; 5 s for an armed one already pointing within 5 degrees of its burn), ahead of a rendezvous,
 before the entry interface, at a sphere-of-influence change, before Delfos's heat and at a point you asked for
 ('Warp here' on the map). A ship moving in your frame limits how fast you can warp. Warp is not free: batteries and
 tanks on railed grids run at the warp rate, and warp drops to x1 when one on your ship runs dry.
@@ -136,7 +137,7 @@ the Contacts tab's pins, names and hidden rows.
 - **With the Aerodynamics Mod:** Aero reads each railed grid's true air state and Orbital's velocity edits through
   `OrbitalApi`; Orbital registers as Aero's reentry-plasma source, reads its build-hint and flight figures and its
   structure failure events through `AeroMod.AeroApi`. One link each way: Orbital finds aero only through
-  `Api/AeroLink.cs` (`Frames/BuildHints.cs`, owned by other work, still scans on its own), aero finds Orbital only
+  `Api/AeroLink.cs` (the build hints included), aero finds Orbital only
   through its `Api/OrbitalLink.cs` (the last loaded copy, bound again on a
   reload). `tools/check_contract.sh` (in the fast gate) checks both directions from source. Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#12-the-aero-link).
 - Reflection into the engine (render, the colonization map, UI): every use is listed in

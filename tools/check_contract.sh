@@ -129,17 +129,15 @@ for n in TryGetEntryState TryGetEntryState2 TryGetGridEdits; do
 done
 # ... and ONE RULE each way (2026-10-15): the other mod's API type is found in one place - aero's OrbitalLink (the last
 #     loaded copy, bound again after a reload: CrossModLink), orbital's AeroLink - never by a scan of a site's own, which
-#     kept the first copy it bound for good. BuildHints is aero-2c's: noted until it moves onto AeroLink.
+#     kept the first copy it bound for good. (BuildHints moved onto AeroLink 2026-10-15: no exception left.)
 if [ -n "$(find "$AERO" -name CrossModLink.cs -type f 2>/dev/null)" ]; then
   link=$(grep -rlE '"OrbitalMod\.OrbitalApi"' "$AERO" --include=*.cs | while IFS= read -r f; do basename "$f"; done | sort -u | tr '\n' ' ')
   [ "$link" = "OrbitalLink.cs " ] || bad "aero names OrbitalMod.OrbitalApi outside OrbitalLink.cs: $link"
   grep -qE 'new LastLoadedType\("OrbitalMod\.OrbitalApi"' "$(src "$AERO" OrbitalLink.cs)" || bad "OrbitalLink no longer finds OrbitalApi by LastLoadedType (the last loaded copy)"
 else echo "      (note: this aero tree predates its one link rule, Api/CrossModLink.cs: aero's side not checked)"; fi
-own=""
 for f in $(grep -rlE 'GetType\("AeroMod\.' Scripts --include=*.cs); do
-  case "$(basename "$f")" in AeroLink.cs) ;; BuildHints.cs) own="$own BuildHints.cs" ;; *) bad "$f finds an AeroMod type itself (use AeroLink.Find)" ;; esac
+  case "$(basename "$f")" in AeroLink.cs) ;; *) bad "$f finds an AeroMod type itself (use AeroLink.Find)" ;; esac
 done
-[ -n "$own" ] && echo "      (note: finds the aero type by its own scan, not AeroLink:$own)"
 [ -n "$warn" ] && echo "      (note: BuildHints.cs looks up by name only:$warn)"
 
 # 5. NO OVERLOADS in either public API (a name-only lookup would throw AmbiguousMatchException)

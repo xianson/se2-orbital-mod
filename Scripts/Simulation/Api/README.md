@@ -9,7 +9,7 @@
 - `AeroLink.cs` - the one rule for finding the aero mod's types (`AeroMod.AeroApi` and the dev ones): the last loaded
   assembly that has it, re-found when the loaded assemblies change (at most every 5 s, one thread at a time:
   `Monitor.TryEnter`); `Generation` tells a binding site to bind again. The only way this mod reaches aero (one link each
-  way, `tools/check_contract.sh`; `Frames/BuildHints.cs` is the noted exception).
+  way, `tools/check_contract.sh`; `Frames/BuildHints.cs` too since 2026-10-15).
 
 ## Versions 2 and 3
 

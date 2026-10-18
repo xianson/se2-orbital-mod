@@ -7,8 +7,8 @@ using Keen.VRage.Library.UI.PropertyInspector;
 namespace OrbitalMod;
 
 /// <summary>
-/// SENSOR BLOCKS (the "Orbital Mod Blocks" companion mod defines them: copies of vanilla blocks, see
-/// tools/blocks/gen_blocks.py; InjectPlanetComponents adds these components to their server prefabs).
+/// SENSOR BLOCKS (this mod defines them in Assets/Sensors: copies of vanilla blocks, tools/blocks/gen_blocks.py;
+/// InjectPlanetComponents adds these components to their server prefabs, found by the GUIDs below).
 ///  - Telescope (an ore detector's body): passive. Optical: sunlit targets, by size, albedo and phase,
 ///    none in a planet's shadow, none near the sun. Infrared: a body's own warmth, day or night.
 ///  - Radar (an antenna's body): active. Its own echo, range by (power x cross-section)^1/4: every contact

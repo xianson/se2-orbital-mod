@@ -92,7 +92,7 @@ public sealed class TickRate
             if (ReferenceEquals(this, Server))
             {
                 double pause = System.GC.GetTotalPauseDuration().TotalMilliseconds;
-                if (gap > HitchLogMs)
+                if (gap > HitchLogMs && OrbitalLog.Perf)
                     Keen.VRage.Library.Diagnostics.Log.Default?.Info($"[HITCH] server tick gap {gap:F0} ms (GC pause in it {pause - _lastPause:F0} ms, gen0/1/2 {System.GC.CollectionCount(0)}/{System.GC.CollectionCount(1)}/{System.GC.CollectionCount(2)})");
                 _lastPause = pause;
             }

@@ -16,6 +16,9 @@ are listed in [COMMANDS.md](COMMANDS.md) - keep them when changing either mod.
 
 - The mod's DevHarness runs only when `%TEMP%\OrbitalMod\dev.flag` exists (`relaunch.sh` creates it). It polls
   `%TEMP%\OrbitalMod\cmd.txt`, runs each line and writes `status.txt` (state lines, then `> verb ... => reply`).
+- The flag also turns on the mod's narrated log lines (`OrbitalLog`: `[ORBIT-FRAME]` events, `[ORBIT-ENC]`, `[ORBIT-ROIDS]`,
+  `[ORBIT-CONTACT]`, `[HITCH]`, the per-planet / prefab `[ORBIT]` lines). A player's log has only the startup summary,
+  warnings and failures: a script that greps a narrated line needs the flag (every launcher here sets it).
 - `orb.sh "cmd" ["cmd" ...]` writes the commands, waits until they are consumed (60 s at most) and prints the tail
   of the status; `--eshot [settle]` adds an engine screenshot (works with the display asleep), `--shot` a desktop
   capture through the `OrbitalShotSE2` task.

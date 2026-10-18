@@ -120,7 +120,7 @@ public static class SpawnGuard
                 var area = new SpawnPreventionAreaSphere(in sphere);
                 int leaf = (int)_add.Invoke(gen, new object[] { area });
                 _zones[kv.Key] = (leaf, kv.Value.at, kv.Value.r, kv.Value.border);
-                if (kv.Value.border) Log.Default?.Info($"[ORBIT-ENC] spawn guard: frame #{kv.Key} is on a planet's border: no encounters within {kv.Value.r / 1000:F0} km of its berth (zone {leaf}, dyn test {gen.AnyPreventionZoneContains(kv.Value.at)}, box test {gen.CanSpawnInArea(new BoundingBoxD(kv.Value.at - new Vector3D(100), kv.Value.at + new Vector3D(100)))})");
+                if (kv.Value.border && OrbitalLog.Encounters) Log.Default?.Info($"[ORBIT-ENC] spawn guard: frame #{kv.Key} is on a planet's border: no encounters within {kv.Value.r / 1000:F0} km of its berth (zone {leaf}, dyn test {gen.AnyPreventionZoneContains(kv.Value.at)}, box test {gen.CanSpawnInArea(new BoundingBoxD(kv.Value.at - new Vector3D(100), kv.Value.at + new Vector3D(100)))})");
             }
             int border = 0; foreach (var z in _zones.Values) if (z.border) border++;
             _stBorder = border; _stOther = _zones.Count - border; _statusText = null;   // (the line: Status, when read)

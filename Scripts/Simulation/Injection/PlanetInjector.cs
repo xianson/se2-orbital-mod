@@ -62,7 +62,7 @@ public class InjectPlanetComponents : Injections
                 ObjectBuilder = new Keen.Game2.Simulation.GameSystems.EntityNameSessionComponentObjectBuilder(),
             });
             _serverCount++;
-            Log.Default?.Info($"[ORBIT] server planet prefab #{_serverCount}: '{prefab.DebugName}' +ServerPlanetBeacon");
+            if (OrbitalLog.Setup) Log.Default?.Info($"[ORBIT] server planet prefab #{_serverCount}: '{prefab.DebugName}' +ServerPlanetBeacon");
         }
 
         if (isServerGrid)
@@ -71,28 +71,28 @@ public class InjectPlanetComponents : Injections
             // on the server composition (the aero mod injects the same way).
             Add(prefab, typeof(OrbitalGridComponent));
             _gridCount++;
-            if (_gridCount <= 3) Log.Default?.Info($"[ORBIT] grid prefab #{_gridCount}: '{prefab.DebugName}' +OrbitalGridComponent");
+            if (_gridCount <= 3 && OrbitalLog.Setup) Log.Default?.Info($"[ORBIT] grid prefab #{_gridCount}: '{prefab.DebugName}' +OrbitalGridComponent");
         }
 
         if (isClientPlanet)
         {
             Add(prefab, typeof(PlanetFrameComponent));
             _clientCount++;
-            Log.Default?.Info($"[ORBIT] client planet prefab #{_clientCount}: '{prefab.DebugName}' +PlanetFrameComponent");
+            if (OrbitalLog.Setup) Log.Default?.Info($"[ORBIT] client planet prefab #{_clientCount}: '{prefab.DebugName}' +PlanetFrameComponent");
         }
 
         if (isClientVolume)
         {
             // Procedural volumes (the planets' rings): followed by PlanetRings (hidden with the real planet).
             Add(prefab, typeof(OrbitalRingComponent));
-            Log.Default?.Info($"[ORBIT] client procedural volume prefab: '{prefab.DebugName}' +OrbitalRingComponent");
+            if (OrbitalLog.Setup) Log.Default?.Info($"[ORBIT] client procedural volume prefab: '{prefab.DebugName}' +OrbitalRingComponent");
         }
 
         // Thrusters: holding station in a frame is charged to them (StationKeepCharge - it needs the block's resource sink).
         if (isThruster && isPowerable)
         {
             Add(prefab, typeof(StationKeepCharge));
-            if (++_thrusterCount <= 3) Log.Default?.Info($"[ORBIT] thruster prefab '{prefab.DebugName}' +StationKeepCharge");
+            if (++_thrusterCount <= 3 && OrbitalLog.Setup) Log.Default?.Info($"[ORBIT] thruster prefab '{prefab.DebugName}' +StationKeepCharge");
         }
 
         // The sensor blocks (Orbital Mod Blocks): their server prefabs, by GUID, get their sensor.

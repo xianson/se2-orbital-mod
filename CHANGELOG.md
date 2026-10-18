@@ -4,6 +4,18 @@ What changed for players and for modders. Claims come from the commits (hashes o
 nothing here was flown in game for this release (the one-run in-game check, `tools/harness/test_integrate.sh`, is
 written but has not been run).
 
+## Release prep (2026-10-17)
+
+- **A quiet game log.** The narrated lines (`[ORBIT-FRAME]` frame events, `[ORBIT-ENC]`, `[ORBIT-ROIDS]` keeps,
+  `[ORBIT-CONTACT]`, `[HITCH]`, per-prefab / per-planet `[ORBIT]` setup lines) are written only where the dev flag is
+  (`Host/OrbitalLog.cs`; every harness launcher sets it). A player's log keeps the startup summary, warnings, failures
+  (`FrameHost.Problem`), lost save data, asteroid deletions and the `[ORBIT-HAVOK]` cluster audit's mismatches (first 20
+  per world). One hour of play: ~520 Orbital lines before, ~20 after.
+- **The fly test (Ctrl+T seated) needs the dev flag** like every other dev tool.
+- **en-US texts** for the Telescope and Radar (`Assets/Texts`): the definition-load "Unrecognized value" warnings.
+- Player docs: `README_PLAYERS.md`, `RELEASE_NOTES.md`, `WORKSHOP_DESCRIPTION.md` (Steam BBCode); the ModHub summary and
+  tags (`ModProject.modhub-metadata`).
+
 ## Unreleased (2026-10-15 cleanup)
 
 A big cleanup of the scripts (feature folders, no behaviour change of its own), plus an in-game settings menu for both

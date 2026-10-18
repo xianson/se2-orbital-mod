@@ -259,7 +259,7 @@ public static partial class EncounterFrames
                 Event($"hazard: killing field r={r / 1000:F0} km at {ServerPlanetBeacon.Fmt(e.Data.GetWorldTransform().Position)}");
             }
         }
-        catch (Exception ex) { Event("hazards: " + ex.Message); }
+        catch (Exception ex) { FrameHost.LastEvent = $"{DateTime.Now:HH:mm:ss} hazards: {ex.Message}"; Log.Default?.Info("[ORBIT-ENC] hazards: " + ex.Message); }   // (a failure: logged in every game)
         return l;
     }
 
@@ -638,7 +638,7 @@ public static partial class EncounterFrames
     private static void Event(string s)
     {
         FrameHost.LastEvent = $"{DateTime.Now:HH:mm:ss} {s}";
-        Log.Default?.Info("[ORBIT-ENC] " + s);
+        if (OrbitalLog.Encounters) Log.Default?.Info("[ORBIT-ENC] " + s);
     }
 
 }

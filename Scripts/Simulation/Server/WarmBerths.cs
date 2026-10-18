@@ -107,7 +107,7 @@ public static class WarmBerths
             if (cold >= 0 && !_pending.ContainsKey(cold) && Park(server, alloc, cold, coldAt))
             {
                 _nextCold = now + 3.0;
-                Log.Default?.Info($"[ORBIT-FRAME] warm berths: slot {cold} being warmed");
+                if (OrbitalLog.Frames) Log.Default?.Info($"[ORBIT-FRAME] warm berths: slot {cold} being warmed");
             }
             if (far >= 0) Release(server, alloc, far);
             // 4) one pushed out of place: back (inside its own physics world)
@@ -162,7 +162,7 @@ public static class WarmBerths
     {
         if (_parked.TryGetValue(slot, out var e)) { try { server.MarkEntityForClose(e); } catch { } _parked.Remove(slot); }
         int fw; lock (ServerFrames.FramesLock) { alloc.SetWarm(slot, false); fw = alloc.FreeWarmCount; }
-        Log.Default?.Info($"[ORBIT-FRAME] warm berths: slot {slot} let go ({fw} free warm)");
+        if (OrbitalLog.Frames) Log.Default?.Info($"[ORBIT-FRAME] warm berths: slot {slot} let go ({fw} free warm)");
     }
 
     static void Pin(Entity e, Vector3D p)
@@ -195,7 +195,7 @@ public static class WarmBerths
             if (slot >= 0 && !_parked.ContainsKey(slot)) { _parked[slot] = e; _pending.Remove(slot); lock (ServerFrames.FramesLock) alloc.SetWarm(slot, true); kept++; }
             else { try { server.MarkEntityForClose(e); } catch { } removed++; }
         }
-        if (kept + removed > 0) Log.Default?.Info($"[ORBIT-FRAME] warm berths: {kept} placeholder(s) in their berths{(_adopted ? "" : " (from the save)")}, {removed} in none removed");
+        if (kept + removed > 0 && OrbitalLog.Frames) Log.Default?.Info($"[ORBIT-FRAME] warm berths: {kept} placeholder(s) in their berths{(_adopted ? "" : " (from the save)")}, {removed} in none removed");
         _adopted = true;
     }
 

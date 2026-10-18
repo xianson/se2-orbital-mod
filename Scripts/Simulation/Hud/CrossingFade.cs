@@ -56,7 +56,7 @@ public static class CrossingFade
         bool mine = FrameHost.PlayerFrame != null && FrameHost.PlayerFrame.Id == System.Threading.Interlocked.Read(ref ServerFrames.ArrivalNoticeFrame);
         // (seated, or riding the frame on foot: the move and the engine's stall after it are the same)
         _m.Step(now, dt, notices, crossings, mine, Enabled, moved);
-        if (_m.Status != _lastStatus) { _lastStatus = _m.Status; Log.Default?.Info($"[ORBIT] crossing fade: {_m.Status} (alpha {_m.Alpha:F2})"); }   // (the tests read its phases)
+        if (_m.Status != _lastStatus) { _lastStatus = _m.Status; if (OrbitalLog.Frames) Log.Default?.Info($"[ORBIT] crossing fade: {_m.Status} (alpha {_m.Alpha:F2})"); }   // (the tests read its phases)
         if (_m.ResetCameraNow) ResetChaseCamera(session);
         if (_m.Alpha > 0) Draw(session, (float)_m.Alpha);
     }

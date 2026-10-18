@@ -272,7 +272,7 @@ public static class SystemHost
             if (why != null)
             {
                 next = Math.Max(Now, landAt);
-                Log.Default?.Info($"[ORBIT-FRAME] warp x{scale} -> x1 {why}");
+                if (OrbitalLog.Frames) Log.Default?.Info($"[ORBIT-FRAME] warp x{scale} -> x1 {why}");
                 Timescale = 1.0;
                 if (say != null) WarpControl.Say(say);
                 if (clearAsked) WarpStopAt = double.NaN;

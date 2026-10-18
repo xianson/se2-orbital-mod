@@ -123,7 +123,7 @@ public static class PlanetRings
         };
         CaptureMesh(r);
         lock (PlanetRenderBridge.Lock) _rings.Add(r);
-        Log.Default?.Info($"[ORBIT] ring '{r.Name}' registered: outer {r.Outer / 1000:F1} km, render={r.Render != null}, mesh={(r.MeshError ?? $"{r.Pos?.Length} verts")}");
+        if (OrbitalLog.Setup) Log.Default?.Info($"[ORBIT] ring '{r.Name}' registered: outer {r.Outer / 1000:F1} km, render={r.Render != null}, mesh={(r.MeshError ?? $"{r.Pos?.Length} verts")}");
     }
 
     /// <summary>
@@ -144,7 +144,7 @@ public static class PlanetRings
             Quaternion turned = Quaternion.Normalize(Quaternion.Concatenate(orient, Quaternion.CreateFromTwoVectors(n, axis)));
             var wt = e.Data.GetWorldTransform();
             e.Data.Set(new WorldTransform(wt.Position, turned));
-            Log.Default?.Info($"[ORBIT] ring laid on its planet's equator: normal {n} -> {axis}");
+            if (OrbitalLog.Setup) Log.Default?.Info($"[ORBIT] ring laid on its planet's equator: normal {n} -> {axis}");
             return turned;
         }
         catch (Exception ex) { Log.Default?.Warning("[ORBIT] ring turn failed: " + PlanetRenderBridge.Inner(ex)); return orient; }

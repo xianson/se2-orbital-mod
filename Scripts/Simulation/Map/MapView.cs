@@ -112,7 +112,7 @@ public static class MapView
         if (Sectorless && !_noticeBlanked && _blankTries < 60 && nowBlank - _blankAt > System.Diagnostics.Stopwatch.Frequency)
         {
             _blankAt = nowBlank; _blankTries++; _noticeBlanked = BlankText("MapDataUnavailable");
-            if (_noticeBlanked) Log.Default?.Info($"[ORBIT] sectorless map: 'Map Data Unavailable' blanked (try {_blankTries})");
+            if (_noticeBlanked && OrbitalLog.Setup) Log.Default?.Info($"[ORBIT] sectorless map: 'Map Data Unavailable' blanked (try {_blankTries})");
         }
         bool want = false;
         if (Sectorless)
@@ -232,7 +232,7 @@ public static class MapView
     {
         var notice = FindNamed(_backdropTerminal, "NoMapDataNotice");
         if (notice != null && _setValue != null) _noticeHold = _setValue.Invoke(notice, new[] { _isVisibleProp, (object)false, _animPriority }) as IDisposable;
-        if (_noticeHold != null) Log.Default?.Info("[ORBIT] sectorless map: the 'Map Data Unavailable' notice hidden");
+        if (_noticeHold != null && OrbitalLog.Setup) Log.Default?.Info("[ORBIT] sectorless map: the 'Map Data Unavailable' notice hidden");
     }
 
     /// <summary>A control named so among a visual's descendants (Avalonia's VisualExtensions.GetVisualDescendants, by
@@ -290,7 +290,7 @@ public static class MapView
             // hidden the same way - blanking its text came too late on the first opening (the label had its text already)
             _noticeHold?.Dispose(); _noticeHold = null;
             HideNotice();
-            Log.Default?.Info("[ORBIT] sectorless map: the terminal's backdrop hidden" + (_backdropHold == null ? " (no handle back: it stays hidden until the next terminal)" : ""));
+            if (OrbitalLog.Setup) Log.Default?.Info("[ORBIT] sectorless map: the terminal's backdrop hidden" + (_backdropHold == null ? " (no handle back: it stays hidden until the next terminal)" : ""));
         }
         catch (Exception e) { WarnBackdrop((e.InnerException ?? e).Message); }
     }
@@ -420,7 +420,7 @@ public static class MapView
             if (kids != null && depth < 3) foreach (var k in kids) if (k != null) Visit(k, depth + 1);
         }
         Visit(e, 0);
-        if (sb != null) { _sectorVisualsLogged = true; Log.Default?.Info("[ORBIT] sectorless map entity: " + (char)10 + sb); }
+        if (sb != null) { _sectorVisualsLogged = true; if (OrbitalLog.Setup) Log.Default?.Info("[ORBIT] sectorless map entity: " + (char)10 + sb); }
     }
 
     static int _sceneFailures;

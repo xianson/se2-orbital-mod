@@ -85,7 +85,7 @@ public static partial class FrameHost
             _shakeLooked = true;
             _shakePrev = typeof(Keen.Game2.Client.GameSystems.CameraSystems.Shake.AccelerationCameraShakeComponent)
                 .GetField("_previousSpeedAverage", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            if (_shakePrev == null) Event("camera shake: _previousSpeedAverage not found (the game changed) - crossings may shake the camera");
+            if (_shakePrev == null) Problem("camera shake: _previousSpeedAverage not found (the game changed) - crossings may shake the camera");
         }
         foreach (var e in session.GetEntitiesOfType<Keen.Game2.Client.GameSystems.CameraSystems.Shake.AccelerationCameraShakeComponent>())
         {
@@ -135,7 +135,7 @@ public static partial class FrameHost
                 best.Data.Set(tcd);
                 Event($"cockpit target turned with its grid ({2 * Math.Acos(Math.Min(1.0, Math.Abs((double)turn.rot.W))) * 180 / Math.PI:F1} deg)");
             }
-            catch (Exception ex) { Event("cockpit target turn failed: " + ex.Message); }
+            catch (Exception ex) { Problem("cockpit target turn failed: " + ex.Message); }
         }
     }
 }

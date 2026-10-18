@@ -145,7 +145,6 @@ public static class Contacts
         RadarPowerNow = 0; foreach (var o in obs) if (o.Kind == SensorModel.Kind.Radar && o.Power > RadarPowerNow) RadarPowerNow = o.Power;
 
         // Seen by whom (null: by none): r its radius (m), its albedo, its temperature (a powered hull, a rock).
-        string Seen(Vector3D at, double r, double albedo, double tempK) { var k = SeenKind(at, r, albedo, tempK); return k == null ? null : Name(k.Value); }
         SensorModel.Kind? SeenKind(Vector3D at, double r, double albedo, double tempK)
         {
             int i = SensorModel.SeenBy(obs, new SensorModel.Target { At = at, Radius = r, Albedo = albedo, TempK = tempK }, bodies, sun);
@@ -232,7 +231,7 @@ public static class Contacts
             if (rocks > 0) tl.Add(rocks == 1 ? "a rock's orbit" : $"{rocks} rocks' orbits");
             if (tl.Count > 3) { int more = tl.Count - 2; tl.RemoveRange(2, tl.Count - 2); tl.Add($"and {more} more"); }
             if (!MapView.Visible && newGrids.Count == 0 && newRocks.Count == 0) GameUi.Toast(session, "tracked", "Tracked", string.Join("\n", tl), 3);
-            Log.Default?.Info("[ORBIT-CONTACT] tracked: " + string.Join("; ", tl));
+            if (OrbitalLog.Contacts) Log.Default?.Info("[ORBIT-CONTACT] tracked: " + string.Join("; ", tl));
         }
         if (newGrids.Count > 0 || newRocks.Count > 0)
         {
@@ -242,7 +241,7 @@ public static class Contacts
             foreach (var kv in newRocks) lines.Add(kv.Value == 1 ? $"{kv.Key}: a rock spotted" : $"{kv.Key}: {kv.Value} rocks spotted");
             if (lines.Count > 4) { int more = lines.Count - 3; lines.RemoveRange(3, lines.Count - 3); lines.Add($"and {more} more"); }
             if (!MapView.Visible) GameUi.Toast(session, "contact", newGrids.Count > 0 ? "Contact" : "Asteroids", string.Join("\n", lines), 4);
-            Log.Default?.Info("[ORBIT-CONTACT] " + string.Join("; ", lines));
+            if (OrbitalLog.Contacts) Log.Default?.Info("[ORBIT-CONTACT] " + string.Join("; ", lines));
         }
         int ng; lock (_grids) ng = _grids.Count;
         int nr; lock (_rocks) nr = _rocks.Count;

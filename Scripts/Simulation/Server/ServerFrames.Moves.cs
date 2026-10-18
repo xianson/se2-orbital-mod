@@ -85,7 +85,7 @@ public static partial class ServerFrames
         lock (GridMembers.Pending) isQueued = GridMembers.Pending.TryGetValue(g.Id, out queued);
         if (isQueued) return AddToQueuedMove(g, queued, target, setVel, addVel, rotate, with, single: isStatic || !GridMembers.IsConstrained(g));
         if (!GridMembers.Finite(target) || !GridMembers.Finite(addVel) || (setVel.HasValue && !GridMembers.Finite(setVel.Value)))
-        { GridMembers.NaNRefused++; Event($"grid {g.Id} '{g.DisplayName}' not moved: non-finite target"); return false; }
+        { GridMembers.NaNRefused++; FrameHost.Problem($"grid {g.Id} '{g.DisplayName}' not moved: non-finite target"); return false; }
         bool constrained = GridMembers.IsConstrained(g);
         Vector3D from = GridMembers.Position(g);
         var route = HavokMoves.Choose(isStatic, allowStatic, constrained, (target - from).Length());
@@ -339,7 +339,7 @@ public static partial class ServerFrames
                     GridEdits.Wrote(e, rb.LinearVelocity - was);   // (OrbitalApi.TryGetGridEdits; a wheel or rotor part of the set: not recorded)
                 }
             }
-            catch (Exception ex) { Event("deferred move failed: " + ex.Message); }
+            catch (Exception ex) { FrameHost.Problem("deferred move failed: " + ex.Message); }
         }
         if (_requeue.Count > 0)
         {
@@ -391,7 +391,7 @@ public static partial class ServerFrames
         if (!HavokMoves.TryParkPoint(to, r, _worldBoxes, n, out Vector3D park))
         {
             StaticParkFailed++;
-            Event($"static grid {e.TryGet<OrbitalGridComponent>()?.Id ?? 0}: its landing is beside a physics world, and no place clear of every world was found - moved straight");
+            FrameHost.Problem($"static grid {e.TryGet<OrbitalGridComponent>()?.Id ?? 0}: its landing is beside a physics world, and no place clear of every world was found - moved straight");
             return false;
         }
         hop = park - off;

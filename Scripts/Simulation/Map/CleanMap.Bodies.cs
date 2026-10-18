@@ -22,8 +22,6 @@ public static partial class CleanMap
         double fit = FrameOf(planet, bands, reg) * Sigma;
         var mine = bands.FindAll(b => b.Host == planet.Name);
         double rH = SectorHomes.HillRadius(planet);
-        double R(double r) => Math.Max(0, r) * scaleSys;
-        Vector3D L(double ang, double r) => new Vector3D(Math.Cos(ang) * r, 0, Math.Sin(ang) * r);
         Vector3D Lv(Vector3D rel) => new Vector3D(rel.X * scaleSys, rel.Z * scaleSys, rel.Y * scaleSys);   // 3D: height is up
 
         // (The body itself is drawn by the level above: the sun's planets, a planet's moons.)

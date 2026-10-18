@@ -59,7 +59,7 @@ public static class SavedState
                     keptSite = true;
                     var live = SystemHost.Frames.Get(fs.Id);
                     if (live == null || !EncounterFrames.HasNonNpc(live)) continue;
-                    Log.Default?.Info($"[ORBIT-FRAME] save: site frame #{fs.Id} kept as a plain frame (you or your grids are in it)");
+                    if (OrbitalLog.Frames) Log.Default?.Info($"[ORBIT-FRAME] save: site frame #{fs.Id} kept as a plain frame (you or your grids are in it)");
                 }
                 sb.Append("frame ").Append(fs.Id).Append(' ').Append(Esc(fs.ParentBodyName))
                   .Append(' ').Append(D(fs.SemiMajorAxis)).Append(' ').Append(D(fs.Eccentricity))
@@ -174,12 +174,12 @@ public static class SavedState
                     }
                 if (best == null)
                 {
-                    if (Wall() - since > 60) { _radarPower.RemoveAt(i); Log.Default?.Info("[ORBIT-FRAME] radar setting dropped: no radar where it was"); }
+                    if (Wall() - since > 60) { _radarPower.RemoveAt(i); if (OrbitalLog.Frames) Log.Default?.Info("[ORBIT-FRAME] radar setting dropped: no radar where it was"); }
                     continue;
                 }
                 best.Power = pw;
                 _radarPower.RemoveAt(i);
-                Log.Default?.Info($"[ORBIT-FRAME] radar setting restored: transmit power {pw:P0}");
+                if (OrbitalLog.Frames) Log.Default?.Info($"[ORBIT-FRAME] radar setting restored: transmit power {pw:P0}");
             }
         }
     }
@@ -316,7 +316,7 @@ public static class SavedState
                             if (f.BerthSlotId >= 0) SystemHost.Frames.Allocator.Free(f.BerthSlotId);
                             f.BerthSlotId = -1; f.BerthCenter = center;
                         }
-                        if (f != null) Log.Default?.Info($"[ORBIT-FRAME] restored frame #{f.Id}: slot {f.BerthSlotId} berth {ServerPlanetBeacon.Fmt(f.BerthCenter)} (saved {ServerPlanetBeacon.Fmt(center)}), {ids.Count} member(s)");
+                        if (f != null && OrbitalLog.Frames) Log.Default?.Info($"[ORBIT-FRAME] restored frame #{f.Id}: slot {f.BerthSlotId} berth {ServerPlanetBeacon.Fmt(f.BerthCenter)} (saved {ServerPlanetBeacon.Fmt(center)}), {ids.Count} member(s)");
                         if (f != null) { frames++; members += ids.Count; }
                         break;
                     }

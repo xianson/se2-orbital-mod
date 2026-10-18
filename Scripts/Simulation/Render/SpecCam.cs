@@ -68,6 +68,7 @@ public static class SpecCam
         Current = null;
         var cam = Camera(session);
         cam?.SetTransformOverride(null);
+        cam?.ResetCustomFOV();
         cam?.SetNextTransitionNonSmooth();
         Status = "off";
         return "spectator off";
@@ -142,6 +143,16 @@ public static class SpecCam
         Current = wt;
         cam.SetTransformOverride(wt);
         Status = $"{_target} {(_target == Target.Planet ? _planet : "")} dist={_dist:F2} bearing={_bearing} elev={_elev}";
+    }
+
+    /// <summary>cam fov (2026-10-18, screenshots): the render camera's field of view in degrees (CameraComponent.SetCustomFOV,
+    /// radians); 0 or less hands it back to the player's setting (ResetCustomFOV). Off with the spectator too.</summary>
+    public static string Fov(Keen.VRage.Core.Game.Systems.Session session, double deg)
+    {
+        var cam = Camera(session);
+        if (cam == null) return "no camera";
+        if (!(deg > 0)) { cam.ResetCustomFOV(); return "fov: the player's setting"; }
+        cam.SetCustomFOV((float)(Math.Clamp(deg, 5, 170) * Math.PI / 180)); return $"fov {Math.Clamp(deg, 5, 170):F0} deg";
     }
 
     public static CameraComponent CameraOf(Keen.VRage.Core.Game.Systems.Session session) => Camera(session);

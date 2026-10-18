@@ -333,6 +333,7 @@ public static partial class DevHarness
                     case "off": return SpecCam.Off(session);
                     case "planet": return SpecCam.Planet(a[2], D(a[3]), a.Length > 4 ? D(a[4]) : 0, a.Length > 5 ? D(a[5]) : 30);
                     case "player": return SpecCam.Player(D(a[2]), a.Length > 3 ? D(a[3]) : 0, a.Length > 4 ? D(a[4]) : 30);
+                    case "fov": return SpecCam.Fov(session, D(a[2]));   // cam fov <deg> (0: the player's setting) (2026-10-18)
                     case "lock": return SpecCam.GridLock(session, (long)D(a[2]), camera);   // cam lock <id>: keep the camera where it is, relative to that grid (2026-10-18)
                     case "grid": return SpecCam.Grid((long)D(a[2]), D(a[3]), a.Length > 4 ? D(a[4]) : 90, a.Length > 5 ? D(a[5]) : 15);   // cam grid <id> <distKm> [bearing from its nose] [elev]
                     case "sun": return SpecCam.Sun();

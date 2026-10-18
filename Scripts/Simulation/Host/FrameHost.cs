@@ -373,7 +373,7 @@ public static partial class FrameHost
             return;
         }
         // (DEV log, rate-limited: a frame that drops for a tick hides the planet proxies - say why)
-        if (Observer.HasValue && _obsLostLogs < 20) { _obsLostLogs++; Log.Default?.Info($"[ORBIT] observer lost: no frame (seated {_cur.Seated}, seat grid {SeatGridServerId}, why '{SeatedWhy}')"); }
+        if (Observer.HasValue && OrbitalLog.Frames && _obsLostLogs < 20) { _obsLostLogs++; Log.Default?.Info($"[ORBIT] observer lost: no frame (seated {_cur.Seated}, seat grid {SeatGridServerId}, why '{SeatedWhy}')"); }
         Observer = null;
         ObserverPlanet = null;
     }
@@ -412,7 +412,15 @@ public static partial class FrameHost
         return abs;
     }
 
+    /// <summary>A frame event: the status's last event, and an [ORBIT-FRAME] line where <see cref="OrbitalLog.Frames"/> (dev).</summary>
     internal static void Event(string s)
+    {
+        LastEvent = $"{DateTime.Now:HH:mm:ss} {s}";
+        if (OrbitalLog.Frames) Log.Default?.Info("[ORBIT-FRAME] " + s);
+    }
+
+    /// <summary>A frame event that is a failure or lost state: the same [ORBIT-FRAME] line, in every game.</summary>
+    internal static void Problem(string s)
     {
         LastEvent = $"{DateTime.Now:HH:mm:ss} {s}";
         Log.Default?.Info("[ORBIT-FRAME] " + s);

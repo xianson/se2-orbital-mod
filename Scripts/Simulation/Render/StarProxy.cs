@@ -39,7 +39,7 @@ public static class StarProxy
         if (_proxy == null)
         {
             _proxy = PlanetRenderBridge.CreateProxy(_h, pp.RenderPos);
-            Log.Default?.Info($"[ORBIT] {reg.Root.Name}: flight proxy {(_proxy != null ? "created" : "FAILED")}");
+            if (OrbitalLog.Setup || _proxy == null) Log.Default?.Info($"[ORBIT] {reg.Root.Name}: flight proxy {(_proxy != null ? "created" : "FAILED")}");
             if (_proxy == null) { Status = "proxy failed"; return; }
         }
         PlanetRenderBridge.UpdateProxy(_h, _proxy, pp.RenderPos, pp.RenderRadius);

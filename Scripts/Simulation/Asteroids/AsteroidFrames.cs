@@ -497,6 +497,6 @@ public static partial class AsteroidFrames
     static void Event(string s)
     {
         FrameHost.LastEvent = $"{DateTime.Now:HH:mm:ss} {s}";
-        Log.Default?.Info("[ORBIT-ROIDS] " + s);
+        if (OrbitalLog.Asteroids) Log.Default?.Info("[ORBIT-ROIDS] " + s);
     }
 }

@@ -272,7 +272,7 @@ public static partial class PlanetRenderBridge
 
             _renderOk = _createRoot != null && _createModel != null && _renderFlagsType != null
                         && _entityTypeType != null && _scaleField != null;
-            Log.Default?.Info($"[ORBIT] render bridge: root={_createRoot != null} model={_createModel != null} " +
+            if (OrbitalLog.Setup || !_renderOk) Log.Default?.Info($"[ORBIT] render bridge: root={_createRoot != null} model={_createModel != null} " +
                               $"flags={_renderFlagsType != null} etype={_entityTypeType != null} scale={_scaleField != null}");
             return _renderOk;
         }

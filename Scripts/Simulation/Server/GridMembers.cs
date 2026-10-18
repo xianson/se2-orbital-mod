@@ -126,7 +126,7 @@ public static class GridMembers
                 }
             }
         }
-        if (nid != 0) { Log.Default?.Info($"[ORBIT-FRAME] grid {nid} '{g.DisplayName}' back in the scene ({relinked} from where it left): its old id kept"); HavokAudit.NoteGrid(true, nid, g.Pos.At); return nid; }
+        if (nid != 0) { if (OrbitalLog.Frames) Log.Default?.Info($"[ORBIT-FRAME] grid {nid} '{g.DisplayName}' back in the scene ({relinked} from where it left): its old id kept"); HavokAudit.NoteGrid(true, nid, g.Pos.At); return nid; }
         lock (_lock) { nid = ++_next; _byId[nid] = g; _allSnap = null; System.Threading.Volatile.Write(ref _byIdSnap, null); }
         EncounterFrames.OnGridRegistered(nid);
         if (g.IsServer) HavokAudit.NoteGrid(true, nid, g.Pos.At);   // (a split's piece, a spawn: the cluster audit samples soon)
@@ -209,7 +209,7 @@ public static class GridMembers
         {
             if (!Alive(e) || !e.Data.Has<Keen.VRage.Core.Game.GameSystems.ManagedWorldAreas.ManagedByWorldAreaTag>()) return;   // (a dead one's Has threw, ~200 ms - 2026-10-15)
             var areas = e.GetSession()?.SessionComponents.TryGet<Keen.VRage.Core.Game.GameSystems.ManagedWorldAreas.ManagedWorldAreaSessionComponent>();
-            if (areas != null && areas.TryUnmanage(e)) Log.Default?.Info($"[ORBIT-FRAME] an entity released from its world area before a move");
+            if (areas != null && areas.TryUnmanage(e) && OrbitalLog.Frames) Log.Default?.Info($"[ORBIT-FRAME] an entity released from its world area before a move");
         }
         catch { }
     }

@@ -87,7 +87,7 @@ public static class ContactsTab
         _relabelled = true;
         int n = 0;
         foreach (var w in Words) if (SetText(w.key, w.text)) n++;
-        Log.Default?.Info($"[ORBIT] contacts tab: {n}/{Words.Length} of the GPS screen's texts relabelled");
+        if (OrbitalLog.Setup) Log.Default?.Info($"[ORBIT] contacts tab: {n}/{Words.Length} of the GPS screen's texts relabelled");
     }
 
     static bool SetText(string key, string text)

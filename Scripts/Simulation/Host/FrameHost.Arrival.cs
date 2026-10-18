@@ -80,7 +80,7 @@ public static partial class FrameHost
     {
         // A saved state that is not a real orbit (a hand-edited or corrupt save): ignored.
         if (!IsFinite(el.SemiMajorAxis) || !IsFinite(el.Eccentricity) || !IsFinite(el.MeanMotion) || !IsFinite(el.Epoch) || el.Eccentricity < 0)
-        { Event($"saved HighSpeed state for {body} ignored: not finite"); return; }
+        { Problem($"saved HighSpeed state for {body} ignored: not finite"); return; }
         // (HighSpeed is gone: a saved HighSpeed conic goes onto rails with the same orbit.)
         _pendingOrbit = (body, el);
         ForceStow = true;

@@ -45,7 +45,7 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
     void IInSceneListener.OnAddedToScene()
     {
         _name = Entity?.DebugName ?? "planet";
-        Log.Default?.Info($"[ORBIT] PlanetFrameComponent added: {_name}");
+        if (OrbitalLog.Setup) Log.Default?.Info($"[ORBIT] PlanetFrameComponent added: {_name}");
     }
 
     void IInSceneListener.OnBeforeRemovedFromScene()
@@ -97,7 +97,7 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
             _turnChecked = true;
             Vector3 qx = Vector3.Transform(Vector3.UnitX, q), qz = Vector3.Transform(Vector3.UnitZ, q);
             double ex = (new Vector3D(qx.X, qx.Y, qx.Z) - x).Length(), ez = (new Vector3D(qz.X, qz.Y, qz.Z) - z).Length();
-            Log.Default?.Info($"[ORBIT] proxy turn check ({body}): axes off by {ex:E1} / {ez:E1}{(ex > 1e-3 || ez > 1e-3 ? " - WRONG CONVENTION" : "")}");
+            if (OrbitalLog.Setup || ex > 1e-3 || ez > 1e-3) Log.Default?.Info($"[ORBIT] proxy turn check ({body}): axes off by {ex:E1} / {ez:E1}{(ex > 1e-3 || ez > 1e-3 ? " - WRONG CONVENTION" : "")}");
         }
         return q;
     }
@@ -177,7 +177,7 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
                 reach * OrbitalConfig.FrameEnterFactor, reach * OrbitalConfig.FrameExitFactor);
             if (_inFrame != wasInFrame)
             {
-                Log.Default?.Info($"[ORBIT] {_name}: {(_inFrame ? "entered" : "left")} frame at {distance / 1000:F1} km (reach {reach / 1000:F1} km)");
+                if (OrbitalLog.Frames) Log.Default?.Info($"[ORBIT] {_name}: {(_inFrame ? "entered" : "left")} frame at {distance / 1000:F1} km (reach {reach / 1000:F1} km)");
             }
 
             bool wantReal = WantReal() || !OrbitalConfig.HideRealPlanets;
@@ -189,7 +189,7 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
             {
                 if (OrbitalConfig.HideAtmosphere) PlanetRenderBridge.SetAtmosphereVisible(_handles, wantReal);
                 _realShown = wantReal;
-                Log.Default?.Info($"[ORBIT] {_name}: real planet {(wantReal ? "SHOWN" : "HIDDEN")} at {distance / 1000:F1} km");
+                if (OrbitalLog.Setup) Log.Default?.Info($"[ORBIT] {_name}: real planet {(wantReal ? "SHOWN" : "HIDDEN")} at {distance / 1000:F1} km");
             }
 
             if (!_realShown || OrbitalConfig.DebugProxyInFront)
@@ -211,7 +211,7 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
                 if (_proxy == null)
                 {
                     _proxy = PlanetRenderBridge.CreateProxy(_handles, renderCenter);
-                    Log.Default?.Info($"[ORBIT] {_name}: proxy {(_proxy != null ? "created" : "FAILED")} " +
+                    if (OrbitalLog.Setup || _proxy == null) Log.Default?.Info($"[ORBIT] {_name}: proxy {(_proxy != null ? "created" : "FAILED")} " +
                                       $"(model radius {_handles.ProxyModelRadius:F3}, planet radius {_handles.Radius / 1000:F1} km)");
                     if (_proxy == null)
                     {
@@ -289,7 +289,7 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
             _settledFrames = PlanetRenderBridge.TerrainSettled(_handles, _warmFrames - 1) ? _settledFrames + 1 : 0;
             double warmS = (System.Diagnostics.Stopwatch.GetTimestamp() - _warmStart) / (double)System.Diagnostics.Stopwatch.Frequency;
             show = (_warmFrames >= WarmMinFrames && _settledFrames >= 3) || warmS >= WarmMaxSeconds;
-            if (show) Log.Default?.Info($"[ORBIT] {body}: terrain warmed in {warmS:F2} s ({_warmFrames} frames{(warmS >= WarmMaxSeconds ? ", capped" : "")}; clipmaps: {PlanetRenderBridge.WarmReport(_handles)})");
+            if (show && OrbitalLog.Setup) Log.Default?.Info($"[ORBIT] {body}: terrain warmed in {warmS:F2} s ({_warmFrames} frames{(warmS >= WarmMaxSeconds ? ", capped" : "")}; clipmaps: {PlanetRenderBridge.WarmReport(_handles)})");
         }
         else if (!wantReal && _warmFrames > 0 && !_realShown)
             PlanetRenderBridge.SetTerrainVisible(_handles, false);   // (warming called off: dark and frozen again)
@@ -300,7 +300,7 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
             if (OrbitalConfig.HideAtmosphere) PlanetRenderBridge.SetAtmosphereVisible(_handles, show);
             _realShown = show;
             _warmFrames = 0; _settledFrames = 0;
-            Log.Default?.Info($"[ORBIT] {body}: real planet {(show ? "SHOWN" : "HIDDEN")} " +
+            if (OrbitalLog.Setup) Log.Default?.Info($"[ORBIT] {body}: real planet {(show ? "SHOWN" : "HIDDEN")} " +
                               $"(frames: observer in {(FrameHost.ObserverPlanet ?? "conjunction")}, {distance / 1000:F1} km)");
         }
 
@@ -311,7 +311,7 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
         if (_proxy == null)
         {
             _proxy = PlanetRenderBridge.CreateProxy(_handles, pp.RenderPos);
-            Log.Default?.Info($"[ORBIT] {body}: frames proxy {(_proxy != null ? "created" : "FAILED")}");
+            if (OrbitalLog.Setup || _proxy == null) Log.Default?.Info($"[ORBIT] {body}: frames proxy {(_proxy != null ? "created" : "FAILED")}");
             if (_proxy == null) return true;
         }
         _ringTurn = ProxyTurn(body, obs, t);
@@ -381,7 +381,7 @@ public partial class PlanetFrameComponent : Component, IInSceneListener
         _planetName = beacon != null ? DevHarness.PlanetName(beacon) : _name;
         MapGlobes.Register(_handles, center);
 
-        Log.Default?.Info($"[ORBIT] {_name}: resolved after {_setupAttempts} frames center={ServerPlanetBeacon.Fmt(center)} " +
+        if (OrbitalLog.Setup) Log.Default?.Info($"[ORBIT] {_name}: resolved after {_setupAttempts} frames center={ServerPlanetBeacon.Fmt(center)} " +
                           $"beacon={(beacon != null ? beacon.Name : "NONE")} (of {PlanetBeacons.Count}) " +
                           $"terrain={_handles.Terrain != null} atmosphere={_handles.EnvShowArgs != null} " +
                           $"proxyModel={_handles.HasProxyModel} modelRadius={_handles.ProxyModelRadius:F3} " +

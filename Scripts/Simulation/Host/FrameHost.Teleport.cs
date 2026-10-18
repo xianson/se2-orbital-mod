@@ -55,7 +55,7 @@ public static partial class FrameHost
         }
         else if (now - _tpStarted > TeleportSettle)
         {
-            Event($"teleport did not land within {TeleportSettle:F0} s (at {ServerPlanetBeacon.Fmt(pos)}); retrying");
+            Problem($"teleport did not land within {TeleportSettle:F0} s (at {ServerPlanetBeacon.Fmt(pos)}); retrying");
             PlanetRenderBridge.TeleportPlayer(session, new WorldTransform(_tpTarget, _tpOrient), clearMotion: true);
             _tpStarted = now; _tpRetried = true;
         }

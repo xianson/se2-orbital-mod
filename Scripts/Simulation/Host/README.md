@@ -14,6 +14,8 @@
 - `OrbitalSettings.cs` - the mod's settings: the registry (each setting, its range and its menu metadata; registration order = screen order); `OrbitalSettings.Store.cs` - the API, who may change what (`CanEditWorld`, host-file forcing, `ResetGroup`), the text (each setting's `Stored` value, never a harness's direct write), the world save (world scope rides `SavedState`), the files (client scope; read on a background task, applied by the next tick's `Poll`); `docs/API.md`. The menu over it: `Ui/`.
 - `ModCost.cs` - `ModCost` / `TickRate`: what the mod's code costs per frame and the tick rates (the `modcost` status
   line, `[HITCH]`).
+- `OrbitalLog.cs` - the log switches: the narrated lines (frame / encounter / asteroid events, setup detail, contacts,
+  hitches) are on only with the dev flag; failures use `FrameHost.Problem` (logged in every game) instead of `Event`.
 - `Num.cs` - `Wall()` and `IsFinite`, shared by server and client/HUD code (`using static OrbitalMod.Num;`).
 - `FrameMath.cs` (game-free: the offline FrameMathTests compile it), `PlayerCache.cs`, `Prewarm.cs`, `WarpControl.cs`
   (the warp keys).

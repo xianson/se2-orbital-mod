@@ -165,7 +165,7 @@ public static class AsteroidBridge
                 en.Dispose();
                 lock (RingInfo) { RingInfo.Clear(); RingInfo.AddRange(info); }
                 lock (Rings) { Rings.Clear(); Rings.AddRange(rings); }
-                if (!_loggedRings && info.Count > 0)
+                if (!_loggedRings && info.Count > 0 && OrbitalLog.Asteroids)
                 {
                     _loggedRings = true;
                     foreach (var s in info) Log.Default?.Info("[ORBIT-ROIDS] manual volume: " + s);
@@ -366,6 +366,7 @@ public static class AsteroidBridge
     /// <summary>A rate-limited log line (deletions and keeps: at most 8 per 30 s; what was held back is counted).</summary>
     static void Say(string line, double now)
     {
+        if (!OrbitalLog.Asteroids) return;
         bool ok = _logRate.Allow(now, out int held);
         if (held > 0) Log.Default?.Info($"[ORBIT-ROIDS] ({held} line(s) not logged in the last {_logRate.Window:F0} s)");
         if (ok) Log.Default?.Info(line);

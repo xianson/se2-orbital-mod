@@ -193,7 +193,7 @@ public partial class ServerPlanetBeacon
         try { ServerFrames.Tick(beacon.Entity.GetSession()); }
         catch (Exception ex) { FrameHost.Fault("ServerFrames", ex); }
         { double tkMs = (System.Diagnostics.Stopwatch.GetTimestamp() - tk0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
-          if (tkMs > 30) Keen.VRage.Library.Diagnostics.Log.Default?.Info($"[HITCH] the frames' server tick took {tkMs:F0} ms ({ServerFrames.LastSlow}{ServerFrames.LastFrameCount} frames)"); }
+          if (tkMs > 30 && OrbitalLog.Perf) Keen.VRage.Library.Diagnostics.Log.Default?.Info($"[HITCH] the frames' server tick took {tkMs:F0} ms ({ServerFrames.LastSlow}{ServerFrames.LastFrameCount} frames)"); }
         // (every planet's beacon runs this job, in parallel: the once-a-frame work - the player's dv and heat, the dev
         //  generator - is claimed by one; it ran once per planet, concurrently on the same server character)
         bool mine = ClaimFrame();
@@ -215,7 +215,7 @@ public partial class ServerPlanetBeacon
         PlanetRenderBridge.TryGetGravityLaw(beacon._gravity, out double g0, out double r0, out double f);
         b.Gravity = new GravityLaw { G0 = g0, R0 = r0, Falloff = f, Reach = beacon._gravity.AffectDistance };
         b.GravityReach = b.Gravity.Reach;
-        Log.Default?.Info($"[ORBIT] {b.Name}: gravity {(ok ? "set" : "FAILED")} -> falloff={f:F2} r0={r0 / 1000:F1} km reach={b.Gravity.Reach / 1000:F1} km");
+        if (OrbitalLog.Setup || !ok) Log.Default?.Info($"[ORBIT] {b.Name}: gravity {(ok ? "set" : "FAILED")} -> falloff={f:F2} r0={r0 / 1000:F1} km reach={b.Gravity.Reach / 1000:F1} km");
     }
 }
 

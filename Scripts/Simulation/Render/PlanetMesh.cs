@@ -172,7 +172,8 @@ public static class PlanetMesh
             }
             catch (Exception e) { info.Error = "exception: " + PlanetRenderBridge.Inner(e); }
             info.FailedGeneration = Generation;
-            PlanetRenderBridge.WarnOnce("hiresglobe-" + h.Name + "-" + Generation, $"hi-res globe for {h.Name}: {info.Error}; keeping the map model");
+            if (h.Overlay != null || OrbitalLog.Setup)   // (no overlay: a body with no terrain - the star - keeps its map model by design)
+                PlanetRenderBridge.WarnOnce("hiresglobe-" + h.Name + "-" + Generation, $"hi-res globe for {h.Name}: {info.Error}; keeping the map model");
             return null;
         }
     }

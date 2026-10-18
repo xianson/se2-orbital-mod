@@ -31,6 +31,9 @@ public static class HavokAudit
     public static bool Enabled = true;
     public static string Status = "-";
     public static int Samples, Mismatches;
+    /// <summary>Mismatch lines a player's log takes per world (the dev log: all).</summary>
+    public static int MaxLinesPerWorld = 20;
+    static int _linesThisWorld;
     /// <summary>The last sample's cost (ms) and the worlds it saw.</summary>
     public static double LastSampleMs;
     public static int LastWorlds;
@@ -156,6 +159,13 @@ public static class HavokAudit
                 if (_logged.TryGetValue(tag, out long was) && was == sig) continue;
                 _logged[tag] = sig;
                 Mismatches++;
+                // (a player's log: the first MaxLinesPerWorld mismatches - the crash's lead-up - then one line; a count that
+                //  changes every sample would otherwise log every second. The dev log keeps them all: havok_repro.sh)
+                if (++_linesThisWorld > MaxLinesPerWorld && !OrbitalConfig.DevHarness)
+                {
+                    if (_linesThisWorld == MaxLinesPerWorld + 1) Log.Default?.Info($"[ORBIT-HAVOK] more cluster mismatches in this world not logged (the first {MaxLinesPerWorld} are above)");
+                    continue;
+                }
                 Log.Default?.Info($"[ORBIT-HAVOK] cluster {tag} world 0x{(long)w:X}: bodies {native}, tracked {dyn} (+ statics {st}) - {un} unaccounted " +
                                   $"(box {Fmt(box.Center)} +-{box.HalfExtents.X / 1000:F1} km); last moves: {RecentMoves()}");
             }
@@ -199,7 +209,7 @@ public static class HavokAudit
     /// <summary>A new world (WorldReset): the bound manager and the logged mismatches dropped, the moves forgotten.</summary>
     public static void ResetWorld()
     {
-        _mgr = null; _ptrToNint = null; _logged.Clear();
+        _mgr = null; _ptrToNint = null; _logged.Clear(); _linesThisWorld = 0;
         lock (_ringLock) { _ringNext = 0; _ringCount = 0; }
         _nextDue = 0; _lastAt = 0;
     }

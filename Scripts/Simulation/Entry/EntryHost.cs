@@ -460,7 +460,7 @@ public static class EntryHost
                 if (outside) lock (_heat) if (_inPass.Remove(f.Id)) EndPass(f, heat);
                 continue;
             }
-            if (!IsFinite(el)) { FrameHost.Event($"ENTRY frame #{f.Id}: braking gave no orbit (kept the old)"); continue; }
+            if (!IsFinite(el)) { FrameHost.Problem($"ENTRY frame #{f.Id}: braking gave no orbit (kept the old)"); continue; }
             f.Elements = el;
             braking++;
             // (a whisper of drag - grazing the band's top, a low orbit decaying - is no entry: no plasma, no event)

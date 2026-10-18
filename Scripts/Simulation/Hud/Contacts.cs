@@ -145,7 +145,6 @@ public static class Contacts
         RadarPowerNow = 0; foreach (var o in obs) if (o.Kind == SensorModel.Kind.Radar && o.Power > RadarPowerNow) RadarPowerNow = o.Power;
 
         // Seen by whom (null: by none): r its radius (m), its albedo, its temperature (a powered hull, a rock).
-        string Seen(Vector3D at, double r, double albedo, double tempK) { var k = SeenKind(at, r, albedo, tempK); return k == null ? null : Name(k.Value); }
         SensorModel.Kind? SeenKind(Vector3D at, double r, double albedo, double tempK)
         {
             int i = SensorModel.SeenBy(obs, new SensorModel.Target { At = at, Radius = r, Albedo = albedo, TempK = tempK }, bodies, sun);

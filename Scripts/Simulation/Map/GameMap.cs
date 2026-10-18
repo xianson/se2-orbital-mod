@@ -81,9 +81,6 @@ public static class GameMap
         double dist = MapCamera.Distance > 0 ? MapCamera.Distance : (cam - mapPos).Length();   // the zoom, not where a pan has taken the camera
         double u = dist / Math.Max(1e-6, _baseMax);
         double w12 = Smooth(1.0, 2.0, u), w23 = Smooth(2.5, 3.5, u);
-        Vector3D C(Vector3D world) => ColonizationMapSessionComponent.WorldToMapPosition(world, mapPos, orient, origin, scale);
-        Vector3D Rot(Vector3D v) => (QuaternionD)orient * v;
-        double W(double k = 1.0) => dist * 0.0022 * k;   // line width: constant on screen
 
         IColonizationProgress progress = null;
         try { progress = session.Get<IColonizationProgress>(); } catch { }

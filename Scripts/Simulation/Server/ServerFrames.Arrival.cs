@@ -106,7 +106,9 @@ public static partial class ServerFrames
                     if (!GridMembers.MoveSet(g, set, out string why)) { set.Clear(); set.Add(g.Entity); Event($"arrival: grid {g.Id}'s joined set not movable ({why}): it moves alone"); }
                     lock (_deferred) foreach (var e in set) _deferred.Add((e, e.Data.GetWorldTransform().Position + d, Vector3D.Zero));
                 }
-                else GridMembers.SetPosition(g, dest);
+                // (moved straight mid-tick before: a static moved so can stay in its old physics world while its box leaves it -
+                //  the "still active bodies in native world" crash, 2026-10-17. The teleport phase checks its landing - HavokMoves)
+                else MoveGrid(g, dest, null, allowStatic: true);
                 // A static grid keeps its orbit too (placed each tick along it, as a HighSpeed grid): dropped
                 // without its velocity it fell straight down (the game made it dynamic).
                 var sel = CaptureMath.CaptureElements(new StateVector(cel.Position + off, cel.Velocity), node.Mu, epoch);
@@ -180,7 +182,7 @@ public static partial class ServerFrames
                 Event($"grid {g.Id} HighSpeed off ({speed:F0} m/s, alt {(st.Position.Length() - (def?.RadiusMeters ?? 0)) / 1000:F1} km)");
                 continue;
             }
-            MoveGrid(g, cell + chart.FromInertial(st.Position), Vector3D.Zero);
+            MoveGrid(g, cell + chart.FromInertial(st.Position), Vector3D.Zero, allowStatic: true);   // (a static on its conic: through the teleport phase, its landing checked)
         }
         foreach (var r in refold) if (!done.Contains(r.id)) _gridHighSpeed[r.id] = (r.body, r.el);
         foreach (long id in done) _gridHighSpeed.Remove(id);

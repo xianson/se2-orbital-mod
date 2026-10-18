@@ -99,12 +99,22 @@ universe clock (`SystemHost.Now`). The registry is `FrameRegistry` (`SystemHost.
 
 All world moves of grids go through `ServerFrames.MoveGrid`:
 
-- a grid with no joints moves at once (`GridMembers.SetPosition` / `SetVelocity`);
+- a dynamic grid with no joints moves at once when the step is ordinary motion (up to `HavokMoves.OrdinaryStep`, 100 m -
+  the engine's `WorldMargin`; `GridMembers.MoveTo` / `SetVelocity`); a longer move is a teleport, queued for the teleport
+  phase before physics like the jointed ones (2026-10-17);
 - a grid with joints (rotors, wheels, connectors) moves with its whole joined set (`GridMembers.MoveSet`), deferred
   to the teleport phase before physics (`ServerFrames.RunDeferredMoves`, queued in `_deferred` / `_deferredRot` and
   `GridMembers.Pending`), because Havok cannot migrate constraints mid-frame. A set joined to anything static is never
   moved (a constrained pair moved apart hung the server). A second move in one tick is added to the queued one
-  (`ServerFrames.AddToQueuedMove`); `GridMembers.Position` reads a queued move.
+  (`ServerFrames.AddToQueuedMove`); `GridMembers.Position` / `Velocity` read a queued move, and a velocity written after
+  it (`SetVelocity` / `AddVelocity`) goes into it (`ServerFrames.RetargetVelocity`).
+- a STATIC grid is refused (`[ORBIT-FRAME] grid N 'Name' not moved: it is static`, once per grid) unless the caller
+  passes `allowStatic: true` (an arrival and its HighSpeed conic, a re-pin, a berth shift, a split, a spawn moved off a
+  border, the per-tick `PlaceGrid`); then it always goes to the teleport phase, where its landing is checked against the
+  physics worlds (`HavokMoves.StaticMoveSafe`; a landing beside a world that only overlaps it goes in two hops, clear of
+  every world first). A static moved straight could stay in its old Havok world while its box left it: "There are still
+  active bodies in native world N" when that cluster was removed (two crashes, 2026-10-17). `HavokAudit` watches the
+  clusters (`[ORBIT-HAVOK]`, Server/README.md).
 - Every move and velocity write is reported to the Aero mod (`GridEdits.Wrote` / `Moved`, `ServerFrames.AeroNoteMoved`;
   section 12).
 

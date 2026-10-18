@@ -61,7 +61,7 @@ reset:` per world left) - run it on the user's own log after they quit to the me
 | `warp: one bill a server tick` | `WarpBill.Bills` per second vs the status `server=` ticks/s | as above, counted per frame; a FAIL "warp did not hold xN" means warp was cut (`Warp stopped`) - rerun higher |
 | `settings UI: the tab found, with rows` | `settingsui` reply: a "tab ... found" phrase and "N rows" | the tab not found in the game's settings screen, or no rows built (SKIP while the verb does not exist) |
 | `whole run: no exception in our code, no mod fault` | the log since launch: `at AeroMod.`/`at OrbitalMod.`/`at SEAerospace.` frames, `[AERO-FAULT]`/`[ORBIT-FAULT]`, our tags with `Exception` | the first hits are printed with their log line numbers |
-| `whole run: no Havok migration assertion` / `no fatal crash` / `game still running` | `not migrated`, `Crash Handler]: Fatal`, the process | a grid moved outside the pre-physics phase; a crash (see Temp/CrashReports) |
+| `whole run: no Havok migration assertion` / `no fatal crash` / `game still running` | `not migrated`, `still active bodies in native world`, `Crash Handler]: Fatal`, the process | a grid moved outside the pre-physics phase; a static body left in a physics world whose box no longer reaches it (an `[ORBIT-HAVOK] cluster` line before it names the cluster and the last moves - see havok_repro.sh); a crash (see Temp/CrashReports) |
 
 The `-- numbers` block (no verdict): the aero mod's `[AERO-COST]` top sections (ms/s), the Orbital `modcost` timers x
 ticks, the process's GC allocation (MB/s, the whole game), against the 2026-10 baseline (mods 140 ms/s, 1.74 MB/s - that

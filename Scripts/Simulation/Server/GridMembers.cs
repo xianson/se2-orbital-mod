@@ -126,9 +126,10 @@ public static class GridMembers
                 }
             }
         }
-        if (nid != 0) { Log.Default?.Info($"[ORBIT-FRAME] grid {nid} '{g.DisplayName}' back in the scene ({relinked} from where it left): its old id kept"); return nid; }
+        if (nid != 0) { Log.Default?.Info($"[ORBIT-FRAME] grid {nid} '{g.DisplayName}' back in the scene ({relinked} from where it left): its old id kept"); HavokAudit.NoteGrid(true, nid, g.Pos.At); return nid; }
         lock (_lock) { nid = ++_next; _byId[nid] = g; _allSnap = null; System.Threading.Volatile.Write(ref _byIdSnap, null); }
         EncounterFrames.OnGridRegistered(nid);
+        if (g.IsServer) HavokAudit.NoteGrid(true, nid, g.Pos.At);   // (a split's piece, a spawn: the cluster audit samples soon)
         return nid;
     }
 
@@ -150,6 +151,7 @@ public static class GridMembers
             catch { }
         lock (_lock) { _byId.Remove(g.Id); _allSnap = null; System.Threading.Volatile.Write(ref _byIdSnap, null); }
         lock (GridMembers.Pending) GridMembers.Pending.Remove(g.Id);
+        if (g.IsServer) HavokAudit.NoteGrid(false, g.Id, g.Pos.At);
         if (!tomb) ServerFrames.Forget(g.Id);   // (per-grid state dies with the grid - after its tombstone, if it may come back)
     }
 
@@ -345,6 +347,10 @@ public static class GridMembers
     {
         if (!Finite(v)) { NaNRefused++; return false; }
         if (!Alive(g.Entity)) return false;
+        // (a move queued for the teleport phase writes its velocity there: one set after the move this tick - the drain's zero
+        //  after a re-pin, a placement's zero - goes into the queued one, or the queued one overwrote it. 2026-10-17: single
+        //  grids' long moves queue now too)
+        if (Pending.Count > 0) ServerFrames.RetargetVelocity(g, v, add: false);
         try
         {
             ref RigidBodyData rb = ref g.Entity.Data.TryGetWritePtr<RigidBodyData>();
@@ -361,6 +367,7 @@ public static class GridMembers
     public static bool AddVelocity(OrbitalGridComponent g, Vector3D dv)
     {
         if (!Alive(g.Entity)) return false;
+        if (Pending.Count > 0 && Finite(dv)) ServerFrames.RetargetVelocity(g, dv, add: true);   // (as SetVelocity: into a queued move's)
         try
         {
             ref RigidBodyData rb = ref g.Entity.Data.TryGetWritePtr<RigidBodyData>();
@@ -453,7 +460,6 @@ public static class GridMembers
         catch (Exception e) { why = "connection search failed: " + e.Message; set.Clear(); return false; }
     }
 
-    /// <summary>Move the grid (orientation kept), the way the engine's own admin teleport does.</summary>
     /// <summary>Writes refused for a non-finite value (a sign of bad orbital state upstream).</summary>
     public static int NaNRefused;
 
@@ -472,7 +478,20 @@ public static class GridMembers
         catch { }
     }
 
+    /// <summary>Moves a DYNAMIC grid at once (orientation kept), the way the engine's own admin teleport does. A static one is
+    /// refused (false; logged once per grid): a static body moved outside the teleport phase's checks can leave Havok's
+    /// cluster bookkeeping stale - the "still active bodies in native world" crash (HavokMoves, 2026-10-17). A static moves
+    /// through ServerFrames.MoveGrid(allowStatic: true).</summary>
     public static bool SetPosition(OrbitalGridComponent g, Vector3D p)
+    {
+        if (!Finite(p)) { NaNRefused++; return false; }
+        if (!Alive(g.Entity)) return false;
+        if (!IsDynamicNow(g)) { ServerFrames.StaticRefused(g, "SetPosition"); return false; }
+        return MoveTo(g, p);
+    }
+
+    /// <summary>SetPosition's write, for a caller that asked the motion itself (ServerFrames.MoveGrid, PlaceGrid).</summary>
+    internal static bool MoveTo(OrbitalGridComponent g, Vector3D p)
     {
         if (!Finite(p)) { NaNRefused++; return false; }
         if (!Alive(g.Entity)) return false;

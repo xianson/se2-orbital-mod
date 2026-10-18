@@ -16,7 +16,7 @@ since() { tail -n +"$((MARK + 1))" "$(log)"; }
 alive() { tasklist //FI "IMAGENAME eq SpaceEngineers2.exe" 2>/dev/null | grep -q SpaceEngineers2; }
 waitfor() { local pat="$1" to="$2"; for i in $(seq 1 "$to"); do since | grep -aq -- "$pat" && return 0; alive || return 1; sleep 1; done; return 1; }
 hold() { for i in $(seq 1 "$1"); do alive || return 1; sleep 1; done; return 0; }
-bad() { since | grep -a -e "not migrated" -e "Crash Handler\]: Fatal" | head -1; }
+bad() { since | grep -a -e "not migrated" -e "still active bodies in native world" -e "Crash Handler\]: Fatal" | head -1; }
 record() { if [ -z "$2" ]; then pass=$((pass + 1)); results+=("PASS  $1"); else fail=$((fail + 1)); results+=("FAIL  $1: $2"); fi; echo "${results[-1]}"; }
 check() {
     local name="$1" pat="$2" to="$3" settle="${4:-15}" why=""

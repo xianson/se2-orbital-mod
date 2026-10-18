@@ -63,7 +63,9 @@ the invariants), `fx`/`fxramp`/`spinfx` (the effects judged per frame), `globesh
 across frames), `hercules` (the multi-grid player ship), `holdcharge` (holding station is charged), `hud_cases`,
 `rv_cases`, `rv_views` (the orbit card and rendezvous from every seat), `infoshot`/`targetshot` (map cards, targeting),
 `map_compare`/`map_dim` (the map with and without sectors), `reentry_e2e` (DevReentry top to bottom), `scenarios`
-(frame events), `structtest`/`loacdiag` (the aero mod's structure and warnings), `trails` (wing tip trails), `warm`
+(frame events), `structtest`/`loacdiag` (the aero mod's structure and warnings), `havok_repro` (the 2026-10-17 Havok
+cluster crash on purpose: a breakup at speed with and without a FlyTest teleport, watched by the `[ORBIT-HAVOK]` audit),
+`trails` (wing tip trails), `warm`
 (warm berths), `wreckcam`, `aeroab` (the aero flight A/B, see the aero mod's README).
 
 Run them in the background and read the summary: `bash tools/harness/test_smoke.sh > %TEMP%/smoke.out 2>&1`.

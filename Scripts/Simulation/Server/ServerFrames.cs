@@ -345,7 +345,6 @@ public static partial class ServerFrames
                 while (GridDamp.TryDequeue(out var gd)) DoGridDamp(gd.id, gd.on);
                 while (GridLaunch.TryDequeue(out var gl)) DoGridLaunch(gl.id, gl.altKm, gl.body, gl.speed);
                 while (FlyTest.TryDequeue(out var ft)) DoFlyTest(ft.id, ft.nose, ft.top);
-                while (QuickLaunchRequests.TryDequeue(out var ql)) DoQuickLaunch(ql.id, ql.nose, ql.top);
                 while (GridLevel.TryDequeue(out long glv)) DoGridLevel(glv);
                 while (GridDelete.TryDequeue(out long gd))
                 {

@@ -17,7 +17,7 @@
 
 - `OrbitalApi.Peek.cs` - the frames without the frame lock (the snapshot, refreshed by readers with `Monitor.TryEnter`).
 - `OrbitalApi.World.cs` - bodies (system state, orbit, spin, cell) and world <-> body-relative conversion.
-- `OrbitalApi.Grids.cs` - a grid's own state, orbit, summary, status.
+- `OrbitalApi.Grids.cs` - a grid's own state, orbit, summary, status; `TryQuickMove` (2026-10-18: the aero mod's creative quick launch moved by this mod - `ServerFrames.QuickMove`).
 - `OrbitalApi.Orbits.cs` - conic math on any element set (eight doubles).
 - `OrbitalApi.Time.cs` - warp levels, request, stop time.
 - `OrbitalApi.Player.cs` - the local player's orbit, maneuver nodes, next burn, attitude hold, target, closest approach.

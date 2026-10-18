@@ -92,4 +92,21 @@ public static partial class OrbitalApi
         if (frameId >= 0 && Table().TryGet(frameId, out var r)) isFrameAnchor = r.Anchor == memberId;
         return true;
     }
+
+    /// <summary>(v3, added 2026-10-18) QUICK MOVE, for the aero mod's creative quick launch (its Launch/QuickLaunch.Server.cs:
+    /// the player feature moved there from this mod's 1.0.1): move a SERVER grid and everything joined to it to position
+    /// (world, the grid's origin), turned to orientation (its new world orientation; the joined set turns rigidly about it),
+    /// every body at velocity (world, m/s) - by this mod's own safe move path (MoveGrid: the teleport phase with the joined
+    /// set; a static, or a set joined to one, refused - HavokMoves), so no other mod teleports a grid behind this mod's frames
+    /// and queued moves. Refused on rails and outside a planet's cell; the place is clamped straight down under the planet's
+    /// space border (PlanetBerths.ShellRadius less 500 m), by at most maxDrop m (the caller's clearance room), else refused.
+    /// placed: where it goes; reason: why not (a phrase for after "Quick launch: "), or what moved. Any thread, holding no
+    /// lock of yours (it takes the frame lock); best in the server's teleport phase (before the simulation), as the aero mod
+    /// calls it.</summary>
+    public static bool TryQuickMove(Entity grid, Vector3D position, Quaternion orientation, Vector3D velocity, double maxDrop, out Vector3D placed, out string reason)
+    {
+        placed = position; reason = null;
+        if (grid == null || !SystemHost.Built) { reason = "the Orbital Mod is not ready"; return false; }
+        return ServerFrames.QuickMove(grid, position, orientation, velocity, maxDrop, out placed, out reason);
+    }
 }

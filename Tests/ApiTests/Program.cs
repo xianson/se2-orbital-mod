@@ -280,6 +280,7 @@ namespace Orbital.ApiTests
         {
             "bool", "int", "long", "float", "double", "string", "void", "Vector3", "Vector3D", "Entity", "Delegate",
             "List<string>", "List<long>", "double[]", "long[]", "string[]",   // (string[]: TryGetSettingUi's choices, v3 - as AeroApi's)
+            "Quaternion",   // (TryQuickMove's orientation, 2026-10-18: the engine's math type, as Vector3D - any caller can name it)
         };
 
         static void ApiShape()

@@ -45,7 +45,7 @@ grep -q 'Func<Keen.VRage.DCS.Components.Entity, ValueTuple<Vector3, float>>' "$f
 grep -q 'Func<Entity, ValueTuple<Vector3, float>>' "$EH" || bad "orbital's source delegate is no longer Func<Entity, (Vector3, float)>"
 
 # 2. every AeroMod member named in a GetMethod/GetField string here exists in the aero source (dev code included)
-NAMES="RegisterEntrySource HasEntrySource TryGetFlow WingTips EntryStrength TryGetFlight TryGetForces TryGetLift TryGetGroundHeight PredictHullForces RequestForceTable TryGetEntry TryGetAtmosphere TryGetAtmosphereAt GetFxConsistency TryGetStructure SetFocusGrid TryGetStall TryGetLoac NoteMoved Build GetGravityDirection TryDesign GetTopSpeed GetTopSpeedAt GetThrustAlong TryGetCenterOfMass GetMass GetDesignPressures GetControlRatio GetWavePeak GetStructureEventSequence ReadStructureEvents"
+NAMES="RegisterEntrySource HasEntrySource RequestQuickLaunch TryGetFlow WingTips EntryStrength TryGetFlight TryGetForces TryGetLift TryGetGroundHeight PredictHullForces RequestForceTable TryGetEntry TryGetAtmosphere TryGetAtmosphereAt GetFxConsistency TryGetStructure SetFocusGrid TryGetStall TryGetLoac NoteMoved Build GetGravityDirection TryDesign GetTopSpeed GetTopSpeedAt GetThrustAlong TryGetCenterOfMass GetMass GetDesignPressures GetControlRatio GetWavePeak GetStructureEventSequence ReadStructureEvents"
 for f in $(grep -rl '"AeroMod\.' Scripts --include=*.cs); do
   for m in $(grep -o 'GetMethod("[A-Za-z]*"' "$f" | sed 's/GetMethod("//; s/"//' | sort -u); do
     case " $NAMES " in *" $m "*) ;; *) continue ;; esac
@@ -66,12 +66,15 @@ sig() {
 }
 # want <aero|orbital|file> <name> <params> <caller>: aero = every AeroApi*.cs, orbital = every OrbitalApi*.cs.
 want() {
-  local got where
+  local got where files
   case "$1" in
-    aero) got=$(sig "$2" "${APIS[@]}"); where=AeroApi ;;
-    orbital) got=$(sig "$2" "${OAPIS[@]}"); where=OrbitalApi ;;
-    *) got=$(sig "$2" "$1"); where=$(basename "$1") ;;
+    aero) files=("${APIS[@]}"); where=AeroApi ;;
+    orbital) files=("${OAPIS[@]}"); where=OrbitalApi ;;
+    *) files=("$1"); where=$(basename "$1") ;;
   esac
+  got=$(sig "$2" "${files[@]}")
+  # (a member with no parameters signs "" - as a missing one does: it must be declared, 2026-10-18)
+  grep -qE "public static [^(=]* $2[(]" "${files[@]}" || { bad "$where $2: not declared ($4 binds it)"; return; }
   [ "$got" = "$3" ] || bad "$where $2($got): $4 binds $2($3)"
 }
 # Orbital -> Aero (AeroApi), shipped: the entry source and aerobraking (EntryHost), the move push (ServerFrames)
@@ -93,7 +96,7 @@ want aero TryGetStall "Entity, out int, out float, out float, out float" BuildHi
 want aero TryGetLoac "Entity, out int, out float" BuildHints
 want aero TryDesign "Entity, Vector3, float, out Vector3, out Vector3, out Vector3, out float, out float, out float" BuildHints
 want aero GetTopSpeed "Entity, Vector3" BuildHints
-want aero GetTopSpeedAt "Entity, Vector3, float" "BuildHints / FlyTest / QuickLaunch"
+want aero GetTopSpeedAt "Entity, Vector3, float" "BuildHints / FlyTest"
 want aero GetThrustAlong "Entity, Vector3, float, out Vector3" BuildHints
 want aero TryGetCenterOfMass "Entity, out Vector3" BuildHints
 want aero GetMass "Entity" BuildHints
@@ -101,16 +104,18 @@ want aero GetDesignPressures "Entity, Vector3, float, List<Vector3>, List<Vector
 want aero GetControlRatio "Entity, Vector3, float" BuildHints
 # ... dev (the harness, the reentry test, generated grids, the fly test)
 want aero TryGetLift "Entity, out Vector3, out float" GridGen
-want aero TryGetGroundHeight "Entity, out float" "GridGen / FlyTest / QuickLaunch"
+want aero TryGetGroundHeight "Entity, out float" "GridGen / FlyTest"
 want aero TryGetEntry "Entity, out float, out bool" DevReentry
 want aero TryGetAtmosphere "Entity, out float, out float, out float, out float" DevReentry
 want aero GetFxConsistency "bool" "DevHarness fxcheck"
+want aero RequestQuickLaunch "" "QuickLaunch (DevHarness key quicklaunch: the aero mod's creative quick launch, 2026-10-18)"
 want "$fixture" Build "Entity, string" "DevHarness flightdump"
 want "$hack" GetGravityDirection "DEntityContext" "DevHarness gridup"
-# Aero -> Orbital (OrbitalApi): the railed entry's heat and loads, the contact balance - every lookup in OrbitalLink
+# Aero -> Orbital (OrbitalApi): the railed entry's heat and loads, the contact balance, quick launch's move - every lookup in OrbitalLink
 want orbital TryGetEntryState "Entity, out Vector3, out float" "OrbitalLink.TryGetEntryState (AeroEntryFx.EntryStateAt)"
 want orbital TryGetEntryState2 "Entity, out Vector3, out float, out float, out Vector3" OrbitalLink.TryGetEntryState2
 want orbital TryGetGridEdits "Entity, out Vector3D, out long" OrbitalLink.TryGetGridEdits
+want orbital TryQuickMove "Entity, Vector3D, Quaternion, Vector3D, double, out Vector3D, out string" "OrbitalLink.TryQuickMove (the aero mod's quick launch)"
 
 # 4. EXPLICIT PARAMETER TYPES: every cross-mod lookup passes them (a later overload must never make one ambiguous). BuildHints
 #    is aero-2c's: reported, not failed, until it passes them too.
@@ -124,7 +129,7 @@ for f in $(grep -rl '"AeroMod\.' Scripts --include=*.cs); do
     done
   done < <(grep 'GetMethod("' "$f")
 done
-for n in TryGetEntryState TryGetEntryState2 TryGetGridEdits; do
+for n in TryGetEntryState TryGetEntryState2 TryGetGridEdits TryQuickMove; do
   grep -rqE "(GetMethod|Find|Bind(<[A-Za-z0-9_]+>)?)\(\"$n\", *new\[\]" "$AERO" || bad "aero's lookup of OrbitalApi.$n passes no parameter types (or is gone)"
 done
 # ... and ONE RULE each way (2026-10-15): the other mod's API type is found in one place - aero's OrbitalLink (the last

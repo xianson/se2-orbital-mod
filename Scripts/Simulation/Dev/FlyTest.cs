@@ -10,8 +10,9 @@ namespace OrbitalMod;
 /// its top up - and flying along that nose at cruise speed: the aero mod's top speed that way at CruiseThrottle (the
 /// build boxes' cruise; 150 m/s when it has none). Planet-fixed velocity, so that is your airspeed (wind aside).
 /// The harness key needs the dev flag (release prep, 2026-10-17: Ctrl+T was live in every game - a seated player's Ctrl+T
-/// teleported the ship). Ctrl+T itself is now the player's QUICK LAUNCH (2026-10-18: QuickLaunch - the same move, creative
-/// only, checked by the server; rebindable), so a dev's Ctrl+T no longer runs this too (it did both at once).
+/// teleported the ship). Ctrl+T itself became the player's QUICK LAUNCH (2026-10-18: the same move, creative only, checked by
+/// the server; rebindable) - since the same day the aero mod's (its Launch/QuickLaunch*.cs; this mod only moves the ship for
+/// it: OrbitalApi.TryQuickMove), so a dev's Ctrl+T no longer runs this too.
 /// </summary>
 public static class FlyTest
 {

@@ -219,7 +219,7 @@ public static class AsteroidBridge
                 else if (AsteroidRules.Persists(v))
                 {
                     kept.Add(b.Pos); boxes.Add(f.HasBox ? b.Box : new BoundingBoxD(b.Pos, b.Pos));   // an asteroid placed on purpose: a frame anchor
-                    if (AsteroidRules.LogKeep(v) && _heldLogged.Add(b.Id))
+                    if (AsteroidRules.LogKeep(v) && _heldLogged.Add(b.Id) && OrbitalLog.Asteroids)
                         Say($"[ORBIT-ROIDS] kept generator body {b.Id} at {Km(f.HasBox ? b.Box.Center : b.Pos)}: {AsteroidRules.Why(v)}", now);
                 }
             }
@@ -363,10 +363,10 @@ public static class AsteroidBridge
     static bool GridNear(BoundingBoxD rock) { foreach (var g in _tGrids) if (AsteroidRules.Gap(rock, g) <= AsteroidRules.GridMargin) return true; return false; }
     static bool PlayerNear(BoundingBoxD rock) { foreach (var c in _tChars) if (BoxDistance(rock, c) <= AsteroidRules.PlayerMargin) return true; return false; }
 
-    /// <summary>A rate-limited log line (deletions and keeps: at most 8 per 30 s; what was held back is counted).</summary>
+    /// <summary>A rate-limited log line (deletions and keeps: at most 8 per 30 s; what was held back is counted). Deletions are
+    /// logged in every game (World.DeleteGeneratedAsteroids promises it); the keeps only with OrbitalLog.Asteroids (dev).</summary>
     static void Say(string line, double now)
     {
-        if (!OrbitalLog.Asteroids) return;
         bool ok = _logRate.Allow(now, out int held);
         if (held > 0) Log.Default?.Info($"[ORBIT-ROIDS] ({held} line(s) not logged in the last {_logRate.Window:F0} s)");
         if (ok) Log.Default?.Info(line);

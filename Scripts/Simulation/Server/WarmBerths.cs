@@ -170,10 +170,15 @@ public static class WarmBerths
         try
         {
             var wt = e.Data.GetWorldTransform();
-            e.Data.SetWorldTransform(new WorldTransform(p, wt.Orientation));
-            ServerFrames.AeroNoteMoved(e);
             ref var rb = ref e.Data.TryGetWritePtr<Keen.VRage.Physics.Data.RigidBodyData>();
             if (!System.Runtime.CompilerServices.Unsafe.IsNullRef(in rb)) { var was = rb.LinearVelocity; rb.LinearVelocity = default; rb.AngularVelocity = default; GridEdits.Wrote(e, -was); }
+            // (a step past ordinary motion - flung far by a hit - or one the game made static: the teleport phase, as any long
+            //  grid move; HavokMoves, 2026-10-17)
+            var mp = e.AsInterface<Keen.VRage.Physics.Components.IPhysicsMotionProvider>();
+            bool isStatic = mp != null && mp.Motion == Keen.VRage.Physics.Data.BodyArgs.Motion.Static;
+            if (isStatic || (p - wt.Position).Length() > HavokMoves.OrdinaryStep) { ServerFrames.QueueEntityMove(e, p, Vector3D.Zero); return; }
+            e.Data.SetWorldTransform(new WorldTransform(p, wt.Orientation));
+            ServerFrames.AeroNoteMoved(e);
         }
         catch { }
     }

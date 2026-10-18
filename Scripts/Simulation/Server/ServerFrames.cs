@@ -301,6 +301,7 @@ public static partial class ServerFrames
         StationKeepCharge.Sweep();   // (thrusters of grids no longer holding station ask nothing more)
         GridMembers.SweepTombs();   // (grids gone for good: forgotten once their tombstones expire)
         { long _s0 = Sw(); WarmBerths.Tick(session); Sec("warmberths", _s0); }   // (berths kept warm: no engine stall when a frame takes one)
+        { long _s0 = Sw(); HavokAudit.Tick(session); Sec("havokaudit", _s0); }   // (Havok's cluster bookkeeping checked: once a second, soon after a teleport)
    // no encounters on a planet's border (before they materialize); reads frames
         { long _s0 = Sw(); AsteroidBridge.Tick(session); Sec("asteroidbridge", _s0); }   // no procedural asteroids, ever (encounters and our own system place them)
         // Physics runs on game time (it slows and pauses with the game), so the tidal velocity
@@ -381,7 +382,7 @@ public static partial class ServerFrames
                     foreach (long mid in pf.Members)
                         if (GridMembers.IsGridId(mid) && !wentB.Contains(mid) && GridMembers.Get(mid) is OrbitalGridComponent bg && bg.IsServer)
                         {
-                            if (MoveGrid(bg, GridMembers.Position(bg) + pf.PendingBerthShift, null, out var withB)) { moved++; foreach (var w in withB) wentB.Add(w.Id); }
+                            if (MoveGrid(bg, GridMembers.Position(bg) + pf.PendingBerthShift, null, out var withB, allowStatic: true)) { moved++; foreach (var w in withB) wentB.Add(w.Id); }
                         }
                     FrameHost.RequestShift(pf.Id, pf.PendingBerthShift);
                     Event($"frame #{pf.Id}: saved berth was inside a planet's frame - {moved} grid(s) follow it {pf.PendingBerthShift.Length() / 1000:F1} km to the fresh one{(all ? "" : " (some never loaded)")}");
@@ -441,6 +442,7 @@ public static partial class ServerFrames
         // (and _joinedOf - its HashSet of entities kept a deleted anchor's joined grids alive - and the invariants' grid sets, 2026-10-15)
         lock (FramesLock) { Holding.Remove(gridId); _gridHighSpeed.Remove(gridId); _gridN.Remove(gridId); _trueRel.Remove(gridId); _settle.Remove(gridId); _vSet.Remove(gridId); _joinedOf.Remove(gridId); _everFramed.Remove(gridId); _unframedSince.Remove(gridId); }
         lock (GridPositions) GridPositions.Remove(gridId);
+        lock (_staticRefusedLogged) _staticRefusedLogged.Remove(gridId);
         EncounterFrames.ForgetKind(gridId);
     }
 

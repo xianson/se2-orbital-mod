@@ -177,7 +177,7 @@ public static partial class EncounterFrames
         nf.IsEncounter = true;
         foreach (var g in cluster)
         {
-            ServerFrames.MoveGrid(g, nf.BerthCenter + (GridMembers.Position(g) - c), null, -vAvg);
+            ServerFrames.MoveGrid(g, nf.BerthCenter + (GridMembers.Position(g) - c), null, -vAvg, allowStatic: true);   // (a static of the spawn too: a border spawn moves whole)
             SystemHost.Frames.AddMember(nf, g.Id);
         }
         Event($"SPAWN far: {cluster.Count} encounter grid(s) '{cluster[0].DisplayName}' {delta.Length() / 1000:F1} km from frame #{F.Id} " +

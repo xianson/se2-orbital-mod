@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Server/HavokMoves.cs (game-free): which grid moves may be written straight, which go to the teleport phase, and when a
+       static's landing would leave Havok's cluster bookkeeping stale ("still active bodies in native world", 2026-10-17).
+       Plus a source scan: every SetWorldTransform in the mod is one of the vetted sites. -->
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\Scripts\Simulation\Server\HavokMoves.cs" />
+  </ItemGroup>
+</Project>

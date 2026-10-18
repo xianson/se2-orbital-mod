@@ -28,3 +28,11 @@ client half (`Host/FrameHost`) under `ServerFrames.FramesLock`; nothing calls in
   station billed to thrusters, warp billed to batteries/tanks (once per game frame, for its game seconds; `Bills` /
   `BilledSeconds` for the harness), the telescope and radar blocks.
 - `Invariants.cs` - the rules checked all the time (`[ORBIT-INV]`); the server's check is `ServerFrames.CheckInvariants`.
+- `HavokMoves.cs` (engine-free, Tests/HavokMoveTests) and `HavokAudit.cs` - the 2026-10-17 "still active bodies in
+  native world" crash. `HavokMoves`: which move is a straight write (a dynamic grid's step up to the engine's 100 m world
+  margin), which a teleport for the teleport phase (longer, jointed, or any static), when a static's landing would leave
+  it in a physics world whose box no longer reaches it (then two hops: clear of every world, then its place). Statics are
+  refused by `MoveGrid` / `SetPosition` unless the caller passes `allowStatic: true` (arrival, HighSpeed, re-pin, berth
+  shift, split, spawn, `PlaceGrid`). `HavokAudit`: once a second (and soon after a teleport phase or a grid coming or
+  going) compares each native world's body count with what the engine can account for; `[ORBIT-HAVOK] cluster N ...` on a
+  mismatch, with the last moves. Server thread (`ServerFrames.TickBody`); reflection in docs/REFLECTION_AND_WHITELIST.md.

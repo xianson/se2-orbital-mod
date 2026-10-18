@@ -251,7 +251,7 @@ public static partial class ServerFrames
                     // (MoveGrid: a jointed grid's wheels, rotor parts and docked ships must come too, before the physics step)
                     var went = new HashSet<long>();   // (a member moved with another's joined set is not moved twice)
                     foreach (var g in grids)
-                        if (!went.Contains(g.Id)) { MoveGrid(g, GridMembers.Position(g) + shift, null, out var withP); foreach (var w in withP) went.Add(w.Id); }
+                        if (!went.Contains(g.Id)) { MoveGrid(g, GridMembers.Position(g) + shift, null, out var withP, allowStatic: true); foreach (var w in withP) went.Add(w.Id); }
                     FrameHost.RequestShift(f.Id, shift);
                     anchorPos = f.BerthCenter;
                 }
@@ -422,7 +422,7 @@ public static partial class ServerFrames
                     //  physics tick differ, the catch-up came in under the line while N x speed was over it, and a frame you are
                     //  not in held your warp at x10 - the user, 2026-10-08: "my warp is mine alone")
                     if (unseen && (vPhys.Length() > WarpMemberSpeed || N * _trueRel[g.Id].Length() > 0.5 * WarpMemberSpeed)
-                        && GridMembers.SetPosition(g, f.BerthCenter + relNext))
+                        && PlaceGrid(g, f.BerthCenter + relNext))   // (an ordinary step straight; longer, or a static: the teleport phase)
                     {
                         GridMembers.SetVelocity(g, Vector3D.Zero);
                         if (settle > 0) { if (--settle == 0) { _settle.Remove(g.Id); _trueRel.Remove(g.Id); } else _settle[g.Id] = settle; }
@@ -493,7 +493,7 @@ public static partial class ServerFrames
             var bx = Keen.VRage.Core.Game.Data.BoundingBoxData.TryGetWorldAABB(g.Entity.Data);
             if (bx.HasValue) { var bb = bx.Value; bb.Inflate(30); carryPlayer = bb.Contains(ppos); }
         }
-        if (!MoveGrid(g, nf.BerthCenter, Vector3D.Zero, out var withG)) { SystemHost.Frames.Dissolve(nf.Id); SystemHost.Frames.AddMember(f, g.Id); return; }
+        if (!MoveGrid(g, nf.BerthCenter, Vector3D.Zero, out var withG, allowStatic: true)) { SystemHost.Frames.Dissolve(nf.Id); SystemHost.Frames.AddMember(f, g.Id); return; }
         long s2 = System.Diagnostics.Stopwatch.GetTimestamp();
         // Joined to others (docked, wheels on a sub-grid): they go with it, into its new frame.
         // (MembershipRules.SplitTakes: the old frame's grids of the ship, and its grids in no frame - left out, on no rails)

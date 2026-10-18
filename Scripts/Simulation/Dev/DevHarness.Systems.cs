@@ -146,6 +146,10 @@ public static partial class DevHarness
                 if (a.Length > 1) WarmBerths.Enabled = On(a[1]);
                 return WarmBerths.Status;
 
+            case "havok":   // havok [on|off]: the Havok cluster audit ([ORBIT-HAVOK]) and the static-move guard's counts
+                if (a.Length > 1) HavokAudit.Enabled = On(a[1]);
+                return $"{HavokAudit.Status}; static moves refused {ServerFrames.StaticMovesRefused}, parked {ServerFrames.StaticParks}, park failed {ServerFrames.StaticParkFailed}";
+
             case "encon":   // encon on|off: the encounter system (sites, its adoption of new grids)
                 EncounterFrames.Enabled = On(a[1]);
                 return "encounters " + (EncounterFrames.Enabled ? "on" : "off");

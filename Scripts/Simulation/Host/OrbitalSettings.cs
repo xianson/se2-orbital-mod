@@ -73,8 +73,7 @@ public static partial class OrbitalSettings
 
     // The groups (a menu's sections; the world's first).
     const string GWorld = "Orbits and world", GWarp = "Time warp",
-                 GPlanets = "Planets", GHud = "Flight HUD", GMap = "Map", GPilot = "Autopilot",
-                 GLaunch = "Quick launch", GControls = "Controls";   // (a group is one scope: the menu keys sections by name)
+                 GPlanets = "Planets", GHud = "Flight HUD", GMap = "Map", GPilot = "Autopilot";
 
     static OrbitalSettings()
     {
@@ -129,16 +128,8 @@ public static partial class OrbitalSettings
             "Warp is held so that no ship moving in your frame is carried faster than 0.75 x this (m/s; the physics' speed cap).")
             .Ui("Warp limit speed", GWarp, Tier.Hidden, "m/s", 50);
 
-        // (2026-10-18: quick launch - the dev fly test as a player's key, creative only; the server reads these)
-        B("QuickLaunch.Creative", "world", false, () => QuickLaunch.Creative, v => QuickLaunch.Creative = v,
-            "In creative, a seated pilot's quick launch key (Controls) lifts the ship over the ground, turns it level and sends it flying along its nose. Survival never has it. Off: not in this world either.")
-            .Ui("Quick launch in creative", GLaunch, Tier.Basic);
-        F("QuickLaunch.AltitudeM", "world", 100, 5000, false, () => QuickLaunch.AltitudeM, v => QuickLaunch.AltitudeM = v,
-            "Quick launch: how high over the ground (m; without the Aerodynamics Mod's ground ray, over where the ship is). Never lower than the ship is, never into the ground, always under the planet's space border.")
-            .Ui("Launch altitude", GLaunch, Tier.Basic, "m", 100);
-        F("QuickLaunch.SpeedMps", "world", 0, 1000, false, () => QuickLaunch.SpeedMps, v => QuickLaunch.SpeedMps = v,
-            "Quick launch: the speed along the nose (m/s). 0: the ship's cruise speed (the Aerodynamics Mod's top speed at 3/4 throttle; 150 m/s without it). At most the world's speed cap.")
-            .Ui("Launch speed (0: cruise)", GLaunch, Tier.Advanced, "m/s", 10);
+        // (2026-10-18: the QuickLaunch.* settings went with creative quick launch to the aero mod - its own registry;
+        //  old lines in this mod's files are skipped on load)
 
         // ── CLIENT ──
         I("Proxy.Mode", "client", 0, 3, false, () => (int)OrbitalConfig.Mode, v => OrbitalConfig.Mode = (ProxyMode)(int)v,
@@ -250,22 +241,6 @@ public static partial class OrbitalSettings
         F("Autopilot.BurnAlignLead", "client", 5, 120, false, () => AutoBurn.AlignLead, v => AutoBurn.AlignLead = v,
             "An auto-burn starts turning to its burn this long (s) before it.")
             .Ui("Align before auto-burn", GPilot, Tier.Advanced, "s", 1);
-
-        I("QuickLaunch.Key", "client", 0, 26, false, () => QuickLaunch.Key, v => QuickLaunch.Key = (int)v,
-            "The quick launch key (seated, in creative worlds that allow it): a letter, with the modifier below. Off: no key.")
-            .Ui("Quick launch key", GControls, Tier.Basic, choices: LetterChoices());
-        I("QuickLaunch.Modifier", "client", 0, 3, false, () => QuickLaunch.Modifier, v => QuickLaunch.Modifier = (int)v,
-            "Held with the quick launch key. None: the key alone, with no Ctrl, Shift or Alt held.")
-            .Ui("Quick launch modifier", GControls, Tier.Basic, choices: new[] { "None", "Ctrl", "Shift", "Alt" });
-    }
-
-    /// <summary>QuickLaunch.Key's labels: "Off", then the letters A..Z (QuickLaunch.Keys' order).</summary>
-    static string[] LetterChoices()
-    {
-        var c = new string[27];
-        c[0] = "Off";
-        for (int k = 1; k < c.Length; k++) c[k] = ((char)('A' + k - 1)).ToString();
-        return c;
     }
 
     /// <summary>Warp.MaxLevel's labels: the warp levels ("×1" .. "×10,000").</summary>

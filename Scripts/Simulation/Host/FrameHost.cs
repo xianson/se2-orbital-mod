@@ -312,7 +312,7 @@ public static partial class FrameHost
         Guard("DevReentry.ClientTick", static a => DevReentry.ClientTick(a.Session, a.Camera), ta);
         Guard("AttitudeHold.ClientTick", static a => AttitudeHold.ClientTick(a.Session), ta);
         Guard("FlyTest.ClientTick", static a => FlyTest.ClientTick(a.Session), ta);   // (DEV: harness key flytest - 1 km, level, cruise)
-        Guard("QuickLaunch.ClientTick", static a => QuickLaunch.ClientTick(a.Session), ta);   // (Ctrl+T seated, creative: the same, server-checked)
+        Guard("QuickLaunch.ClientTick", static a => QuickLaunch.ClientTick(a.Session), ta);   // (DEV: harness key quicklaunch -> the aero mod's quick launch)
         WarpControl.Session = session;
         Guard("WarpControl.Tick", static a => WarpControl.Tick(), ta);
         Guard("MapView.Tick", static a => MapView.Tick(a.Session, a.Camera, a.T), ta);

@@ -149,7 +149,7 @@ tools/flightdump.sh.)
 | `contactdel` | ContactsTab.cs | contactsave.sh, contactshot.sh |
 | `contactrename` | ContactsTab.cs | experiments/showshot.sh |
 | `flytest` | FlyTest.cs | loacdiag.sh, structtest.sh, experiments/structprof.sh |
-| `quicklaunch` | QuickLaunch.cs (the player's quick launch, server-checked: creative only; the key's seat / typing checks skipped) | (none yet) |
+| `quicklaunch` | QuickLaunch.cs -> the aero mod's `AeroApi.RequestQuickLaunch` (its creative quick launch, server-checked; the key's checks skipped; answer: `aeroget QuickLaunch.Status`) | (none yet) |
 
 ## Statics read and set by name (aeroget / aeroset)
 

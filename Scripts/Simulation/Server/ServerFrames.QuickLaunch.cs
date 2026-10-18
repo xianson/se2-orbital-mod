@@ -5,59 +5,65 @@ using SEAerospace.SystemDef;
 #pragma warning disable CS0649, CS8632, CS1591, CS1573, CS1570, CS1574, CS0419, CS1734
 namespace OrbitalMod;
 
-// ServerFrames (partial): QUICK LAUNCH (a player's, creative only: QuickLaunch, QuickLaunchRules) and the level-flight move it
-// shares with the dev fly test (FlyTest) - the aero mod's ground ray and cruise speed, the turn to level, the move.
+// ServerFrames (partial): QUICK MOVE - the aero mod's creative quick launch moved by this mod (OrbitalApi.TryQuickMove,
+// 2026-10-18: the player feature went to the aero mod, the user: "ctrl+T should be in aero creative"; this mod's 1.0.1 key,
+// settings and toasts with it) - and the dev fly test's level-flight move (FlyTest): the aero mod's ground ray and cruise
+// speed, the turn to level, the move.
 public static partial class ServerFrames
 {
-    /// <summary>Client -> server: a seated pilot's quick launch (QuickLaunch's key). nose, top: the cockpit's forward and up
-    /// in the grid's axes. Drained under FramesLock; the server checks everything itself (DoQuickLaunch).</summary>
-    public static readonly System.Collections.Concurrent.ConcurrentQueue<(long id, Vector3 nose, Vector3 top)> QuickLaunchRequests = new System.Collections.Concurrent.ConcurrentQueue<(long, Vector3, Vector3)>();
-
-    static void DoQuickLaunch(long id, Vector3 noseL, Vector3 topL)
+    /// <summary>
+    /// OrbitalApi.TryQuickMove: a server grid (its joined set with it) to position, turned to orientation (its new world
+    /// orientation; the set turns rigidly about it), every body at velocity - through MoveGrid (the teleport phase with the
+    /// joined set; statics and sets joined to one refused - HavokMoves), kept in its planet's own physics: refused on rails or
+    /// outside a planet's cell, clamped under the space border (QuickMoveRules.UnderBorder: down by at most maxDrop, else
+    /// refused). Takes FramesLock (the frames' state, as the old quick launch drained under it); aero is told of the move
+    /// after it (FlushAeroNoteMoved - never a call into aero under our lock). Any thread; the aero mod calls it from its
+    /// server teleport-phase job, holding no lock of its own.
+    /// </summary>
+    internal static bool QuickMove(Entity grid, Vector3D position, Quaternion orientation, Vector3D velocity, double maxDrop, out Vector3D placed, out string reason)
     {
-        var g = GridMembers.Get(id);
-        var reg = SystemHost.Registry;
-        bool alive = g?.Entity != null && g.IsServer && reg != null;
-        // the pilot's mode, the server's own: its character (the world's creative mode, or this player's creative tools)
-        bool creative = false;
-        if (alive)
-            try
+        placed = position; reason = null;
+        OrbitalGridComponent g = null;
+        if (grid != null) foreach (var c in grid.Components) if (c is OrbitalGridComponent og && og.IsServer) { g = og; break; }
+        if (g == null || !EntityAlive(g.Entity)) { reason = "not a ship this mod knows on the server"; return false; }
+        if (!GridMembers.Finite(position) || !GridMembers.Finite(velocity)) { reason = "no finite place"; return false; }
+        bool ok;
+        List<OrbitalGridComponent> with = null;
+        lock (FramesLock)
+        {
+            var reg = SystemHost.Registry;
+            ok = reg != null && GridMembers.TryPosition(g, out Vector3D pos) && QuickMovePlace(g, reg, pos, position, maxDrop, out placed, out reason);
+            if (ok && !GridMembers.IsDynamicNow(g)) { ok = false; reason = "a station cannot be launched"; }
+            if (ok)
             {
-                var ch = PlayerCache.Of(g.Session);
-                creative = ch != null && (g.Session.SessionComponents.TryGet<Keen.Game2.Simulation.GameSystems.Player.GameModeSessionComponent>()?.IsCreative(ch) ?? false);
+                var turn = Quaternion.Normalize(orientation * Quaternion.Inverse(g.Entity.Data.GetWorldTransform().Orientation));
+                ok = MoveGrid(g, placed, velocity, out with, default, turn);
+                if (!ok) reason = "refused (joined to a station?)";
             }
-            catch { creative = false; }
-        Vector3D pos = default, cell = default; string body = null;
-        if (alive && !GridMembers.TryPosition(g, out pos)) alive = false;
-        bool atPlanet = alive && VoxelBerthRegistry.TryCellContaining(pos, reg, out body, out cell);
-        bool onRails = alive && SystemHost.Frames?.FindByMember(id) != null;
-        var v = QuickLaunchRules.Check(QuickLaunch.Creative, creative, System.Threading.Interlocked.Read(ref PlayerSeatGrid), id,
-                                       alive, alive && !GridMembers.IsDynamicNow(g), onRails, atPlanet);
-        if (v != QuickLaunchRules.Verdict.Go) { QuickLaunchSay(v, id, g); return; }
-        var def = reg.FindDefinition(body);
-        if (def == null) { QuickLaunchSay(QuickLaunchRules.Verdict.NotAtPlanet, id, g); return; }
-        // where: over the ground (the aero ray; else over where it is), never lower, under the planet's space
-        double rNow = (pos - cell).Length();
-        double rGround = AeroGroundRadius(g, rNow);
-        double shipR = 0;
-        try { var bb = Keen.VRage.Core.Game.Data.BoundingBoxData.TryGetWorldAABB(g.Entity.Data); if (bb.HasValue) shipR = bb.Value.Size.Length() * 0.5; } catch { }
-        v = QuickLaunchRules.Radius(rNow, rGround, PlanetBerths.ShellRadius(def), QuickLaunch.AltitudeM, shipR, out double r);
-        if (v != QuickLaunchRules.Verdict.Go) { QuickLaunchSay(v, id, g); return; }
-        double speed = QuickLaunchRules.Speed(QuickLaunch.SpeedMps, AeroCruiseSpeed(g, noseL, QuickLaunch.CruiseThrottle), QuickLaunch.FallbackSpeed, EntryHost.Cap);
-        bool ok = FlyLevel(g, pos, cell, noseL, topL, r, speed, out var with);
-        // (no ground ray: lifted from where it was - say that, not a height over a ground nobody measured)
-        string where = double.IsNaN(rGround) ? $"{r - rNow:F0} m up" : $"{r - rGround:F0} m over the ground";
-        Event($"quicklaunch: grid {id} '{g.DisplayName}' {where}, level, {speed:F0} m/s ({(ok ? $"{with.Count} grid(s) with it" : "refused")})");
-        QuickLaunch.PendingSay = ok ? $"{where}, {speed:F0} m/s" : "Quick launch: refused (joined to a station?)";
+            else if (reason == null) reason = "the ship is gone";
+        }
+        FlushAeroNoteMoved();
+        Event($"quickmove (aero's quick launch): grid {g.Id} '{g.DisplayName}' {(ok ? $"to {ServerPlanetBeacon.Fmt(placed)}, {velocity.Length():F0} m/s, {with?.Count ?? 0} grid(s) with it" : "not moved: " + reason)}");
+        if (ok) reason = $"{(with?.Count ?? 0) + 1} grid(s) moved";
+        return ok;
     }
 
-    static void QuickLaunchSay(QuickLaunchRules.Verdict v, long id, OrbitalGridComponent g)
+    /// <summary>Where a quick move lands: not on rails, in a planet's cell, the asked place under the border (caller holds
+    /// FramesLock).</summary>
+    static bool QuickMovePlace(OrbitalGridComponent g, SEAerospace.SystemDef.SystemRegistry reg, Vector3D pos, Vector3D asked, double maxDrop, out Vector3D placed, out string reason)
     {
-        Event($"quicklaunch: grid {id} '{g?.DisplayName}' not launched: {v}");
-        QuickLaunch.PendingSay = QuickLaunchRules.Say(v);
+        placed = asked; reason = null;
+        if (SystemHost.Frames?.FindByMember(g.Id) != null) { reason = "not on rails (only near a planet's surface)"; return false; }
+        if (!VoxelBerthRegistry.TryCellContaining(pos, reg, out string body, out Vector3D cell)) { reason = QuickMoveRules.Reason(QuickMoveRules.Verdict.NotAtPlanet); return false; }
+        var def = reg.FindDefinition(body);
+        if (def == null) { reason = QuickMoveRules.Reason(QuickMoveRules.Verdict.NotAtPlanet); return false; }
+        var v = QuickMoveRules.UnderBorder((pos - cell).Length(), (asked - cell).Length(), PlanetBerths.ShellRadius(def), maxDrop, out double r);
+        if (v != QuickMoveRules.Verdict.Go) { reason = QuickMoveRules.Reason(v); return false; }
+        placed = cell + Vector3D.Normalize(asked - cell) * r;
+        return true;
     }
 
-    // ── the level-flight move (quick launch and the dev fly test) ──
+    // ── the dev fly test's level-flight move (FlyTest, the harness key flytest) ──
     static System.Reflection.MethodInfo _ftGround, _ftTop; static int _ftGen = -1;
     /// <summary>The aero mod's ground ray and cruise speed (AeroApi; bound again when the aero assembly changes - AeroLink).</summary>
     static void BindAeroFlight()

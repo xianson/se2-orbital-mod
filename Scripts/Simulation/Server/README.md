@@ -14,8 +14,8 @@ client half (`Host/FrameHost`) under `ServerFrames.FramesLock`; nothing calls in
   slow part off the lock), `.Stow` (grids onto the rails), `.Arrival` (grid frames into a planet cell, grid HighSpeed),
   `.Moves` (every long grid move, deferred to the teleport phase; `AeroApi.NoteMoved`), `.Forces` (spin's fictitious
   forces, station keeping), `.Views` (what the client may read: `GridView`, sensor views, positions, the harness
-  snapshot), `.Invariants`, `.DevCommands` (harness requests), `.QuickLaunch` (a seated pilot's quick launch, creative only, judged here
-  by `Flight/QuickLaunchRules`; the level-flight move it shares with the dev fly test).
+  snapshot), `.Invariants`, `.DevCommands` (harness requests), `.QuickLaunch` (`QuickMove`: the aero mod's creative quick launch moved
+  by this mod - `OrbitalApi.TryQuickMove`, the border clamp `QuickMoveRules`; the dev fly test's level-flight move).
 - Per-frame and per-grid state: a frame leaving the registry (every `Dissolve`, a merge's incomer) runs
   `ServerFrames.FrameRetiring` (wired as `FrameRegistry.Retiring` in `SystemHost.Build`) - anchor acceleration, entry
   state, a dissolved frame's members' entry wear; a grid gone for good runs `ServerFrames.Forget`. Per-WORLD state goes
@@ -37,3 +37,6 @@ client half (`Host/FrameHost`) under `ServerFrames.FramesLock`; nothing calls in
   shift, split, spawn, `PlaceGrid`). `HavokAudit`: once a second (and soon after a teleport phase or a grid coming or
   going) compares each native world's body count with what the engine can account for; `[ORBIT-HAVOK] cluster N ...` on a
   mismatch, with the last moves. Server thread (`ServerFrames.TickBody`); reflection in docs/REFLECTION_AND_WHITELIST.md.
+- `QuickMoveRules.cs` (engine-free, Tests/QuickMoveTests) - the space border clamp of `OrbitalApi.TryQuickMove` (the aero
+  mod's creative quick launch, 2026-10-18): never past the border less 500 m, clamped down by at most the caller's
+  clearance room, never lowered between the cap and the border.

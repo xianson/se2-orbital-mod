@@ -6,7 +6,21 @@ written but has not been run).
 
 ## 1.0.1 (2026-10-18)
 
-- **Quick launch** (`Flight/QuickLaunch.cs`, `Flight/QuickLaunchRules.cs`, `Server/ServerFrames.QuickLaunch.cs`): the dev
+- **Quick launch moved to the Aerodynamics Mod** (the user: "ctrl+T should be in aero creative"; its branch
+  feat/a-quicklaunch, aero 1.0.1). Gone from here: the key and its client settings `QuickLaunch.Key` / `.Modifier`, the
+  world settings `QuickLaunch.Creative` / `.AltitudeM` / `.SpeedMps` (and their groups "Quick launch", "Controls"), the
+  toasts, `ServerFrames.QuickLaunchRequests` / `DoQuickLaunch`, `QuickLaunchRules` (decisions, placement, speed: aero's
+  `Launch/QuickLaunchRules.cs` now), WorldReset's step, `Tests/QuickLaunchTests` (ported to aero). Old settings lines are
+  skipped on load. Kept and new:
+  - **`OrbitalApi.TryQuickMove`** (added within version 3, `Api/OrbitalApi.Grids.cs` -> `ServerFrames.QuickMove`): the
+    aero mod's quick launch moved by this mod - `MoveGrid` under the frame lock (the teleport phase with the joined set,
+    statics refused), refused on rails / outside a planet's cell, clamped under the space border by at most the caller's
+    clearance room (`Server/QuickMoveRules.cs`, moved from `Flight/QuickLaunchRules.cs`; `Tests/QuickMoveTests`, moved
+    from `Tests/QuickLaunchTests`), aero told after the lock. Aero binds it in its `OrbitalLink`; `tools/check_contract.sh`
+    checks it (and `AeroApi.RequestQuickLaunch`). `Tests/ApiTests` allows `Quaternion` in the API.
+  - The harness key `quicklaunch` (dev flag): `Flight/QuickLaunch.cs` asks aero's `AeroApi.RequestQuickLaunch`. The fly
+    test (`flytest`) is unchanged.
+- **Quick launch** *(superseded the same day: moved to the aero mod, the entry above)* (`Flight/QuickLaunch.cs`, `Flight/QuickLaunchRules.cs`, `Server/ServerFrames.QuickLaunch.cs`): the dev
   fly test as a player key, creative only. The client's key (client settings `QuickLaunch.Key` / `QuickLaunch.Modifier`,
   Ctrl+T) queues `ServerFrames.QuickLaunchRequests`; the server judges from its own state (`QuickLaunch.Creative`,
   `GameModeSessionComponent.IsCreative` of its character, `PlayerSeatGrid`, static asked live, rails, a planet cell) and

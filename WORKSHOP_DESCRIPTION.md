@@ -30,13 +30,12 @@ Real orbits for Space Engineers 2. Your world's planets become a small solar sys
 [tr][td]N[/td][td]target what is under the crosshair, or the cursor on the map[/td][/tr]
 [tr][td];[/td][td]attitude hold on / off (seated)[/td][/tr]
 [tr][td]Ctrl + ;[/td][td]hold mode: prograde, retrograde, normal, anti-normal, radial, level[/td][/tr]
-[tr][td]Ctrl + T[/td][td][b]quick launch[/b] (seated, creative only): your ship lifted to 1 km over the ground, level, flying at cruise speed[/td][/tr]
 [/table]
 On the map, right-click your path to add a maneuver; drag its handles to add delta-v.
-Quick launch works in creative worlds only (survival: nothing happens). It never goes lower than the ship is, never into the ground, and stays under the planet's space; stations and ships on rails are not moved. Change its key under Settings > Mods > Orbital > Controls; the host sets its altitude and speed or turns it off.
+Creative quick launch (Ctrl + T seated) is in the [b]Aerodynamics Mod[/b]; with both mods, this one moves the ship for it and keeps it under the planet's space.
 
 [h2]Settings[/h2]
-In a world: [b]pause menu > Settings > Mods[/b], section [b]Orbital[/b]. World settings (planet day, re-entry, asteroid belts, encounters, ring rocks, time warp limit and cost, [i]Remove stray generated asteroids[/i], quick launch) are saved with the world and changed by the host. Your own settings (distant planet globes, rings, HUD, map, the quick launch key) are per PC. Both are also in [i]%APPDATA%\SpaceEngineers2\ModSettings\OrbitalMod.*.cfg[/i].
+In a world: [b]pause menu > Settings > Mods[/b], section [b]Orbital[/b]. World settings (planet day, re-entry, asteroid belts, encounters, ring rocks, time warp limit and cost, [i]Remove stray generated asteroids[/i]) are saved with the world and changed by the host. Your own settings (distant planet globes, rings, HUD, map) are per PC. Both are also in [i]%APPDATA%\SpaceEngineers2\ModSettings\OrbitalMod.*.cfg[/i].
 
 [i]Remove stray generated asteroids[/i] (on by default) deletes the game's own procedural asteroids that slipped past the mod - never one a player edited, one a grid or player is near, or anything it cannot prove the game generated. Each deletion is written to the game log. Turn it off to keep every asteroid.
 

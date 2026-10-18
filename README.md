@@ -27,8 +27,8 @@ same time, and come home through a re-entry that brakes and heats your ship.
 - **Flight HUD:** orbit card, orbit line, markers across planets, warp bar.
   [Flight HUD](https://github.com/xianson/se2-orbital-mod/wiki/Flight-HUD)
 - **Speed cap** raised to 1,000 m/s inside a planet's space; none on rails.
-- **Quick launch (creative):** seated in a cockpit, Ctrl+T lifts the ship to a safe altitude and sends it flying
-  along its nose; the key, height and speed are settings, and the host can turn it off.
+- **Quick launch (creative)** is the Aerodynamics Mod's (Ctrl+T seated); with both mods, this one moves the ship for it
+  and keeps it under the planet's space.
 - **In-game settings:** pause menu > Settings > Mods > Orbital.
   [Settings](https://github.com/xianson/se2-orbital-mod/wiki/Settings)
 - **Works with the [Aerodynamics Mod](https://github.com/xianson/se2-aerodynamics-mod)** (optional): re-entry plasma,

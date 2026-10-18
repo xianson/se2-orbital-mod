@@ -58,7 +58,6 @@ public static class WorldReset
         Step("tombstones", GridMembers.ResetWorld);   // (a grid of the next world took a dead one's id by its name and place)
         Step("player cache", PlayerCache.ResetWorld);   // (kept by session: every world's sessions and characters in memory)
         Step("havok audit", HavokAudit.ResetWorld);   // (the last world's physics manager, held by reflection, and its logged mismatches)
-        Step("quick launch", QuickLaunch.ResetWorld);   // (an ask or an answer of the last world: not said, nor run, in the next)
         // (at the unload only: the planets' [Init] reads the next world's state BEFORE they join its scene)
         if (unloading) Step("pending save", SavedState.ResetWorld);   // (the last world's clock, frames and contacts applied to the next)
     }

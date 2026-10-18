@@ -163,7 +163,7 @@ Driven by `ServerPlanetBeacon` (injected into every server planet; it also carri
    `WarmBerths.Tick`, `AsteroidBridge.Tick`; dt from the game clock (`IGameTime`: paused = no step); `SystemHost.SpinNow`.
 2. `EntryHost.ServerBeforeLock`.
 3. Under `ServerFrames.FramesLock`:
-   - drain the client's request queues (`Attach`, `GridOrbit`, `GridDamp`, `GridLaunch`, `FlyTest`, `QuickLaunchRequests`, `GridLevel`,
+   - drain the client's request queues (`Attach`, `GridOrbit`, `GridDamp`, `GridLaunch`, `FlyTest`, `GridLevel`,
      `GridDelete`, `GridMove`; `PendingBerthShift`);
    - `EncounterFrames.Prune` (every 60 ticks) and `EncounterFrames.ServerTick` (sites, rides, new spawns);
    - `EntryHost.ServerTick` (braking, heat; before arrivals);
@@ -296,7 +296,7 @@ structure failures (aero's event queue, section 12) as one toast. See each folde
   locked step; the map draws under it (`MapView`: `lock (FramesLock) GameMap.Draw`). Lock order: `FramesLock` may be
   held while taking `GridMembers`' lock, never the reverse; `PlanetRings.Known` must never wait for
   `PlanetRenderBridge.Lock` (the deadlock of 2026-10-02).
-- Client -> server: `ConcurrentQueue`s drained under the lock (`ServerFrames.Attach`, `GridOrbit`, `QuickLaunchRequests`, ...),
+- Client -> server: `ConcurrentQueue`s drained under the lock (`ServerFrames.Attach`, `GridOrbit`, `FlyTest`, ...),
   `ServerPlanetBeacon.PendingPlayer` (Interlocked exchange). Server -> client: `FrameHost.RequestArrival` /
   `RequestMerge` / `RequestShift` under the lock, `ServerFrames.AnchorAccel`, `GridPositions` (own lock),
   `PlayerSeatGrid` (Interlocked), the `GridView` / `SensorView` snapshots (volatile, immutable), `MergeAhead`,
@@ -382,6 +382,9 @@ dev sites). Aero names `OrbitalApi` only in its `Api/OrbitalLink.cs`, on the sam
     true air velocity; Orbital gives it (travel direction, density, temperature, braking acceleration);
   - `OrbitalApi.TryGetGridEdits` - the running sum of velocity Orbital wrote into a grid and a move stamp
     (`GridEdits`, own lock), so Aero's structure model does not read a teleport or a drain as an impact.
+  - `OrbitalApi.TryQuickMove` (2026-10-18) - Aero's creative quick launch asks this mod to move the ship (`ServerFrames.QuickMove`:
+    `MoveGrid` under `FramesLock`, refused on rails / outside a cell, clamped under the space border by `QuickMoveRules`),
+    so Aero never teleports a grid behind the frames; without this mod Aero moves it itself.
   - `OrbitalApi.GetSpeedCap` / `GetPhysicsSpeedCap` exist for other mods; Aero does not read them today.
 - **Orbital calls Aero** (`AeroMod.AeroApi`): `EntryHost.HookAero` registers Orbital as an entry source
   (`RegisterEntrySource("OrbitalMod", ...)`, contract `EntryHost.AeroEntryContract` = 2): Aero asks it per grid for the
@@ -389,7 +392,8 @@ dev sites). Aero names `OrbitalApi` only in its `Api/OrbitalLink.cs`, on the sam
   `NoteMoved` after every move (`ServerFrames.CallNoteMoved`, deferred out of `FramesLock` by `FlushAeroNoteMoved`);
   `GetStructureEventSequence` / `ReadStructureEvents` (AeroApi 7: `StructureAlerts`, typed delegates, every 0.5 s while
   seated only - asking opens aero's recording - a throw drops the binding for 60 s); the build hints' design-probe and
-  flight members (`BuildHints`). The old `AeroEntryFx.External` field is retired.
+  flight members (`BuildHints`). The old `AeroEntryFx.External` field is retired. Dev: `RequestQuickLaunch` (AeroApi 9,
+  the harness key `quicklaunch` - `Flight/QuickLaunch.cs`).
 - Dev only: `aeroget` / `aeroset` and other harness commands read and write Aero statics by name
   (`PlanetRenderBridge.ForeignValue`, `SetForeignFlag`).
 

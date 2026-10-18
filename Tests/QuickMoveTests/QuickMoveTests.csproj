@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Server/QuickMoveRules.cs (game-free): OrbitalApi.TryQuickMove's space border clamp - the aero mod's creative quick launch
+       (2026-10-18; this mod's 1.0.1 key moved there) ends under the planet's border, clamped down by at most the clearance
+       room aero gives, never lowered; and a source scan: the player feature is gone from this mod, the move goes through
+       MoveGrid (Program.cs). -->
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\Scripts\Simulation\Server\QuickMoveRules.cs" />
+  </ItemGroup>
+</Project>

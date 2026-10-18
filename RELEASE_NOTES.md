@@ -4,11 +4,9 @@ For players. The developer-facing history (commits, API changes, internals) is i
 
 ## 1.0.1
 
-- **Quick launch (creative only).** Seated in a cockpit, `Ctrl` + `T` lifts your ship (and everything joined to it) to
-  1,000 m over the ground, turns it level and sends it flying along its nose at its cruise speed - never lower than it
-  is, never into the ground, always under the planet's space. Survival worlds: nothing happens ("creative only").
-  Change the key under Settings > Mods > Orbital > **Controls** (a letter with Ctrl, Shift, Alt or nothing, or off); the
-  host sets **Launch altitude** and **Launch speed**, or turns **Quick launch in creative** off for the world.
+- **Quick launch (creative only)** - `Ctrl` + `T` seated lifts your ship over the ground, level, at cruise speed - is in
+  the **Aerodynamics Mod** (its 1.0.1), with its settings (Settings > Mods > Aerodynamics: Quick launch, Controls). With
+  both mods loaded, this mod moves the ship for it, keeps it under the planet's space and never moves a ship on rails.
 - The Radar draws 20 power units idle (it shipped so in the Workshop upload; the 1.0.0 files said 200).
 
 ## 1.0.0 - first public release

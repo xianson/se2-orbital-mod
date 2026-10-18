@@ -25,7 +25,7 @@ Real orbits and rendezvous. Some gamifying involved; but it should scratch the K
 [/list]
 
 [h2]Not RSS[/h2]
-This mod functions differently from the popular orbit mod combo, realistic orbit / RSS. It is an orbital mechanics-first mod, so you will always be experiencing gravity anywhere you go with the exception of larange deadzones (gamified lagrange points). You should expect the experience to be closer to KSP, minus the planet speed-limit.
+This mod functions differently from the popular orbit mod combo, realistic orbit / RSS. It is an orbital mechanics-first mod, so you will always be experiencing gravity anywhere you go with the exception of Lagrange deadzones (gamified Lagrange points). You should expect the experience to be closer to KSP, minus the planet speed-limit.
 
 [h2]Keys[/h2]
 [table]

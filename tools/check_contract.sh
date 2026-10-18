@@ -93,7 +93,7 @@ want aero TryGetStall "Entity, out int, out float, out float, out float" BuildHi
 want aero TryGetLoac "Entity, out int, out float" BuildHints
 want aero TryDesign "Entity, Vector3, float, out Vector3, out Vector3, out Vector3, out float, out float, out float" BuildHints
 want aero GetTopSpeed "Entity, Vector3" BuildHints
-want aero GetTopSpeedAt "Entity, Vector3, float" "BuildHints / FlyTest"
+want aero GetTopSpeedAt "Entity, Vector3, float" "BuildHints / FlyTest / QuickLaunch"
 want aero GetThrustAlong "Entity, Vector3, float, out Vector3" BuildHints
 want aero TryGetCenterOfMass "Entity, out Vector3" BuildHints
 want aero GetMass "Entity" BuildHints
@@ -101,7 +101,7 @@ want aero GetDesignPressures "Entity, Vector3, float, List<Vector3>, List<Vector
 want aero GetControlRatio "Entity, Vector3, float" BuildHints
 # ... dev (the harness, the reentry test, generated grids, the fly test)
 want aero TryGetLift "Entity, out Vector3, out float" GridGen
-want aero TryGetGroundHeight "Entity, out float" "GridGen / FlyTest"
+want aero TryGetGroundHeight "Entity, out float" "GridGen / FlyTest / QuickLaunch"
 want aero TryGetEntry "Entity, out float, out bool" DevReentry
 want aero TryGetAtmosphere "Entity, out float, out float, out float, out float" DevReentry
 want aero GetFxConsistency "bool" "DevHarness fxcheck"

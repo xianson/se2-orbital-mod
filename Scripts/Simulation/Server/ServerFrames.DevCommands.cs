@@ -58,7 +58,6 @@ public static partial class ServerFrames
     /// <summary>DEV (FlyTest, Ctrl+T seated): a grid AltitudeM over the ground under it, level on its cockpit's heading, flying
     /// along its nose at cruise speed. nose, top: the cockpit's forward and up in the grid's axes.</summary>
     public static readonly System.Collections.Concurrent.ConcurrentQueue<(long id, Vector3 nose, Vector3 top)> FlyTest = new System.Collections.Concurrent.ConcurrentQueue<(long, Vector3, Vector3)>();
-    static System.Reflection.MethodInfo _ftGround, _ftTop; static int _ftGen = -1;
     static void DoFlyTest(long id, Vector3 noseL, Vector3 topL)
     {
         var g = GridMembers.Get(id);
@@ -68,40 +67,13 @@ public static partial class ServerFrames
         if (!VoxelBerthRegistry.TryCellContaining(pos, reg, out string body, out Vector3D cell)) { OrbitalMod.FlyTest.Status = Event2("flytest: not at a planet"); return; }
         var def = reg.FindDefinition(body);
         if (def == null) return;
-        // the aero mod's ground ray and cruise speed (AeroApi; bound again when the aero assembly changes - AeroLink)
-        int ftGen = AeroLink.Generation;
-        if (ftGen != _ftGen)
-        {
-            _ftGen = ftGen; _ftGround = _ftTop = null;
-            var t = AeroLink.Find("AeroMod.AeroApi");
-            if (t != null)
-            {
-                // (explicit parameter types throughout: an aero overload added later must not make a lookup ambiguous - API.md)
-                _ftGround = t.GetMethod("TryGetGroundHeight", new[] { typeof(Entity), typeof(float).MakeByRefType() });
-                _ftTop = t.GetMethod("GetTopSpeedAt", new[] { typeof(Entity), typeof(Vector3), typeof(float) });
-            }
-        }
-        double rNow = (pos - cell).Length(), rGround = def.RadiusMeters; string over = "sea level";
-        if (_ftGround != null)
-        {
-            var ga = new object[] { g.Entity, null };
-            try { if ((bool)_ftGround.Invoke(null, ga) && (float)ga[1] >= 0f) { rGround = rNow - (float)ga[1]; over = "the ground"; } } catch { }
-        }
-        float speed = float.NaN;
-        try { if (_ftTop != null) speed = (float)_ftTop.Invoke(null, new object[] { g.Entity, noseL, OrbitalMod.FlyTest.CruiseThrottle }); } catch { }
+        // the aero mod's ground ray and cruise speed, the level turn and the move: shared with quick launch (FlyLevel)
+        double rNow = (pos - cell).Length(), rGround = AeroGroundRadius(g, rNow); string over = "the ground";
+        if (double.IsNaN(rGround)) { rGround = def.RadiusMeters; over = "sea level"; }
+        float speed = AeroCruiseSpeed(g, noseL, OrbitalMod.FlyTest.CruiseThrottle);
         if (!(speed > 1f) || float.IsInfinity(speed)) speed = OrbitalMod.FlyTest.FallbackSpeed;
-        // level: the cockpit's nose horizontal on its heading, its top away from the planet
-        Vector3D up = Vector3D.Normalize(pos - cell);
-        var q = g.Entity.Data.GetWorldTransform().Orientation;
-        Vector3D noseW = Vector3D.Transform((Vector3D)noseL, q), topW = Vector3D.Transform((Vector3D)topL, q);
-        Vector3D h = noseW - up * Vector3D.Dot(noseW, up);
-        if (h.LengthSquared() < 1e-6) h = Vector3D.Cross(up, Vector3D.Cross(topW, up));   // (nose straight up or down: its top's heading)
-        h = Vector3D.Normalize(h);
-        var have = Quaternion.CreateFromForwardUp((Vector3)noseW, (Vector3)topW);
-        var want = Quaternion.CreateFromForwardUp((Vector3)h, (Vector3)up);
-        var turn = Quaternion.Normalize(want * Quaternion.Inverse(have));
         double r = rGround + OrbitalMod.FlyTest.AltitudeM;
-        bool ok = MoveGrid(g, cell + up * r, h * speed, out var with, default, turn);
+        bool ok = FlyLevel(g, pos, cell, noseL, topL, r, speed, out var with);
         OrbitalMod.FlyTest.Status = Event2($"flytest: grid {id} '{g.DisplayName}' {OrbitalMod.FlyTest.AltitudeM:F0} m over {over}, level, {speed:F0} m/s ({(ok ? $"{with.Count} grid(s) with it" : "refused")})");
     }
     static string Event2(string s) { Event(s); return s; }

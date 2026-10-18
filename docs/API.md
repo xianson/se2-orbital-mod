@@ -349,6 +349,9 @@ A world setting the host file names is **forced**: a change through the API is r
 | `Warp.CostsEnergy` | world | bool | true |  | Warp uses energy · Time warp · basic | Warping drains batteries and tanks. |
 | `Warp.StopLead` | world | float | 30 | 5..120 | Warp stops before events · Time warp · advanced | Warp drops to ×1 this long (s) before a maneuver burn or a planet's air. |
 | `Warp.SafetySpeed` | world | float | 800 | 100..5000 | Warp limit speed · Time warp · hidden | Warp is held so no ship moving in your frame is carried faster than 0.75 × this (m/s). |
+| `QuickLaunch.Creative` | world | bool | true |  | Quick launch in creative · Quick launch · basic | *(1.0.1)* In creative, a seated pilot's quick launch key lifts the ship over the ground, level, flying along its nose. Never in survival. Off: not in this world either. |
+| `QuickLaunch.AltitudeM` | world | float | 1000 | 100..5000 | Launch altitude · Quick launch · basic | *(1.0.1)* How high over the ground (m; without the Aerodynamics Mod's ground ray, over where the ship is). Never lower than the ship is, always under the planet's space border (500 m margin). |
+| `QuickLaunch.SpeedMps` | world | float | 0 | 0..1000 | Launch speed (0: cruise) · Quick launch · advanced | *(1.0.1)* The speed along the nose (m/s). 0: the cruise speed (the Aerodynamics Mod's top speed at 3/4 throttle; 150 m/s without it). At most the world's speed cap. |
 | `Proxy.Mode` | client | int | 0 | 0..3 | Distant planets · Planets · hidden | 0 a proxy globe outside the planet's frame, 1 always the proxy, 2 never, 3 alternate. |
 | `Proxy.HideRealPlanets` | client | bool | true |  | Distant planets as globes · Planets · basic | Hide the real planet where the proxy stands in. |
 | `Proxy.HideAtmosphere` | client | bool | true |  | Hide far atmospheres with terrain · Planets · advanced | Hide its atmosphere and clouds with it. |
@@ -384,6 +387,8 @@ A world setting the host file names is **forced**: a change through the API is r
 | `Map.LineWidth` | client | float | 0.003 | 0.0005..0.05 | Map line width (unused) · Map · hidden | No longer drawn (kept so that old files still parse). |
 | `Autopilot.HoldTurnRate` | client | float | 30 | 5..180 | Attitude hold turn rate · Autopilot · basic | How fast attitude hold turns the ship (°/s). |
 | `Autopilot.BurnAlignLead` | client | float | 30 | 5..120 | Align before auto-burn · Autopilot · advanced | An auto-burn starts turning to its burn this long (s) before it. |
+| `QuickLaunch.Key` | client | int | 20 | 0..26 | Quick launch key · Controls · basic | *(1.0.1)* The quick launch key: 0 off, 1..26 the letters A..Z (20: T). |
+| `QuickLaunch.Modifier` | client | int | 1 | 0..3 | Quick launch modifier · Controls · basic | *(1.0.1)* Held with it: 0 none (no Ctrl, Shift or Alt held), 1 Ctrl, 2 Shift, 3 Alt. |
 
 **Multiplayer:** SE2 2.4 runs its server in the same process as the client (its networking is a mock), so world values are the server's. A process that has only seen a client tick refuses world sets (`CanEditWorldSettings`: the one place an admin check will go).
 
@@ -405,7 +410,7 @@ The two mods compile apart and meet only by reflection. Every link, both ways (`
 | `NoteMoved(Entity)` | `ServerFrames.AeroNoteMoved` (moves made under the lock: told right after it) | The push: a grid was teleported or turned; its next physics contacts are no loads. The pull side is `TryGetGridEdits`' stamp. |
 | `SetFocusGrid`, `TryGetFlight`, `TryGetForces`, `TryGetStructure`, `TryGetStall`, `TryGetLoac`, `TryDesign`, `GetTopSpeed`, `GetTopSpeedAt`, `GetThrustAlong`, `TryGetCenterOfMass`, `GetMass`, `GetDesignPressures`, `GetControlRatio` | `BuildHints` (client) | The build hints and the seated flight gauges (STRUCT, HEAT, STALL, LOSS OF CONTROL). |
 | `GetStructureEventSequence`, `ReadStructureEvents` (version 7) | `StructureAlerts` (client, every 0.5 s while seated - never asked unseated, so aero's recording gate holds; typed delegates through `AeroLink`) | The seated ship's structural failures and burn-throughs as a toast. |
-| `TryGetGroundHeight`, `GetTopSpeedAt` | `ServerFrames.DoFlyTest` (dev) | The fly test's altitude and cruise speed. |
+| `TryGetGroundHeight`, `GetTopSpeedAt` | `ServerFrames.DoQuickLaunch` (quick launch, creative) and `DoFlyTest` (dev), through `BindAeroFlight` | The launch's ground and cruise speed (without them: lifted from where the ship is, 150 m/s). |
 | `TryGetFlight`, `TryGetForces`, `TryGetLift`, `TryGetGroundHeight`, `TryGetEntry`, `TryGetAtmosphere`, `GetFxConsistency`; `FlightFixture.Build`, `PhysicsHack.GetGravityDirection`; static fields by name (`aeroset`) | `GridGen`, `DevReentry`, `DevHarness` (dev) | Harness readouts and switches. |
 
 **Aero → Orbital** (`OrbitalMod.OrbitalApi`, this API):

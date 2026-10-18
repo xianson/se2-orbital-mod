@@ -78,4 +78,5 @@ namespace OrbitalMod
     [Mirror] public static class MapView { public static double LineWidth; }
     [Mirror] public static class AttitudeHold { public static double TurnDegPerSec; }
     [Mirror] public static class AutoBurn { public static double AlignLead; }
+    [Mirror] public static class QuickLaunch { public static bool Creative; public static double AltitudeM, SpeedMps; public static int Key, Modifier; }
 }

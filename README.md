@@ -34,6 +34,10 @@ clear. Fast travel is untouched.
 - `N` targets what is under the crosshair (in flight) or the cursor (on the map).
 - `;` turns the attitude hold on and off; `Ctrl+;` picks the mode (prograde, retrograde, normal, anti-normal, radial
   out / in, level). The cockpit HUD's align button shows it, lit while holding.
+- `Ctrl+T` (seated, **creative only**): quick launch - the ship (its joined grids with it) lifted to 1 km over the ground,
+  turned level and flying along its nose at its cruise speed. The server decides (creative, the world's "Quick launch in
+  creative", the ship you sit in, not a station, near a planet's surface); survival says "creative only". The key is a
+  client setting (Controls), the altitude and speed world settings.
 
 **Warp stops by itself** at arrivals, 30 s before a maneuver's burn (the setting
 "Warp stops before events"; 5 s for an armed one already pointing within 5 degrees of its burn), ahead of a rendezvous,

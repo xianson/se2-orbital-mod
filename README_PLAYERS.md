@@ -1,4 +1,4 @@
-# Orbital Mod for Space Engineers 2 - player guide
+# Orbital Mechanics Mod for Space Engineers 2 - player guide
 
 Real orbits for Space Engineers 2. Your world's planets become a small solar system: they circle their star (and
 their moons circle them), and a ship that climbs out of a planet's space goes into orbit, on rails, where it really

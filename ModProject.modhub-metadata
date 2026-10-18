@@ -16,7 +16,7 @@
     },
     "Version": "0.0",
     "BaseMetadata": null,
-    "Name": "Orbital Mod",
+    "Name": "Orbital Mechanics Mod",
     "Summary": "Real orbits for Space Engineers 2: your planets become a solar system, ships above the air fly on rails, with time warp, maneuver planning on the map, re-entry and Telescope and Radar blocks. Needs the -loadScripts launch option.",
     "Tags": [
       "UGCModTypeTag",

@@ -1,4 +1,4 @@
-# Orbital Mod for Space Engineers 2
+# Orbital Mechanics Mod for Space Engineers 2
 
 > *"Earth is the cradle of humanity, but one cannot live in a cradle forever."* - Konstantin Tsiolkovsky
 

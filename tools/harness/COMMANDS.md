@@ -20,7 +20,7 @@ How the names are reached:
   `AeroMod.AeroGridComponent+AeroFlightTest.Enabled`/`.Only`; `aeroaware` -> `AeroMod.ThrustTorque.AeroAware`;
   `pitchlog` -> `AeroMod.AeroGridComponent.PitchLog`; `aerocost` -> `AeroMod.AeroCost.Log`; `aero` ->
   `AeroMod.AeroSwitch.Enabled`; `fxcheck` -> `AeroApi.GetFxConsistency`;
-  `flightdump` -> `AeroMod.FlightFixture.Build`; `gridup` -> `AeroMod.PhysicsHack.GetGravityDirection`; `gen ... air`
+  `flightdump` -> `AeroMod.FlightFixture.Build`; `gridup` -> `AeroMod.GridPhysics.GetGravityDirection`; `gen ... air`
   -> `AeroMod.AeroEntryFx.TestWorld`. The AeroApi/OrbitalApi members themselves are guarded by
   `tools/check_contract.sh`.
 

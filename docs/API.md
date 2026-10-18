@@ -413,7 +413,7 @@ The two mods compile apart and meet only by reflection. Every link, both ways (`
 | `GetStructureEventSequence`, `ReadStructureEvents` (version 7) | `StructureAlerts` (client, every 0.5 s while seated - never asked unseated, so aero's recording gate holds; typed delegates through `AeroLink`) | The seated ship's structural failures and burn-throughs as a toast. |
 | `TryGetGroundHeight`, `GetTopSpeedAt` | `ServerFrames.DoFlyTest` (dev, the harness key `flytest`), through `BindAeroFlight` | The fly test's ground and cruise speed (without them: over sea level, 150 m/s). Creative quick launch reads its own (it is the aero mod's since 2026-10-18). |
 | `RequestQuickLaunch()` (aero version 9) | `Flight/QuickLaunch.cs` (dev, the harness key `quicklaunch`, through `AeroLink`) | The aero mod's creative quick launch asked as its key does (its answer: aero's toast, `aeroget QuickLaunch.Status`). |
-| `TryGetFlight`, `TryGetForces`, `TryGetLift`, `TryGetGroundHeight`, `TryGetEntry`, `TryGetAtmosphere`, `GetFxConsistency`; `FlightFixture.Build`, `PhysicsHack.GetGravityDirection`; static fields by name (`aeroset`) | `GridGen`, `DevReentry`, `DevHarness` (dev) | Harness readouts and switches. |
+| `TryGetFlight`, `TryGetForces`, `TryGetLift`, `TryGetGroundHeight`, `TryGetEntry`, `TryGetAtmosphere`, `GetFxConsistency`; `FlightFixture.Build`, `GridPhysics.GetGravityDirection`; static fields by name (`aeroset`) | `GridGen`, `DevReentry`, `DevHarness` (dev) | Harness readouts and switches. |
 
 **Aero → Orbital** (`OrbitalMod.OrbitalApi`, this API):
 

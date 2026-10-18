@@ -348,9 +348,9 @@ public static partial class DevHarness
                 var g = GridMembers.Get((long)D(a[1]));
                 if (g?.Entity == null) return "no grid";
                 Type ph = null;
-                ph = AeroLink.Find("AeroMod.PhysicsHack");
+                ph = AeroLink.Find("AeroMod.GridPhysics");
                 var gm = ph?.GetMethod("GetGravityDirection", new[] { typeof(Keen.VRage.DCS.Accessors.DEntityContext) });
-                if (gm == null) return "no AeroMod.PhysicsHack.GetGravityDirection";
+                if (gm == null) return "no AeroMod.GridPhysics.GetGravityDirection";
                 Vector3 down = default;   // (the server grid's gravity data: read there)
                 long uid = g.Id;
                 return GridGen.Then(GridGen.OnServerThread(() => { down = (Vector3)gm.Invoke(null, new object[] { g.Entity.Data }); return "ok"; }), gr =>

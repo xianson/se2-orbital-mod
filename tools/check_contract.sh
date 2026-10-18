@@ -20,7 +20,7 @@ src() {
 fx=$(src "$AERO" AeroEntryFx.cs) || exit 1
 api=$(src "$AERO" AeroApi.cs) || exit 1
 fixture=$(src "$AERO" FlightFixture.cs) || exit 1
-hack=$(src "$AERO" PhysicsHack.cs) || exit 1
+hack=$(src "$AERO" GridPhysics.cs) || exit 1
 EH=$(src Scripts EntryHost.cs) || exit 1
 OAPI=$(src Scripts OrbitalApi.cs) || exit 1
 # Both APIs are partial classes over several files (AeroApi.cs, AeroApi.Flight.cs, ...; OrbitalApi.cs, OrbitalApi.Grids.cs,

@@ -41,14 +41,16 @@ public static class BuildHints
     /// <summary>DEV: show the hints for this grid without building (0: off) - the harness cannot hold a block.</summary>
     public static long DevGridId;
 
-    static MethodInfo _design, _top, _topAt, _thrust, _com, _mass, _pressures, _control, _flight, _forces, _structure, _focus, _stall, _loac; static bool _resolved;
+    static MethodInfo _design, _top, _topAt, _thrust, _com, _mass, _pressures, _control, _flight, _forces, _structure, _focus, _stall, _loac; static int _boundGen = -1;
+    /// <summary>Bind aero's API (Api/AeroLink: the last loaded copy) - again whenever that copy changes (a hot reload).</summary>
     static void Resolve()
     {
-        if (_resolved) return; _resolved = true;
-        foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+        int gen = AeroLink.Generation;
+        if (gen == _boundGen) return; _boundGen = gen;
+        _design = _top = _topAt = _thrust = _com = _mass = _pressures = _control = _flight = _forces = _structure = _focus = _stall = _loac = null; _flightFn = null;
+        var t = AeroLink.Find("AeroMod.AeroApi");
+        if (t != null)
         {
-            Type t; try { t = asm.GetType("AeroMod.AeroApi"); } catch { continue; }
-            if (t == null) continue;
             // (typed lookups: every cross-mod GetMethod names its parameters - docs/API.md, tools/check_contract.sh)
             Type E = typeof(Entity), V = typeof(Vector3), F = typeof(float), I = typeof(int);
             Type oV = V.MakeByRefType(), oF = F.MakeByRefType(), oI = I.MakeByRefType();
@@ -63,7 +65,6 @@ public static class BuildHints
             // (asked every frame seated: bound as a typed delegate - by Invoke it was an argument array and five boxed outs a
             //  frame, most of this system's garbage, 2026-10-14; a signature that does not match leaves the Invoke)
             try { _flightFn = _flight != null ? (FlightFn)Delegate.CreateDelegate(typeof(FlightFn), _flight, false) : null; } catch { _flightFn = null; }
-            break;
         }
     }
 

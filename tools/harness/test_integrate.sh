@@ -16,7 +16,7 @@
 #   0 s      guard (no game running, or KILL_GAME=1), close the game, the Steam launch
 #   ~5-120   wait (polled): a NEW game log, the world in it ("beacon Root Entity" / "Loading Failed"), the harness answering
 #            findgrids; cap 150 s
-#   +5       A  load: both mods' log tags, AeroApi.Version 8 / OrbitalApi.Version 3, WorldReset.Count 0 in a fresh process
+#   +5       A  load: both mods' log tags, AeroApi.Version 10 / OrbitalApi.Version 3, WorldReset.Count 0 in a fresh process
 #   +15      B  the SSTO: found by name, teleported to, seated (polled), launched (ALT km, V m/s over Verdure), thrust forward
 #   +10         perf, in that level flight: aerocost on, the status read twice 8 s apart (modcost, GC alloc), [AERO-COST]
 #   +12..35  C  structure: Strength STRENGTH, damage on, attitude hold radial-out; the "failed whole ... cracked across it" line
@@ -119,7 +119,7 @@ echo "== A load ($(el) s)"
 expect "load: Orbital Mod running (its planet beacons)" "no '[ORBIT] beacon Root Entity' line" logs '\[ORBIT\] beacon Root Entity'
 expect "load: Aerodynamics Mod running (its prefab injections)" "no '[AERO] Injected' line" logs '\[AERO\] Injected'
 read -r av ov wr < <(val AeroApi.Version OrbitalMod.OrbitalApi.Version OrbitalMod.WorldReset.Count | tr '\n' ' ')
-expect "load: AeroApi.Version = 8" "read '$av'" test "$av" = 8
+expect "load: AeroApi.Version = 10" "read '$av'" test "$av" = 10
 expect "load: OrbitalApi.Version = 3" "read '$ov'" test "$ov" = 3
 if [ -z "$NOLAUNCH" ] && [ -z "$DRY" ]; then
     expect "world reset: none at a fresh process's first load (WorldReset.Count 0, no reset line)" "Count '$wr'; $(since | grep -a -m1 'world reset:' | cut -c60-200)" \

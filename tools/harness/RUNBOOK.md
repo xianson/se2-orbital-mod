@@ -45,7 +45,7 @@ reset:` per world left) - run it on the user's own log after they quit to the me
 |---|---|---|
 | `launch: the world loaded` / `the harness answers` | a new log with `beacon Root Entity`; `findgrids` answered | the game did not start, the world failed (`Loading Failed`), or the Orbital DevHarness is off (`%TEMP%\OrbitalMod\dev.flag`) or not compiled in |
 | `load: Orbital Mod running` / `Aerodynamics Mod running` | log tags `[ORBIT] beacon Root Entity`, `[AERO] Injected` | that mod did not load (compile error in the log: search `vrgproj`), or the launch options lack it |
-| `load: AeroApi.Version = 8` / `OrbitalApi.Version = 3` | `aeroget` of the consts | an older copy deployed, or a contract bump not matched on the other side (run `tools/check_contract.sh`) |
+| `load: AeroApi.Version = 10` / `OrbitalApi.Version = 3` | `aeroget` of the consts | an older copy deployed, or a contract bump not matched on the other side (run `tools/check_contract.sh`) |
 | `world reset: none at ... first load` | `WorldReset.Count`, `[ORBIT] world reset:` lines | a reset fired with no world change - a session/planet event misread (Host/WorldReset.cs) |
 | `world reset: one ... per quit-and-load` | always SKIP in a run (no verb loads a world) | - use `--audit-log` on a log with world changes; there a FAIL names the load with 0 or 2+ resets |
 | `setup: a grid named SSTO` / `seated in the SSTO` | `findgrids`, `hudcheck` | the wrong world (the last one played), or seating failed (`seat SSTO` reply) - every structure check is then SKIP |

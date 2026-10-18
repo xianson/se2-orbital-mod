@@ -197,7 +197,7 @@ tools/flightdump.sh.)
 | `AeroMod.ThrustTorque.FlameLookups` | get | checkall | Simulation/Integration/ThrustTorque.cs |
 | `AeroMod.ThrustTorque.FlameHits` | get | checkall | Simulation/Integration/ThrustTorque.cs |
 | `AeroMod.ThrustTorque.FlameLit` | get | checkall | Simulation/Integration/ThrustTorque.cs |
-| `AeroMod.AeroApi.Version` | get | test_integrate (a const: must read 8) | Simulation/Api/AeroApi.cs |
+| `AeroMod.AeroApi.Version` | get | test_integrate (a const: must read 10) | Simulation/Api/AeroApi.cs |
 | `AeroMod.AeroGridComponent.CracksStarted`, `.CracksDone`, `.CracksRunning`, `.CrackLast`, `.CutsForced` | get | test_integrate | Simulation/Structure/Server/StructureServer.Failure.cs (feat/a-break) |
 | `AeroMod.StructureTear.AnchorsMade`, `.AnchorsPeeled`, `.Faults` | get | test_integrate | Simulation/Structure/Server/StructureTear.cs |
 | `AeroMod.AeroDebrisDrag.Steps` | get | test_integrate | Simulation/Debris/AeroDebrisDrag.cs (feat/a-debris) |

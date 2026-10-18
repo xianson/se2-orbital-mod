@@ -76,6 +76,7 @@ How the names are reached:
 | `gridspin` | 11 scripts (bakedcheck.sh, experiments/fbwab.sh, experiments/recsuper.sh, experiments/spinshot.sh, ...) |
 | `gridsstop` | relaunch.sh |
 | `hints` | experiments/hintshot.sh, experiments/hintshot2.sh, experiments/hintshot3.sh, experiments/showshot.sh |
+| `havok` | havok_repro.sh |
 | `hiresglobe` | globeshot.sh |
 | `hitchms` | warm.sh |
 | `hold` | checkall.sh, experiments/flameprobe.sh, experiments/lowresui.sh |
@@ -236,7 +237,7 @@ unlocked True ... Radar: kind yes ... unlocked True`, `N in the world (N working
 115`; `contactstab` -> `Contacts:`/`Hidden:` groups, `[key ...]` rows, `pinned=True`, `hidden=True|False`, `contacts: N`;
 `targets` -> `[grid:N 'Name' yours`, `| list [..`, `| ships ..`, `| under ..`, `target .*[key]`; `targetpanel` -> `panel
 shown`, `Orbit: Apoapsis=...Periapsis=...Inclination=`, `From you: Closest approach=`; `hiresglobe status` ->
-`materials=ok`, `mesh=ok`, `pinned 12`, `error=`; `warm` -> `warm berths:`, `(N free`; `frameof` -> `in frame #N`,
+`materials=ok`, `mesh=ok`, `pinned 12`, `error=`; `warm` -> `warm berths:`, `(N free`; `havok` -> `havok audit: N world(s), consistent`, `static moves refused N, parked N`; `frameof` -> `in frame #N`,
 `anchor <id>`; `save` -> `save -> 'Orbital Test World':` (test_blocksave: `save -> '<world>': Success`).
 
 **Game log** (Orbital `Event`/`Log` lines and aero log lines): tags `[ORBIT-FAULT]`, `[AERO-FAULT]` (every suite's
@@ -256,6 +257,8 @@ beacon Root Entity`, `[AERO] Injected`, `[ORBIT-STRUCT] seated ship:`, `[AERO-ST
 across it`, `did not separate`, `[AERO-TEAR] ... failed`, `[AERO-COST] blocks|patch|sim|draw X ms/s`, `Warp stopped`; status
 `warpbill`, `time ... server=N ... rails t=T xW`, `modcost ... client A/M/P server A/M/P ... alloc NMB`, `orbit frame #`;
 game text `GameCoreScene UnloadAllScenes GameServer` (the world-reset audit), stack frames `at AeroMod.` / `at OrbitalMod.`. Game text: `beacon Root Entity` / `Loading Failed` (world loaded), `not migrated` (Havok),
+`still active bodies in native world` (Havok cluster removal; testlib bad(), havok_repro), `[ORBIT-HAVOK] cluster N` (the cluster audit, havok_repro),
+`not moved: it is static` (the static-move guard, havok_repro),
 `Crash Handler]: Fatal`, `Exception occurred`.
 
 ## Suspect references (found 2026-10-15)

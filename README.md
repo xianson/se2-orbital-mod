@@ -1,5 +1,7 @@
 # Orbital Mod for Space Engineers 2
 
+> *"Earth is the cradle of humanity, but one cannot live in a cradle forever."* - Konstantin Tsiolkovsky
+
 Real orbits for Space Engineers 2. Your world's planets become a small solar system: planets circle their star, moons
 circle their planets, and a ship that climbs out of a planet's space goes into orbit, on rails, exactly where it is.
 Plan burns on the game's map, warp time, meet ships, sectors and asteroids by really arriving in the same place at the

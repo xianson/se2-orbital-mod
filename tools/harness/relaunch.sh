@@ -9,4 +9,4 @@ mkdir -p "$D"; touch "$D/dev.flag"   # the mod's dev harness only runs where thi
 powershell -NoProfile -Command "Start-ScheduledTask -TaskName 'OrbitalTestSE2'" >/dev/null
 for i in $(seq 1 450); do sleep 1; grep -q "server=[0-9]" "$D/status.txt" 2>/dev/null && break; done
 echo "game up after ${i} s"
-"$SP/orb.sh" "aerospike off" "gridsstop" >/dev/null; sleep 3; "$SP/orb.sh" "gridsstop" >/dev/null; sleep 2
+"$SP/orb.sh" "gridsstop" >/dev/null; sleep 3; "$SP/orb.sh" "gridsstop" >/dev/null; sleep 2

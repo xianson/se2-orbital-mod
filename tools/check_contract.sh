@@ -153,7 +153,7 @@ d=$(cat "${OAPIS[@]}" | grep -o 'public static [^(=]* [A-Za-z0-9_]*(' | sed 's/(
 #    (SetForeignFlag / SetForeignString / ForeignValue("AeroMod.Type[+Nested]", "Member"): DevHarness, GridGen) is a static
 #    field or property of that type in the aero source - a rename there leaves the harness command answering "not found".
 #    OPTIONAL: types that live only in a local, untracked aero file (absent from a clean checkout: noted, not failed).
-OPTIONAL=" AeroSpeedSpike "
+OPTIONAL=" "
 nflags=0; opt=""
 while IFS= read -r hit; do
   t=$(echo "$hit" | sed -E 's/^[^"]*"AeroMod\.([A-Za-z0-9_.+]+)", *"([A-Za-z0-9_]+)".*/\1/')

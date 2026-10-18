@@ -198,10 +198,6 @@ public static partial class DevHarness
                 return PlanetRenderBridge.ForeignValue(type, a[1].Substring(dot + 1), a[0] == "aeroset" && a.Length > 2 ? a[2] : null);
             }
 
-            case "aerospike":
-                // aerospike on|off: the aero mod's experiment (holds every grid at 50 m/s, freezes the sim).
-                return PlanetRenderBridge.SetForeignFlag("AeroMod.AeroSpeedSpike", "Enabled", On(a[1]));
-
             default:
                 return "unknown command";
         }

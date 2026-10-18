@@ -60,7 +60,7 @@ In a world: [b]pause menu > Settings > Mods[/b], section [b]Orbital[/b]. World s
 [/list]
 
 [h2]Troubleshooting[/h2]
-Nothing happens (no orbit card, no warp, no Orbital section under Settings > Mods)? The game was started without [i]-loadScripts[/i]. Anything else: please post your game log (%APPDATA%\SpaceEngineers2\Temp\Logs\, the newest SpaceEngineers2_*.log); the mod's lines start with [noparse][ORBIT[/noparse].
+Nothing happens (no orbit card, no warp, no Orbital section under Settings > Mods)? The game was started without [i]-loadScripts[/i]. Anything else: please post your game log (%APPDATA%\SpaceEngineers2\Temp\Logs\, the newest SpaceEngineers2_*.log); the mod's log lines are tagged ORBIT.
 
 [h2]Licence[/h2]
 Free to use in any world, server or video, and free to depend on. Re-uploads only unlisted, private or friends-only. Code may be reused except in a competing aerodynamics or orbital mod; credit appreciated, not required. Commercial use (including by game developers) needs a paid licence. Full text: [url=https://github.com/xianson/se2-orbital-mod/blob/master/LICENSE]LICENSE on GitHub[/url].

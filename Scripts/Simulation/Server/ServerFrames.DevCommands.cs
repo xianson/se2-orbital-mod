@@ -14,6 +14,33 @@ public static partial class ServerFrames
     public static readonly System.Collections.Concurrent.ConcurrentQueue<(long id, double altKm, string body, double speed)> GridLaunch = new System.Collections.Concurrent.ConcurrentQueue<(long, double, string, double)>();
     /// <summary>DEV: level a grid - top away from the planet, nose (-Z) horizontal on its heading - its joined group with it.</summary>
     public static readonly System.Collections.Concurrent.ConcurrentQueue<long> GridLevel = new System.Collections.Concurrent.ConcurrentQueue<long>();
+    /// <summary>DEV gridpose (2026-10-18, screenshots): a grid's exact attitude in one tick - levelled to its planet (top away
+    /// from the planet's centre, the nose's heading kept), then yaw right, pitch up, roll right (degrees) about its own axes.</summary>
+    public static readonly System.Collections.Concurrent.ConcurrentQueue<(long id, double yaw, double pitch, double roll)> GridPose = new System.Collections.Concurrent.ConcurrentQueue<(long, double, double, double)>();
+    static void DoGridPose(long id, double yawDeg, double pitchDeg, double rollDeg)
+    {
+        var g = GridMembers.Get(id);
+        var reg = SystemHost.Registry;
+        if (g == null || !g.IsServer || reg == null) { Event($"gridpose: no server grid {id}"); return; }
+        if (!GridMembers.TryPosition(g, out Vector3D pos)) { Event($"gridpose: grid {id} is gone"); return; }
+        if (!VoxelBerthRegistry.TryCellContaining(pos, reg, out _, out Vector3D cell)) { Event("gridpose: not at a planet"); return; }
+        Vector3D up = Vector3D.Normalize(pos - cell);
+        var q = g.Entity.Data.GetWorldTransform().Orientation;
+        Vector3D f = Vector3D.Transform(new Vector3D(0, 0, -1), q);
+        Vector3D h = f - up * Vector3D.Dot(f, up);
+        if (h.LengthSquared() < 1e-6) { Vector3D r0 = Vector3D.Transform(new Vector3D(1, 0, 0), q); h = Vector3D.Cross(up, r0); }
+        h = Vector3D.Normalize(h);
+        Vector3D right = Vector3D.Normalize(Vector3D.Cross(h, up));
+        double y = yawDeg * Math.PI / 180, p = pitchDeg * Math.PI / 180, rl = rollDeg * Math.PI / 180;
+        Vector3D h2 = h * Math.Cos(y) + right * Math.Sin(y), r2 = Vector3D.Normalize(Vector3D.Cross(h2, up));   // (yaw right about up)
+        Vector3D nose = h2 * Math.Cos(p) + up * Math.Sin(p), top = Vector3D.Normalize(Vector3D.Cross(r2, nose));  // (pitch up about the right wing)
+        Vector3D top2 = top * Math.Cos(rl) + r2 * Math.Sin(rl);                                                    // (roll right: the top leans right)
+        var target = Quaternion.CreateFromForwardUp((Vector3)nose, (Vector3)top2);
+        var turn = Quaternion.Normalize(target * Quaternion.Inverse(q));
+        bool ok = MoveGrid(g, pos, Vector3D.Zero, out var with, default, turn);
+        Event($"gridpose: grid {id} {g.DisplayName} yaw {yawDeg:F1} pitch {pitchDeg:F1} roll {rollDeg:F1} ({(ok ? $"{with.Count} grid(s) with it" : "refused")})");
+    }
+
     static void DoGridLevel(long id)
     {
         var g = GridMembers.Get(id);

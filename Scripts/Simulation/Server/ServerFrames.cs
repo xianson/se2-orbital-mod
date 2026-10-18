@@ -346,6 +346,7 @@ public static partial class ServerFrames
                 while (GridLaunch.TryDequeue(out var gl)) DoGridLaunch(gl.id, gl.altKm, gl.body, gl.speed);
                 while (FlyTest.TryDequeue(out var ft)) DoFlyTest(ft.id, ft.nose, ft.top);
                 while (GridLevel.TryDequeue(out long glv)) DoGridLevel(glv);
+                while (GridPose.TryDequeue(out var gp)) DoGridPose(gp.id, gp.yaw, gp.pitch, gp.roll);
                 while (GridDelete.TryDequeue(out long gd))
                 {
                     var g = GridMembers.Get(gd);

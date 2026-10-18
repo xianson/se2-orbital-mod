@@ -335,6 +335,13 @@ public static partial class DevHarness
                 return "grid launch queued (server, next tick)";
             }
 
+            case "gridpose":   // gridpose <gridId> <yawDeg> <pitchDeg> <rollDeg>: exact attitude in one tick - level to its planet, then yaw right / pitch up / roll right (DEV, 2026-10-18)
+                ServerFrames.GridPose.Enqueue((long.Parse(a[1]), D(a[2]), D(a[3]), D(a[4])));
+                return "grid pose queued (server, next tick)";
+
+            case "gridfly":   // gridfly <gridId> <m/s> [aoaDeg]: keep it moving at that speed along its nose pitched down by aoaDeg (a real angle of attack; 0 releases) (DEV, 2026-10-18)
+                return DevStress.Fly((long)D(a[1]), D(a[2]), a.Length > 3 ? D(a[3]) : 0);
+
             case "gridlevel":   // gridlevel <gridId>: level it - top away from the planet, nose horizontal - its joined group too (DEV)
                 ServerFrames.GridLevel.Enqueue(long.Parse(a[1]));
                 return "grid level queued (server, next tick)";

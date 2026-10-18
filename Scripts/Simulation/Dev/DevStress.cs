@@ -14,6 +14,8 @@ namespace OrbitalMod;
 public static class DevStress
 {
     static readonly Dictionary<long, double> _hold = new Dictionary<long, double>();
+    /// <summary>gridfly: the held flight path in the grid's OWN axes (absent: its nose, -Z).</summary>
+    static readonly Dictionary<long, Vector3D> _holdDir = new Dictionary<long, Vector3D>();
     static (long id, int left, double every, double next) _break;
     static double _breakRadius;          // > 0: break near one spot (a hit), not anywhere
     static Vector3D? _breakCentre;
@@ -22,8 +24,21 @@ public static class DevStress
 
     public static string Hold(long id, double speed)
     {
-        lock (_hold) { if (speed <= 0) _hold.Remove(id); else _hold[id] = speed; }
+        lock (_hold) { if (speed <= 0) _hold.Remove(id); else _hold[id] = speed; _holdDir.Remove(id); }
         return speed <= 0 ? $"grid {id} released" : $"grid {id} held at {speed:F0} m/s forward";
+    }
+
+    /// <summary>gridfly (2026-10-18, screenshots): keep a grid moving at `speed` along its nose pitched DOWN by aoaDeg in its
+    /// own vertical plane - the flight path below the nose, a real angle of attack; the attitude untouched (gridpose sets it).</summary>
+    public static string Fly(long id, double speed, double aoaDeg)
+    {
+        double a = aoaDeg * Math.PI / 180;
+        lock (_hold)
+        {
+            if (speed <= 0) { _hold.Remove(id); _holdDir.Remove(id); return $"grid {id} released"; }
+            _hold[id] = speed; _holdDir[id] = new Vector3D(0, -Math.Sin(a), -Math.Cos(a));
+        }
+        return $"grid {id} flying at {speed:F0} m/s, {aoaDeg:F1} deg below its nose";
     }
 
     /// <summary>Set a grid's angular velocity (world, rad/s): a knock, to see it recover.</summary>
@@ -171,7 +186,8 @@ public static class DevStress
                 var g = GridMembers.Get(kv.Key);
                 if (g == null || !g.IsServer) continue;
                 var q = (QuaternionD)g.Entity.Data.GetWorldTransform().Orientation;
-                GridMembers.SetVelocity(g, q * Vector3D.Forward * kv.Value);
+                var dir = _holdDir.TryGetValue(kv.Key, out var hd) ? hd : Vector3D.Forward;
+                GridMembers.SetVelocity(g, q * dir * kv.Value);
             }
         if (_break.left <= 0) return;
         double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;

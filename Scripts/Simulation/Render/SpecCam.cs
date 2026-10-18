@@ -13,7 +13,8 @@ namespace OrbitalMod;
 /// </summary>
 public static class SpecCam
 {
-    public enum Target { None, Fixed, Planet, Player, Map, Point, Sun, MapBody, Grid }
+    public enum Target { None, Fixed, Planet, Player, Map, Point, Sun, MapBody, Grid, GridLock }
+    private static Vector3D _lockPos; private static Quaternion _lockRot;   // (cam lock: the camera in the grid's own frame)
     private static Target _target;
     private static string _planet;
     private static double _dist, _bearing, _elev;
@@ -31,6 +32,18 @@ public static class SpecCam
 
     /// <summary>Orbit a grid, the bearing measured from its nose (0 ahead, 90 its right side, 180 behind), the
     /// elevation from its own deck: the same view of it however it is turned or moving (screenshots of effects).</summary>
+    /// <summary>cam lock (2026-10-18, screenshots): hold the camera exactly where it is NOW relative to a grid - its offset and
+    /// orientation in the grid's own frame, carried with the grid every frame (the user's framing kept while it flies).</summary>
+    public static string GridLock(Keen.VRage.Core.Game.Systems.Session session, long id, WorldTransform camera)
+    {
+        var ge = ClientCopy(session, id);
+        if (ge == null) return "no grid " + id;
+        var gw = ge.Data.GetWorldTransform();
+        var inv = Quaternion.Inverse(gw.Orientation);
+        _lockPos = Vector3D.Transform(camera.Position - gw.Position, inv); _lockRot = Quaternion.Normalize(inv * camera.Orientation);
+        _target = Target.GridLock; _grid = id; return $"spectator: locked to grid {id} at {_lockPos.Length():F0} m";
+    }
+
     public static string Grid(long id, double distKm, double bearingDeg, double elevDeg)
     { _target = Target.Grid; _grid = id; _dist = distKm * 1000; _bearing = bearingDeg; _elev = elevDeg; return $"spectator: grid {id} at {distKm} km"; }
 
@@ -94,6 +107,14 @@ public static class SpecCam
                 Vector3 gfwd = (Vector3)Vector3D.Normalize(mid - gpos);
                 var gwt = new WorldTransform(gpos, Quaternion.CreateFromForwardUp(gfwd, (Vector3)gu));
                 Current = gwt; cam.SetTransformOverride(gwt); Status = $"Grid {_grid} dist={_dist:F0} bearing={_bearing} elev={_elev}"; return;
+            }
+            case Target.GridLock:
+            {
+                var gl = ClientCopy(session, _grid);
+                if (gl == null) { Status = "no grid " + _grid; return; }
+                var lw = gl.Data.GetWorldTransform();
+                var lwt = new WorldTransform(lw.Position + Vector3D.Transform(_lockPos, lw.Orientation), Quaternion.Normalize(lw.Orientation * _lockRot));
+                Current = lwt; cam.SetTransformOverride(lwt); Status = $"GridLock {_grid}"; return;
             }
             case Target.Point: look = _fixedLook; break;
             case Target.MapBody:

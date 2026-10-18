@@ -14,7 +14,8 @@ client half (`Host/FrameHost`) under `ServerFrames.FramesLock`; nothing calls in
   slow part off the lock), `.Stow` (grids onto the rails), `.Arrival` (grid frames into a planet cell, grid HighSpeed),
   `.Moves` (every long grid move, deferred to the teleport phase; `AeroApi.NoteMoved`), `.Forces` (spin's fictitious
   forces, station keeping), `.Views` (what the client may read: `GridView`, sensor views, positions, the harness
-  snapshot), `.Invariants`, `.DevCommands` (harness requests).
+  snapshot), `.Invariants`, `.DevCommands` (harness requests), `.QuickLaunch` (a seated pilot's quick launch, creative only, judged here
+  by `Flight/QuickLaunchRules`; the level-flight move it shares with the dev fly test).
 - Per-frame and per-grid state: a frame leaving the registry (every `Dissolve`, a merge's incomer) runs
   `ServerFrames.FrameRetiring` (wired as `FrameRegistry.Retiring` in `SystemHost.Build`) - anchor acceleration, entry
   state, a dissolved frame's members' entry wear; a grid gone for good runs `ServerFrames.Forget`. Per-WORLD state goes

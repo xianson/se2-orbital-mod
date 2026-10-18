@@ -311,7 +311,8 @@ public static partial class FrameHost
         Guard("DevTurn.ClientTick", static a => DevTurn.ClientTick(a.Session), ta);
         Guard("DevReentry.ClientTick", static a => DevReentry.ClientTick(a.Session, a.Camera), ta);
         Guard("AttitudeHold.ClientTick", static a => AttitudeHold.ClientTick(a.Session), ta);
-        Guard("FlyTest.ClientTick", static a => FlyTest.ClientTick(a.Session), ta);   // (Ctrl+T seated - 1 km, level, cruise)
+        Guard("FlyTest.ClientTick", static a => FlyTest.ClientTick(a.Session), ta);   // (DEV: harness key flytest - 1 km, level, cruise)
+        Guard("QuickLaunch.ClientTick", static a => QuickLaunch.ClientTick(a.Session), ta);   // (Ctrl+T seated, creative: the same, server-checked)
         WarpControl.Session = session;
         Guard("WarpControl.Tick", static a => WarpControl.Tick(), ta);
         Guard("MapView.Tick", static a => MapView.Tick(a.Session, a.Camera, a.T), ta);

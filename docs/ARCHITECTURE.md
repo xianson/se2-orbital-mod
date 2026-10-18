@@ -163,7 +163,7 @@ Driven by `ServerPlanetBeacon` (injected into every server planet; it also carri
    `WarmBerths.Tick`, `AsteroidBridge.Tick`; dt from the game clock (`IGameTime`: paused = no step); `SystemHost.SpinNow`.
 2. `EntryHost.ServerBeforeLock`.
 3. Under `ServerFrames.FramesLock`:
-   - drain the client's request queues (`Attach`, `GridOrbit`, `GridDamp`, `GridLaunch`, `FlyTest`, `GridLevel`,
+   - drain the client's request queues (`Attach`, `GridOrbit`, `GridDamp`, `GridLaunch`, `FlyTest`, `QuickLaunchRequests`, `GridLevel`,
      `GridDelete`, `GridMove`; `PendingBerthShift`);
    - `EncounterFrames.Prune` (every 60 ticks) and `EncounterFrames.ServerTick` (sites, rides, new spawns);
    - `EntryHost.ServerTick` (braking, heat; before arrivals);
@@ -296,7 +296,7 @@ structure failures (aero's event queue, section 12) as one toast. See each folde
   locked step; the map draws under it (`MapView`: `lock (FramesLock) GameMap.Draw`). Lock order: `FramesLock` may be
   held while taking `GridMembers`' lock, never the reverse; `PlanetRings.Known` must never wait for
   `PlanetRenderBridge.Lock` (the deadlock of 2026-10-02).
-- Client -> server: `ConcurrentQueue`s drained under the lock (`ServerFrames.Attach`, `GridOrbit`, ...),
+- Client -> server: `ConcurrentQueue`s drained under the lock (`ServerFrames.Attach`, `GridOrbit`, `QuickLaunchRequests`, ...),
   `ServerPlanetBeacon.PendingPlayer` (Interlocked exchange). Server -> client: `FrameHost.RequestArrival` /
   `RequestMerge` / `RequestShift` under the lock, `ServerFrames.AnchorAccel`, `GridPositions` (own lock),
   `PlayerSeatGrid` (Interlocked), the `GridView` / `SensorView` snapshots (volatile, immutable), `MergeAhead`,
@@ -375,7 +375,7 @@ settings-tab copies; one link each way).
 `AeroMod.AeroApi`, re-found when the loaded assemblies change (checked at most every 5 s, one thread at a time), with a
 `Generation` each binding site compares to bind again (`EntryHost.HookAero`, `CallNoteMoved`, `StructureAlerts`, the
 dev sites). Aero names `OrbitalApi` only in its `Api/OrbitalLink.cs`, on the same rule (its `Api/CrossModLink.cs`).
-Exception noted by the contract check: `Frames/BuildHints.cs` (owned by other work) still finds aero with its own scan.
+`Frames/BuildHints.cs` binds through `AeroLink` too (since 2026-10-15; it used to scan on its own and keep the first copy).
 
 - **Aero reads Orbital** (`OrbitalApi`, `Version` 3; reference in `docs/API.md`):
   - `OrbitalApi.TryGetEntryState` / `TryGetEntryState2` - a railed grid sits still in its berth, so Aero cannot see its

@@ -138,9 +138,7 @@ public static partial class PlanetRenderBridge
     }
 
     /// <summary>
-    /// DEV HARNESS: switch another mod's static bool at runtime (e.g. AeroMod.AeroSpeedSpike.Enabled,
-    /// the aero mod's in-progress experiment that holds every grid at 50 m/s and freezes the main
-    /// thread). Runtime only; the other mod's files are untouched. Returns a description.
+    /// DEV HARNESS: switch another mod's static bool at runtime (e.g. AeroMod.AeroSwitch.Enabled). Runtime only; the other mod's files are untouched. Returns a description.
     /// </summary>
     public static string SetForeignFlag(string typeName, string field, bool value)
     {

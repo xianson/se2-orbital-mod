@@ -4,6 +4,22 @@ What changed for players and for modders. Claims come from the commits (hashes o
 nothing here was flown in game for this release (the one-run in-game check, `tools/harness/test_integrate.sh`, is
 written but has not been run).
 
+## 1.0.1 (2026-10-18)
+
+- **Quick launch** (`Flight/QuickLaunch.cs`, `Flight/QuickLaunchRules.cs`, `Server/ServerFrames.QuickLaunch.cs`): the dev
+  fly test as a player key, creative only. The client's key (client settings `QuickLaunch.Key` / `QuickLaunch.Modifier`,
+  Ctrl+T) queues `ServerFrames.QuickLaunchRequests`; the server judges from its own state (`QuickLaunch.Creative`,
+  `GameModeSessionComponent.IsCreative` of its character, `PlayerSeatGrid`, static asked live, rails, a planet cell) and
+  moves through `MoveGrid` (joined set, teleport phase, statics refused). Where: `QuickLaunch.AltitudeM` over the aero
+  ground ray (else over the ship's place), never lower, clamped 500 m under `PlanetBerths.ShellRadius`; speed
+  `QuickLaunch.SpeedMps` (0: aero cruise at 3/4 throttle, 150 m/s fallback), at most `EntryHost.Cap`. The answer is a
+  toast (`QuickLaunch.PendingSay`). Offline: `Tests/QuickLaunchTests`. The dev fly test keeps the harness key `flytest`
+  (dev flag); its Ctrl+T is gone (it would have fired with quick launch). Harness key `quicklaunch`: the player path.
+- The Radar's idle draw is 20 (`Radar_PowerableBlockDefinition.partialdef`; 200 before, 20 in the Workshop upload).
+- `Orbital Mod.vrgproj` Version "1.0.1" (it was null; the game reads it as `System.Version`).
+- Docs: BuildHints binds aero through `AeroLink` (the contract check's exception dropped); the 5 s warp lead before an
+  armed burn needs the ship within 5 degrees of it.
+
 ## Release prep (2026-10-17)
 
 - **A quiet game log.** The narrated lines (`[ORBIT-FRAME]` frame events, `[ORBIT-ENC]`, `[ORBIT-ROIDS]` keeps,

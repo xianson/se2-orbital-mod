@@ -33,7 +33,7 @@ are listed in [COMMANDS.md](COMMANDS.md) - keep them when changing either mod.
 | `orb.sh` | send harness commands, print the status / reply (see above) |
 | `testlib.sh` | sourced by the suites: `mark`/`since` (the log since a point), `check`/`never`/`expect` -> PASS/FAIL, `send`/`reply`/`stat`, `alive`/`hold`, `summary`; `LOGF`, `waitloaded` (world loaded, then grids); sources `launch.sh` |
 | `launch.sh` | `launch()`: close every game process, the Steam launch, then close any second instance for 90 s |
-| `relaunch.sh` | kill the game (no save), start it through `OrbitalTestSE2`, wait for the server, `aerospike off` + `gridsstop` |
+| `relaunch.sh` | kill the game (no save), start it through `OrbitalTestSE2`, wait for the server, `gridsstop` |
 | `launch-orbital.ps1` | what `OrbitalTestSE2` runs: the launch args with this mod (`orbital-only.flag`: only this mod; `no-orbital.flag`: without it; `world.txt`: the save, or `content:<folder>` for a new game); writes `last-launch-args.txt` |
 | `register-tasks.ps1` | registers `OrbitalTestSE2` and `OrbitalShotSE2` (interactive tasks: the agent shell cannot open windows) - once |
 | `shot.ps1` | what `OrbitalShotSE2` runs: a desktop capture to `shot_HHmmss.png`, result in `shot-result.txt` |

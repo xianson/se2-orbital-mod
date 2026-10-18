@@ -27,6 +27,8 @@ same time, and come home through a re-entry that brakes and heats your ship.
 - **Flight HUD:** orbit card, orbit line, markers across planets, warp bar.
   [Flight HUD](https://github.com/xianson/se2-orbital-mod/wiki/Flight-HUD)
 - **Speed cap** raised to 1,000 m/s inside a planet's space; none on rails.
+- **Quick launch (creative):** seated in a cockpit, Ctrl+T lifts the ship to a safe altitude and sends it flying
+  along its nose; the key, height and speed are settings, and the host can turn it off.
 - **In-game settings:** pause menu > Settings > Mods > Orbital.
   [Settings](https://github.com/xianson/se2-orbital-mod/wiki/Settings)
 - **Works with the [Aerodynamics Mod](https://github.com/xianson/se2-aerodynamics-mod)** (optional): re-entry plasma,
@@ -65,6 +67,13 @@ Bugs: [issues](https://github.com/xianson/se2-orbital-mod/issues) (attach your g
 ## Credits
 
 By xianson. The orbital core is ported from the author's Space Engineers 1 project, SE-Aerospace.
+
+
+## Licence
+
+Free to use in any world, server or video, and free to depend on. Re-uploads only unlisted, private or
+friends-only. Code may be reused except in a competing aerodynamics or orbital mod; credit appreciated, not required.
+Commercial use (including by game developers) needs a paid licence. Full text: [LICENSE](LICENSE).
 
 ---
 Developing or building the mod yourself? See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).

@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Flight/QuickLaunchRules.cs (game-free): whether the server lets a seated pilot's quick launch go (creative, the world's
+       switch, the server's own seat, static, rails, a planet) and where the ship ends (over the ground, never lower, never
+       into it, under the planet's space border), at what speed. -->
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\Scripts\Simulation\Flight\QuickLaunchRules.cs" />
+  </ItemGroup>
+</Project>

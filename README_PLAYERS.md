@@ -50,10 +50,20 @@ arriving in the same place at the same time, and come back down through a re-ent
 | `N` | target what is under the crosshair (in flight) or the cursor (on the map); again: the next thing there |
 | `;` | attitude hold on / off (seated) |
 | `Ctrl` + `;` | pick the hold mode: prograde, retrograde, normal, anti-normal, radial out / in, level |
+| `Ctrl` + `T` | **quick launch** (seated, creative worlds only): see below |
 | `Del`, `F2` | on the Contacts tab: hide a row / rename it |
 
 On the map: right-click your path to **Add maneuver**, right-click a maneuver to remove it or type its numbers, drag
 its six handles to add delta-v.
+
+**Quick launch (creative only).** Sitting in a cockpit, press `Ctrl` + `T`: your ship, with everything joined to it
+(wheels, rotors, docked ships), is lifted to 1,000 m over the ground under it, turned level on its heading and sent
+flying along the cockpit's nose at its cruise speed (with the Aerodynamics Mod: its top speed at 3/4 throttle; without
+it: 150 m/s). It never goes lower than it is, never into the ground (without the Aerodynamics Mod it is lifted 1,000 m
+from where it is), and always stays under the planet's space. Stations, ships joined to a station, ships on rails and
+ships far from a planet are not moved. In a survival world nothing happens ("Quick launch works in creative only"). The
+key can be changed (Settings > Mods > Orbital > Controls: any letter, with Ctrl, Shift, Alt or nothing, or off); the
+host sets the altitude and speed, or turns it off for the world.
 
 ## Settings
 
@@ -73,12 +83,14 @@ screen's side panel and "Reset to defaults" per group.
 | Remove stray generated asteroids (`World.DeleteGeneratedAsteroids`) | on | deletes the game's own procedural asteroids that slipped through (spawned before the mod blocked them, or left behind by an encounter moved off a planet's border). Only untouched ones nobody is near: never one a player edited, one a grid is on or within 100 m of, one a player is within 300 m of, an asteroid the mod placed, or anything it cannot prove the game generated. Each deletion is written to the game log. Turn it off to keep every asteroid. |
 | Maximum time warp | x10,000 | the highest warp the keys, the warp bar and other mods can ask for |
 | Warp uses energy | on | warping drains batteries and tanks for the time skipped |
-| Warp stops before events | 30 s | how long before a burn or a planet's air warp drops to x1 |
-| Advanced: Orbits in the spawn area, Aerobraking strength, Encounters near sectors, Rocks per ring | | see each one's description |
+| Warp stops before events | 30 s | how long before a burn or a planet's air warp drops to x1 (5 s before an armed burn the ship already points at) |
+| Quick launch in creative | on | the quick launch key works in creative (never in survival); off: not in this world either |
+| Launch altitude | 1,000 m | how high over the ground a quick launch puts the ship (always under the planet's space) |
+| Advanced: Orbits in the spawn area, Aerobraking strength, Encounters near sectors, Rocks per ring, Launch speed (0: the ship's cruise speed) | | see each one's description |
 
 **Your own settings** (this PC only): distant planets drawn as globes, planet rings, the orbit line and card, HUD
 markers, the align button, the orbital map, maneuver nodes, map text size, the Contacts tab, the attitude hold's turn
-rate and more.
+rate, the quick launch key (Controls: Quick launch key and modifier, Ctrl + T by default) and more.
 
 The same settings are also in two text files, re-read every couple of seconds:
 `%APPDATA%\SpaceEngineers2\ModSettings\OrbitalMod.client.cfg` (yours) and `OrbitalMod.world.cfg` next to it (a host's

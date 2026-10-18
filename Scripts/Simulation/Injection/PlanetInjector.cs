@@ -95,7 +95,7 @@ public class InjectPlanetComponents : Injections
             if (++_thrusterCount <= 3 && OrbitalLog.Setup) Log.Default?.Info($"[ORBIT] thruster prefab '{prefab.DebugName}' +StationKeepCharge");
         }
 
-        // The sensor blocks (Orbital Mod Blocks): their server prefabs, by GUID, get their sensor.
+        // The sensor blocks (Assets/Sensors): their server prefabs, by GUID, get their sensor.
         System.Guid id = default;
         try { id = prefab.Guid; } catch { }
         if (id == SensorBlocks.TelescopePrefab)

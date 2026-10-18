@@ -19,7 +19,7 @@ How the names are reached:
   `AeroMod.ThrustTorque.FlamesEnabled`; `aeroexport` -> `AeroMod.AeroExport.Enabled`; `aeroflight` ->
   `AeroMod.AeroGridComponent+AeroFlightTest.Enabled`/`.Only`; `aeroaware` -> `AeroMod.ThrustTorque.AeroAware`;
   `pitchlog` -> `AeroMod.AeroGridComponent.PitchLog`; `aerocost` -> `AeroMod.AeroCost.Log`; `aero` ->
-  `AeroMod.AeroSwitch.Enabled`; `aerospike` -> `AeroMod.AeroSpeedSpike.Enabled`; `fxcheck` -> `AeroApi.GetFxConsistency`;
+  `AeroMod.AeroSwitch.Enabled`; `fxcheck` -> `AeroApi.GetFxConsistency`;
   `flightdump` -> `AeroMod.FlightFixture.Build`; `gridup` -> `AeroMod.PhysicsHack.GetGravityDirection`; `gen ... air`
   -> `AeroMod.AeroEntryFx.TestWorld`. The AeroApi/OrbitalApi members themselves are guarded by
   `tools/check_contract.sh`.
@@ -36,7 +36,6 @@ How the names are reached:
 | `aeroflight` | aeroab.sh |
 | `aeroget` | 15 scripts (bakedcheck.sh, checkall.sh, combo.sh, experiments/fxlook.sh, ...) |
 | `aeroset` | 20 scripts (bakedcheck.sh, checkall.sh, ctrlcheck.sh, experiments/bakeprof.sh, ...) |
-| `aerospike` | relaunch.sh |
 | `alignbtn` | experiments/hudgeom.sh, experiments/lowresui.sh, experiments/membisect.sh |
 | `approach` | test_smoke.sh |
 | `atmosphz` | experiments/atmoab.sh |
@@ -150,6 +149,7 @@ tools/flightdump.sh.)
 | `contactdel` | ContactsTab.cs | contactsave.sh, contactshot.sh |
 | `contactrename` | ContactsTab.cs | experiments/showshot.sh |
 | `flytest` | FlyTest.cs | loacdiag.sh, structtest.sh, experiments/structprof.sh |
+| `quicklaunch` | QuickLaunch.cs (the player's quick launch, server-checked: creative only; the key's seat / typing checks skipped) | (none yet) |
 
 ## Statics read and set by name (aeroget / aeroset)
 

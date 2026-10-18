@@ -16,7 +16,7 @@
       "BlockKind": "0b170002-5e50-4000-8000-000000000007",
       "ConsumedResource": {
         "Type": "bcded093-f5c0-4997-af3a-a6fbd853ad66",
-        "Amount": 200
+        "Amount": 20
       }
     },
     "DefinitionType": "Game2:Keen.Game2.Simulation.WorldObjects.CubeBlocks.PowerableBlockDefinition",

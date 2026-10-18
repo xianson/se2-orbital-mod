@@ -2,6 +2,15 @@
 
 For players. The developer-facing history (commits, API changes, internals) is in [CHANGELOG.md](CHANGELOG.md).
 
+## 1.0.1
+
+- **Quick launch (creative only).** Seated in a cockpit, `Ctrl` + `T` lifts your ship (and everything joined to it) to
+  1,000 m over the ground, turns it level and sends it flying along its nose at its cruise speed - never lower than it
+  is, never into the ground, always under the planet's space. Survival worlds: nothing happens ("creative only").
+  Change the key under Settings > Mods > Orbital > **Controls** (a letter with Ctrl, Shift, Alt or nothing, or off); the
+  host sets **Launch altitude** and **Launch speed**, or turns **Quick launch in creative** off for the world.
+- The Radar draws 20 power units idle (it shipped so in the Workshop upload; the 1.0.0 files said 200).
+
 ## 1.0.0 - first public release
 
 Needs Space Engineers 2 2.4.x started with the `-loadScripts` launch option (see [the player guide](README_PLAYERS.md)).

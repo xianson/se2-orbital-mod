@@ -6,7 +6,7 @@
   "$Type": "VRage:Keen.VRage.Core.Project.VRageProjectData",
   "$Value": {
     "Name": "Orbital Mod",
-    "Version": null,
+    "Version": "1.0.1",
     "Type": "Mod",
     "ProjectID": {
       "Guid": "5ce22786-98f3-445a-85fe-8a0e82fd252c",

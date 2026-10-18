@@ -109,7 +109,7 @@ else
     MARK=0; MARK0=0
     [ -z "$loaded" ] && { record "launch: the world loaded within 150 s" "no new log with a loaded world (log: ${L:-none})"; exit 1; }
     grep -aq 'Loading Failed' "$L" && { record "launch: the world loaded" "Loading Failed in $L"; exit 1; }
-    poll 60 bash -c "\"$ORB\" findgrids | grep -aq '='" || { record "launch: the harness answers" "findgrids unanswered 60 s after the load"; exit 1; }
+    poll 60 gridsup || { record "launch: the harness answers" "findgrids unanswered 60 s after the load"; exit 1; }
 fi
 echo "   world: $(grep -a -m1 'Running application with arguments' "$L" | grep -o '\-start:[^-]*' | head -1) log $(basename "$L") ($(el) s)"
 NPLANETS=$(since | grep -ac '\[ORBIT\] beacon Root Entity')

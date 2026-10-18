@@ -39,10 +39,14 @@ skip() { skipped=$((skipped + 1)); results+=("SKIP  $1: $2"); echo "${results[-1
 # LOGF: the newest game log as log() finds it, but stricter (the name ends in a digit; the stats log left out too).
 # waitloaded: the opening of a one-launch script - the world loaded or failed (up to 300 s), then the
 # harness answering with grids (up to 60 s); waits only, no verdict.
+# gridsup: the findgrids REPLY names a grid (orb.sh prints the whole status tail, whose other lines hold '=' too: a bare
+# grep '=' passed at once - 2026-10-18, a baseline read 0 grids while the server sat in a 14 s GC hitch, its views unpublished)
+gridsup() { "$ORB" findgrids | grep -a '> findgrids  =>' | tail -1 | grep -aq ' [0-9][0-9]*='; }
+export -f gridsup; export ORB   # (contactshot / targetshot call it inside bash -c)
 LOGF() { ls -t "$LOGDIR"/SpaceEngineers2_*[0-9].log | grep -v "Render\|Mission\|Stats" | head -1; }
 waitloaded() {
     for i in $(seq 1 300); do grep -aq 'beacon Root Entity\|Loading Failed' "$(LOGF)" 2>/dev/null && break; sleep 1; done
-    for i in $(seq 1 60); do "$ORB" findgrids | grep -aq '=' && break; sleep 1; done
+    for i in $(seq 1 60); do gridsup && break; sleep 1; done
 }
 
 # ask CMD...: the commands in one batch, then each one's reply (the text after "  =>  " in its status note), a line each,

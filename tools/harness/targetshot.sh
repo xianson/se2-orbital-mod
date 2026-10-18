@@ -23,7 +23,7 @@ tgt() { reply targets | sed -n "s/.*=>  target \([^|]*\) | line \([^|]*\) |.*/\1
 
 echo "== launch"; "$SP/relaunch.sh" 2>&1 | tail -1
 MARK=0
-poll "load: planets and grids" 60 bash -c "grep -aq 'server planet prefab' \"$(log)\" && \"$SP/orb.sh\" findgrids | grep -aq '='"
+poll "load: planets and grids" 60 bash -c "grep -aq 'server planet prefab' \"$(log)\" && gridsup"
 
 mark; send "gridlaunch $J 60"
 poll "setup: the test grid goes on rails (a ship of yours in orbit)" 30 logs "STOW grid $J"

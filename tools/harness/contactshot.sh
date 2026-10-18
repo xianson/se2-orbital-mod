@@ -21,7 +21,7 @@ ct() { reply "contactstab $*" | sed 's/.*=>  //'; }
 
 echo "== launch"; "$SP/relaunch.sh" 2>&1 | tail -1
 MARK=0
-poll "load: planets and grids" 60 bash -c "grep -aq 'server planet prefab' \"$(log)\" && \"$SP/orb.sh\" findgrids | grep -aq '='"
+poll "load: planets and grids" 60 bash -c "grep -aq 'server planet prefab' \"$(log)\" && gridsup"
 gps0=$(reply gps | sed 's/.*=>  //' | grep -o "[0-9]* marker(s)" ); echo "      real GPS before: $gps0"
 mark; send "gridlaunch $J 60"
 poll "setup: the test grid goes on rails" 30 logs "STOW grid $J"

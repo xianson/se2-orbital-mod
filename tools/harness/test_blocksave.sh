@@ -111,7 +111,7 @@ start() {
     grep -aq 'Loading Failed' "$L" && { record "$1: the world loaded" "Loading Failed in $L"; return 1; }
     local lw; lw=$(logworld "$L")
     [ "$lw" = "$W" ] || { record "$1: the game loaded the test world" "its -start: is '$lw', the args file's '$W'"; return 1; }
-    poll 60 bash -c "\"$ORB\" findgrids | grep -aq '='" || { record "$1: the harness answers" "findgrids unanswered 60 s after the load"; return 1; }
+    poll 60 gridsup || { record "$1: the harness answers" "findgrids unanswered 60 s after the load"; return 1; }
     # (the grids stream in after the first answer: wait for GRID itself, up to 60 s - a partial list missed the SSTO, 2026-10-15)
     poll 60 bash -c "\"$ORB\" findgrids | tr ' ' '\n' | grep -aiq '=$GRID\$'" || true
     record "$1: '$W' loaded, the harness answers ($(el) s)" ""

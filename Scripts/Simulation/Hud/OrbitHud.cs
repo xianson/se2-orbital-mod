@@ -188,6 +188,7 @@ public static class OrbitHud
             if (et != null) lines.Add(et);
             else if (EntryHost.AirGapLine(now2) is string gap) lines.Add(gap);
             if (AttitudeHold.Current != AttitudeHold.Mode.Off) lines.Add($"HOLD  {AttitudeHold.Label(AttitudeHold.Current)}");
+            if (Contacts.LoudLine is string loud) lines.Add(loud);   // (you are heard: a radar of yours transmits - fx-detect)
             _info = (title, rows, lines);
             // (the plot's own words, made here twice a second - drawn every frame they were new strings every frame)
             _capHeader = r != null && !r.Escape ? SEAerospace.MapUi.Words.PeriodIncl(r.Period, r.IncDeg) : null;

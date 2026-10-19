@@ -191,7 +191,8 @@ public static partial class CleanMap
     internal static void MessageStrip()
     {
         int n = Messages.MapLines(_msg);
-        if (n == 0) return;
+        string loud = Contacts.LoudLine;   // (you are heard: shown while it lasts, over the notices - fx-detect)
+        if (n == 0 && loud == null) return;
         float u = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
         float ts = 0.72f * MapPipeline.MapText, ks = 0.58f * MapPipeline.MapText;
         float lh = MapPipeline.MeasureText("Ag", ts).Y + 8f * u;
@@ -212,9 +213,18 @@ public static partial class CleanMap
             MapPipeline.ScreenText(new Vector2(x + 10f * u, y + (lh - 3f * u - tsz.Y) * 0.5f), tag, HudPanel.Alpha(kc, a), ks);
             MapPipeline.ScreenText(new Vector2(x + tsz.X + 22f * u, y + (lh - 3f * u - xsz.Y) * 0.5f), text, HudPanel.Alpha(Text, a), ts);
         }
+        if (loud != null)
+        {
+            var lc = new ColorSRGB(1.00f, 0.55f, 0.25f, 1f);
+            float y = bottom - (n + 1) * lh;
+            var xsz = MapPipeline.MeasureText(loud, ts);
+            MapPipeline.ScreenRect(new Vector2(x, y), new Vector2(x + xsz.X + 20f * u, y + lh - 3f * u), MsgPlate);
+            MapPipeline.ScreenRect(new Vector2(x, y), new Vector2(x + 3f * u, y + lh - 3f * u), lc);
+            MapPipeline.ScreenText(new Vector2(x + 10f * u, y + (lh - 3f * u - xsz.Y) * 0.5f), loud, lc, ts);
+        }
     }
 
-    const string HintGizmo ="Drag a handle: the burn (Shift: fine, Ctrl: snap)   ·   Drag the node along the path   ·   Right-click: options";
+    const string HintGizmo = "Drag a handle: the burn (Shift: fine, Ctrl: snap)   ·   Drag the node along the path   ·   Right-click: options";
     const string HintGizmoUndo = HintGizmo + "   ·   Ctrl+Z: undo";
     const string HintMap = "Drag: pan   ·   Right-drag: orbit   ·   Wheel: zoom   ·   Double-click: focus   ·   N or right-click: target   ·   Home: your ship   ·   , . /: warp";
     const string HintMapUndo = HintMap + "   ·   Ctrl+Z: undo";
@@ -399,7 +409,7 @@ public static partial class CleanMap
             if (!(par.IsRoot || _detail.Contains(par.Name))) continue;
             Vector3D porg = par.OriginInRoot(t).Position;
             bool tgt = e.Key == Maneuvers.Target;
-            var col = tgt ? TargetText : e.Yours ? OwnColor : EncColor;
+            var col = tgt ? TargetText : e.Yours ? OwnColor : HudPanel.Alpha(EncColor, (float)(EncColor.A / 255.0 * Contacts.Fade(e.Key)));   // (a stale contact dimmed - fx-detect)
             if (Targets.Orbit(e.Key, out var opar, out var el) && opar == par)
             {
                 double R = reg.FindDefinition(par.Name)?.RadiusMeters ?? 0;

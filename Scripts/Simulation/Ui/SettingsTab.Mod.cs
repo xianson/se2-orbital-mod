@@ -27,6 +27,10 @@ public static partial class SettingsTab
     /// <summary>A group's every setting (any scope) back to its default.</summary>
     static int ResetGroup(string group, out string why) => OrbitalSettings.ResetGroup(null, group, out why);
 
+    /// <summary>A setting's values that are words (UI audit C7, 2026-10-18: the planet day's slider read "-1 s" for "the world's own").</summary>
+    static Dictionary<double, string> Specials(string name)
+        => name == "Orbit.PlanetDaySeconds" ? new Dictionary<double, string> { [-1] = "the world's own", [0] = "no spin" } : null;
+
     /// <summary>Every registered setting as the menu's rows, in registration order (Order).</summary>
     internal static void Gather(List<SettingsModel.Row> rows)
     {
@@ -43,6 +47,7 @@ public static partial class SettingsTab
                 Name = n, Type = type, Scope = scope, Label = string.IsNullOrEmpty(label) ? n : label, Group = group, Tier = tier ?? "basic",
                 Unit = unit ?? "", Doc = doc, Note = reload ? "Applies after a world reload." : null,
                 Min = min, Max = max, Default = def, Step = step, Choices = choices, Order = k,
+                Specials = Specials(n),
             });
         }
     }

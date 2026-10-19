@@ -22,7 +22,11 @@ namespace OrbitalMod;
 // replication registration (vanilla models carry generated [Replicate] code mods cannot make): KeyNotFoundException in
 // ObservableObjectReplicationSessionComponent.TranslateLocalToRemote from StreamedControlPanelSessionComponent.
 // AttachBlockDetailModels - an unobserved exception, fatal. Never re-add [BlockDetailProvider] here.
-public class OrbitalHoldDetailModel : BlockDetailModel
+// SE2 4.0 runs the serializer generators on mod scripts: a partial BlockDetailModel gets a generated named-object
+// serializer whose code needs System.ObjectModel (INotifyPropertyChanged), which mod compiles do not reference (CS0012).
+// [NoSerialize] turns those generators off for the model - mod models were never serialized (DetailModelPairing).
+[Keen.VRage.Library.Serialization.NoSerialize]
+public partial class OrbitalHoldDetailModel : BlockDetailModel
 {
     [Component] private CockpitComponent _cockpit;
 

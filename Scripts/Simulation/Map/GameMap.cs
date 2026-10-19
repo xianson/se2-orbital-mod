@@ -97,7 +97,7 @@ public static class GameMap
             foreach (var si in infos)
             {
                 var st0 = SectorColonizationState.Locked;
-                try { if (progress != null) st0 = progress.GetGlobalProgressFor(si.Sector).State; } catch { }
+                try { if (progress != null && progress.IsReplicated) st0 = progress.GetProgressFor(progress.GlobalOwner, si.Sector).State; } catch { }   // (4.0: GetGlobalProgressFor -> GlobalOwner)
                 bands.Add(new CleanMap.Band
                 {
                     Name = si.Sector.Name, Host = si.Host, Home = si.Home, State = st0,

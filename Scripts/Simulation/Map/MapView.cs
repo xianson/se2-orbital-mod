@@ -198,7 +198,7 @@ public static class MapView
                 {
                     // (no sectors: its sector selection would index an empty list - off before showing)
                     if (show) { map.ToggleSectorSelection(false); EnsureDiscoveries(map); }
-                    map.ToggleMap();
+                    if (show) map.ShowMap(); else map.HideMap();   // (4.0 dropped ToggleMap, which was exactly this)
                 }
                 _sceneOurs = show;
                 Backdrop(show);

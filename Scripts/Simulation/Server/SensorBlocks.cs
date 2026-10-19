@@ -125,7 +125,11 @@ public class RadarComponent : Component, IInSceneListener,
 /// </summary>
 [BlockDetailProvider]
 [BlockDetailDisplayMode(DisplayMode.Controls)]
-public class RadarBlockDetailModel : BlockDetailModel
+// SE2 4.0 runs the serializer generators on mod scripts: a partial BlockDetailModel gets a generated named-object
+// serializer whose code needs System.ObjectModel (INotifyPropertyChanged), which mod compiles do not reference (CS0012).
+// [NoSerialize] turns those generators off for the model - mod models were never serialized (DetailModelPairing).
+[Keen.VRage.Library.Serialization.NoSerialize]
+public partial class RadarBlockDetailModel : BlockDetailModel
 {
     /// <summary>Its members for the inspector (ModDetailTypeInfo).</summary>
     static readonly Keen.VRage.Library.Serialization.AccessibleTypeInfo _typeInfo = ModDetailTypeInfo.Build<RadarBlockDetailModel>(

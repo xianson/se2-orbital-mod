@@ -131,8 +131,9 @@ public static partial class EncounterFrames
         if (live)
         try
         {
-            var own = g.Session?.SessionComponents.TryGet<OwnershipSessionComponent>();
-            if (own != null) npc = own.IsNpc(g.Entity) || own.IsHostileNpc(g.Entity);
+            // (SE2 4.0 moved the NPC checks from OwnershipSessionComponent to IdentitiesSessionComponent; IsNPC covers hostile too)
+            var ids = g.Session?.SessionComponents.TryGet<Keen.Game2.Simulation.GameSystems.Identities.IdentitiesSessionComponent>();
+            if (ids != null) npc = ids.IsNPC(g.Entity);
         }
         catch { }
         if (live)

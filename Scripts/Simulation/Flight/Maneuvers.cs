@@ -2,6 +2,7 @@ using Keen.VRage.Core;
 using SEAerospace;
 using SEAerospace.Frames;
 using SEAerospace.Orbital;
+using static OrbitalMod.Num;
 
 #pragma warning disable CS0649, CS8632, CS1591, CS1573, CS1570, CS1574, CS0419, CS1734
 namespace OrbitalMod;
@@ -56,12 +57,19 @@ public static partial class Maneuvers
     {
         lock (Nodes)
         {
+            foreach (var x in Nodes) if (x == n || (andLater && x.T >= n.T)) MarkRemoved(x);
             if (andLater) Nodes.RemoveAll(x => x.T >= n.T); else Nodes.Remove(n);
         }
         if (Selected != null && !Nodes.Contains(Selected)) Selected = null;
     }
 
-    public static void ClearAll() { lock (Nodes) Nodes.Clear(); Selected = null; }
+    public static void ClearAll() { lock (Nodes) { foreach (var x in Nodes) MarkRemoved(x); Nodes.Clear(); } Selected = null; }
+
+    // Nodes the player removed (not completed): AutoBurn's "Burn done" notice is for completed burns only (2026-10-18).
+    static readonly HashSet<Node> _removedByPlayer = new HashSet<Node>();
+    static void MarkRemoved(Node n) { lock (_removedByPlayer) { if (_removedByPlayer.Count > 64) _removedByPlayer.Clear(); _removedByPlayer.Add(n); } }
+    /// <summary>The node was removed by the player (Delete / ClearAll) - asked once (the mark is taken).</summary>
+    public static bool TakeRemovedByPlayer(Node n) { lock (_removedByPlayer) return _removedByPlayer.Remove(n); }
     /// <summary>Your own orbit while riding: none kept (a new session, a new world).</summary>
     public static void ResetOwnOrbit() { lock (_own) _own.Clear(); lock (_ownDrawn) _ownDrawn.Clear(); }
 
@@ -96,6 +104,41 @@ public static partial class Maneuvers
     }
     public const double DoneDv = 0.1;         // m/s
     public static string Status = "";
+
+    // ── the next burn told (U2, 2026-10-18: its length and start were computed and never drawn; the card said "now" forever
+    //    after an auto-burn that could not thrust, or a burn left unflown) ──
+
+    /// <summary>How long what is left of the next burn takes at full thrust (s); NaN when unknown (no thrust measured).</summary>
+    public static double BurnSeconds => Accel > 1e-3 && BurnLeft > 0 ? BurnLeft / Accel : double.NaN;
+
+    /// <summary>The next burn's "when", for the card: "in 2:30", "now", "late 1:20" (past its start and not flown), or
+    /// "stopped: no thrust" / "paused" (the auto-burn's reason). Null: no burn. Made anew only when its words change.</summary>
+    public static string BurnTag
+    {
+        get
+        {
+            if (BurnLine == null) return null;
+            string reason = AutoBurn.StopReason;
+            double late = double.NaN;
+            if (BurnIn <= 0.5 && !AutoBurn.Flying && reason == null)
+            {
+                double now = SystemHost.Now, start = double.NaN, tn = double.MaxValue;
+                lock (Nodes) foreach (var n in Nodes) if (!BurnOver(n, now) && n.T < tn) { tn = n.T; start = BurnStart(n); }
+                double dur = BurnSeconds;
+                if (!double.IsNaN(start) && now - start > (IsFinite(dur) ? dur : 0) + LateSlack) late = now - start;
+            }
+            int key = reason != null ? -1 : BurnIn > 0.5 ? (int)Math.Ceiling(BurnIn) : !double.IsNaN(late) ? -2 - (int)late : 0;
+            if (key == _tagKey && ReferenceEquals(reason, _tagReason) && _tag != null) return _tag;
+            _tagKey = key; _tagReason = reason;
+            _tag = reason != null ? (reason == "paused" ? "paused" : "stopped: " + reason)
+                 : BurnIn > 0.5 ? "in " + Clock(BurnIn)
+                 : !double.IsNaN(late) ? "late " + Clock(late) : "now";
+            return _tag;
+        }
+    }
+    /// <summary>A burn not flown this long (s) past its own length after its start is "late".</summary>
+    public const double LateSlack = 10.0;
+    static int _tagKey = int.MinValue; static string _tagReason, _tag;
 
     static readonly ColorSRGB YouColor = new ColorSRGB(0.35f, 0.88f, 1.00f, 1f);   // your orbit: cyan (as KSP)
     static readonly ColorSRGB PlanColor = new ColorSRGB(0.35f, 0.90f, 1.00f, 0.9f);

@@ -37,8 +37,8 @@ public static class ShipSurface
         groundSpeed = v.Velocity.Length();
         double t = SystemHost.Now;
         var chart = Chart.Of(body, t);
-        double pe = SurfaceRule.Periapsis(chart.ToInertial(rc), chart.VelToInertial(rc, v.Velocity), gb.Mu);
-        kind = SurfaceRule.Classify(r, R, groundSpeed, pe);
+        SurfaceRule.Apsides(chart.ToInertial(rc), chart.VelToInertial(rc, v.Velocity), gb.Mu, out double pe, out double ap);
+        kind = SurfaceRule.Classify(r, R, groundSpeed, pe, ap);
         return true;
     }
 

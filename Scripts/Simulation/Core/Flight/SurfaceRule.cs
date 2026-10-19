@@ -23,20 +23,42 @@ namespace SEAerospace.Flight
 
         public static double Band(double radius) => Math.Max(MinBand, BandShare * radius);
 
+        /// <summary>The hop rule (one place - it was FrameHost.IsGrounded's alone, the player's own orbit): a path whose
+        /// periapsis is inside the body and whose apoapsis stays under max(HopMin, HopShare x radius) over the surface is no
+        /// orbit - a hop, a fall, a ship on the ground.</summary>
+        public const double HopMin = 15000, HopShare = 0.2;
+        public static bool Grounded(double periapsisRadius, double apoapsisRadius, double radius)
+            => radius > 0 && periapsisRadius < radius && apoapsisRadius < radius + Math.Max(HopMin, HopShare * radius);
+
         /// <summary>
         /// r: distance from the body's centre (m); radius: its surface radius (m; 0 or less: a body with no surface -
-        /// always an orbit); groundSpeed: speed over the ground (m/s; NaN unknown); periapsisRadius: the periapsis radius of
-        /// the inertial state (m; NaN unknown).
+        /// always an orbit); groundSpeed: speed over the ground (m/s; NaN unknown); periapsisRadius / apoapsisRadius: the
+        /// apsides of the inertial state (m; apoapsis +infinity when unbound; NaN unknown).
         /// </summary>
-        public static SurfaceKind Classify(double r, double radius, double groundSpeed, double periapsisRadius)
+        public static SurfaceKind Classify(double r, double radius, double groundSpeed, double periapsisRadius, double apoapsisRadius)
         {
             if (!(radius > 0)) return SurfaceKind.Orbit;
             if (double.IsNaN(r) || double.IsInfinity(r)) return SurfaceKind.Unknown;
             if (r < InsideShare * radius) return SurfaceKind.Unknown;
-            if (r - radius > Band(radius)) return SurfaceKind.Orbit;
-            if (!(groundSpeed > LandedSpeed)) return double.IsNaN(groundSpeed) ? SurfaceKind.Low : SurfaceKind.Landed;
-            // moving near the ground: an orbit only when its periapsis clears the surface
-            return periapsisRadius > radius ? SurfaceKind.Orbit : SurfaceKind.Low;
+            bool near = r - radius <= Band(radius);
+            if (near && !(groundSpeed > LandedSpeed)) return double.IsNaN(groundSpeed) ? SurfaceKind.Low : SurfaceKind.Landed;
+            // moving: no orbit when its path is a hop (the player's own rule); near the ground, any path that does not
+            // clear the surface is in the air
+            if (Grounded(periapsisRadius, apoapsisRadius, radius)) return SurfaceKind.Low;
+            if (near && !(periapsisRadius > radius)) return SurfaceKind.Low;
+            return SurfaceKind.Orbit;
+        }
+
+        /// <summary>Both apsides of an inertial state about mu (m): apoapsis +infinity when unbound; NaN when not finite.</summary>
+        public static void Apsides(Vector3D r, Vector3D v, double mu, out double periapsis, out double apoapsis)
+        {
+            periapsis = Periapsis(r, v, mu); apoapsis = double.NaN;
+            double rr = r.Length();
+            if (!(rr > 0) || !(mu > 0)) return;
+            double energy = 0.5 * v.LengthSquared() - mu / rr;
+            if (!(energy < 0)) { apoapsis = double.PositiveInfinity; return; }
+            double a = -mu / (2 * energy);
+            apoapsis = 2 * a - (double.IsNaN(periapsis) ? 0 : periapsis);
         }
 
         /// <summary>The periapsis radius of an inertial state about a body of gravitational parameter mu (m; NaN when not

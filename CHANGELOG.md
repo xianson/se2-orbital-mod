@@ -4,6 +4,28 @@ What changed for players and for modders. Claims come from the commits (hashes o
 nothing here was flown in game for this release (the one-run in-game check, `tools/harness/test_integrate.sh`, is
 written but has not been run).
 
+## 1.0.3 (2026-10-19) - works on SE2 4.0
+
+Ported to Space Engineers 2 **4.0.0.3151** (from 2.4.0.95; 4.0 only from this version on). Checked in game on 4.0 with
+the Aerodynamics Mod: loads, warp billing, the settings tab, the map opens, the structure alerts; no exception in our
+code, no crash.
+
+- **Compiles on 4.0:** the hold's and the radar's control-panel models are `partial` + `[NoSerialize]` (4.0 runs the
+  serializer generators on mod scripts; their output needs an assembly mods cannot reference). Moved APIs:
+  `IdentitiesSessionComponent.IsNPC` (was `OwnershipSessionComponent.IsNpc` / `IsHostileNpc`; encounter frames),
+  `IColonizationProgress.GetProgressFor(GlobalOwner, sector)` (was `GetGlobalProgressFor`; the clean map's sector bands),
+  `ColonizationMapSessionComponent.ShowMap` / `HideMap` (was `ToggleMap`; the sectorless map).
+- **The radar's control panel**: 4.0 drops a mod panel model's network request unless the model is paired in the
+  server transport's replication tracker (`DetailModelPairing`, the Aero mod's fix; there checked in game - here the
+  in-game probe could not open the terminal on 4.0, so the radar panel is not verified in game). "Transmit Power" added to
+  the en-US texts (4.0 checks control-panel labels; it does not pick up the mods' en-US texts yet - its own block names
+  are reported as missing keys too - so the log lines stay; the text shown is the same English text).
+- **Engine internals that moved** (every reflected name re-checked against 4.0): the map rings' colour
+  (`ColoringCustomData.PrimaryColoringHSV` / `SecondaryColoringHSV`), the proxy atmospheres
+  (`CreatePlanetEnvironmentEntity` takes a `PlanetEnvironmentEntityBuildParameters` struct), the contacts tab's regroup
+  (`GPSViewModel.RequestRefreshTree`; its marker view models are a dictionary), the radar panel probe
+  (`ControlPanelViewModel.Tree.Blocks`).
+
 ## 1.0.2 (2026-10-19)
 
 The UI audit's fixes (2026-10-18; offline-tested, not yet flown in game). Flight / data side (branch fix/fx-flight):

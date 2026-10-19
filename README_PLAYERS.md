@@ -41,9 +41,9 @@ arriving in the same place at the same time, and come back down through a re-ent
   The orbit card warns you ahead ("ENTRY 2:46 · 1,669 → 990 m/s · heat 82%": heat is how much of what your hull takes
   the pass puts in; over 100% the forward blocks wear). A planned deorbit shows its entry on the map and where it comes
   down ("Lands on Verdure near ..."); a periapsis just above the air says how low it must go.
-- **Sensors.** Two new blocks, unlocked from the start: the **Telescope** (passive; spots sunlit or warm things far
-  away, gives nothing away) and the **Radar** (active; ranges everything in reach, but others see you). What you can target beyond your own
-  things is what you have seen. The map's GPS tab becomes a Contacts list.
+- **Sensors.** Two new blocks, unlocked from the start: the **Telescope** (passive, silent) and the **Radar** (active,
+  loud). What you can target beyond your own things is what you have seen (see **Sensors and contacts** below). The
+  map's GPS tab becomes a Contacts list.
 - **Speed cap.** Inside a planet's space the speed cap is raised from 300 to 1,000 m/s; on rails nothing caps you.
 
 ## Keys
@@ -55,7 +55,8 @@ arriving in the same place at the same time, and come back down through a re-ent
 | `N` | target what is under the crosshair (in flight) or the cursor (on the map); again: the next thing there |
 | `;` | attitude hold on / off (seated) |
 | `Ctrl` + `;` | pick the hold mode: prograde, retrograde, normal, anti-normal, radial out / in, level |
-| `Del`, `F2` | on the Contacts tab: hide a row / rename it |
+| `Del` | on the Contacts tab: hide a row (under Hidden; `Del` there brings it back) - a GPS point is deleted |
+| `R` or `F2` | on the Contacts tab: rename a row |
 
 On the map: right-click your path to **Add maneuver**, right-click a maneuver to remove it or **Edit exact values...**
 (prograde, normal, radial in m/s, e.g. `120, 0, -5`), drag its six handles to add delta-v. Notices (a target set, a
@@ -65,6 +66,50 @@ the map.
 **Quick launch** (`Ctrl` + `T` seated, creative worlds) is part of the **Aerodynamics Mod** now (its settings: Settings >
 Mods > Aerodynamics, Quick launch and Controls). With both mods loaded, this mod moves the ship for it and keeps it under
 the planet's space; ships on rails are not moved.
+
+## Sensors and contacts
+
+Other ships, stations, wrecks and rocks are unknown until something of yours sees them: your own eyes (20 km), or a
+working Telescope or Radar on one of your grids, with no planet or moon in between.
+
+- **Telescope** (passive, gives nothing away): sunlight off things (not near the sun, less against a planet's bright
+  day side, none in a planet's shadow), a hull's warmth close by, the **plume of engines firing** (a ship burning
+  4 MN shows ~600 km off; a drifting one only close), and any radar that transmits. It gives a bearing, not an orbit:
+  a contact it sees is **tracked** after about 2 minutes of watching (seconds with its lidar on your target, which
+  your target can see).
+- **Radar** (active): every contact in reach at once, its orbit fixed at once. Reach goes with the target's size and
+  the fourth root of its **Transmit Power** (a slider in the radar's control panel; it draws 20 + 380 × power):
+
+  | at full power | reach |
+  |---|---|
+  | a small ship (8 m) | ~200 km |
+  | a large ship (35 m) | ~420 km |
+  | a big station (~200 m) | ~1,200 km |
+  | a rock 3 km across | ~2,200 km |
+
+  At a quarter of the power, half the reach. From a 300 km orbit over Verdure a full-power radar sees large ships on
+  the ground below (not small ones, not the far side).
+- **Transmitting is loud.** While your radar transmits, any telescope or radar hears it far beyond its own reach
+  (~4,000 km at full power, half that at a quarter): a notice says so when you start, and the HUD shows it. Another
+  ship's radar is heard the same way by yours. Hearing gives a bearing only.
+- **A ship's signature is its own:** its size, its engines firing, its radar - a fighter is harder to find than a
+  freighter, and a ship burning hard is easy to spot.
+- **Detected or tracked.** A contact only detected (a "≈" before its name) shows where it is, roughly, with its
+  tracking % - no orbit, no closest approach, no rendezvous until it is tracked.
+- **Contacts age.** Each remembers when it was last seen. A moving ship unseen for 30 minutes (game time) is stale:
+  its orbit is an estimate and it fades; unseen for 24 hours it is forgotten. Stations, wrecks and rocks stay known.
+  Both times are settings (Flight HUD, Advanced).
+- **New rocks** are announced once per pass ("Oblivara: 7 rocks spotted"), a new ship at once.
+- **The Contacts tab** (Map > Contacts): groups with their counts - Target (a "Clear target" row while one is set),
+  Your ships, Contacts, Planets and moons, Sectors, Rocks (the nearest 40 you have seen), Places, Hidden. A contact's
+  row says what it is and how it is known ("≈ Red Ship [large ship · radar · tracking 40% · seen 2 h ago]"); its
+  distance is the distance column. Selecting a row targets it; the target panel then shows its range, bearing (ahead /
+  left / right / behind, up / down, from your orbit), relative speed (tracked only), what saw it and when.
+- **Targeting.** `N` on the map takes what is under the cursor; in flight, what is nearest the crosshair - a marked
+  contact, a planet, a ship the game already marks, a sector or a rock you have seen. When nothing is taken it says
+  why: nothing there (and how to find things), or a ship's position unknown. A ship on the ground can be targeted:
+  "Target: Red Ship · landed on Verdure" - its closest approach is to where it stands.
+- Not modelled: sensor direction or field of view (a sensor sees all round), and others' lidar.
 
 ## Settings
 

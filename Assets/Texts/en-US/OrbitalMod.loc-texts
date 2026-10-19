@@ -1,6 +1,6 @@
 {
   "Telescope": "Telescope",
   "Radar": "Radar",
-  "Passive optical and infrared telescope. Spots sunlit ships and rocks far off, and warm hulls in shadow. Silent: it gives nothing away.": "Passive optical and infrared telescope. Spots sunlit ships and rocks far off, and warm hulls in shadow. Silent: it gives nothing away.",
-  "Active radar. Ranges every contact in reach at once, fast and exact, but anyone about twice as far away sees you.": "Active radar. Ranges every contact in reach at once, fast and exact, but anyone about twice as far away sees you."
+  "Passive optical and infrared telescope. Spots sunlit rocks and stations far off, warm hulls close by, a firing ship's engine plume far off, and any radar that transmits. Silent: it gives nothing away.": "Passive optical and infrared telescope. Spots sunlit rocks and stations far off, warm hulls close by, a firing ship's engine plume far off, and any radar that transmits. Silent: it gives nothing away.",
+  "Active radar. Ranges every contact in reach at once and fixes its orbit (at full power a large ship ~400 km, a big station ~1200 km). While it transmits, any telescope or radar hears it about ten times as far. Transmit Power: in its control panel.": "Active radar. Ranges every contact in reach at once and fixes its orbit (at full power a large ship ~400 km, a station ~1200 km). While it transmits, any telescope or radar hears it about ten times as far. Transmit Power: in its control panel."
 }

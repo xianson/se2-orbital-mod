@@ -377,11 +377,12 @@ namespace SensingTest
         static void ReasonTexts()
         {
             Console.WriteLine("-- targeting reasons");
-            Ok("landed wins", Reasons.Of("Verdure", false) == Reasons.Why.Landed);
-            Ok("off this view", Reasons.Of(null, false) == Reasons.Why.NotOnView);
-            Ok("else targetable", Reasons.Of(null, true) == Reasons.Why.None && Reasons.Text(Reasons.Why.None) == null);
-            string t = Reasons.Text(Reasons.Why.Landed, "Red Ship", "Verdure");
-            Ok("landed: says where", t.Contains("Red Ship") && t.Contains("landed on Verdure"), t);
+            Ok("a place unknown wins (never a target)", Reasons.Of(true, false) == Reasons.Why.Unknown && Reasons.Text(Reasons.Why.Unknown, "Red Ship").Contains("Red Ship"));
+            Ok("off this view", Reasons.Of(false, false) == Reasons.Why.NotOnView);
+            Ok("else targetable", Reasons.Of(false, true) == Reasons.Why.None && Reasons.Text(Reasons.Why.None) == null);
+            string t = Reasons.TargetSet("Red Ship", "Verdure");
+            Ok("a landed ship is a target, and says where it is", t.StartsWith("Target: Red Ship") && t.Contains("landed on Verdure"), t);
+            Ok("... any other: the plain line", Reasons.TargetSet("Kemik", null) == "Target: Kemik");
             string n = Reasons.Text(Reasons.Why.Nothing);
             Ok("nothing: says how to find things (Telescope / Radar)", n.Contains("Telescope or Radar") && n.StartsWith("Nothing to target under the cursor"), n);
             Ok("... in flight: at the crosshair", Reasons.Text(Reasons.Why.Nothing, flight: true).StartsWith("Nothing to target at the crosshair"));

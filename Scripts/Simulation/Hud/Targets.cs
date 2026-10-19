@@ -317,16 +317,22 @@ public static class Targets
     }
 
     /// <summary>
-    /// Why this key cannot be your target now (the words to say), or null when it can (2026-10-19: N or a click on a ship on
-    /// the ground took it, with an impossible orbit; nothing said why a pick failed). Landed: fx-flight's rule
-    /// (Contacts.LandedOn) - a ship on the ground has no orbit to meet.
+    /// Why this key cannot be your target now (the words to say), or null when it can (2026-10-19: nothing said why a pick
+    /// failed). A ship whose place is unknown (fx-flight's B1: deep inside a body, no real place) never is; a landed one is
+    /// (its closest approach is to where it stands - SetTarget says so).
     /// </summary>
     public static string WhyNot(string key)
     {
         if (key == null || !GridOf(key, out long id)) return null;
-        string body = Contacts.LandedOn(id);
-        var why = SEAerospace.Sensing.Reasons.Of(body, true);
-        return SEAerospace.Sensing.Reasons.Text(why, Name(key), body != null ? SystemHost.DisplayName(body) : null);
+        bool unknown = ShipSurface.Of(id, out var k, out _, out _, out _) && k == SEAerospace.Flight.SurfaceKind.Unknown;
+        return SEAerospace.Sensing.Reasons.Text(SEAerospace.Sensing.Reasons.Of(unknown, true), Name(key));
+    }
+
+    /// <summary>What setting this target says: "Target: X", with "landed on Verdure ..." for a ship on the ground.</summary>
+    public static string SetText(string key)
+    {
+        string body = GridOf(key, out long id) ? Contacts.LandedOn(id) : null;
+        return SEAerospace.Sensing.Reasons.TargetSet(Name(key), body != null ? SystemHost.DisplayName(body) : null);
     }
 
     public static bool HasGrid(ProximityFrame f) { foreach (long id in f.Members) if (GridMembers.IsGridId(id)) return true; return false; }

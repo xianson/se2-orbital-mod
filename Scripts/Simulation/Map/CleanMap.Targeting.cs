@@ -47,14 +47,14 @@ public static partial class CleanMap
         => Maneuvers.Target == key ? new MapMenu.Item(named ? "Clear target: " + name : "Clear target", () => SetTarget(null))
                                    : new MapMenu.Item(named ? "Target " + name : "Set as target", () => SetTarget(key));
 
-    /// <summary>Set (or clear) the target, and say so - or say why not (Targets.WhyNot: landed). The map's N, its lists,
-    /// its menus, the Contacts tab and flight's N all come here.</summary>
+    /// <summary>Set (or clear) the target, and say so ("landed on Verdure" for a ship on the ground) - or say why not
+    /// (Targets.WhyNot: its place unknown). The map's N, its lists, its menus, the Contacts tab and flight's N all come here.</summary>
     public static void SetTarget(string key)
     {
         string why = Targets.WhyNot(key);
         if (why != null) { Messages.Say(SEAerospace.Flight.MessageKinds.Target, why); return; }
         Maneuvers.Target = key;
-        Messages.Say(SEAerospace.Flight.MessageKinds.Target, key == null ? "Target cleared" : "Target: " + Targets.Name(key));
+        Messages.Say(SEAerospace.Flight.MessageKinds.Target, key == null ? "Target cleared" : Targets.SetText(key));
     }
 
     /// <summary>N on the map: target what is under the cursor (again: the next thing there; on the target alone: clear it).</summary>

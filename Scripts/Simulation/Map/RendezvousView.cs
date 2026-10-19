@@ -367,7 +367,7 @@ public static class RendezvousView
         if (Porkchop.Picked) MakeTransfer(c, from, to, t, haveBase, bb, bel, tn);
         MapPipeline.ClipRect = null;
         CleanMap.Plated(head, $"Rendezvous · {tn}", white, 1.05f * MapPipeline.MapText);
-        CleanMap.Plated(head + new Vector2(0, 34f * u), PickHint, Dim, 0.8f * MapPipeline.MapText);
+        CleanMap.Plated(head + new Vector2(0, 34f * u), PickHint, TabText, 0.8f * MapPipeline.MapText);   // (Dim was lost in the sun's glare - 2026-10-19)
         Status = $"windows to {to.Name} about {c.Name}: {Porkchop.Status}; plan dep {(double.IsNaN(dep) ? "-" : Maneuvers.Clock(dep - t))} entry {(double.IsNaN(arr) ? "-" : Maneuvers.Clock(arr - t))} dv {dv:F0} {note}";
     }
 

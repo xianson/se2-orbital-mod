@@ -46,9 +46,16 @@ Detection and targeting (branch fix/fx-detect):
 - **Transmitting is loud.** A working radar is heard one-way by any telescope or radar at 4,000 km x sqrt(power) - a
   bearing, not an orbit; others' radars are heard by yours. `Contacts.LoudLine` / `LoudReach` for the HUD and a notice
   when you start ("You are transmitting: ... heard within ~4,000 km").
-- **The radar's Transmit Power slider is in its control panel.** It never showed (no display mode, no member list) and
-  opening the panel risked the game's fatal `KeyNotFoundException`; now as the Aerodynamics Mod's panels
-  (`DetailModelPairing`, `ModDetailTypeInfo`, copied).
+- **The radar's Transmit Power slider is held back.** It never showed (no display mode, no member list) and opening the
+  panel risked the game's fatal `KeyNotFoundException`. The fix is written as the Aerodynamics Mod's panels
+  (`DetailModelPairing`, `ModDetailTypeInfo`, copied), but its in-game check did not complete, so the radar's panel model
+  stays unexposed (no `[BlockDetailProvider]`): a radar transmits at full power and its block text no longer promises a
+  slider. Switch it off to go quiet.
+- **Map and card layout (fix-finish).** The landing estimate's words ("Lands on Verdure near ...") are always drawn (they
+  were culled among the ship names round the globe); map labels never overlap once shown (a shown label kept its place
+  3 px into another's); "Verdure L4 · L4" says its point once; the relative plot's title stops short of the disc's
+  header, and the disc's Ap/Pe labels stay off the relative plot; the sun's lens flare is off while the map is open (its
+  ghosts read as a second sun); the porkchop's sub-line and other plated map text are darker-plated.
 - **Contacts age.** When each was last seen is kept (saved: `knowngrid <id> <time>`; older saves load as seen now). A
   moving ship unseen for `Hud.ContactStaleMinutes` (30) is stale - its orbit an estimate ("closest 40 km in 12:00 ·
   estimate (seen 2 h ago)"), faded; unseen for `Hud.ContactForgetHours` (24) it is forgotten. Stations, wrecks, rocks

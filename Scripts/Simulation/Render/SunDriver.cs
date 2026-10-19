@@ -28,6 +28,7 @@ public static class SunDriver
 
     public static void Tick(Keen.VRage.Core.Game.Systems.Session session, Vector3D observerWorld, double t)
     {
+        MapFlare(Enabled && MapView.Visible && CleanMap.Enabled);
         ISunDebug sun = null;
         try { sun = session.Get<ISunDebug>(); } catch { }
         if (sun == null) { Status = "no ISunDebug"; return; }
@@ -93,7 +94,67 @@ public static class SunDriver
     private static Vector3D _inertialLight;
     private static bool _haveInertial;
     /// <summary>A new session: take the sun again.</summary>
-    public static void Reset() { _haveInertial = false; }
+    public static void Reset() { _haveInertial = false; _flareOff = false; _savedFlare = null; _flareCheckAt = 0; }
+
+    // ---- THE SUN'S LENS FLARE ON THE MAP (2026-10-19, fix-finish: "a second sun on the map" stayed after the sky's sun went
+    // behind the map's star - it was the flare's ghosts: two glows on the line from the sun through the screen's centre, the
+    // look of a camera lens, which the map is not). While the map is open the render settings' LightSettings.SunFlare is
+    // null (the renderer takes null: no sun flare - FlaresContext.AddFlare/RemoveFlare/GetFlareId); on closing it is put
+    // back, unless something set another flare meanwhile (a new environment's). Client render settings only: nothing saved
+    // or synced. Reflection: RenderEngineComponent.Instance.RenderContracts.GetSettings().LightSettings (docs/REFLECTION_AND_WHITELIST.md).
+    static object _savedFlare; static bool _flareOff, _flareFailed; static double _flareCheckAt;
+    static System.Reflection.MethodInfo _getSettings; static System.Reflection.PropertyInfo _lightProp; static System.Reflection.FieldInfo _flareField;
+    /// <summary>For the harness: what the map did to the sun's flare.</summary>
+    public static string FlareStatus = "-";
+
+    static void MapFlare(bool hide)
+    {
+        if (_flareFailed) return;
+        double wall = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+        // (hidden: looked at again once a second - a new environment puts its flare back; the settings struct is boxed to read)
+        if (hide == _flareOff && !(hide && wall >= _flareCheckAt)) return;
+        _flareCheckAt = wall + 1;
+        try
+        {
+            var contracts = PlanetRenderBridge.Contracts;
+            if (contracts == null) { FlareStatus = "no render contracts"; _flareFailed = true; return; }
+            _getSettings ??= contracts.GetType().GetMethod("GetSettings", Type.EmptyTypes);
+            object settings = _getSettings?.Invoke(contracts, null);
+            _lightProp ??= settings?.GetType().GetProperty("LightSettings");
+            object light = _lightProp?.GetValue(settings);   // (a boxed copy of the struct)
+            _flareField ??= light?.GetType().GetField("SunFlare");
+            if (light == null || _flareField == null || _lightProp.SetMethod == null)
+            {
+                FlareStatus = "LightSettings.SunFlare not found"; _flareFailed = true;
+                PlanetRenderBridge.WarnOnce("map-flare", "[ORBIT] map sun flare: " + FlareStatus);
+                return;
+            }
+            object cur = _flareField.GetValue(light);
+            if (hide)
+            {
+                if (cur != null)
+                {
+                    _savedFlare = cur;
+                    _flareField.SetValue(light, null);
+                    _lightProp.SetValue(settings, light);
+                    FlareStatus = "hidden on the map";
+                }
+                else if (!_flareOff) FlareStatus = "no sun flare to hide";
+                _flareOff = true;
+            }
+            else
+            {
+                if (cur == null && _savedFlare != null) { _flareField.SetValue(light, _savedFlare); _lightProp.SetValue(settings, light); FlareStatus = "restored"; }
+                else FlareStatus = cur != null ? "left as found (another flare set meanwhile)" : "nothing to restore";
+                _savedFlare = null; _flareOff = false;
+            }
+        }
+        catch (Exception e)
+        {
+            _flareFailed = true; FlareStatus = "failed: " + (e.InnerException ?? e).Message;
+            PlanetRenderBridge.WarnOnce("map-flare", "[ORBIT] map sun flare: " + FlareStatus);
+        }
+    }
 
     /// <summary>The observer's position in the root (star) frame.</summary>
     public static bool TryObserverCelestial(Vector3D world, double t, out Vector3D cel)

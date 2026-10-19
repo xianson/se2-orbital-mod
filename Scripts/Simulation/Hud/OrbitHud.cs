@@ -450,7 +450,10 @@ public static class OrbitHud
             float x = dir.X < -0.3f ? at.X - sz.X : dir.X > 0.3f ? at.X : at.X - sz.X * 0.5f;
             float y = dir.Y < -0.3f ? at.Y - sz.Y : dir.Y > 0.3f ? at.Y : at.Y - sz.Y * 0.5f;
             // (kept off the game's SPD box on the right - "Pe 84 km · 13:22" ran under it, UI audit C3 - and on the screen)
-            x = SEAerospace.MapUi.CardLayout.ClampX(x, sz.X, 4f * u, gs != null && gs[3] > 4f ? gs[0] - 4f * u : scr.X - 4f * u);
+            //  and, with the relative plot beside it on the left, off that plot: "Ap 300 km · 1h 17m" ran onto its "316 km away"
+            //  (2026-10-19, fix-finish) - it stays right of the gap between the two)
+            float minX = _relBeside ? RelBesideCentre(c, R, u).X + R + 6f * u : 4f * u;
+            x = SEAerospace.MapUi.CardLayout.ClampX(x, sz.X, minX, gs != null && gs[3] > 4f ? gs[0] - 4f * u : scr.X - 4f * u);
             Plated(new Vector2(x, y), label, Orbit, 0.42f * u, u);
         }
         if (r.Pe > -r.BodyRadius) Apsis(r.PeRel, _capPe);
@@ -666,8 +669,26 @@ public static class OrbitHud
         // the axes in words (UI audit C4: "+R / -V" said nothing): behind to the right, ahead to the left, the body down
         if (origin.Y > a0.Y + 8f * u && origin.Y < a1.Y - 8f * u) { MapPipeline.TextScreen(new Vector2(a1.X - 22f * u, origin.Y - 8f * u), "behind", dim, 0.36f * u); MapPipeline.TextScreen(new Vector2(a0.X + 20f * u, origin.Y - 8f * u), "ahead", dim, 0.36f * u); }
         if (origin.X > a0.X + 8f * u && origin.X < a1.X - 8f * u && _relDown != null) MapPipeline.TextScreen(new Vector2(origin.X, a1.Y - 20f * u), _relDown, dim, 0.36f * u);
-        // its title over the panel: what it is relative to
-        if (_relTitle != null) Centred(c.X, c.Y - R - 6f * u - MapPipeline.MeasureText("0", 0.42f * u).Y, _relTitle, CapDim, 0.42f * u, u);
+        // its title over the panel: what it is relative to. Beside the disc, clear of the disc's own header ("period 1h 18m ·
+        // incl 12.0°", centred over the disc): a long name ran into it (2026-10-19, fix-finish) - then its right end stops short
+        // of that header, or, with no room for that on the screen, it goes a line up.
+        if (_relTitle != null)
+        {
+            float ts = 0.42f * u, th = MapPipeline.MeasureText("0", ts).Y, tw = MapPipeline.MeasureText(_relTitle, ts).X;
+            float ty = c.Y - R - 6f * u - th, tx = c.X - tw * 0.5f;
+            if (beside && _capHeader != null && !r.Escape)
+            {
+                DiscPlace(out var dc, out _);
+                float headerLeft = dc.X - MapPipeline.MeasureText(_capHeader, ts).X * 0.5f - 4f * u;
+                float limit = headerLeft - 10f * u;
+                if (tx + tw + 4f * u > limit)
+                {
+                    if (limit - tw - 4f * u >= 8f * u) tx = limit - tw - 4f * u;
+                    else ty -= th + 6f * u;
+                }
+            }
+            Plated(new Vector2(tx, ty), _relTitle, CapDim, ts, u);
+        }
         // The frame's boundary round the anchor (past it you leave on your own orbit).
         {
             var arc = new List<Vector2>();

@@ -56,7 +56,7 @@ public static partial class CleanMap
                     {
                         Vector3D lp = Lv(SectorHomes.Where(bd.Home, reg, t) - pRoot);
                         if (MapPipeline.ToScreen(W(lp), out var ls) && InOpenArea(ls)) continue;   // on the view: drawn as itself
-                        Pin(lp, double.PositiveInfinity, W, $"{Label(bd)}  ·  L{bd.Home.Point}", bd.Selected ? LineSel : StateColor(bd));
+                        Pin(lp, double.PositiveInfinity, W, LagrangePinText(Label(bd), bd.Home.Point), bd.Selected ? LineSel : StateColor(bd));
                     }
             // Its L1 / L2 (with its primary), and each moon's L1-L5 (with it), sector or not.
             long q1 = ModCost.Start();

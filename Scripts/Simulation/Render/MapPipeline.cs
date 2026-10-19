@@ -39,8 +39,10 @@ public static partial class MapPipeline
     /// <summary>Shown within the last 0.3 s: its last candidate (0.. ), else -1.</summary>
     public static int ShownLately(string key) => _shown.TryGetValue(key, out var v) && NowS() - v.at < 0.3 ? v.cand : -1;
     public static void MarkShown(string key, int cand) => _shown[key] = (NowS(), cand);
-    /// <summary>Margin (px) for a collision test: generous for a new label, lenient for one already shown.</summary>
-    public static float Hysteresis(string key) { float u = UiScale(ScreenSize.Y); return ShownLately(key) >= 0 ? -3f * u : 3f * u; }
+    /// <summary>Margin (px) for a collision test: generous for a new label, lenient for one already shown.
+    /// (2026-10-19, fix-finish: lenient was -3 px - a label shown lately could stay with its plate 3 px into another's, and the
+    /// ship names round the globe sat on each other; now it stays while it does not touch, appears only with 3 px to spare.)</summary>
+    public static float Hysteresis(string key) { float u = UiScale(ScreenSize.Y); return ShownLately(key) >= 0 ? 0f : 3f * u; }
 
     /// <summary>No map label (or reserved area) placed this frame overlaps the box.</summary>
     public static bool Free(Vector2 min, Vector2 max)

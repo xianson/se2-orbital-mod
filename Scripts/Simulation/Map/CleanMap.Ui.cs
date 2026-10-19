@@ -155,7 +155,7 @@ public static partial class CleanMap
         DrawWrapped(MapLayout.P(0.265f, 0.9f), h, MapLayout.X(0.775f) - MapLayout.X(0.265f), 0.74f * MapPipeline.MapText, Dim);
     }
 
-    static readonly ColorSRGB TextPlate = new ColorSRGB(0.01f, 0.025f, 0.04f, 0.55f);
+    static readonly ColorSRGB TextPlate = new ColorSRGB(0.01f, 0.025f, 0.04f, 0.78f);   // (0.55 still read washed out in the glare: 2026-10-19)
     /// <summary>Text on a dark backplate (UI audit cosmetic: the breadcrumb, the "Rendezvous" sub-line and the porkchop's sub-line
     /// were lost in the sun's glare).</summary>
     internal static void Plated(Vector2 at, string text, ColorSRGB c, float scale)
@@ -468,6 +468,14 @@ public static partial class CleanMap
     /// A marker (an encounter, a station): where it is when in the map's open area; otherwise an arrow at
     /// the open area's edge in its direction, with its name ("Vallation Station >" sat in the title row).
     /// </summary>
+    /// <summary>A Lagrange sector's pin: "Trinarc  ·  L3"; a sector named after its point already ("Verdure L4") is not told
+    /// twice (it read "Verdure L4 · L4" - 2026-10-19, fix-finish).</summary>
+    internal static string LagrangePinText(string label, int point)
+    {
+        string tag = "L" + point;
+        return label != null && label.EndsWith(" " + tag, StringComparison.Ordinal) ? label : $"{label}  ·  {tag}";
+    }
+
     private static void Pin(Vector3D p, double limit, Func<Vector3D, Vector3D> W, string label, ColorSRGB c, bool diamond = false, string key = null, string name = null)
     {
         if (!MapPipeline.ToScreen(W(p), out var s)) return;

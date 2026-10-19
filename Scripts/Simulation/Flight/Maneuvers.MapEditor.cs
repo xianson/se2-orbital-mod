@@ -364,7 +364,7 @@ public static partial class Maneuvers
                 MapPipeline.ScreenLine(ls - new Vector2(r, r), ls + new Vector2(r, r), EntryColor, 2.2f * u);
                 MapPipeline.ScreenLine(ls - new Vector2(r, -r), ls + new Vector2(r, -r), EntryColor, 2.2f * u);
                 _entryMarkS.Add(ls);
-                if (land.Text != null) HudPanel.TagAt(ls + new Vector2(10f * u, 0), land.Text, EntryColor, u, diamond: false);
+                if (land.Text != null) HudPanel.TagAt(ls + new Vector2(10f * u, 0), land.Text, EntryColor, u, diamond: false, must: true);   // (never culled: nothing else says it)
             }
             EntryMarkHover = false;
             foreach (var em in _entryMarkS) if ((em - mouse).Length() < 16f * u) { EntryMarkHover = true; break; }

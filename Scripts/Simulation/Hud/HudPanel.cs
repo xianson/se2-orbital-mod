@@ -127,10 +127,10 @@ public static class HudPanel
     }
 
     /// <summary>A small labelled tag at a screen point: a small dot on the point, quiet text beside it.</summary>
-    public static void TagAt(Vector2 s, string text, ColorSRGB c, float u, bool diamond = true)
+    public static void TagAt(Vector2 s, string text, ColorSRGB c, float u, bool diamond = true, bool must = false)
     {
         float r = 5f * u;
-        if (!diamond) { LabelAt(s + new Vector2(9f * u, 0), text, c, u); return; }
+        if (!diamond) { LabelAt(s + new Vector2(9f * u, 0), text, c, u, must); return; }
         if (MapPipeline.ScreenIcon("dot", s, 3f * u, c)) { LabelAt(s + new Vector2(9f * u, 0), text, c, u); return; }
         MapPipeline.ScreenLine(s + new Vector2(0, -r), s + new Vector2(r, 0), c, 1.8f * u);
         MapPipeline.ScreenLine(s + new Vector2(r, 0), s + new Vector2(0, r), c, 1.8f * u);
@@ -166,8 +166,11 @@ public static class HudPanel
     /// Text on a dark plate beside its point: right of it, else left, above or below, whichever is clear
     /// of the labels already placed (tags and the map's own names). When none is, it stays on the right:
     /// a label that wanders off (it used to step down until clear) names the wrong place.
+    /// <paramref name="must"/>: a label that says what nothing else does (where the path lands): with no clear spot it is
+    /// still drawn - on the side with the least in the way, on a dark plate over what is there (2026-10-19, fix-finish: the
+    /// landing cross was drawn and its "Lands on Verdure near ..." never, culled among the ship names round the globe).
     /// </summary>
-    public static void LabelAt(Vector2 p, string text, ColorSRGB c, float u)
+    public static void LabelAt(Vector2 p, string text, ColorSRGB c, float u, bool must = false)
     {
         const float Scale = 0.36f;   // small and quiet (at 0.5 on a dark plate the tags shouted)
         var ts = MapPipeline.MeasureText(text, Scale * u);
@@ -183,7 +186,7 @@ public static class HudPanel
         Vector2 at = cands[0]; bool placed = false;
         string key = MapPipeline.LabelKey(text);
         int last = MapPipeline.ShownLately(key);
-        float h = last >= 0 ? -3f * u : 3f * u;                 // lenient to stay, strict to appear
+        float h = last >= 0 ? 0f : 3f * u;                      // lenient to stay (never onto another), strict to appear
         var order = new List<int> { 0, 1, 2, 3 };
         if (last > 0) { order.Remove(last); order.Insert(0, last); }   // keep the side it was on
         int chosen = -1;
@@ -196,11 +199,31 @@ public static class HudPanel
                 if (mn.X < b.max.X && mx.X > b.min.X && mn.Y < b.max.Y && mx.Y > b.min.Y) { hit = true; break; }
             if (!hit && MapPipeline.Free(mn, mx)) { at = cand; placed = true; chosen = ci; break; }
         }
-        if (!placed) return;
-        MapPipeline.MarkShown(key, chosen);   // no clear spot: left out (drawn anyway, labels landed on each other)
+        bool plate = false;
+        if (!placed)
+        {
+            if (!must) return;   // no clear spot: left out (drawn anyway, labels landed on each other)
+            // the side with the least in the way (overlap area with what is placed), kept while it was shown lately
+            float best = float.MaxValue;
+            for (int ci = 0; ci < cands.Length; ci++)
+            {
+                Vector2 mn = cands[ci] - pad, mx = cands[ci] + ts + pad;
+                float area = 0;
+                foreach (var b in _placed)
+                {
+                    float w = Math.Min(mx.X, b.max.X) - Math.Max(mn.X, b.min.X), hh = Math.Min(mx.Y, b.max.Y) - Math.Max(mn.Y, b.min.Y);
+                    if (w > 0 && hh > 0) area += w * hh;
+                }
+                if (ci == last) area *= 0.8f;
+                if (area < best) { best = area; chosen = ci; }
+            }
+            at = cands[chosen]; plate = true;
+        }
+        MapPipeline.MarkShown(key, chosen);
         _placed.Add((at - pad, at + ts + pad));
         MapPipeline.Reserve(at - pad, at + ts + pad);
-        MapPipeline.ScreenText(at, text, c, Scale * u);   // no plate: the font's own shadow is enough
+        if (plate) MapPipeline.ScreenRect(at - pad, at + ts + pad, new ColorSRGB(0.01f, 0.02f, 0.03f, 0.78f));
+        MapPipeline.ScreenText(at, text, c, Scale * u);   // no plate when clear: the font's own shadow is enough
     }
 
     public static string Km(double m) => Math.Abs(m) >= 1e6 ? $"{m / 1000:N0} km" : Math.Abs(m) >= 1e4 ? $"{m / 1000:F0} km" : $"{m / 1000:F1} km";

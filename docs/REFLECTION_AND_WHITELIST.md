@@ -76,7 +76,7 @@ Mod script code has to pass three independent gates.
 
 **Gate 1. Compile references (CS0012 / CS0246).**
 - `GameApp.AddScripting` (`SpaceEngineers2/Keen.Game2/GameApp.cs:434-483`) sets `GameCompilationDescriptor.MetaDatas` to the assemblies of `typeof(MeshBuilder)` (VRage.Core), `StringId` (VRage.Library), `Entity` (VRage.DCS), `Blob` (VRage.Core.Game; `using Keen.VRage.Core.Game.Data`, GameApp.cs:43), `UpdateTime` (Game2.Simulation), `InputGameComponent` (Game2.Client) and `IPhysics` (VRage.Physics) (GameApp.cs:473-482).
-- These are added in `GameCompilationDescriptor` (`Game2.Simulation/Keen.Game2.Simulation.Scripting/GameCompilationDescriptor.cs:15-23`), on top of the defaults: CoreLib, System.Runtime, System.Linq, System.Collections and System.Collections.Immutable (per `D:\aero\tools\ModCheck\README.md`).
+- These are added in `GameCompilationDescriptor` (`Game2.Simulation/Keen.Game2.Simulation.Scripting/GameCompilationDescriptor.cs:15-23`), on top of the defaults: CoreLib, System.Runtime, System.Linq, System.Collections and System.Collections.Immutable (per the ModCheck README, `Aerodynamics Mod\tools\shared\ModCheck\README.md`).
 - **Any other assembly is invisible to the compiler.** This includes VRage.Render, VRage.Game.Client, VRage.Game, VRage.Voxels(.Client), VRage.UI, VRage.Multiplayer and System.ObjectModel.
 - The mods' `.vrgproj` files list `Game2.Game.dll` under `ReferencedAssemblies` (`Orbital Mod.vrgproj`, `Aerodynamics Mod.vrgproj`), but the in-game compile does not use that list. ModCheck uses only the 7 + 5 assemblies above and reproduces the in-game CS0012 on `CubeBlockComponent.Definition.Guid`.
 
@@ -84,14 +84,14 @@ Mod script code has to pass three independent gates.
 - `GameWhitelistProvider<ModWhitelistProvider>.AllowedAssemblies` (GameApp.cs:449-460) is `typeof(int)`, `typeof(Enumerable)` plus the seven types above.
 - `ConfigureWhitelist` (`Game2.Simulation/.../GameWhitelistProvider.cs:56-77`) then calls `AllowNamespace` for **every namespace that has an exported type** in those assemblies, skipping only `[EditorBrowsable(Never)]` types.
 - The whitelist works at **namespace** granularity. There are no per-member bans.
-- Because `typeof(int)` is a seed, all of CoreLib's namespaces are allowed. `D:\aero\tools\ModCheck\AllowedSymbols.Mod.txt:39-41` lists `System.Reflection.*`, `System.Reflection.Metadata.*` and `System.Reflection.Emit.*`, and also `System.IO.*` and `System.Runtime.InteropServices.*`.
+- Because `typeof(int)` is a seed, all of CoreLib's namespaces are allowed. `Aerodynamics Mod\tools\shared\ModCheck\AllowedSymbols.Mod.txt:39-41` lists `System.Reflection.*`, `System.Reflection.Metadata.*` and `System.Reflection.Emit.*`, and also `System.IO.*` and `System.Runtime.InteropServices.*`.
 - `ModCompilationDescriptor` also enables `unsafe` (`.../ModCompilationDescriptor.cs:19`).
 - **Known exception:** an array of a type declared in the mod is banned (VRS1001). ModCheck rule MODVAR1 catches it; see the ModCheck README.
 
 **Gate 3. C# accessibility.**
 - Private, protected and internal members are unreachable without reflection, even in a whitelisted, referenced assembly. No whitelist setting changes this. Keen would have to make the member public, add a public accessor, or use `InternalsVisibleTo`.
 
-**ModCheck caveat.** `D:\aero\tools\ModCheck\WhitelistGen\Program.cs` seeds the whitelist with `VRage.Library` twice and **omits VRage.Core.Game**. Its comment says `Blob(VRage.Library again - the duplicate)`, but GameApp's `Blob` is `Keen.VRage.Core.Game.Data.Blob`. As a result, `AllowedSymbols.Mod.txt` contains no `Keen.VRage.Core.Game.*` namespace at all.
+**ModCheck caveat.** `Aerodynamics Mod\tools\shared\ModCheck\WhitelistGen\Program.cs` seeds the whitelist with `VRage.Library` twice and **omits VRage.Core.Game**. Its comment says `Blob(VRage.Library again - the duplicate)`, but GameApp's `Blob` is `Keen.VRage.Core.Game.Data.Blob`. As a result, `AllowedSymbols.Mod.txt` contains no `Keen.VRage.Core.Game.*` namespace at all.
 - This is the likely reason, or one of the reasons, for the "regenerated whitelist is incomplete" note in the ModCheck README, where Session and GetWorldTransform get flagged.
 - **This has not been fixed or verified here.**
 

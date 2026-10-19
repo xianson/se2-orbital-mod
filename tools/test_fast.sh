@@ -4,13 +4,16 @@
 # rendezvous, time, sensing). Exit 0 only if everything passes. Run on every change; the in-game suites
 # (tools/harness/test_*.sh) are for engine-facing work and releases.
 cd "$(dirname "$0")/.."
-MODCHECK=${MODCHECK:-/d/aero/tools/ModCheck/ModCheck.csproj}   # (env override: a private ModCheck copy, own obj/)
+# the shared dev tools live in the Aerodynamics Mod (tools/shared, 2026-10-18: D:/aero retired): the sibling checkout's,
+# AERO_TOOLS=<a tools/shared> overrides it; MODCHECK=<a ModCheck.csproj> overrides the ModCheck alone
+AERO_TOOLS=${AERO_TOOLS:-../Aerodynamics Mod/tools/shared}
+MODCHECK=${MODCHECK:-$AERO_TOOLS/ModCheck/ModCheck.csproj}   # (env override: a private ModCheck copy, own obj/)
 rc=0; t0=$(date +%s)
 
 s=$(date +%s)
 out=$(dotnet build "$MODCHECK" -nologo -v q "-p:ModDir=$(cygpath -w "$PWD")" 2>&1)   # (this checkout, not the live mod folder)
 if echo "$out" | grep -q "Build succeeded"; then echo "PASS  compile (ModCheck)  $(( $(date +%s)-s ))s"
-else rc=1; echo "FAIL  compile (ModCheck)"; echo "$out" | grep -E " error " | sort -u | head -20; fi
+else rc=1; echo "FAIL  compile (ModCheck)"; [ -f "$MODCHECK" ] || echo "      no $MODCHECK: set AERO_TOOLS (the Aero repo's tools/shared) or MODCHECK"; echo "$out" | grep -E " error " | sort -u | head -20; fi
 
 out=$(tools/check_contract.sh 2>&1) || rc=1; echo "$out"
 

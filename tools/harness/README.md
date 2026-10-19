@@ -23,7 +23,8 @@ are listed in [COMMANDS.md](COMMANDS.md) - keep them when changing either mod.
   of the status; `--eshot [settle]` adds an engine screenshot (works with the display asleep), `--shot` a desktop
   capture through the `OrbitalShotSE2` task.
 - Two ways to start the game: `relaunch.sh` (the `OrbitalTestSE2` scheduled task -> `launch-orbital.ps1`, the
-  args from `D:\aero\se2-launch-args.txt` with the world in `world.txt`) and `launch()` from `launch.sh` (the Steam
+  args from the launch args file - `SE2_LAUNCH_ARGS`, else `se2-launch-args.txt` in the Aero mod's `tools/shared`
+  (`AERO_TOOLS`, else `../Aerodynamics Mod/tools/shared`) - with the world in `world.txt`) and `launch()` from `launch.sh` (the Steam
   launch, the game's last world, never two instances).
 
 ## Core scripts (paths are fixed: other scripts and notes call them by path)

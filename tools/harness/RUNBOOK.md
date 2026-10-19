@@ -79,7 +79,7 @@ Typically ~200-260 s, cut at 290 s.
 **Before** (the orchestrator - the script edits neither the saves nor the args file):
 1. Copy `%APPDATA%\SpaceEngineers2\AppData\SaveGames\Concordia Research Facility 7` to a NEW folder next to it whose name
    starts with `Orbital Test` (e.g. `Orbital Test SSTO Blocksave`) - the script saves into it, so never a player's world.
-2. Point `-start:` in `D:\aero\se2-launch-args.txt` at it: `"-start:Orbital Test SSTO Blocksave"` (keep the other args).
+2. Point `-start:` in the launch args file (`SE2_LAUNCH_ARGS`, else `Aerodynamics Mod\tools\shared\se2-launch-args.txt`) at it: `"-start:Orbital Test SSTO Blocksave"` (keep the other args).
    Put the old value back afterwards.
 3. Deploy both mods with the dev additions (aero: `Dev/AeroBlockSaveDev.cs`), `tools/test_fast.sh` green; nobody playing.
 

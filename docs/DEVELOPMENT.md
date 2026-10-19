@@ -16,7 +16,7 @@ The developer notes that used to sit in the README. Players: see the [wiki](http
 
 | Tier | Command | Time | What | When |
 |---|---|---|---|---|
-| fast gate | `tools/test_fast.sh` | ~1 min, no game | the scripts compiled as the game compiles them (ModCheck; `MODCHECK=` overrides its path), the cross-mod contract (`tools/check_contract.sh`; `AERO=` points at another aero checkout), every offline suite in `Tests/`: ~4,480 checks | every change |
+| fast gate | `tools/test_fast.sh` | ~1 min, no game | the scripts compiled as the game compiles them (ModCheck, from the Aerodynamics Mod's `tools/shared` - the sibling checkout `../Aerodynamics Mod/tools/shared`, `AERO_TOOLS=` overrides it; `MODCHECK=` overrides the ModCheck path alone), the cross-mod contract (`tools/check_contract.sh`; `AERO=` points at another aero checkout), every offline suite in `Tests/`: ~4,480 checks | every change |
 | smoke | `tools/harness/test_smoke.sh` | ~3 min, one launch | the game side: the mod loads, a jointed grid goes on rails, an orbit stows, warp, contacts, the map / Rendezvous tab / porkchop / HUD, a predicted and braked reentry; no fault, no Havok assertion | engine-facing changes, before a commit |
 | integrate | `tools/harness/test_integrate.sh` | ≤ 5 min, one launch | an integration batch with both mods (API versions, structure failure and alert, debris drag, warp billing, the settings tab); see `tools/harness/RUNBOOK.md` | before merging a batch |
 | long | `tools/harness/test_all.sh` | ~1 h | jointed-grid moves, regressions, perf budgets, save / load, a random soak | releases, bug hunts |

@@ -1,4 +1,12 @@
-$args0 = (Get-Content 'D:\aero\se2-launch-args.txt' -Raw).Trim()
+# the launch args file (2026-10-18, D:\aero retired): $env:SE2_LAUNCH_ARGS, else se2-launch-args.txt in the Aero
+# mod's tools/shared ($env:AERO_TOOLS, else the sibling checkout's) - the file tools/shared/launch-se2.bat reads
+$argsFile = $env:SE2_LAUNCH_ARGS
+if (-not $argsFile) {
+    $tools = $env:AERO_TOOLS
+    if (-not $tools) { $tools = Join-Path $PSScriptRoot '..\..\..\Aerodynamics Mod\tools\shared' }
+    $argsFile = Join-Path $tools 'se2-launch-args.txt'
+}
+$args0 = (Get-Content $argsFile -Raw).Trim()
 $orb = 'C:\Users\slob\Documents\SpaceEngineers2\Mods\Orbital Mod\Orbital Mod.vrgproj'
 if (Test-Path "$PSScriptRoot\orbital-only.flag") {
     # Replace the whole project list with just the Orbital Mod.

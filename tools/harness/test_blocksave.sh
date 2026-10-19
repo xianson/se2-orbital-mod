@@ -6,11 +6,13 @@
 #
 # usage: test_blocksave.sh               the run. REFUSES while a game is running (it may be the user's): KILL_GAME=1 closes it
 #                                        - only when nobody is playing. REFUSES unless the launch world is an 'Orbital Test...'
-#                                        world (the -start: of D:/aero/se2-launch-args.txt - set by whoever runs this; never
+#                                        world (the -start: of the launch args file - set by whoever runs this; never
 #                                        edited here): the harness `save` writes only into 'Orbital Test...' containers, and
 #                                        this script saves into the very world it loaded.
 #        test_blocksave.sh --release     only release the dev overrides in the running game (after a killed run)
-# env: GRID (SSTO: the grid's name as findgrids prints it) DEADLINE s (290) ARGS (the launch args file)
+# env: GRID (SSTO: the grid's name as findgrids prints it) DEADLINE s (290) ARGS (the launch args file; default
+#      $SE2_LAUNCH_ARGS, else se2-launch-args.txt in the Aero mod's tools/shared - AERO_TOOLS, else the sibling
+#      checkout's: what tools/shared/launch-se2.bat, Steam's launch, reads)
 #      DRY=1 (offline: ORB / LOGDIR / ST at a mock harness - no game, no launch, no kill)
 #
 # TIMELINE (5 minutes end to end; past DEADLINE what is left is skipped and the releases run):
@@ -28,7 +30,9 @@
 #   typical ~200-260 s, cap 290 s.
 source "$(dirname "$0")/testlib.sh"
 T0=$(date +%s)
-GRID=${GRID:-SSTO}; DEADLINE=${DEADLINE:-290}; ARGS=${ARGS:-/d/aero/se2-launch-args.txt}
+GRID=${GRID:-SSTO}; DEADLINE=${DEADLINE:-290}
+ARGS=${ARGS:-${SE2_LAUNCH_ARGS:+$(cygpath -u "$SE2_LAUNCH_ARGS")}}
+ARGS=${ARGS:-${AERO_TOOLS:-$SP/../../../Aerodynamics Mod/tools/shared}/se2-launch-args.txt}
 if [ -n "$DRY" ]; then alive() { true; }; launch() { "$ORB" __launch >/dev/null; }; fi   # (offline: the mock harness)
 RELEASED=""; notes=(); incomplete=""; L=""; L1=""; ORIG=()
 

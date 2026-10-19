@@ -13,7 +13,7 @@
 #                                 midpoint), BC1 (alpha 1 = roughness 1, the overlay's own constant).
 # Faces px nx py ny pz nz in the D3D cubemap layout (PlanetMesh.CubePoint), mip chains complete. Written to
 # Assets/PlanetGlobes/<Folder>/ (gitignored: regenerated from the game install), compiled into Content by
-# D:\aero\tools\build_mod_content.py like any asset.
+# the Aerodynamics Mod's tools/shared/build_mod_content.py like any asset.
 import glob, json, os, struct, sys, uuid
 import numpy as np
 

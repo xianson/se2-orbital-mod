@@ -4,7 +4,7 @@ What changed for players and for modders. Claims come from the commits (hashes o
 nothing here was flown in game for this release (the one-run in-game check, `tools/harness/test_integrate.sh`, is
 written but has not been run).
 
-## 1.0.2 (Unreleased)
+## 1.0.2 (2026-10-19)
 
 The UI audit's fixes (2026-10-18; offline-tested, not yet flown in game). Flight / data side (branch fix/fx-flight):
 

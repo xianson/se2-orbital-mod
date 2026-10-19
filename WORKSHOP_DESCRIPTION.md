@@ -6,7 +6,7 @@ Real orbits and rendezvous. Some gamifying involved; but it should scratch the K
 
 [h2]Requirements[/h2]
 [list]
-[*][b]Space Engineers 2, version 2.4.x[/b] (made on 2.4.0.95).
+[*][b]Space Engineers 2, version 4.0.x[/b] (made on 4.0.0.3151).
 [*][b]The launch option -loadScripts.[/b] Steam > Library > right-click Space Engineers 2 > Properties > General > Launch Options, type [b]-loadScripts[/b]. Without it the game loads the mod's blocks but never runs its scripts: planets stay put, nothing goes on orbits and there is no Orbital section under Settings > Mods.
 [*][b]Single player or hosting a game.[/b] Dedicated servers are not supported yet.
 [*][b]Works on its own.[/b] Pairs with the [url=https://steamcommunity.com/sharedfiles/filedetails/?id=3822388536][b]Aerodynamics Mod[/b][/url]: re-entry plasma, heat and scorching, structural-failure alerts for the ship you fly, and build and flight hints on the HUD.

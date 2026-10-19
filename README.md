@@ -7,7 +7,7 @@ circle their planets, and a ship that climbs out of a planet's space goes into o
 Plan burns on the game's map, warp time, meet ships, sectors and asteroids by really arriving in the same place at the
 same time, and come home through a re-entry that brakes and heats your ship.
 
-**Version 1.0.0** · SE2 2.4.x · single player and listen hosts ·
+**Version 1.0.3** · SE2 4.0.x · single player and listen hosts ·
 **[Wiki](https://github.com/xianson/se2-orbital-mod/wiki)** · Steam Workshop: [subscribe](https://steamcommunity.com/sharedfiles/filedetails/?id=3822389424)
 
 ## Features
@@ -39,7 +39,7 @@ same time, and come home through a re-entry that brakes and heats your ship.
 
 ## Requirements
 
-- **Space Engineers 2, version 2.4.x** (made and tested on 2.4.0.95).
+- **Space Engineers 2, version 4.0.x** (made and tested on 4.0.0.3151; 1.0.2 and older: 2.4.x).
 - **Add `-loadScripts` to the game's launch options.** Steam > Library > Space Engineers 2 > right-click > Properties >
   General > Launch Options: type `-loadScripts`. Without it the game loads the mod's blocks but never runs its scripts.
   The option turns on scripts for every mod you load.

@@ -7,8 +7,8 @@ arriving in the same place at the same time, and come back down through a re-ent
 
 ## Requirements
 
-- **Space Engineers 2, version 2.4.x** (made and tested on 2.4.0.95).
-- **The `-loadScripts` launch option.** SE2 2.4 runs mod scripts only when the game is started with it; without it
+- **Space Engineers 2, version 4.0.x** (made and tested on 4.0.0.3151; 1.0.2 and older: 2.4.x).
+- **The `-loadScripts` launch option.** SE2 (4.0 as 2.4) runs mod scripts only when the game is started with it; without it
   the mod's blocks load but nothing else happens, silently. In Steam: right-click Space Engineers 2 > Properties >
   General > Launch Options, and add `-loadScripts`.
 - **Single player or a listen host.** A dedicated server is not supported yet (see Known limits).

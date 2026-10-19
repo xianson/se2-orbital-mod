@@ -22,6 +22,7 @@ public static class DevTestShip
 {
     static readonly System.Guid ServerGrid = new System.Guid("672d6382-207a-498f-a51c-58b370aa96cb");   // (BlockPlacer.def: DefaultPrefabServerGrid)
     static readonly System.Guid Battery = new System.Guid("7046873e-c9fe-408c-96c8-53a7f0e62bcd");      // Battery50_Server
+    static readonly System.Guid AeroSurface = new System.Guid("ae200001-ae00-c501-0011-000000000001");   // (Aerodynamics Mod: ControlSurface_1x1_Server)
     public static string Status = "none";
     /// <summary>Where the last test radar was spawned (its grid's origin; the block sits on it): the harness finds the
     /// radar's CLIENT copy near it (radarpanel - the client's blocks carry no server composition to match).</summary>
@@ -35,13 +36,13 @@ public static class DevTestShip
     /// game died at `testship` in two runs out of two); a synchronous SpawnEntity on the server thread instead was fatal at
     /// once ("Data not found" in the grid's anchoring test, ConvertGridToDynamicWhenNotAnchoredComponent). The grids exist a
     /// tick or two later (sensorblocks / findgrids).</summary>
-    public static string Spawn(Keen.VRage.Core.Game.Systems.Session client, WorldTransform camera, double batteryCharge = 1.0)
+    public static string Spawn(Keen.VRage.Core.Game.Systems.Session client, WorldTransform camera, double batteryCharge = 1.0, bool aeroSurface = false)
     {
         var me = client.Get<ClientPlayersSessionComponent>().LocalPlayerIdentity;   // (the client's scene: read here)
-        return GridGen.OnServerThread(() => SpawnOnServer(me, camera, batteryCharge));
+        return GridGen.OnServerThread(() => SpawnOnServer(me, camera, batteryCharge, aeroSurface));
     }
 
-    private static string SpawnOnServer(IdentityId me, WorldTransform camera, double batteryCharge)
+    private static string SpawnOnServer(IdentityId me, WorldTransform camera, double batteryCharge, bool aeroSurface)
     {
         var server = ServerPlanetBeacon.ServerSession;
         if (server == null) return "no server session";
@@ -52,7 +53,10 @@ public static class DevTestShip
         string why = "";
         Vector3D first = default;
         int k = 0;
-        foreach (var (prefab, name) in new[] { (Battery, "battery"), (SensorBlocks.TelescopePrefab, "telescope"), (SensorBlocks.RadarPrefab, "radar") })
+        var set = aeroSurface   // (testship surface: one NEW aero control surface - a block placed this session, as a player places one)
+            ? new[] { (AeroSurface, "surface") }
+            : new[] { (Battery, "battery"), (SensorBlocks.TelescopePrefab, "telescope"), (SensorBlocks.RadarPrefab, "radar") };
+        foreach (var (prefab, name) in set)
         {
             if (!DefinitionManager.Instance.TryGetDefinition(prefab, out PrefabDefinition p) || p == null) { why += $" no {name} prefab;"; continue; }
             var at = new WorldTransform(camera.Position + fwd * 60 + right * (20 * (k++ - 1)), camera.Orientation);
@@ -61,7 +65,7 @@ public static class DevTestShip
             // with open space ahead: in the UIAudit Flight world's start view (a mountain) the grids were lost within seconds;
             // in orbit (orbit Verdure 300 280 first) they stay - gridorbit the radar onto your orbit to stand next to it.
             var gb = new GridBuilder(server, gridPrefab.Get());
-            gb.SetName(name == "radar" ? "Test Radar" : name == "telescope" ? "Test Telescope" : "Test Battery");
+            gb.SetName(name == "radar" ? "Test Radar" : name == "telescope" ? "Test Telescope" : name == "surface" ? "Test Surface" : "Test Battery");
             gb.SetTransform(at);
             gb.SetOwner(me);
             var b = p.Get();

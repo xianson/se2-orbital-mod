@@ -17,7 +17,8 @@ public static partial class DevHarness
     {
         switch (verb)
         {
-            case "testship":   // testship [charge 0..1]: a test ship (battery, telescope, radar) 60 m ahead, yours
+            case "testship":   // testship [charge 0..1]: a test ship (battery, telescope, radar) 60 m ahead, yours; testship surface: one new aero control surface
+                if (a.Length > 1 && a[1] == "surface") return DevTestShip.Spawn(session, camera, 1.0, aeroSurface: true);
                 return DevTestShip.Spawn(session, camera, a.Length > 1 ? D(a[1]) : 1.0);
 
             case "blockhealth":   // blockhealth: every server grid with a block under full health

@@ -281,7 +281,11 @@ structure failures (aero's event queue, section 12) as one toast. See each folde
 - **Rocks:** belt rocks are site frames on reserved slots with voxel volumes made on demand (`AsteroidFrames`); ring
   rocks are analytic, nothing spawned (`RingRocks`). The game's spawning near berths is controlled by `SpawnGuard`.
 - **Contacts and sensors:** `Contacts` (Hud/) knows what you have seen (sight, `TelescopeComponent`, `RadarComponent`;
-  Core/Sensing `SensorModel`, `Tracking`), from the server's `SensorView` snapshot.
+  Core/Sensing `SensorModel`, `Tracking`, `Signature`, `Aging`, `Reasons`), from the server's snapshot only: its
+  `SensorView`s (whose radars transmit, how hard) and `GridView`s (box, owner, `Firing` - the thrust of its firing
+  thrusters, summed on the server once a second). Each contact: detected / tracked (the gate on every prediction:
+  `Contacts.TrackingProgress`, `Tracking.CanPredict`), how and when last seen (aging, saved), its kind; `Contacts.InfoOf`
+  is what the Contacts tab, the target panel and the map's lists read. Landed ships: `ShipSurface` (fx-flight's B1).
 
 ## 9. Threading
 

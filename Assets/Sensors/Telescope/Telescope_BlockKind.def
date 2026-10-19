@@ -8,7 +8,7 @@
   "$Value": {
     "Guid": "0b170001-5e50-4000-8000-000000000007",
     "Name": "Telescope",
-    "Description": "Passive optical and infrared telescope. Spots sunlit ships and rocks far off, and warm hulls in shadow. Silent: it gives nothing away.",
+    "Description": "Passive optical and infrared telescope. Spots sunlit rocks and stations far off, warm hulls close by, a firing ship's engine plume far off, and any radar that transmits. Silent: it gives nothing away.",
     "OrderingPriority": 0,
     "BlockGroups": [
       {

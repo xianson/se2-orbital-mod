@@ -33,6 +33,49 @@ The UI audit's fixes (2026-10-18; offline-tested, not yet flown in game). Flight
   band (`Reentry.FastestTo`); in high warp the rails now brake through the band instead of clamping at the border.
 - Tests: `Tests/FlightTests` (new, 64), `Tests/EntryTests` +15.
 
+Detection and targeting (branch fix/fx-detect):
+
+- **A ship's signature is its own.** Every grid counted as a 150 m, 290 K ball. Now its size is its box's mean
+  cross-section ((xy + yz + zx) / 2, `Signature.MeanArea`), its engines firing show as a plume the telescope's infrared
+  sees (~300 m per sqrt(N): 4 MN burning ~600 km; the server sums the thrust of its `IsThrusting` thrusters once a
+  second, `GridView.Firing`), and its transmitting radar is heard (below). Kinds: debris, small / large ship, station,
+  wreck (`Signature.Classify`).
+- **The radar reaches what it should.** `SensorModel.RadarK` 18,400 -> 75,000: at full power a small ship (8 m)
+  ~200 km, a large one (35 m) ~420 km, a big station ~1,200 km, a 3 km rock (radar albedo 0.1) ~2,200 km. From a
+  300 km orbit over Verdure a full-power radar now sees large ships on the ground in view (it saw nothing before).
+- **Transmitting is loud.** A working radar is heard one-way by any telescope or radar at 4,000 km x sqrt(power) - a
+  bearing, not an orbit; others' radars are heard by yours. `Contacts.LoudLine` / `LoudReach` for the HUD and a notice
+  when you start ("You are transmitting: ... heard within ~4,000 km").
+- **The radar's Transmit Power slider is in its control panel.** It never showed (no display mode, no member list) and
+  opening the panel risked the game's fatal `KeyNotFoundException`; now as the Aerodynamics Mod's panels
+  (`DetailModelPairing`, `ModDetailTypeInfo`, copied).
+- **Contacts age.** When each was last seen is kept (saved: `knowngrid <id> <time>`; older saves load as seen now). A
+  moving ship unseen for `Hud.ContactStaleMinutes` (30) is stale - its orbit an estimate ("closest 40 km in 12:00 ·
+  estimate (seen 2 h ago)"), faded; unseen for `Hud.ContactForgetHours` (24) it is forgotten. Stations, wrecks, rocks
+  never. Game time.
+- **No predictions without tracking, ships as rocks.** A contact only detected (a bearing) gets no closest approach,
+  rendezvous mark, orbit line or orbit rows: the target panel shows "position only" with its rough range, bearing,
+  kind, what saw it, tracking % and last seen; the card "Target ≈ X · position only, tracking 40%".
+- **Contact info.** The target panel's "Contact" section: range, bearing (ahead / right / behind / left, up / down in
+  your orbit's frame), relative speed and closing rate (tracked only), kind (and "landed on Verdure"), detected by
+  (sight, telescope, its infrared or plume, radar, its radar heard), tracking, last seen.
+- **Contacts tab.** Group headers with counts; a "Target" group with a "Clear target: X" row; a "Rocks" group (the
+  nearest 40 seen, ring rocks and belt asteroids); rows carry kind, sensor, tracking and age. The screen's hints are
+  true now: R (or F2) renames, Del hides ("Hide contact"). Ring rocks are targets (their seeded orbits).
+- **Targeting says why.** N on nothing: "Nothing to target under the cursor. Ships and rocks show once detected: get
+  them in Telescope or Radar range" (never revealing an undetected one); a ship whose place is unknown cannot be taken;
+  a landed one can ("Target: Red Ship · landed on Verdure (closest approach to where it stands)"). In flight N also
+  takes ships the game already marks (yours, a contract's), sectors and seen rocks.
+- **Unowned grids are contacts** whoever you are (the documented wreck rule; it relied on your identity not being
+  the empty one).
+- **One rock notice per pass**: "Oblivara: 7 rocks spotted" once things go quiet (at most one per 45 s; it was a toast
+  per batch, 7 in 90 s); rock orbits tracked are no longer toasted.
+- The map's target list: no page with only a header ("more (1 / 40)"), "≈ name 40%" while tracking, faded when stale.
+- Not modelled: sensor direction / field of view (sensors see all round); others' lidar.
+- Content: the Telescope's and Radar's descriptions (Assets/Sensors/*_BlockKind.def, Assets/Texts) - a content build.
+- Tests: `Tests/SensingTests` 55 -> 127 (signatures, emission, range sanity from a 300 km orbit, bearing, aging, the
+  tracking gate, the rock summary, the reasons, the contact rule).
+
 Map, HUD and settings (branch fix/fx-ui):
 
 - **The orbit card keeps clear of the game's own notification** (C1): "Press P to Park/Lock/Connect" sat on its speed,

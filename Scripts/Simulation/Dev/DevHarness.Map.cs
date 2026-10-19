@@ -464,11 +464,11 @@ public static partial class DevHarness
                 MapView.Mode = (MapView.ViewMode)Enum.Parse(typeof(MapView.ViewMode), a[1], ignoreCase: true);
                 return $"mapview={MapView.Mode}";
 
-            case "contacts":   // contacts [reveal|forget|on|off]
+            case "contacts":   // contacts [reveal|forget|on|off|sensor telescope|radar|off|age <s>|info <target key>]
             {
-                // (reveal and the count read each server grid's owner: on the server thread)
+                // (reveal and the count read each server grid's owner: on the server thread; age / info are the client's state)
                 string cs = a.Length > 1 ? a[1] : "";
-                return cs == "forget" || cs == "sensor" || cs == "on" || cs == "off" ? Contacts.Command(a) : GridGen.OnServerThread(() => Contacts.Command(a));
+                return cs == "forget" || cs == "sensor" || cs == "on" || cs == "off" || cs == "age" || cs == "info" ? Contacts.Command(a) : GridGen.OnServerThread(() => Contacts.Command(a));
             }
 
             case "bodymarkers":   // bodymarkers on|off: planet and moon markers in flight

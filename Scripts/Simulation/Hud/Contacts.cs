@@ -43,6 +43,7 @@ public static class Contacts
     public static double LoudReach;
     public static string LoudLine;
     static bool _wasLoud;
+    static double _loudSaidAt = double.NegativeInfinity;
     /// <summary>A moving ship contact not seen for this long (game minutes) is STALE: its orbit shown as an estimate, its
     /// marker faded (0: never). A setting (Hud.ContactStaleMinutes).</summary>
     public static double StaleMinutes = 30;
@@ -262,9 +263,10 @@ public static class Contacts
         // you are loud: the HUD's line, and a toast when it starts (2026-10-19: "anyone sees you" was only words)
         LoudReach = radarOn ? Signature.EmissionReach(RadarPowerNow) : 0;
         LoudLine = !Loud ? null : radarOn ? $"RADAR TRANSMITTING  ·  heard to ~{HudPanel.Km(LoudReach)}" : "LIDAR ON TARGET  ·  it can see you";
-        if (Loud && !_wasLoud) Messages.Say(MessageKinds.Contacts, radarOn
+        // (once per start, and not again within a minute: a radar losing and regaining power would say it every flicker)
+        if (Loud && !_wasLoud && !(wall - _loudSaidAt < 60)) { _loudSaidAt = wall; Messages.Say(MessageKinds.Contacts, radarOn
             ? $"You are transmitting: any telescope or radar within ~{HudPanel.Km(LoudReach)} hears your radar. Lower its Transmit Power (its control panel) or switch it off to go quiet."
-            : "You are transmitting: your telescope's lidar ranges your target - it can see you.", 6);
+            : "You are transmitting: your telescope's lidar ranges your target - it can see you.", 6); }
         _wasLoud = Loud;
         // newly tracked: ships by name (rocks' orbits quietly: the map and the Contacts tab show them - a toast for them
         // came with every batch)
@@ -350,6 +352,8 @@ public static class Contacts
             if (OrbitalLog.Contacts) Log.Default?.Info($"[ORBIT-CONTACT] lost: grid {id} not seen for {ForgetHours:G3} h");
         }
         Version++;
+        Messages.Say(MessageKinds.Contacts, forget.Count == 1 ? $"Contact lost: a ship not seen for {ForgetHours:G3} h (find it again)"
+                                                              : $"Contacts lost: {forget.Count} ships not seen for {ForgetHours:G3} h (find them again)");
         forget.Clear();
     }
 
@@ -476,14 +480,18 @@ public static class Contacts
     public static double? TrackingProgress(string key)
     {
         if (!Enabled || key == null) return null;
-        if (Targets.GridOf(key, out _)) return InfoOf(key, out var i) && i.Known ? i.Progress : (double?)null;
+        // (a contact not known - never seen, or forgotten - has no orbit at all: 0)
+        if (Targets.GridOf(key, out _)) return InfoOf(key, out var i) ? (i.Known ? i.Progress : 0) : (double?)null;
         return RockProgress(key);
     }
 
     /// <summary>How bright to draw a contact (1 fresh .. 0.4 long unseen; 1 when not a contact): Aging.Fade.</summary>
-    public static double Fade(string key)
+    public static double Fade(string key) => InfoOf(key, out var i) ? FadeOf(i) : 1;
+
+    /// <summary><see cref="Fade"/> from a contact's info already read (the lists read it once a row).</summary>
+    public static double FadeOf(in Info i)
     {
-        if (!InfoOf(key, out var i) || i.Rock) return 1;
+        if (i.Rock) return 1;
         bool moving = i.Class != Signature.Class.Station && i.Class != Signature.Class.Wreck;
         return Aging.Fade(i.Age, StaleMinutes * 60, ForgetHours * 3600, moving);
     }
@@ -540,7 +548,7 @@ public static class Contacts
     public static void ResetWorld()
     {
         lock (_rocks) _rocks.Clear(); lock (_grids) _grids.Clear(); lock (_dwell) { _dwell.Clear(); _seen.Clear(); } lock (_gridKeys) _gridKeys.Clear();
-        _rockToasts.Clear(); _wasLoud = false; Loud = false; LoudLine = null; LoudReach = 0;
+        _rockToasts.Clear(); _wasLoud = false; _loudSaidAt = double.NegativeInfinity; Loud = false; LoudLine = null; LoudReach = 0;
         Version++;
     }
 

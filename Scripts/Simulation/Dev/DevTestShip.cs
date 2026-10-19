@@ -23,60 +23,64 @@ public static class DevTestShip
     static readonly System.Guid ServerGrid = new System.Guid("672d6382-207a-498f-a51c-58b370aa96cb");   // (BlockPlacer.def: DefaultPrefabServerGrid)
     static readonly System.Guid Battery = new System.Guid("7046873e-c9fe-408c-96c8-53a7f0e62bcd");      // Battery50_Server
     public static string Status = "none";
-    public static Entity Last;
     /// <summary>Where the last test radar was spawned (its grid's origin; the block sits on it): the harness finds the
     /// radar's CLIENT copy near it (radarpanel - the client's blocks carry no server composition to match).</summary>
     public static Vector3D? RadarAt;
 
-    /// <summary>Spawn it 60 m ahead of the camera. Server side (the spawner), owned by the local player.</summary>
+    /// <summary>Spawn it 60 m ahead of the camera. Server side (the spawner), owned by the local player.
+    /// 2026-10-19 (final-check): spawned ON THE SERVER THREAD (GridGen.OnServerThread), STAGED and async
+    /// (IEntitySpawner.SpawnBundleAsync, as WarmBerths / DevStress / the game's encounters), the owner set in the builders.
+    /// Before, it spawned synchronously from the harness's client frame job: it raced the server's tick ("Concurrent access
+    /// (write) GetOrAddArchetype", then a native crash in HkWorld.SetBodyInfo / HavokSessionComponent.OnRigidBodyAdded - the
+    /// game died at `testship` in two runs out of two); a synchronous SpawnEntity on the server thread instead was fatal at
+    /// once ("Data not found" in the grid's anchoring test, ConvertGridToDynamicWhenNotAnchoredComponent). The grids exist a
+    /// tick or two later (sensorblocks / findgrids).</summary>
     public static string Spawn(Keen.VRage.Core.Game.Systems.Session client, WorldTransform camera, double batteryCharge = 1.0)
+    {
+        var me = client.Get<ClientPlayersSessionComponent>().LocalPlayerIdentity;   // (the client's scene: read here)
+        return GridGen.OnServerThread(() => SpawnOnServer(me, camera, batteryCharge));
+    }
+
+    private static string SpawnOnServer(IdentityId me, WorldTransform camera, double batteryCharge)
     {
         var server = ServerPlanetBeacon.ServerSession;
         if (server == null) return "no server session";
-        var gen = AsteroidBridge.Generator(server);
-        var spawner = gen != null ? AsteroidFrames.Spawner(gen) : null;
+        var spawner = server.Get<Keen.VRage.Core.Game.Systems.IEntitySpawner>();
         if (spawner == null) return "no spawner";
         if (!DefinitionManager.Instance.TryGetDefinition(ServerGrid, out PrefabDefinition gridPrefab) || gridPrefab == null) return "no default grid prefab";
         Vector3D fwd = (QuaternionD)camera.Orientation * Vector3D.Forward, right = (QuaternionD)camera.Orientation * Vector3D.Right;
         string why = "";
-        var own = server.SessionComponents.TryGet<OwnershipSessionComponent>();
-        var me = client.Get<ClientPlayersSessionComponent>().LocalPlayerIdentity;
         Vector3D first = default;
         int k = 0;
         foreach (var (prefab, name) in new[] { (Battery, "battery"), (SensorBlocks.TelescopePrefab, "telescope"), (SensorBlocks.RadarPrefab, "radar") })
         {
             if (!DefinitionManager.Instance.TryGetDefinition(prefab, out PrefabDefinition p) || p == null) { why += $" no {name} prefab;"; continue; }
-            var grid = gridPrefab.Get();
             var at = new WorldTransform(camera.Position + fwd * 60 + right * (20 * (k++ - 1)), camera.Orientation);
             if (k == 1) first = at.Position;
-            grid.OB<WorldTransformComponent, WorldTransformComponentObjectBuilder>().Transform = at;
+            // built as WarmBerths builds its placeholder (GridBuilder: the block at cell 0 by its child transform). Spawn it
+            // with open space ahead: in the UIAudit Flight world's start view (a mountain) the grids were lost within seconds;
+            // in orbit (orbit Verdure 300 280 first) they stay - gridorbit the radar onto your orbit to stand next to it.
+            var gb = new GridBuilder(server, gridPrefab.Get());
+            gb.SetName(name == "radar" ? "Test Radar" : name == "telescope" ? "Test Telescope" : "Test Battery");
+            gb.SetTransform(at);
+            gb.SetOwner(me);
             var b = p.Get();
             if (name == "battery")
                 try { b.OB<ResourceContainerComponent, ResourceContainerObjectBuilder>().CurrentChargeLevel = (Keen.VRage.Library.Mathematics.FixedPoint)batteryCharge; } catch (Exception ce) { why += " charge: " + ce.Message; }
-            grid.OB<Keen.VRage.Core.Game.Components.HierarchyComponent, Keen.VRage.Core.Game.Components.HierarchyComponentObjectBuilder>().AddChild(b);
-            Entity e;
-            try { e = spawner.SpawnEntity(grid); }
-            catch (Exception ex) { why += $" {name} spawn failed: {(ex.InnerException ?? ex).Message};"; continue; }
-            if (e == null) { why += $" {name}: nothing spawned;"; continue; }
-            Last = e;
-            if (name == "radar") RadarAt = at.Position;
-            int n = 0;
+            var bo = b.TryGetOB<OwnershipComponent, OwnershipObjectBuilder>();   // (the block's own owner, if it has one)
+            if (bo != null) bo.Owner = me;
+            gb.AddBlock(Vector3I.Zero, new IntegerOrientation(Base6Directions.Direction.Forward, Base6Directions.Direction.Up), b);
             try
             {
-                if (own != null)
-                {
-                    if (own.TryTransferOwnership(e, me)) n++;
-                    var hc = e.TryGet<Keen.VRage.Core.Game.Components.HierarchyComponent>();
-                    if (hc != null) foreach (var c in hc.Children) if (own.TryTransferOwnership(c, me)) n++;
-                }
+                var bundle = new Keen.VRage.Core.Game.Systems.EntityBundle();
+                bundle.Add(gb.CompileObjectBuilder(), null, true);
+                spawner.SpawnBundleAsync(new Keen.VRage.Core.Game.Systems.GameEntitySerializer.BundleInitArgs { Bundle = bundle });
             }
-            catch (Exception ex) { why += $" {name} ownership: {ex.Message};"; }
-            string owner = "?";
-            try { owner = own != null ? (own.TryGetOwnerOf(e).Equals(me) ? "yours" : "someone else's") : "?"; } catch { }
-            why += $" {name} ({owner}, transferred x{n});";
+            catch (Exception ex) { why += $" {name} spawn failed: {(ex.InnerException ?? ex).Message};"; continue; }
+            if (name == "radar") RadarAt = at.Position;
+            why += $" {name} (yours{(bo != null ? ", block too" : "")});";
         }
-        var atFirst = new WorldTransform(first, camera.Orientation);
-        Status = $"test blocks spawned near {ServerPlanetBeacon.Fmt(atFirst.Position)}:{why}";
+        Status = $"test blocks spawning (async) near {ServerPlanetBeacon.Fmt(first)}:{why}";
         return Status;
     }
 }

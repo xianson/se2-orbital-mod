@@ -26,6 +26,9 @@ public static partial class DevHarness
                 });
             }
 
+            case "radarpanel":   // radarpanel open|select|report|power <0..1>|close: a radar's real control panel (the terminal)
+                return DevRadarPanel.Command(session, a.Length > 1 ? a[1] : "report", a.Length > 2 ? D(a[2]) : 0);
+
             case "sensorblocks":   // sensorblocks: the sensor blocks' definitions, unlock and count
                 return GridGen.OnServerThread(() => SensorBlocks.Describe(session));   // (the server's blocks' power and draw read there)
 

@@ -133,9 +133,9 @@ How the names are reached:
 
 DevHarness verbs no script sends (kept for hand use and the debug panel; not a reason to remove them): adopt aerocost
 aeroflames allocs atmohills bigs blockhealth breakblocks buildmenu burn camdiag clean clock crossfade curvecull cutgrid
-debugdraw debugpanel devbtn devfar encounters fakevel flightdump floaters fps framedv freegrids front gc gen gotosite gps
+debugdraw debugpanel devbtn devfar dialog encounters fakevel flightdump floaters fps framedv freegrids front gc gen gotosite gps
 gpsat gravity gridup gridvel hide hidesectors hinge hsfold kick lagstop lagtest look lookat mapcamon mapclick mapdiag
-mapview meshrebuild nearcenter npcrel numdialog perf planets proxyring seats sectors sectorvis selrock starproxy
+mapview meshrebuild nearcenter npcrel numdialog perf planets porkchop proxyring radarpanel seats sectors sectorvis selrock starproxy
 starscale stow sun targets tp turntest ui unified view warpbill warphere. (`flightdump` is used by the aero mod's
 tools/flightdump.sh.)
 
@@ -146,6 +146,8 @@ tools/flightdump.sh.)
 | `period`, `comma`, `slash` | WarpControl.cs | play_capture.sh, play_grid.sh, play_transfer.sh, sweep.sh |
 | `n` | CleanMap.Ui.cs | targetshot.sh |
 | `escape` | MapMenu.cs | sweep.sh |
+| `home`, `undo` (Ctrl+Z with `ctrl` held) | CleanMap.Ui.cs, Maneuvers.MapEditor.cs | (none yet) |
+| `ctrl`, `shift` (held until `key -ctrl` / `key -shift`) | Maneuvers.MapEditor.cs (handle snap / fine) | (none yet) |
 | `contactdel` | ContactsTab.cs | contactsave.sh, contactshot.sh |
 | `contactrename` | ContactsTab.cs | experiments/showshot.sh |
 | `flytest` | FlyTest.cs | loacdiag.sh, structtest.sh, experiments/structprof.sh |

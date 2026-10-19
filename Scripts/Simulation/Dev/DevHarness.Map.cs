@@ -164,6 +164,33 @@ public static partial class DevHarness
             case "numdialog":
                 return GameUi.NumberDialog(session, "Test (m/s)", 12.5, v => Log.Default?.Info($"[ORBIT-DEV] numdialog -> {v}")) ? "dialog open" : "dialog failed: " + GameUi.LastError;
 
+            case "dialog":   // dialog [report] | dialog ok <text> | dialog cancel: the open text/number dialog (as typing + OK)
+            {
+                object top = GameUi.TopScreenObject(session);
+                if (top != null && top.GetType().Name == "DialogPresenterScreenViewModel") top = PlanetRenderBridge.GetMember(top, "DialogViewModel");   // (the dialog's screen wraps it)
+                if (top == null || top.GetType().Name != "TextInputDialogViewModel") return "no text dialog on top (" + (top?.GetType().Name ?? "none") + ")";
+                string title = PlanetRenderBridge.GetMember(top, "TitleOverride") as string, text = PlanetRenderBridge.GetMember(top, "InputText") as string;
+                if (a.Length > 1 && (a[1] == "ok" || a[1] == "cancel"))
+                {
+                    string typed = a.Length > 2 ? string.Join(" ", a, 2, a.Length - 2) : null;
+                    var t = top.GetType();
+                    UiThread.Post(() =>
+                    {
+                        try
+                        {
+                            if (typed != null) t.GetProperty("InputText").SetValue(top, typed);
+                            t.GetMethod(a[1] == "ok" ? "Option1" : "Option2").Invoke(top, null);
+                        }
+                        catch (System.Exception e) { Log.Default?.Info("[ORBIT-DEV] dialog: " + (e.InnerException ?? e).Message); }
+                    });
+                    return $"dialog '{title}': {a[1]} '{typed ?? text}' (validation: {PlanetRenderBridge.GetMember(top, "ValidationMessage") ?? "ok"} before typing)";
+                }
+                return $"dialog '{title}' text '{text}'";
+            }
+
+            case "porkchop":   // porkchop best|<i>,<j>: click a porkchop cell on the Rendezvous tab's next draw
+                return Porkchop.DevPick(a.Length > 1 ? a[1] : "best");
+
             case "rclickat":
                 // rclickat <fx> <fy>: right click at a screen fraction (the map's context menu)
                 GameMap.DevMouse = new Vector2((float)D(a[1]), (float)D(a[2]));
@@ -176,7 +203,8 @@ public static partial class DevHarness
                 return "menu " + a[1];
 
             case "key":
-                // key <period|comma|slash>: press a warp key for one frame
+                // key <period|comma|slash>: press a warp key for one frame; held keys (ctrl, shift) stay down until key -ctrl / -shift
+                if (a[1].StartsWith("-")) { MapInput.DevKeys.Remove(a[1].Substring(1)); return "key up " + a[1].Substring(1); }
                 MapInput.DevKeys.Add(a[1]);
                 return "key " + a[1];
 

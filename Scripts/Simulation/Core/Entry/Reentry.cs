@@ -32,6 +32,10 @@ namespace SEAerospace.Entry
         public KeplerianElements After;
         public bool HasAfter, Landing;
         public double ExitTime = double.NaN;
+        /// <summary>Predicted, a Landing pass: the orbit at the border (BottomTime) - where the path goes on from there, for
+        /// the landing estimate (2026-10-18, U3: the map said nothing of where a deorbit comes down).</summary>
+        public KeplerianElements BottomEl;
+        public bool HasBottomEl;
         public bool Braked => Shed > 0;
 
         /// <summary>Back to a new one's values (every field as its initializer sets it), for a caller that keeps one to reuse
@@ -41,6 +45,7 @@ namespace SEAerospace.Entry
             EnterTime = double.NaN; MaxQTime = double.NaN; MaxQRadius = 0; PeakDecel = 0;
             BottomTime = double.NaN; SpeedAtBottom = double.NaN; Shed = 0; PeakHeat = 0; ArrivalSpeed = double.NaN;
             DragShed = 0; Dv = 0; After = default; HasAfter = false; Landing = false; ExitTime = double.NaN;
+            BottomEl = default; HasBottomEl = false;
         }
     }
 
@@ -134,7 +139,7 @@ namespace SEAerospace.Entry
                 {
                     if (t >= t1) break;
                     // Outside: on the conic, to where the band could first be reached (it cannot close faster than |v|).
-                    double hout = Math.Min(t1 - t, Math.Max(0.25, (r0 - b.Top) / Math.Max(1, s0.Velocity.Length())));
+                    double hout = Math.Min(t1 - t, Math.Max(0.25, (r0 - b.Top) / FastestTo(b.Top, r0, s0.Velocity.Length(), mu)));
                     heat = Cool(heat, hout); t += hout;
                     continue;
                 }
@@ -212,6 +217,15 @@ namespace SEAerospace.Entry
             return el;
         }
 
+        /// <summary>The most speed (m/s, at least 1) a path at radius r with speed v can have anywhere down to radius `to`
+        /// (energy: it only speeds up falling): (r - to) / this never overshoots the band - today's speed did, from an
+        /// apoapsis (2026-10-18).</summary>
+        public static double FastestTo(double to, double r, double v, double mu)
+        {
+            double v2 = v * v + 2 * mu * (1 / Math.Max(1, to) - 1 / Math.Max(1, r));
+            return Math.Max(1, Math.Sqrt(Math.Max(v * v, v2)));
+        }
+
         /// <summary>The periapsis radius of a state (m): where its conic comes closest.</summary>
         public static double PeriapsisRadius(Vector3D p, Vector3D v, double mu)
         {
@@ -251,9 +265,12 @@ namespace SEAerospace.Entry
                 double r = s.Position.Length();
                 if (log.Braked && r >= b.Top) { log.After = el; log.HasAfter = true; log.ExitTime = t; break; }   // through and out again (aerobraking)
                 // Far outside: jump toward the band (it cannot be reached sooner than (r - top) / |v|).
-                step = r > b.Top ? Math.Max(2.0, (r - b.Top) / Math.Max(1, s.Velocity.Length())) : 2.0;
+                // (2026-10-18: by the speed it could have AT the band - it falls faster; by today's speed a deorbit predicted
+                //  from its apoapsis, ~150 m/s, jumped ~1,900 s, past the whole band: no drag, the entry at the border)
+                step = r > b.Top ? Math.Max(2.0, (r - b.Top) / FastestTo(b.Top, r, s.Velocity.Length(), el.Mu)) : 2.0;
             }
             log.Landing = !double.IsNaN(log.BottomTime);
+            if (log.Landing) { log.BottomEl = el; log.HasBottomEl = true; }
             return log;
         }
 

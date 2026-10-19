@@ -13,6 +13,8 @@ public static class MapMenu
     public sealed class Item
     {
         public string Text; public Action Run; public bool Enabled = true;
+        /// <summary>What it does, shown under the menu while hovered (null: none).</summary>
+        public string Tip;
         public Item(string text, Action run, bool enabled = true) { Text = text; Run = run; Enabled = enabled; }
     }
 
@@ -39,6 +41,23 @@ public static class MapMenu
     }
 
     public static void Close() { _items = null; }
+
+    static string _tipFor; static float _tipW; static readonly List<string> _tipLines = new List<string>();
+    /// <summary>A tip's words wrapped to a width (kept while the same tip shows).</summary>
+    static List<string> TipLines(string tip, float width, float scale)
+    {
+        if (ReferenceEquals(tip, _tipFor) && Math.Abs(width - _tipW) < 1f) return _tipLines;
+        _tipFor = tip; _tipW = width; _tipLines.Clear();
+        string line = "";
+        foreach (var word in tip.Split(' '))
+        {
+            string t = line.Length == 0 ? word : line + " " + word;
+            if (line.Length > 0 && MapPipeline.MeasureText(t, scale).X > width) { _tipLines.Add(line); line = word; }
+            else line = t;
+        }
+        if (line.Length > 0) _tipLines.Add(line);
+        return _tipLines;
+    }
 
     /// <summary>DEV: choose item i on the next frame.</summary>
     public static void DevChoose(int i) => _devChoose = i;
@@ -79,6 +98,18 @@ public static class MapMenu
             if (hot) { hover = i; MapPipeline.ScreenRect(r0, r1, Hover); }
             var tsz = MapPipeline.MeasureText(it.Text, ts);
             MapPipeline.ScreenText(new Vector2(r0.X + pad - 3f * u, r0.Y + (row - tsz.Y) * 0.5f), it.Text, !it.Enabled ? Dim : hot ? Dark : Text, ts);
+        }
+
+        // the hovered item's tip: under the menu (above it when there is no room), on the menu's panel, wrapped to its width
+        if (hover >= 0 && _items[hover].Tip != null)
+        {
+            float tw = Math.Max(w, 320f * u), tsz = 0.5f * u;
+            var lines = TipLines(_items[hover].Tip, tw - pad * 2, tsz);
+            float lh = MapPipeline.MeasureText("Ag", tsz).Y * 1.15f, th = lines.Count * lh + 10f * u;
+            var t0 = new Vector2(at.X, max.Y + 4f * u);
+            if (t0.Y + th > oa.Max.Y) t0.Y = at.Y - 4f * u - th;
+            MapPipeline.ScreenRect(t0, t0 + new Vector2(tw, th), Bg);
+            for (int i = 0; i < lines.Count; i++) MapPipeline.ScreenText(t0 + new Vector2(pad, 5f * u + i * lh), lines[i], Dim, tsz);
         }
 
         bool inside = mouse.X >= at.X && mouse.X <= max.X && mouse.Y >= at.Y && mouse.Y <= max.Y;

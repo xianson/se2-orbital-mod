@@ -55,6 +55,14 @@ public static class SunDriver
         var chart = Chart.Of(planet, t);
         if (!_haveInertial) { _inertialLight = chart.ToInertial(v); _haveInertial = true; }
         v = f != null ? _inertialLight : chart.FromInertial(_inertialLight);
+        // ON THE MAP (2026-10-18, UI audit cosmetic: "the skybox sun = a second sun next to the Delfos dot"): the sky's sun put
+        // behind the map's own star, as the map camera sees it - one sun on the map, and the globes lit from it. Off the map,
+        // the next tick puts the world's sun back.
+        if (MapView.Visible && CleanMap.Enabled && CleanMap.StarWorld is Vector3D star && MapPipeline.CameraPosition is Vector3D cam)
+        {
+            Vector3D toStar = star - cam;
+            if (toStar.LengthSquared() > 1e-12) v = -Vector3D.Normalize(toStar);
+        }
         var (a2, e2) = Vector3D.GetAzimuthAndElevation(v);
         sun.Override((float)MathHelper.ToDegrees(a2), (float)MathHelper.ToDegrees(e2));
         _overriding = true;

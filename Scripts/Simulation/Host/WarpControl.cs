@@ -25,6 +25,7 @@ public static class WarpControl
     {
         var pend = PendingSay;
         if (pend != null) { PendingSay = null; Say(pend); }
+        Messages.Tick();
         // (a lowered Warp.MaxLevel: warp above it drops to it; at the top level nothing is held - the harness's 'timescale')
         int topLevel = TopLevel;
         if (topLevel < Levels.Length - 1 && SystemHost.Timescale > Levels[topLevel] + 1e-6) { SystemHost.Timescale = Levels[topLevel]; Say($"Warp ×{Levels[topLevel]:N0}: the world's maximum"); }
@@ -67,6 +68,13 @@ public static class WarpControl
     }
 
     public static Keen.VRage.Core.Game.Systems.Session Session;
-    // (No toast over the map: its warp bar shows the level, and the toast sat on the close button.)
-    public static void Say(string s) { Notice = s; _noticeUntil = Wall() + 5.0; if (Session != null && !MapView.Visible) GameUi.Toast(Session, "warp", "Time warp", s, 3); }
+    /// <summary>A notice, its kind told by its words (Messages.Say with MessageKinds.Of): the one-argument callers'.
+    /// (2026-10-18, B3: this was every notice's channel - toasted only with the map closed and titled "Time warp" whatever
+    ///  it said; on the map only Notice, which nothing drew. Messages draws on the map too and titles each by its kind.)</summary>
+    public static void Say(string s)
+    {
+        string kind = SEAerospace.Flight.MessageKinds.Of(s);
+        if (kind == SEAerospace.Flight.MessageKinds.Warp) { Notice = s; _noticeUntil = Wall() + 5.0; }   // (the warp bar's own line)
+        Messages.Say(kind, s, kind == SEAerospace.Flight.MessageKinds.Warp ? 3 : Messages.DefaultSeconds);
+    }
 }

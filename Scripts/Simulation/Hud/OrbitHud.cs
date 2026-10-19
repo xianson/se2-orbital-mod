@@ -113,6 +113,7 @@ public static class OrbitHud
     /// </summary>
     public static void Draw(Keen.VRage.Core.Game.Systems.Session session)
     {
+        GameNotes.Tick(session);   // (the game's HUD notifications: where they are, hidden over the map - audit C1)
         var r = Walking ? null : Current;   // walking about: no orbit stats
         double now = Wall();
         string burn = Maneuvers.BurnLine;
@@ -156,21 +157,45 @@ public static class OrbitHud
             // word and its numbers each - the next burn, the target's approach, reentry, the attitude hold; the mode, the
             // ring crossings and transmitting are left to the map
             double now2 = SystemHost.Now;
-            if (burn != null) lines.Add($"BURN  {Maneuvers.BurnLeft:F1} m/s  ·  {(Maneuvers.BurnIn > 0.5 ? Maneuvers.Clock(Maneuvers.BurnIn) : "now")}");
+            // the burn: what is left, how long it takes at full thrust, and when (fx-flight's BurnTag: "in 2:30", "now", "late 0:40",
+            // "stopped: no thrust" - UI audit U2: the length and start were computed and never drawn)
+            if (burn != null)
+            {
+                double bs = Maneuvers.BurnSeconds;
+                string len = !IsFinite(bs) ? "" : bs < 60 ? $"  ·  {Math.Max(1, bs):F0} s burn" : $"  ·  {Maneuvers.Clock(bs)} burn";
+                lines.Add($"BURN  {Maneuvers.BurnLeft:F1} m/s{len}  ·  {Maneuvers.BurnTag ?? "now"}");
+            }
             var ap = Maneuvers.TargetApproach(now2);
             if (Maneuvers.Target != null)
             {
                 string nm = Targets.Name(Maneuvers.Target);
-                if (nm != null && nm.Length > 14) nm = nm.Substring(0, 13) + "…";
-                lines.Add(ap.Tracking ? $"◆ {nm}  ·  tracking" : ap.Here ? $"◆ {nm}  ·  here" : !ap.Ok ? $"◆ {nm}  ·  no approach"
-                    : ap.Impact ? $"◆ {nm}  ·  impact {Maneuvers.Clock(ap.At - now2)}" : $"◆ {nm}  ·  {HudPanel.Km(ap.Body ? ap.Alt : ap.Dist)}  ·  {Maneuvers.Clock(ap.At - now2)}");
+                if (nm != null && nm.Length > 18) nm = nm.Substring(0, 17) + "…";
+                // PLAIN WORDS (2026-10-18, UI audit C4: "◆ Kemik · 14,353 km · -0:00" - a negative zero, no direction): how far it
+                // is now and whether you close or recede, then the closest approach still ahead, if any.
+                if (ap.Tracking) lines.Add($"TARGET  {nm}  ·  tracking {ap.TrackingText}");
+                else if (ap.Here) lines.Add($"TARGET  {nm}  ·  you are there");
+                else
+                {
+                    TargetRange(now2, out double rng, out double rdot);
+                    SEAerospace.MapUi.Words.TargetLines(nm, rng, rdot, ap.Ok, ap.At - now2, ap.Body ? ap.Alt : ap.Dist, ap.Body, ap.Impact, ap.Rendezvous, out var tl1, out var tl2);
+                    lines.Add("TARGET  " + tl1 + (ap.Ok || !double.IsNaN(rng) ? "" : "  ·  no approach"));
+                    if (tl2 != null) lines.Add(tl2);
+                }
             }
-            var pf = FrameHost.PlayerFrame;
-            if (pf != null && EntryHost.Braking(pf.Id, out double decel)) lines.Add($"ENTRY  {decel / 9.81:F1} g  ·  heat {SEAerospace.Entry.Reentry.Share(EntryHost.HeatOf(pf.Id), false):P0}");
-            else if (EntryHost.Prediction is var pp && pp != null && !double.IsNaN(pp.EnterTime))
-                lines.Add($"ENTRY  {(pp.EnterTime - now2 <= 10 ? "now" : Maneuvers.Clock(pp.EnterTime - now2))}  ·  heat {SEAerospace.Entry.Reentry.Share(pp.PeakHeat, false):P0}");
+            // re-entry: fx-flight's card tag (braking now; the next pass on your orbit or your PLAN, "ENTRY 2:46 · 1,669 → 990
+            // m/s · heat 82%"; an airless border over the cap) - else, skimming above the air, how low it must go (UI audit U3)
+            string et = EntryHost.CardTag(now2);
+            if (et != null) lines.Add(et);
+            else if (EntryHost.AirGapLine(now2) is string gap) lines.Add(gap);
             if (AttitudeHold.Current != AttitudeHold.Mode.Off) lines.Add($"HOLD  {AttitudeHold.Label(AttitudeHold.Current)}");
+            if (Contacts.LoudLine is string loud) lines.Add(loud);   // (you are heard: a radar of yours transmits - fx-detect)
             _info = (title, rows, lines);
+            // (the plot's own words, made here twice a second - drawn every frame they were new strings every frame)
+            _capHeader = r != null && !r.Escape ? SEAerospace.MapUi.Words.PeriodIncl(r.Period, r.IncDeg) : null;
+            _capPe = r != null ? "Pe " + (r.Pe < 0 ? "impact" : HudPanel.Km(r.Pe) + ApsisIn(r, r.PeIn)) : null;
+            _capAp = r != null && !r.Escape ? "Ap " + HudPanel.Km(r.Ap) + ApsisIn(r, r.ApIn) : null;
+            _relTitle = r != null && r.AnchorName != null ? (r.RelIsTarget ? "Relative to " : "Around ") + r.AnchorName : null;
+            _relDown = r != null ? "toward " + SystemHost.DisplayName(r.Body) : null;
             _lastTitle = title; _lastContent = string.Join("\n", lines);
             CardWhy = "shown beside the plot";
         }
@@ -204,12 +229,37 @@ public static class OrbitHud
                 if (!EntryHidden)
                 {
                     LastPlot = plot; LastPlotWall = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
-                    if (plot == SEAerospace.Frames.RendezvousPlot.Plot.Target || plot == SEAerospace.Frames.RendezvousPlot.Plot.Anchor) DrawRelative(r, u);
-                    else DrawDisc(r, u);
+                    // BOTH PLOTS (2026-10-18, UI audit C4: the relative plot replaced your own orbit on the card): your orbit's
+                    // disc where it always is, the relative plot beside it on the left - or, with no room there (a narrow
+                    // screen), in its place as before
+                    bool relPlot = plot == SEAerospace.Frames.RendezvousPlot.Plot.Target || plot == SEAerospace.Frames.RendezvousPlot.Plot.Anchor;
+                    _relBeside = relPlot && RelRoom(u);
+                    if (!relPlot) DrawDisc(r, u);
+                    else if (_relBeside && DrawDisc(r, u)) DrawRelative(r, u, true);
+                    else { _relBeside = false; DrawRelative(r, u, false); }
                 }
             }
         }
         finally { MapPipeline.UiEnd(); }
+    }
+
+    static string _capHeader, _capPe, _capAp, _capAlt, _relTitle, _relDown;
+    static double _capAltAt;
+
+    /// <summary>How far your target is now (m; a body's: to its surface) and how fast that changes (m/s, + receding): your
+    /// orbit now and the target about the same body. NaN when either is unknown.</summary>
+    static void TargetRange(double t, out double range, out double rate)
+    {
+        range = rate = double.NaN;
+        string key = Maneuvers.Target;
+        if (key == null || !Maneuvers.Base(t, out var body, out var el) || !Targets.About(key, body, t, out var rel)) return;
+        var me = OrbitPropagation.StateAt(el, t);
+        Vector3D d = rel.Position - me.Position, dv = rel.Velocity - me.Velocity;
+        double l = d.Length();
+        if (!IsFinite(l)) return;
+        double rad = Targets.Radius(key);
+        range = rad > 0 ? Math.Max(0, l - rad) : l;
+        rate = l > 1e-6 ? Vector3D.Dot(d, dv) / l : 0;
     }
 
     /// <summary>The orbit display is hidden: in a planet's frame with the apoapsis inside its air (LowArc).</summary>
@@ -315,25 +365,38 @@ public static class OrbitHud
     /// prograde tick, Pe / Ap; a view wedge from you; and at its left edge how far above or below the
     /// orbit plane you are looking.
     /// </summary>
-    static void DrawDisc(Readout r, float u)
+    /// <summary>The disc's centre and radius (px): just left of the game's SPD box.</summary>
+    static void DiscPlace(out Vector2 c, out float R)
     {
-        if (r.RelPath == null || r.RelPath.Length < 2 || r.Nor.LengthSquared() < 0.5) return;
         var scr = MapPipeline.ScreenSize;
-        float R = scr.Y * 0.085f;
+        R = scr.Y * 0.085f;
         // Just left of the game's speed box: measured on screen at 0.409 screen-heights left of centre
         // (the game's HUD keeps its offsets in screen heights from the centre), level with its middle.
-        var c = new Vector2(scr.X * 0.5f - scr.Y * 0.43f - R, scr.Y * 0.493f);
+        c = new Vector2(scr.X * 0.5f - scr.Y * 0.43f - R, scr.Y * 0.493f);
         // the game's own SPD box when known (HudGeom: any size and shape of screen - at 640x480 the disc sat on the build
         // boxes): sized to it (its height 0.052 screen-heights at 16:9), a small gap left of it, level with its middle
         var gs = HudGeom.Spd;
         if (gs != null && gs[3] > 4f) { R = gs[3] * (0.085f / 0.052f); c = new Vector2(gs[0] - gs[3] * 0.12f - R, gs[1] + gs[3] * 0.5f); }
+    }
+
+    /// <summary>The relative plot beside the disc (its centre), and whether the screen has room for it on the left.</summary>
+    static Vector2 RelBesideCentre(Vector2 disc, float R, float u) => disc - new Vector2(2f * R + 22f * u, 0);
+    static bool RelRoom(float u) { DiscPlace(out var c, out float R); return RelBesideCentre(c, R, u).X - R > 8f * u; }
+    static bool _relBeside;
+
+    static bool DrawDisc(Readout r, float u)
+    {
+        if (r.RelPath == null || r.RelPath.Length < 2 || r.Nor.LengthSquared() < 0.5) return false;
+        var scr = MapPipeline.ScreenSize;
+        DiscPlace(out var c, out float R);
+        var gs = HudGeom.Spd;
         Vector3D n = r.Nor;
         Vector3D fwd = (QuaternionD)MapPipeline.CameraOrientation * Vector3D.Forward;
         Vector3D up = fwd - n * Vector3D.Dot(fwd, n);
         if (up.LengthSquared() > 1e-4) _discUp = Vector3D.Normalize(up);   // looking along the normal: keep the last heading
         else if (_discUp.LengthSquared() < 0.5) _discUp = Vector3D.Normalize(r.Pro);
         Vector3D e1 = _discUp - n * Vector3D.Dot(_discUp, n);
-        if (e1.LengthSquared() < 1e-6) return;
+        if (e1.LengthSquared() < 1e-6) return false;
         e1 = Vector3D.Normalize(e1);
         Vector3D e2 = Vector3D.Cross(e1, n);   // screen right, seen from above the plane
         // Scale: the orbit's far point (or the body) fills the disc.
@@ -381,15 +444,17 @@ public static class OrbitHud
             //  the orbit and on each other - 2026-10-12)
             var d = s - c; float dl = d.Length();
             var dir = dl > 1e-3f ? d / dl : new Vector2(0, -1);
+            if (label == null) return;
             var sz = MapPipeline.MeasureText(label, 0.42f * u);
             var at = s + dir * 8f * u;
             float x = dir.X < -0.3f ? at.X - sz.X : dir.X > 0.3f ? at.X : at.X - sz.X * 0.5f;
             float y = dir.Y < -0.3f ? at.Y - sz.Y : dir.Y > 0.3f ? at.Y : at.Y - sz.Y * 0.5f;
-            MapPipeline.ScreenText(new Vector2(x + 1.5f * u, y + 1.5f * u), label, new ColorSRGB(0f, 0f, 0f, 0.7f), 0.42f * u);
-            MapPipeline.ScreenText(new Vector2(x, y), label, Orbit, 0.42f * u);
+            // (kept off the game's SPD box on the right - "Pe 84 km · 13:22" ran under it, UI audit C3 - and on the screen)
+            x = SEAerospace.MapUi.CardLayout.ClampX(x, sz.X, 4f * u, gs != null && gs[3] > 4f ? gs[0] - 4f * u : scr.X - 4f * u);
+            Plated(new Vector2(x, y), label, Orbit, 0.42f * u, u);
         }
-        if (r.Pe > -r.BodyRadius) Apsis(r.PeRel, "Pe " + (r.Pe < 0 ? "impact" : HudPanel.Km(r.Pe) + ApsisIn(r, r.PeIn)));
-        if (r.ApRel.HasValue && !r.Escape) Apsis(r.ApRel.Value, "Ap " + HudPanel.Km(r.Ap) + ApsisIn(r, r.ApIn));
+        if (r.Pe > -r.BodyRadius) Apsis(r.PeRel, _capPe);
+        if (r.ApRel.HasValue && !r.Escape) Apsis(r.ApRel.Value, _capAp);
         // The next patch event: where you leave the sphere, or enter a moon's.
         if (r.EventRel.HasValue)
         {
@@ -439,6 +504,7 @@ public static class OrbitHud
         MapPipeline.ScreenLine(c + new Vector2(-R - 6f * u, -R * 0.8f), c + new Vector2(-R - 6f * u, R * 0.8f), HudPanel.Alpha(new ColorSRGB(1f, 1f, 1f, 1f), 0.3f), 1f * u);
         MapPipeline.ScreenLine(c + new Vector2(-R - 10f * u, ty), c + new Vector2(-R - 2f * u, ty), NorCol, 2f * u);
         PlotCaptions(c, R, r, u, true);
+        return true;
     }
 
     /// <summary>An apsis' countdown for its label on the plot: " · now" just there, " · 2:13" until it.</summary>
@@ -451,23 +517,61 @@ public static class OrbitHud
     /// target, the ring, the hold, reentry, transmitting - one short line each, centred. Both plots (the disc and the
     /// relative one). The side block (DrawInfo) only when no plot is drawn.
     /// </summary>
+    static readonly ColorSRGB CapDim = new ColorSRGB(0.72f, 0.8f, 0.9f, 0.9f), CapWhite = new ColorSRGB(0.95f, 0.97f, 1f, 1f);
+    /// <summary>A text's backplate (2026-10-18, UI audit C3: white text on a white hull in third person, lost in sun glare).</summary>
+    static readonly ColorSRGB Plate = new ColorSRGB(0.01f, 0.02f, 0.03f, 0.5f);
+    static readonly List<SEAerospace.MapUi.Rect> _avoid = new List<SEAerospace.MapUi.Rect>(2);
+
+    /// <summary>Text on a dark backplate (its top-left at).</summary>
+    static void Plated(Vector2 at, string text, ColorSRGB col, float scale, float u)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        var sz = MapPipeline.MeasureText(text, scale);
+        MapPipeline.ScreenRect(at - new Vector2(4f * u, 1f * u), at + sz + new Vector2(4f * u, 1f * u), Plate);
+        MapPipeline.ScreenText(at, text, col, scale);
+    }
+    static void Centred(float cx, float y, string text, ColorSRGB col, float scale, float u)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        Plated(new Vector2(cx - MapPipeline.MeasureText(text, scale).X * 0.5f, y), text, col, scale, u);
+    }
+
+    /// <summary>
+    /// The plot's captions: over it, "period 1h 22m · incl 0.0°" (labelled - UI audit C3); under it your altitude and speed,
+    /// then the card's lines (burn, target, entry, hold), each on a backplate. When the game's own HUD notification ("Press P
+    /// to Park/Lock/Connect", GameNotes) would sit on those lines, they go above the plot instead (UI audit C1).
+    /// </summary>
     static void PlotCaptions(Vector2 c, float R, Readout r, float u, bool top)
     {
-        var dim = new ColorSRGB(0.72f, 0.8f, 0.9f, 0.9f);
-        void Centre(Vector2 at, string text, ColorSRGB col, float scale)
-        {
-            if (string.IsNullOrEmpty(text)) return;
-            var sz = MapPipeline.MeasureText(text, scale);
-            MapPipeline.ScreenText(at - new Vector2(sz.X * 0.5f, 0), text, col, scale);
-        }
         float hs = MapPipeline.MeasureText("0", 0.42f * u).Y;
-        if (top && !r.Escape) Centre(c + new Vector2(0, -R - 6f * u - hs), $"{Maneuvers.Clock(r.Period)}  ·  {r.IncDeg:F1}°", dim, 0.42f * u);
-        float y = c.Y + R + 6f * u;
-        Centre(new Vector2(c.X, y), $"{HudPanel.Km(r.Alt)}  ·  {r.Speed:N0} m/s", new ColorSRGB(0.95f, 0.97f, 1f, 1f), 0.46f * u);
-        y += MapPipeline.MeasureText("0", 0.46f * u).Y * 1.15f;
-        if (_info != null)
-            foreach (var l in _info.Value.lines) { Centre(new Vector2(c.X, y), l, dim, 0.4f * u); y += MapPipeline.MeasureText("0", 0.4f * u).Y * 1.15f; }
+        float headerY = c.Y - R - 6f * u - hs;
+        if (top && !r.Escape) Centred(c.X, headerY, _capHeader, CapDim, 0.42f * u, u);
+        double w = Wall();
+        if (_capAlt == null || w - _capAltAt > 0.1) { _capAlt = $"{HudPanel.Km(r.Alt)}  ·  {r.Speed:N0} m/s"; _capAltAt = w; }   // (ten times a second)
+        float altH = MapPipeline.MeasureText("0", 0.46f * u).Y * 1.15f, lineH = MapPipeline.MeasureText("0", 0.4f * u).Y * 1.15f;
+        var lines = _info?.lines;
+        float wide = MapPipeline.MeasureText(_capAlt, 0.46f * u).X;
+        if (lines != null) for (int i = 0; i < lines.Count; i++) wide = Math.Max(wide, MapPipeline.MeasureText(lines[i], 0.4f * u).X);
+        float H = altH + (lines?.Count ?? 0) * lineH;
+        _avoid.Clear();
+        var nr = GameNotes.Rect;
+        if (nr != null) _avoid.Add(SEAerospace.MapUi.Rect.FromXywh(nr));
+        if (_relBeside)
+        {
+            // (above, the lines must not run onto the relative plot's title beside: it counts as taken)
+            var rc = RelBesideCentre(c, R, u);
+            _avoid.Add(new SEAerospace.MapUi.Rect(rc.X - R, rc.Y - R - 3f * hs, rc.X + R, rc.Y + R));
+        }
+        float bottomOfAbove = (top && !r.Escape ? headerY : c.Y - R) - 4f * u;
+        bool below = SEAerospace.MapUi.CardLayout.Below(c.X - wide * 0.5f - 4f * u, c.X + wide * 0.5f + 4f * u, c.Y + R + 6f * u, bottomOfAbove, H, _avoid);
+        float y = below ? c.Y + R + 6f * u : bottomOfAbove - H;
+        Centred(c.X, y, _capAlt, CapWhite, 0.46f * u, u);
+        y += altH;
+        if (lines != null) for (int i = 0; i < lines.Count; i++) { Centred(c.X, y, lines[i], CapDim, 0.4f * u, u); y += lineH; }
+        CaptionsBelow = below;
     }
+    /// <summary>The card's lines are under the plot (false: moved above it, clear of the game's notification).</summary>
+    public static bool CaptionsBelow = true;
 
     /// <summary>
     /// Riding another's frame (a station, an asteroid): your motion about its anchor, as a rendezvous
@@ -475,11 +579,30 @@ public static class OrbitHud
     /// to the right, toward the planet (+R) down. Your next revolution dashed, where you are now, and
     /// the frame's boundary (past it you split off on your own orbit).
     /// </summary>
-    static void DrawRelative(Readout r, float u)
+    // the relative plot's words, remade four times a second (drawn every frame they were new strings every frame)
+    static readonly string[] _rt = new string[8];
+    static readonly double[] _rtAt = new double[8];
+    static string RelText(int slot, double v, double v2 = 0)
+    {
+        double w = Wall();
+        if (_rt[slot] != null && w - _rtAt[slot] < 0.25) return _rt[slot];
+        _rtAt[slot] = w;
+        return _rt[slot] = slot switch
+        {
+            0 => "grid " + HudPanel.Km(v),
+            1 or 2 or 3 => "in " + Maneuvers.Clock(v),
+            4 => HudPanel.Km(v) + " away",
+            5 => $"closest {HudPanel.Km(v)} in {Maneuvers.Clock(v2)}",
+            6 => v < 0 ? $"closing {-v:0.0} m/s" : $"opening {v:0.0} m/s",
+            _ => "±" + HudPanel.Km(v),
+        };
+    }
+
+    static void DrawRelative(Readout r, float u, bool beside)
     {
         var scr = MapPipeline.ScreenSize;
-        float R = scr.Y * 0.085f;
-        var c = new Vector2(scr.X * 0.5f - scr.Y * 0.43f - R, scr.Y * 0.493f);
+        DiscPlace(out var c, out float R);
+        if (beside) c = RelBesideCentre(c, R, u);   // (left of your orbit's disc: both shown - UI audit C4)
         float S = 2 * R, padL = 14f * u, padT = 14f * u, pad = 6f * u;
         var lo = new Vector2(c.X - R, c.Y - R);                       // panel top-left
         var a0 = new Vector2(lo.X + padL, lo.Y + padT);               // plot area
@@ -538,11 +661,13 @@ public static class OrbitHud
             MapPipeline.ScreenLine(new Vector2(bx0, by0), new Vector2(bx1, by0), dim, 1.2f * u);
             MapPipeline.ScreenLine(new Vector2(bx0, by0 - 3f * u), new Vector2(bx0, by0 + 3f * u), dim, 1.2f * u);
             MapPipeline.ScreenLine(new Vector2(bx1, by0 - 3f * u), new Vector2(bx1, by0 + 3f * u), dim, 1.2f * u);
-            MapPipeline.TextScreen(new Vector2(0.5f * (bx0 + bx1), by0 - 8f * u), HudPanel.Km(step), dim, 0.32f * u);
+            MapPipeline.TextScreen(new Vector2(0.5f * (bx0 + bx1), by0 - 8f * u), RelText(0, step), dim, 0.36f * u);
         }
-        // axis hints at the axes' ends (NASA: behind is +V to the right, the planet down)
-        if (origin.Y > a0.Y + 8f * u && origin.Y < a1.Y - 8f * u) MapPipeline.TextScreen(new Vector2(a1.X - 10f * u, origin.Y - 7f * u), "−V", dim, 0.32f * u);
-        if (origin.X > a0.X + 8f * u && origin.X < a1.X - 8f * u) MapPipeline.TextScreen(new Vector2(origin.X + 9f * u, a1.Y - 20f * u), "+R", dim, 0.32f * u);
+        // the axes in words (UI audit C4: "+R / -V" said nothing): behind to the right, ahead to the left, the body down
+        if (origin.Y > a0.Y + 8f * u && origin.Y < a1.Y - 8f * u) { MapPipeline.TextScreen(new Vector2(a1.X - 22f * u, origin.Y - 8f * u), "behind", dim, 0.36f * u); MapPipeline.TextScreen(new Vector2(a0.X + 20f * u, origin.Y - 8f * u), "ahead", dim, 0.36f * u); }
+        if (origin.X > a0.X + 8f * u && origin.X < a1.X - 8f * u && _relDown != null) MapPipeline.TextScreen(new Vector2(origin.X, a1.Y - 20f * u), _relDown, dim, 0.36f * u);
+        // its title over the panel: what it is relative to
+        if (_relTitle != null) Centred(c.X, c.Y - R - 6f * u - MapPipeline.MeasureText("0", 0.42f * u).Y, _relTitle, CapDim, 0.42f * u, u);
         // The frame's boundary round the anchor (past it you leave on your own orbit).
         {
             var arc = new List<Vector2>();
@@ -565,7 +690,7 @@ public static class OrbitHud
             int i = full * qd / 4;
             if (i > n) break;   // (cut short where it leaves the frame)
             MapPipeline.ScreenDisc(path[i], 2.2f * u, Orbit);
-            MapPipeline.TextScreen(path[i] + new Vector2(0, -8f * u), "+" + Maneuvers.Clock(r.RelPeriod * qd / 4), HudPanel.Alpha(Orbit, 0.8f), 0.32f * u);
+            if (r.RelPeriod * qd / 4 >= 1) MapPipeline.TextScreen(path[i] + new Vector2(0, -8f * u), RelText(qd, r.RelPeriod * qd / 4), HudPanel.Alpha(Orbit, 0.8f), 0.36f * u);   // ("in 0:30": time from now - it read "+0:00")
         }
         if (n >= 2)
         {
@@ -600,7 +725,7 @@ public static class OrbitHud
             MapPipeline.ScreenLine(origin + d * 6f * u - nrm * 3f * u, origin + d * 6f * u + nrm * 3f * u, sc, 1f * u);
             MapPipeline.ScreenLine(me - d * 6f * u - nrm * 3f * u, me - d * 6f * u + nrm * 3f * u, sc, 1f * u);
             var mid0 = 0.5f * (origin + me) + nrm * 8f * u;
-            MapPipeline.TextScreen(mid0, HudPanel.Km(rng), HudPanel.Alpha(white, 0.8f), 0.34f * u);
+            MapPipeline.TextScreen(mid0, RelText(4, rng), HudPanel.Alpha(white, 0.8f), 0.36f * u);
         }
         // the closest approach on the predicted revolution (marked where it happens: its distance and when)
         if (!r.Holding && r.Relative.Count > 2)
@@ -612,7 +737,7 @@ public static class OrbitHud
             {
                 MapPipeline.ScreenCircle(cs, 4.5f * u, Orbit, 1.3f * u);
                 double tca = r.RelPeriod * ci / Math.Max(1, r.RelSamples - 1);
-                MapPipeline.TextScreen(cs + new Vector2(0, 11f * u), $"closest {HudPanel.Km(Math.Sqrt(cmin))} · +{Maneuvers.Clock(tca)}", HudPanel.Alpha(Orbit, 0.9f), 0.32f * u);
+                MapPipeline.TextScreen(cs + new Vector2(0, 11f * u), RelText(5, Math.Sqrt(cmin), tca), HudPanel.Alpha(Orbit, 0.9f), 0.36f * u);
             }
         }
         // The anchor (a square, its name by it) and you (a dot, your relative velocity with its rate on it).
@@ -623,9 +748,9 @@ public static class OrbitHud
         {
             var tip = me + Vector2.Normalize(vr) * 14f * u;
             MapPipeline.ScreenLine(me, tip, white, 1.6f * u);
-            MapPipeline.TextScreen(tip + Vector2.Normalize(vr) * 10f * u, r.Holding ? "holding" : $"{(rdot < 0 ? "closing" : "opening")} {Math.Abs(rdot):0.0} m/s", white, 0.32f * u);
+            MapPipeline.TextScreen(tip + Vector2.Normalize(vr) * 10f * u, r.Holding ? "holding" : RelText(6, rdot), white, 0.36f * u);
         }
-        else if (r.Holding) MapPipeline.TextScreen(me + new Vector2(0, -10f * u), "holding", white, 0.32f * u);
+        else if (r.Holding) MapPipeline.TextScreen(me + new Vector2(0, -10f * u), "holding", white, 0.36f * u);
         MapPipeline.ScreenDisc(me, 3.4f * u, white);
         _ = vrel;
         // Out of plane: a strip under the plot (same along-track axis), only when there is real motion out of it.
@@ -643,13 +768,13 @@ public static class OrbitHud
                 double oopShown = _oopScale.Update(oop, Wall());   // (held and eased as the plot's: it refit every frame)
                 double kc = (sh * 0.5 - 6 * u) / oopShown;
                 MapPipeline.ScreenLine(new Vector2(a0.X, midY), new Vector2(a1.X, midY), dim, 1f * u);   // the anchor's plane
-                MapPipeline.TextScreen(new Vector2(c.X + R - 12f * u, top + 8f * u), "+N", dim, 0.34f * u);
+                MapPipeline.TextScreen(new Vector2(c.X + R - 30f * u, top + 8f * u), "out of plane", dim, 0.34f * u);
                 {
                     // the out-of-plane reach as a measured span at the left edge: from the plane to the furthest point
                     float sx = a0.X + 6f * u, sy = midY - (float)(oop * kc);
                     MapPipeline.ScreenLine(new Vector2(sx, midY), new Vector2(sx, sy), dim, 1f * u);
                     MapPipeline.ScreenLine(new Vector2(sx - 3f * u, sy), new Vector2(sx + 3f * u, sy), dim, 1f * u);
-                    MapPipeline.TextScreen(new Vector2(sx + 22f * u, 0.5f * (midY + sy)), "±" + HudPanel.Km(oop), dim, 0.32f * u);
+                    MapPipeline.TextScreen(new Vector2(sx + 22f * u, 0.5f * (midY + sy)), RelText(7, oop), dim, 0.36f * u);
                 }
                 var sp = new List<Vector2>(r.Relative.Count);
                 for (int i = 0; i < r.Relative.Count && i < r.RelCross.Count; i++)
@@ -661,7 +786,7 @@ public static class OrbitHud
             }
         }
         // (the readout line that was here - name, range, closing rate, relative speed - is on the plot now, above)
-        PlotCaptions(c, R, r, u, false);   // (under it: your altitude and speed, the burn, the target...; its header is its own)
+        if (!beside) PlotCaptions(c, R, r, u, false);   // (under it: your altitude and speed, the burn, the target...; beside the disc, the disc has them)
     }
 
     /// <summary>

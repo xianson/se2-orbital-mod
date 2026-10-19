@@ -13,14 +13,19 @@ namespace OrbitalMod;
 /// <summary>
 /// THE CONTACTS TAB: the game's GPS tab, its own screen (search, sort by name or distance, groups that fold, the eye),
 /// run over a list of the mod's - never saved, never sent - instead of your GPS points: everything you can target.
-///  - Your ships · Contacts (ships and stations you have seen) · Planets and moons · Sectors · Places (your GPS points
-///    and the game's marked places, where they truly are across frames).
+///  - Target (a "Clear target" row while one is set) · Your ships · Contacts (ships and stations you have seen) · Planets
+///    and moons · Sectors · Rocks (the rocks you have seen, nearest first) · Places (your GPS points and the game's marked
+///    places, where they truly are across frames) · Hidden. Each group's header carries its count ("Contacts (4)").
+///  - A contact's row says what it is and how it is known: "≈ Red Ship  [large ship · radar · tracking 40% · seen 2 h
+///    ago]" ("≈": not tracked yet - position only). Its range is the distance column; its bearing and relative speed are
+///    in the target panel (selecting the row targets it).
 ///  - Each row's distance is the true one (its position is set where the thing lies from you, across frames).
 ///  - Selecting a row targets it. Its eye pins it to the HUD (BodyMarkers marks the target, the pinned and what is
 ///    near); a place's eye is its GPS point's own. A rename sticks (saved with the world).
 ///  - "Add from current position" still adds a real GPS point: it shows up under Places.
 ///  - Delete (the Del key on a selected row): a ship, a body or a sector goes to the Hidden group (Del there brings it
-///    back); a place is its GPS point, deleted for real. A place's rename renames its GPS point.
+///    back); a place is its GPS point, deleted for real. Rename: R (the hint the screen shows) or F2. A place's rename
+///    renames its GPS point.
 ///  - The game's own words for the screen ("GPS", "GPS Markers", "Add / Rename / Delete GPS Marker") are the
 ///    Contacts tab's (<see cref="Relabel"/>: its string table, as MapView.BlankText edits it).
 /// How: the terminal's Map/GPS sub screen gets a second GPSViewModel (its public constructor) over a local
@@ -56,8 +61,12 @@ public static class ContactsTab
     /// <summary>The places (your GPS points), by key: their world position now.</summary>
     static readonly Dictionary<string, GPSMarker> _places = new Dictionary<string, GPSMarker>();
 
-    const string GYours = "Your ships", GContacts = "Contacts", GBodies = "Planets and moons", GSectors = "Sectors", GPlaces = "Places", GHidden = "Hidden";
-    static readonly string[] GroupOrder = { GYours, GContacts, GBodies, GSectors, GPlaces, GHidden };
+    const string GTarget = "Target", GYours = "Your ships", GContacts = "Contacts", GBodies = "Planets and moons", GSectors = "Sectors", GRocks = "Rocks", GPlaces = "Places", GHidden = "Hidden";
+    static readonly string[] GroupOrder = { GTarget, GYours, GContacts, GBodies, GSectors, GRocks, GPlaces, GHidden };
+    /// <summary>The "Clear target" row's key (selecting it clears the target).</summary>
+    const string ClearKey = "\u0001clear";
+    /// <summary>The Rocks group lists the nearest this many (its header counts them all).</summary>
+    public static int MaxRockRows = 40;
     /// <summary>Put away (Del): listed under Hidden only, saved.</summary>
     public static readonly HashSet<string> HiddenKeys = new HashSet<string>();
 
@@ -72,9 +81,9 @@ public static class ContactsTab
         ("MapScreenSearchMarkers", "Search contacts"),
         ("AddMarker", "Add GPS point here"),                 // (a real GPS point: it shows under Places)
         ("MapScreenAddMarker", "Add GPS point here"),
-        ("RenameMarker", "Rename contact"),
-        ("DeleteMarker", "Remove contact"),
-        ("MapScreenDeleteMarker", "Remove contact"),
+        ("RenameMarker", "Rename contact"),                  // (R or F2: RenameKey)
+        ("DeleteMarker", "Hide contact"),                    // (Del hides it under Hidden - a GPS point is deleted: DeleteKey)
+        ("MapScreenDeleteMarker", "Hide contact"),
         ("MapScreenEditMarker", "Edit contact"),
     };
     static bool _relabelled;
@@ -292,19 +301,20 @@ public static class ContactsTab
         foreach (var r in _rows.Values)
         {
             if (!ReferenceEquals(r.M, m)) continue;
+            if (r.Key == ClearKey) return;
             if (r.Key.StartsWith(PlacePrefix))
             {
                 if (_places.TryGetValue(r.Key, out var real))
                 {
                     try { _remove ??= typeof(GPSMarkersData).GetMethod("RemoveMarker", BindingFlags.Public | BindingFlags.Static); _remove?.Invoke(null, new object[] { _session, real }); } catch { }
-                    WarpControl.Say("GPS point deleted: " + real.Name);
+                    Messages.Say(SEAerospace.Flight.MessageKinds.Contacts, "GPS point deleted: " + real.Name);
                 }
             }
             else
             {
                 bool back; lock (Sync) { back = HiddenKeys.Remove(r.Key); if (!back) HiddenKeys.Add(r.Key); }
-                if (back) WarpControl.Say("Contact back: " + Targets.Name(r.Key));
-                else WarpControl.Say("Contact hidden (under Hidden; Del there brings it back): " + Targets.Name(r.Key));
+                if (back) Messages.Say(SEAerospace.Flight.MessageKinds.Contacts, "Contact back: " + Targets.Name(r.Key));
+                else Messages.Say(SEAerospace.Flight.MessageKinds.Contacts, "Contact hidden (under Hidden; Del there brings it back): " + Targets.Name(r.Key));
             }
             Refresh(force: true);
             return;
@@ -320,11 +330,22 @@ public static class ContactsTab
     static void RenameKey(object term)
     {
         bool f2 = MapInput.KeyPressed(KeyboardInputs.F2) | MapInput.DevKeys.Remove("contactrename");
+        // R too (2026-10-19: the screen's own hint says "R - Rename contact"): taken a moment later, and only if the search
+        // box did not change meanwhile (an R typed into it is a letter, not a rename)
+        double wall = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+        if (MapInput.KeyPressed(KeyboardInputs.R)) { _rAt = wall; _rSearch = Prop(_vm, "SearchString") as string; }
+        if (!double.IsNaN(_rAt) && wall - _rAt >= 0.2)
+        {
+            bool still = (Prop(_vm, "SearchString") as string) == _rSearch;
+            _rAt = double.NaN;
+            if (still) f2 = true;
+        }
         if (!f2) return;
         object selSub = Prop(term, "SelectedSubScreen");
         if (Prop(Prop(selSub, "Id"), "Value") as string != "Map/GPS") return;
         object row = Prop(_vm, "SelectedMarker");
         if (!(Prop(row, "GPSMarker") is GPSMarker m)) return;
+        foreach (var r in _rows.Values) if (ReferenceEquals(r.M, m) && r.Key == ClearKey) return;
         string current = Strip(m.Name);
         GameUi.TextDialog(_session, "Rename contact", current, name =>
         {
@@ -334,6 +355,8 @@ public static class ContactsTab
             Refresh(force: true);
         });
     }
+
+    static double _rAt = double.NaN; static string _rSearch;
 
     /// <summary>A row selected (one): it is the target (polled every map frame: the selection's own event is a framework
     /// type mod code cannot name).</summary>
@@ -348,7 +371,8 @@ public static class ContactsTab
             foreach (var r in _rows.Values)
                 if (ReferenceEquals(r.M, m))
                 {
-                    if (Maneuvers.Target != r.Key) { Maneuvers.Target = r.Key; WarpControl.Say("Target: " + Targets.Name(r.Key)); }
+                    if (r.Key == ClearKey) { if (Maneuvers.Target != null) CleanMap.SetTarget(null); Refresh(force: true); return; }
+                    if (Maneuvers.Target != r.Key) CleanMap.SetTarget(r.Key);
                     return;
                 }
         }
@@ -416,10 +440,12 @@ public static class ContactsTab
 
         foreach (var gname in GroupOrder) GroupOf(gname);   // (the groups in their order, first time)
         var want = new List<(string key, string group, string name)>();
+        if (Maneuvers.Target != null) want.Add((ClearKey, GTarget, "Clear target: " + Targets.Name(Maneuvers.Target)));
         foreach (var e in Targets.ShipsCached()) want.Add((e.Key, e.Yours ? GYours : GContacts, (e.Tracked ? "" : "≈ ") + e.Name));
         foreach (var b in reg.Bodies) if (!b.IsRoot && SystemHost.BeaconOf.ContainsKey(b.Name)) want.Add((b.Name, GBodies, SystemHost.DisplayName(b.Name)));
         var secs = new HashSet<string>();
         foreach (var st in EncounterFrames.Sites) if (st.Anchor && st.Sector != null && secs.Add(st.Sector)) want.Add((st.Sector, GSectors, st.Sector));
+        int rocksKnown = RockRows(want, pm, t);
         foreach (var kv in _places) want.Add((kv.Key, GPlaces, kv.Value.Name));
         // (a ship's saved keys follow the ship: after a load its frame's anchor may be another of its grids - the name, the pin
         //  and the hidden mark move to the key its row has now)
@@ -456,15 +482,16 @@ public static class ContactsTab
                 string nm = Strip(r.M.Name);
                 lock (Sync) Names[w.key] = nm;
             }
-            string name = Names.TryGetValue(w.key, out var nn) ? nn : w.name;
+            string name = Names.TryGetValue(w.key, out var nn) ? (w.name.StartsWith("≈ ") ? "≈ " + nn : nn) : w.name;
             if (w.key == Maneuvers.Target) name = "◆ " + name;
+            name += Suffix(w.key);
             if (r.M.Name != name) r.M.Name = name;
             r.Shown = name;
             // the eye: a place's is its GPS point's; anything else's pins it to the HUD
             if (w.key.StartsWith(PlacePrefix)) { var real = _places[w.key]; if (r.M.Hidden != real.Hidden) FrameMarkers.SetUserHidden(real, r.M.Hidden); }
-            else if (r.M.Hidden == Pinned.Contains(w.key)) lock (Sync) { if (r.M.Hidden) Pinned.Remove(w.key); else Pinned.Add(w.key); }
-            // where it is, from you, at its true distance
-            if (Targets.RootAt(w.key, t, out var root))
+            else if (w.key != ClearKey && r.M.Hidden == Pinned.Contains(w.key)) lock (Sync) { if (r.M.Hidden) Pinned.Remove(w.key); else Pinned.Add(w.key); }
+            // where it is, from you, at its true distance (the Clear row: where the target is)
+            if (Targets.RootAt(w.key == ClearKey ? Maneuvers.Target : w.key, t, out var root))
             {
                 Vector3D p = pw + pc.FromInertial(root.Position - pm);
                 if (IsFinite(p)) r.M.Position = p;
@@ -480,6 +507,7 @@ public static class ContactsTab
             _rows.Remove(k);
             regroup = true;
         }
+        Counts(want, rocksKnown);
         if (regroup || force)
         {
             try { _vm?.GetType().GetMethod("RefreshGroups", BindingFlags.Instance | BindingFlags.NonPublic)?.Invoke(_vm, null); }
@@ -508,7 +536,76 @@ public static class ContactsTab
         if (Maneuvers.Target != null) { var h = Home(Maneuvers.Target); if (h != null) Maneuvers.Target = h; }
     }
 
-    static string Strip(string s) => s.StartsWith("◆ ") ? s.Substring(2) : s;
+    /// <summary>A row's name back to the bare name: no target mark, no "≈", no state suffix.</summary>
+    static string Strip(string s)
+    {
+        if (s.StartsWith("◆ ")) s = s.Substring(2);
+        if (s.StartsWith("≈ ")) s = s.Substring(2);
+        int k = s.LastIndexOf("  [", StringComparison.Ordinal);
+        if (k > 0 && s.EndsWith("]")) s = s.Substring(0, k);
+        return s;
+    }
+
+    /// <summary>A contact's state after its name: "  [large ship · radar · tracking 40% · seen 2 h ago]"; "" for the rest.
+    /// (Kept short and slow-changing: the range is the distance column, the bearing and relative speed the target panel's.)</summary>
+    static string Suffix(string key)
+    {
+        if (key == ClearKey || !Contacts.InfoOf(key, out var i) || !i.Known) return "";
+        string st = Contacts.StateText(i);
+        string by = SEAerospace.Sensing.Signature.Name(i.Via);
+        string kind = i.Rock ? "rock" : Contacts.KindText(i);
+        return $"  [{kind}{(by != "-" ? "  ·  " + by : "")}{(st.Length > 0 ? "  ·  " + st : "")}]";
+    }
+
+    /// <summary>The Rocks group: the rocks you have seen (ring rocks and belt asteroids), nearest first, MaxRockRows of them.
+    /// Returns how many are known in all (its header's count).</summary>
+    static int RockRows(List<(string key, string group, string name)> want, Vector3D you, double t)
+    {
+        var rocks = _rockScratch; rocks.Clear();
+        int known = 0;
+        foreach (var b in RingRocks.Belts())
+        {
+            var o = b.Body.OriginInRoot(t).Position;
+            for (int i = 0; i < b.R.Length; i++)
+            {
+                string label = Targets.RingRockLabel(b, i);
+                if (!Contacts.KnownRock(label)) continue;
+                known++;
+                rocks.Add((label, (o + RingRocks.At(b, i, t) - you).LengthSquared()));
+            }
+        }
+        var reg = SystemHost.Registry;
+        foreach (var (belt, label, home, cluster) in AsteroidFrames.All())
+        {
+            if (!Contacts.KnownRock(label)) continue;
+            known++;
+            rocks.Add((label, (SectorHomes.Where(home, reg, t) - you).LengthSquared()));
+        }
+        rocks.Sort((x, y) => x.d2.CompareTo(y.d2));
+        for (int i = 0; i < rocks.Count && i < MaxRockRows; i++)
+            want.Add((rocks[i].label, GRocks, (Contacts.TrackedRock(rocks[i].label) ? "" : "≈ ") + rocks[i].label));
+        rocks.Clear();
+        return known;
+    }
+    static readonly List<(string label, double d2)> _rockScratch = new List<(string, double)>();
+
+    /// <summary>Each group's header with its count ("Contacts (4)"; the Rocks' all known: "Rocks (93, nearest 40)").</summary>
+    static void Counts(List<(string key, string group, string name)> want, int rocksKnown)
+    {
+        var n = _counts; n.Clear();
+        foreach (var w in want) { n.TryGetValue(w.group, out int c); n[w.group] = c + 1; }
+        foreach (var gname in GroupOrder)
+        {
+            n.TryGetValue(gname, out int c);
+            string head = gname == GTarget ? gname
+                        : gname == GRocks && rocksKnown > c ? $"{gname} ({rocksKnown}, nearest {c})"
+                        : $"{gname} ({c})";
+            var g = GroupOf(gname);
+            if (g.Name != head) g.Name = head;   // (the screen's group row follows its Name: GPSMarkerGroupViewModel)
+        }
+        n.Clear();
+    }
+    static readonly Dictionary<string, int> _counts = new Dictionary<string, int>();
 
     static Group GroupOf(string name)
     {

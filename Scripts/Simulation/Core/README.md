@@ -8,6 +8,8 @@ compile these files literally (each `.csproj` includes folders of it by path - u
   the rendezvous plot and tracker.
 - `Berths/` - the world layout of the system (planet cells, shells, the rotating surface chart), voxel berths.
 - `SystemDef/` - the star system's definition and builder, sample systems, asteroids and encounters.
+- `Flight/` (namespace SEAerospace.Flight; Tests/FlightTests) - landed vs orbiting (`SurfaceRule`), the auto-burn's watch
+  (`BurnWatch`), the notices' kinds and board (`MessageBoard`), typed burn values (`BurnNumbers`), ground points.
 - `Rendezvous/`, `Time/`, `Entry/`, `Sensing/`, `Persistence/` - intercepts and Lambert, the universe clock and warp,
   reentry's rules, sensor models, the save format.
 

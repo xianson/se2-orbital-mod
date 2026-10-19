@@ -234,9 +234,9 @@ Threads: any. Lock: as marked. Allocation: none, except `TryGetClosestApproach`.
 | `int GetAttitudeHold()` | none | 0 off, 1 prograde, 2 retrograde, 3 normal, 4 anti-normal, 5 radial out, 6 radial in, 7 level. |
 | `bool SetAttitudeHold(int mode)` | none | Hold a mode (0 lets go), applied on the next client tick as the cockpit's keys are. The pilot's own steering, leaving the seat or losing the orbit lets go. `false`: not a mode. |
 | `string GetTarget()` | none | The player's target as a **target key** (`""` none): a body's name (`"Verdure"`), `"grid:"` + a member id in invariant digits (`"grid:1000000042"`), or a site's sector name (`TryGetSite`; a ring rock's too after its site is gone). |
-| `bool SetTarget(string key)` | frame lock | Set it (`null` / `""`: none). `false`: no such target now. |
-| `bool TryGetTargetState(string key, double time, out string body, out Vector3D position, out Vector3D velocity)` | frame lock | A target's state at a universe time (`NaN`: now): the body it is about, its state (m, m/s, inertial). A ship on rails: its frame's orbit plus its place in the berth; in planet space, the arc its motion gives. |
-| `bool TryGetClosestApproach(string keyA, string keyB, double t0, double t1, out double time, out double distance, out double relativeSpeed)` | frame lock | The deepest pass of two targets over [t0, t1] (universe times), each on its present orbit: when, how close (m), relative speed then (m/s). `false`: unknown, **not about the same body now**, or no pass. Allocates: a planning call, not every frame. |
+| `bool SetTarget(string key)` | frame lock | Set it (`null` / `""`: none). `false`: no such target now (a ship read deep inside a planet - no real place - is none; 1.0.2). |
+| `bool TryGetTargetState(string key, double time, out string body, out Vector3D position, out Vector3D velocity)` | frame lock | A target's state at a universe time (`NaN`: now): the body it is about, its state (m, m/s, inertial). A ship on rails: its frame's orbit plus its place in the berth; in planet space, the arc its motion gives; landed or flying low (1.0.2: under 5 m/s over the ground near it, or on a hop that never orbits), its point on the ground turning with the planet; read deep inside a planet, `false`. |
+| `bool TryGetClosestApproach(string keyA, string keyB, double t0, double t1, out double time, out double distance, out double relativeSpeed)` | frame lock | The deepest pass of two targets over [t0, t1] (universe times), each on its present orbit: when, how close (m), relative speed then (m/s). `false`: unknown, **not about the same body now**, either landed or flying low (on no conic - 1.0.2), or no pass. Allocates: a planning call, not every frame. |
 
 ### Sites and contacts
 
@@ -378,6 +378,8 @@ A world setting the host file names is **forced**: a change through the API is r
 | `Hud.SpeedIcon` | client | bool | true |  | Orbital speed icon · Flight HUD · advanced | The orbital speed icon. |
 | `Hud.BuildHints` | client | bool | true |  | Build and aero hints · Flight HUD · basic | Build and aero hints while building (O cycles the overlay). |
 | `Hud.ContactsNeedDetection` | client | bool | true |  | Contacts must be detected · Flight HUD · advanced | Other ships and rocks show only once your sensors have seen them. Off: everything is known. |
+| `Hud.ContactStaleMinutes` | client | float | 30 | 0..10080 | Contact goes stale after · Flight HUD · advanced | A moving ship not seen for this long (game minutes) is stale: its orbit is shown as an estimate and it fades. 0: never. |
+| `Hud.ContactForgetHours` | client | float | 24 | 0..720 | Forget unseen ships after · Flight HUD · advanced | A moving ship not seen for this long (game hours) is forgotten: detect it again. Stations, wrecks and rocks are never forgotten. 0: never. |
 | `Map.Orbital` | client | bool | true |  | Orbital map · Map · basic | The orbital map in place of the game's map. |
 | `Map.ManeuverEditor` | client | bool | true |  | Maneuver nodes · Map · basic | Maneuver nodes on the map. |
 | `Map.OrbitPatches` | client | int | 3 | 0..10 | Predicted orbit segments · Map · basic | Conic patches drawn ahead. |

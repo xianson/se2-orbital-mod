@@ -24,6 +24,18 @@ public static partial class Maneuvers
     /// <summary>The selected node's handles are folded away (zoomed out; hover the node to open them).</summary>
     public static bool GizmoCompact;
     private static bool _addPending; private static double _addT; private static Vector2 _addAt;
+    // (2026-10-18, UI audit C5) a handle's pull: the component as pulled (unsnapped), the zoom's factor at the pull's start
+    // (HandleDrag), the selected node's orbit on screen this frame (px, node to its body's centre); a node to frame once drawn
+    private static double _dragRaw, _dragZoom = 1, _orbitPx;
+    private static Node _frameReq; private static int _frameTries;
+
+    /// <summary>Glide the map onto this node's orbit (its body centred, the orbit about a third of the screen tall) once it
+    /// is drawn - a new node, a porkchop window (UI audit C5: a node made at a far zoom was a 40 px knot).</summary>
+    public static void FrameNode(Node n) { _frameReq = n; _frameTries = 0; }
+
+    /// <summary>Ctrl and Shift on the map's editor (the modifiers of a handle's pull, and Ctrl+Z).</summary>
+    static bool CtrlDown => MapInput.KeyDown(Keen.VRage.Core.Input.KeyboardInputs.Control) || MapInput.DevKeys.Contains("ctrl");
+    static bool ShiftDown => MapInput.KeyDown(Keen.VRage.Core.Input.KeyboardInputs.Shift) || MapInput.DevKeys.Contains("shift");
 
     private struct Sample { public double T; public Vector2 S; public bool Planned; }
     private static readonly List<Sample> _samplesA = new List<Sample>(1024), _samplesB = new List<Sample>(1024);
@@ -288,6 +300,7 @@ public static partial class Maneuvers
             break;
         }
 
+        _entryMarkS.Clear();
         // Reentry: where the braking band starts (the entry interface) and max-q, on the leg about that body;
         // an airless body you would reach over the cap: its border, flagged.
         {
@@ -302,6 +315,7 @@ public static partial class Maneuvers
                     first ??= es;
                     MapPipeline.ScreenCircle(es, (strong ? 5f : 3.5f) * u, EntryColor, 2f * u);
                     if (strong) MapPipeline.ScreenCircle(es, 1.5f * u, EntryColor, 2.5f * u);
+                    _entryMarkS.Add(es);
                     HudPanel.TagAt(es + new Vector2(10f * u, 0), what, EntryColor, u, diamond: false);
                 }
                 if (ep != null && l.Body.Name == EntryHost.PredictedBody)
@@ -327,6 +341,33 @@ public static partial class Maneuvers
                     break;
                 }
             }
+            // ON THE PLAN too (UI audit U3: a planned deorbit leg showed no entry mark): each planned leg's pass through the air
+            // (fx-flight's PlannedEntries), marked as the orbit's own; and where the path comes down (Landing), a cross and
+            // its words ("Lands on Verdure near Outpost RHA99 (12 km) · 12°N 45°E")
+            var planned = PlannedEntries(t);
+            for (int k = 0; k < planned.Count; k++)
+            {
+                var pm = planned[k];
+                if (pm.Pass == null || !Live(pm.Leg.Body)) continue;
+                double tm = pm.Pass.EnterTime;
+                if (double.IsNaN(tm) || tm < pm.Leg.T0 || tm > pm.Leg.T1 || !MapPipeline.ToScreen(W(LegLoc(pm.Leg, tm)), out var es) || !InMapArea(es)) continue;
+                if (first.HasValue && (es - first.Value).Length() < 60f * u) continue;
+                first ??= es;
+                MapPipeline.ScreenCircle(es, 5f * u, EntryColor, 2f * u);
+                MapPipeline.ScreenCircle(es, 1.5f * u, EntryColor, 2.5f * u);
+                _entryMarkS.Add(es);
+                HudPanel.TagAt(es + new Vector2(10f * u, 0), PlannedEntryText(k, pm.Pass), EntryColor, u, diamond: false);
+            }
+            if (Landing(t, out var land) && Live(land.Leg.Body) && MapPipeline.ToScreen(W(Loc(land.Leg.Body, land.At, land.T)), out var ls) && InMapArea(ls))
+            {
+                float r = 6f * u;
+                MapPipeline.ScreenLine(ls - new Vector2(r, r), ls + new Vector2(r, r), EntryColor, 2.2f * u);
+                MapPipeline.ScreenLine(ls - new Vector2(r, -r), ls + new Vector2(r, -r), EntryColor, 2.2f * u);
+                _entryMarkS.Add(ls);
+                if (land.Text != null) HudPanel.TagAt(ls + new Vector2(10f * u, 0), land.Text, EntryColor, u, diamond: false);
+            }
+            EntryMarkHover = false;
+            foreach (var em in _entryMarkS) if ((em - mouse).Length() < 16f * u) { EntryMarkHover = true; break; }
         }
 
         // Target: the closest approach on the path, and where the target is then (a ring), joined.
@@ -424,6 +465,12 @@ public static partial class Maneuvers
                 compact = (ns0.s - bc).Length() < 90f * u && (mouse - ns0.s).Length() > 60f * u;
         }
         GizmoCompact = compact;
+        _orbitPx = 0;
+        if (Selected != null && selA.Node != null)
+        {
+            var ns1 = nodeScreen.Find(x => x.n == Selected);
+            if (ns1.n != null && MapPipeline.ToScreen(W(Loc(selA.Body, Vector3D.Zero, Selected.T)), out var bc1)) _orbitPx = (ns1.s - bc1).Length();
+        }
         if (edit && !compact && Selected != null && selA.Node != null && nodeScreen.Exists(x => x.n == Selected && InMapArea(x.s)))   // not when the node is off view
         {
             selS = nodeScreen.Find(x => x.n == Selected).s;
@@ -504,24 +551,40 @@ public static partial class Maneuvers
                 _addPending = false;
                 if (!double.IsNaN(_addT) && _addT > t + 5)
                 {
+                    UndoMark();
                     var n = new Node { T = _addT };
                     lock (Nodes) Nodes.Add(n);
                     Selected = n;
+                    FrameNode(n);   // (framed at once: at a far zoom its handles were a knot - UI audit C5)
                 }
             }
         }
+
+        // Ctrl+Z: the plan before the last edit (UI audit C5)
+        if (edit && !MapMenu.Open && _drag == Drag.None && CtrlDown && (MapInput.KeyPressed(Keen.VRage.Core.Input.KeyboardInputs.Z) | MapInput.DevKeys.Remove("undo")))
+            Status = Undo() ? "undone" : "nothing to undo";
 
         if (_drag == Drag.Handle && Selected != null)
         {
             if (!lDown) _drag = Drag.None;
             else
             {
-                // Pull along the handle's axis: the delta-v grows faster the further you pull.
+                // Pull along the handle's axis: the delta-v grows faster the further you pull (20 px 0.5 m/s a second, 60 px
+                // 4.5, 120 px 18 at 1080p), times the zoom's factor taken at the pull's start (zoomed out: faster), a tenth
+                // with Shift; with Ctrl the component sits on a clean step (1 / 10 / 100 m/s by how fast it grows; 0.1 with
+                // Shift) - the pull itself runs on unsnapped (SEAerospace.MapUi.HandleDrag; UI audit C5)
                 float pull = Math.Max(0f, Vector2.Dot(mouse - _anchor, _dir));
-                double rate = 0.5 * Math.Pow(pull / (20.0 * u), 2);      // m/s per second: 20 px 0.5, 60 px 4.5, 120 px 18
-                double d = _sign * rate * dt;
-                if (_axis == 0) Selected.Pro += d; else if (_axis == 1) Selected.Nor += d; else Selected.Rad += d;
-                Selected.Edit();
+                bool fine = ShiftDown, snap = CtrlDown;
+                double rate = SEAerospace.MapUi.HandleDrag.Rate(pull, u, _dragZoom, fine);
+                _dragRaw += _sign * rate * dt;
+                double v = snap ? SEAerospace.MapUi.HandleDrag.Snap(_dragRaw, SEAerospace.MapUi.HandleDrag.SnapStep(rate, fine)) : _dragRaw;
+                _dragMode = snap ? (fine ? 3 : 2) : fine ? 1 : 0;
+                double was = _axis == 0 ? Selected.Pro : _axis == 1 ? Selected.Nor : Selected.Rad;
+                if (v != was)
+                {
+                    if (_axis == 0) Selected.Pro = v; else if (_axis == 1) Selected.Nor = v; else Selected.Rad = v;
+                    Selected.Edit();
+                }
                 MapPipeline.ScreenLine(_anchor, _anchor + _dir * pull, NodeColor, 1.5f);
             }
         }
@@ -539,8 +602,14 @@ public static partial class Maneuvers
         }
         else if (lPressed)
         {
-            if (hoverHandle >= 0) { _drag = Drag.Handle; _axis = handles[hoverHandle].axis; _sign = handles[hoverHandle].sign; _anchor = handles[hoverHandle].at; _dir = handles[hoverHandle].dir; }
-            else if (hoverNode != null) { Selected = hoverNode; _drag = Drag.Slide; }
+            if (hoverHandle >= 0)
+            {
+                UndoMark();
+                _drag = Drag.Handle; _axis = handles[hoverHandle].axis; _sign = handles[hoverHandle].sign; _anchor = handles[hoverHandle].at; _dir = handles[hoverHandle].dir;
+                _dragRaw = _axis == 0 ? Selected.Pro : _axis == 1 ? Selected.Nor : Selected.Rad;
+                _dragZoom = SEAerospace.MapUi.HandleDrag.ZoomFactor(_orbitPx, u);
+            }
+            else if (hoverNode != null) { UndoMark(); Selected = hoverNode; _drag = Drag.Slide; }
             else if (!double.IsNaN(hoverT) && hoverT > t + 5) { _addPending = true; _addT = hoverT; _addAt = mouse; }
             else Selected = null;
         }
@@ -597,10 +666,12 @@ public static partial class Maneuvers
             // R shows retrograde): the number reads along the node's own axes.
             double comp = axis == 0 ? Selected.Pro : axis == 1 ? Selected.Nor : Selected.Rad;
             bool mine = sign > 0 ? comp > 0.05 : comp < -0.05;
+            bool pulling = _drag == Drag.Handle && _axis == axis && _sign == sign;
             if (mine || hot)
             {
-                // Centred on the axis, a fixed gap beyond the icon: the labels fan out with the handles.
-                string txt = hot && !mine ? HandleName(label) : $"{Math.Abs(comp):F1}";
+                // Centred on the axis, a fixed gap beyond the icon: the labels fan out with the handles. While pulled: the
+                // number in m/s and the mode (fine / snap) - UI audit C5 (the strings kept per handle, made on a change)
+                string txt = pulling ? HandleText(i, comp, _dragMode) : hot && !mine ? HandleName(label) : HandleText(i, Math.Abs(comp), -1);
                 AxisLabel(tip, dir, 11f * u, txt, c, u);
             }
         }
@@ -608,7 +679,7 @@ public static partial class Maneuvers
         {
             double dvm = Math.Sqrt(Selected.Pro * Selected.Pro + Selected.Nor * Selected.Nor + Selected.Rad * Selected.Rad);
             double left = selA.Dv.Length();
-            string head = (Math.Abs(left - dvm) > 0.05 ? $"{left:F1} / {dvm:F1} m/s" : $"{dvm:F1} m/s") + "  ·  " + Clock(Selected.T - t);
+            string head = NodeHead(left, dvm, Selected, t);   // (its burn's length and start too - UI audit U2)
             // In the widest gap between the handles (below the node when it can), clear of them all.
             Vector2 gap = new Vector2(0, 1);
             if (handles.Count > 0)
@@ -648,8 +719,73 @@ public static partial class Maneuvers
         else if (!double.IsNaN(hoverT) && _drag == Drag.None)
             HudPanel.TagAt(mouse + new Vector2(16f * u, 14f * u), $"Add maneuver  (in {Clock(hoverT - t)})", PlanColor, u, diamond: false);
 
+        // A node to frame (FrameNode): its body centred, the orbit through it about 0.3 screen heights from the centre - the
+        // node on screen, its handles open (UI audit C5). In the Rendezvous tab's relative view: not (its scale is its own).
+        if (_frameReq != null)
+        {
+            if (allLive) _frameReq = null;
+            else
+            {
+                var fa = applied.Find(x => x.Node == _frameReq);
+                var fn = nodeScreen.Find(x => x.n == _frameReq);
+                Vector3D bw = fa.Node != null ? W(Loc(fa.Body, Vector3D.Zero, _frameReq.T)) : default;
+                if (fa.Node != null && fn.n != null && MapCamera.Distance > 0 && MapPipeline.ToScreen(bw, out var fbc))
+                {
+                    float px = (fn.s - fbc).Length(), want = MapPipeline.ScreenSize.Y * 0.3f;
+                    if (px > 1f) { MapCamera.PanTo(bw, smooth: true); MapCamera.ZoomTo(MapCamera.Distance * px / want); }
+                    _frameReq = null;
+                }
+                else if (++_frameTries > 90) _frameReq = null;   // (not drawn for a second and a half: given up)
+                else if (_frameTries == 5 && fa.Node != null && MapCamera.Distance > 0) MapCamera.PanTo(bw, smooth: true);   // (off the view: its body brought in first)
+            }
+        }
+
         // (Selecting a sector no longer marks your closest approach to it: that is what 'Set as target' is for.)
         Status = $"nodes {Nodes.Count}, legs {legs.Count}, mouse {MapInput.Status}";
+    }
+
+    static string _head; static long _headKey = long.MinValue;
+    /// <summary>The selected node's tag: "12.4 m/s · 25 s burn · starts in 3:44" (left / total when part is flown); made anew only
+    /// when what it says changes (it was a new string every frame).</summary>
+    static string NodeHead(double left, double dvm, Node n, double t)
+    {
+        double a = Accel, dur = a > 0.01 ? dvm / a : double.NaN, start = BurnStart(n) - t;
+        long key = (long)Math.Round(left * 10) * 1_000_003 + (long)Math.Round(dvm * 10) * 7919 + (long)Math.Floor(start) * 31 + (IsFinite(dur) ? (long)Math.Round(dur) : -1);
+        if (key == _headKey && _head != null) return _head;
+        _headKey = key;
+        string dv = Math.Abs(left - dvm) > 0.05 ? $"{left:F1} / {dvm:F1} m/s" : $"{dvm:F1} m/s";
+        string len = !IsFinite(dur) || dvm < 0.05 ? "" : dur < 60 ? $"  ·  {Math.Max(1, dur):F0} s burn" : $"  ·  {Clock(dur)} burn";
+        string when = start > 0.5 ? (IsFinite(dur) && dvm >= 0.05 ? "  ·  starts in " : "  ·  in ") + Clock(start) : "  ·  now";
+        return _head = dv + len + when;
+    }
+
+    /// <summary>The re-entry marks drawn this frame (screen), and the mouse on one (the map's hint line then explains the heat).</summary>
+    static readonly List<Vector2> _entryMarkS = new List<Vector2>(8);
+    public static bool EntryMarkHover;
+
+    static readonly string[] _peText = new string[4]; static readonly object[] _peFor = new object[4];
+    /// <summary>A planned pass's tag (made once per pass: the passes are recomputed at most a few times a second).</summary>
+    static string PlannedEntryText(int k, SEAerospace.Entry.Pass p)
+    {
+        int i = k & 3;
+        if (ReferenceEquals(_peFor[i], p) && _peText[i] != null) return _peText[i];
+        _peFor[i] = p;
+        double share = SEAerospace.Entry.Reentry.Share(p.PeakHeat, false);
+        return _peText[i] = p.Landing ? $"Atmosphere entry (planned)  {p.ArrivalSpeed:N0} m/s · heat {share:P0}{(share > 1 ? " — too hot" : "")}"
+                                      : p.HasAfter ? $"Aerobrake (planned)  −{p.Dv:N0} m/s · heat {share:P0}" : $"Atmosphere entry (planned)  heat {share:P0}";
+    }
+
+    /// <summary>The pull's mode: 0 normal, 1 fine (Shift), 2 snap (Ctrl), 3 fine snap.</summary>
+    private static int _dragMode;
+    static readonly string[] _hText = new string[6]; static readonly long[] _hKey = new long[6];
+    /// <summary>A handle's number: "12.3" (mode -1), pulled "+12.3 m/s" with "· fine" / "· snap 10" (made only when it changes).</summary>
+    static string HandleText(int i, double v, int mode)
+    {
+        long key = (long)Math.Round(v * 10) * 8 + (mode + 1);
+        if (_hText[i] != null && _hKey[i] == key) return _hText[i];
+        _hKey[i] = key;
+        string n = mode < 0 ? $"{v:F1}" : $"{(v >= 0 ? "+" : "")}{v:F1} m/s";
+        return _hText[i] = mode switch { 1 => n + "  · fine", 2 => n + "  · snap", 3 => n + "  · fine snap", _ => n };
     }
 
     private static string OrbitText(Applied a)
@@ -663,11 +799,7 @@ public static partial class Maneuvers
     }
 
 
-    public static string Clock(double s)
-    {
-        if (!IsFinite(s)) return "-";
-        if (s < 0) return "-" + Clock(-s);
-        var ts = TimeSpan.FromSeconds(s);
-        return ts.TotalDays >= 1 ? $"{(int)ts.TotalDays}d {ts.Hours}h" : ts.TotalHours >= 1 ? $"{(int)ts.TotalHours}h {ts.Minutes:D2}m" : $"{ts.Minutes}:{ts.Seconds:D2}";
-    }
+    /// <summary>A duration as a clock ("4:12", "1h 05m"): SEAerospace.MapUi.Words.Clock (tested offline) - never "-0:00" (UI audit
+    /// C4, 2026-10-18: the target line said "-0:00" at the closest approach).</summary>
+    public static string Clock(double s) => SEAerospace.MapUi.Words.Clock(s);
 }

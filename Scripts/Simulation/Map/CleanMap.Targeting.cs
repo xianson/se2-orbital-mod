@@ -47,11 +47,14 @@ public static partial class CleanMap
         => Maneuvers.Target == key ? new MapMenu.Item(named ? "Clear target: " + name : "Clear target", () => SetTarget(null))
                                    : new MapMenu.Item(named ? "Target " + name : "Set as target", () => SetTarget(key));
 
-    /// <summary>Set (or clear) the target, and say so.</summary>
+    /// <summary>Set (or clear) the target, and say so ("landed on Verdure" for a ship on the ground) - or say why not
+    /// (Targets.WhyNot: its place unknown). The map's N, its lists, its menus, the Contacts tab and flight's N all come here.</summary>
     public static void SetTarget(string key)
     {
+        string why = Targets.WhyNot(key);
+        if (why != null) { Messages.Say(SEAerospace.Flight.MessageKinds.Target, why); return; }
         Maneuvers.Target = key;
-        WarpControl.Say(key == null ? "Target cleared" : "Target: " + Targets.Name(key));
+        Messages.Say(SEAerospace.Flight.MessageKinds.Target, key == null ? "Target cleared" : Targets.SetText(key));
     }
 
     /// <summary>N on the map: target what is under the cursor (again: the next thing there; on the target alone: clear it).</summary>
@@ -60,7 +63,8 @@ public static partial class CleanMap
         bool n = MapInput.KeyPressed(KeyboardInputs.N) | MapInput.DevKeys.Remove("n");
         if (!n || MapMenu.Open) return;
         var under = TargetsUnder(Mouse);
-        if (under.Count == 0) { WarpControl.Say("Nothing to target under the cursor"); return; }
+        // (nothing there: say how things become targetable - never whether an undetected one is there)
+        if (under.Count == 0) { Messages.Say(SEAerospace.Flight.MessageKinds.Target, SEAerospace.Sensing.Reasons.Text(SEAerospace.Sensing.Reasons.Why.Nothing)); return; }
         int i = under.FindIndex(x => x.key == Maneuvers.Target);
         if (i < 0) SetTarget(under[0].key);
         else if (under.Count == 1) SetTarget(null);
@@ -117,7 +121,18 @@ public static partial class CleanMap
         double Dist(string key) => haveYou && Targets.RootAt(key, t, out var r) ? (r.Position - you).Length() : double.NaN;
         var ships = new List<(string key, string name, double d, ColorSRGB c)>();
         foreach (var e in Targets.ShipsCached())
-            ships.Add((e.Key, e.Tracked ? e.Name : "\u2248 " + e.Name, Dist(e.Key), e.Yours ? OwnColor : EncColor));
+        {
+            // a contact: "≈ name  40%" while tracking; dimmed when long unseen (Contacts.Fade); a landed one says so
+            string nm = e.Tracked ? e.Name : "≈ " + e.Name;
+            var col = e.Yours ? OwnColor : EncColor;
+            if (!e.Yours && Contacts.InfoOf(e.Key, out var ci))
+            {
+                if (!ci.Tracked) nm += $"  {ci.Progress:P0}";
+                if (ci.LandedOn != null) nm += "  · landed";
+                col = HudPanel.Alpha(col, (float)(col.A / 255.0 * Contacts.FadeOf(ci)));
+            }
+            ships.Add((e.Key, nm, Dist(e.Key), col));
+        }
         ships.Sort((a, b) => (double.IsNaN(a.d) ? double.MaxValue : a.d).CompareTo(double.IsNaN(b.d) ? double.MaxValue : b.d));
         var bodies = new List<(string key, string name, double d, ColorSRGB c)>();
         foreach (var b in reg.Bodies)
@@ -133,10 +148,32 @@ public static partial class CleanMap
         var rows = all;
         if (all.Count > room)
         {
-            int per = Math.Max(1, room - 1), pages = (all.Count + per - 1) / per;
-            _tlPage %= pages;
-            rows = all.GetRange(_tlPage * per, Math.Min(per, all.Count - _tlPage * per));
-            rows.Add((MoreKey, $"more  ({_tlPage + 1} / {pages})", double.NaN, Dim, false));
+            // pages that never end on a header (its rows on the next page) and never hold a header alone (2026-10-19: with
+            // room for two rows, page 1 was "SHIPS AND STATIONS" and "more (1 / 40)" - no ship at all)
+            int per = room - 1;
+            var starts = _tlStarts; starts.Clear();
+            if (per >= 2)
+                for (int i = 0; i < all.Count;)
+                {
+                    int n = Math.Min(per, all.Count - i);
+                    if (n > 1 && all[i + n - 1].header) n--;
+                    starts.Add(i); i += n;
+                }
+            if (starts.Count == 0)
+            {
+                // too little room for a page: one line saying where the list is
+                rows = new List<(string key, string name, double d, ColorSRGB c, bool header)>
+                    { (null, $"{ships.Count} ships, {bodies.Count} bodies: see the Contacts tab", 0, Dim, true) };
+                _tlPage = 0;
+            }
+            else
+            {
+                int pages = starts.Count;
+                _tlPage %= pages;
+                int a = starts[_tlPage], b = _tlPage + 1 < pages ? starts[_tlPage + 1] : all.Count;
+                rows = all.GetRange(a, b - a);
+                rows.Add((MoreKey, $"more  ({_tlPage + 1} / {pages})", double.NaN, Dim, false));
+            }
         }
         else _tlPage = 0;
         float y = top + line * 0.25f;
@@ -167,6 +204,7 @@ public static partial class CleanMap
         else if (clicked != null) SetTarget(clicked == Maneuvers.Target ? null : clicked);
     }
     private static int _tlPage;
+    private static readonly List<int> _tlStarts = new List<int>();
     const string MoreKey = "\u0001more";
     /// <summary>DEV: click the target list's row i (0: its first target) on the next frame.</summary>
     public static int DevRowClick = -1;

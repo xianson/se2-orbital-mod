@@ -175,7 +175,8 @@ public static partial class CleanMap
                 Vector2 toC = cs - s;
                 if (toC.LengthSquared() > 1f) lab = s + Vector2.Normalize(toC) * ((es - s).Length() + 14f * u);
             }
-            MapPipeline.TextScreen(lab, zoneName, col, (0.5f) * MapPipeline.MapText);
+            if (!MapPipeline.TextScreen(lab, zoneName, col, MinPx(0.5f * MapPipeline.MapText, LabelMinPx)))   // (at least ~10 px: they were ~7; taken there: over the point - UI audit cosmetic)
+                MapPipeline.TextScreen(s - new Vector2(0, 14f * u), zoneName, col, MinPx(0.5f * MapPipeline.MapText, LabelMinPx));
         }
     }
 
@@ -327,7 +328,7 @@ public static partial class CleanMap
             var c = label == Maneuvers.Target ? TargetText : hot ? LineSel : live ? RoidLive : Quiet(belt) ? HudPanel.Alpha(RoidColor, 0.4f) : RoidColor;
             MapPipeline.PickName = label;
             MapPipeline.ScreenRing(w, (cluster ? 4f : 2.8f) * u, c, (hot ? 2f : 1.4f) * u);
-            if (hot || !Quiet(belt)) MapPipeline.TextScreen(s + new Vector2(0, 12f * u), Contacts.TrackedRock(label) ? label : "≈ " + label, c, (hot ? 0.6f : 0.5f) * MapPipeline.MapText);
+            if (hot || !Quiet(belt)) MapPipeline.TextScreen(s + new Vector2(0, 12f * u), Contacts.TrackedRock(label) ? label : "≈ " + label, c, MinPx((hot ? 0.6f : 0.5f) * MapPipeline.MapText, LabelMinPx));
         }
         MapPipeline.PickName = null;
     }
@@ -410,11 +411,24 @@ public static partial class CleanMap
         if (rmax < 6f * u) return;   // too small to read yet
         var col = new ColorSRGB(0.55f, 0.85f, 1f, 0.55f);
         MapStyle.Boundary(pts, true, col, MapStyle.Thin(u), u);
-        if (rmax > 40f * u) MapPipeline.TextScreen(cs + new Vector2(0, rmax * 0.6f + 10f * u), "Calm core", col, (0.5f) * MapPipeline.MapText);
+        if (rmax > 40f * u) MapPipeline.TextScreen(cs + new Vector2(0, rmax * 0.6f + 10f * u), "Calm core", col, MinPx(0.5f * MapPipeline.MapText, LabelMinPx));
     }
 
     /// <summary>Where each sector's marker was drawn (world), for centring on it.</summary>
     private static readonly Dictionary<string, Vector3D> _markerAt = new Dictionary<string, Vector3D>();
+
+    /// <summary>The sector icons drawn (world) this frame and the last: labels placed this frame keep off last frame's icons
+    /// (a lock icon sat in the middle of names - "Ve[lock]ure", "Pala[lock]L3"; UI audit cosmetic).</summary>
+    static List<Vector3D> _icons = new List<Vector3D>(64), _iconsPrev = new List<Vector3D>(64);
+    static void ReserveIcons()
+    {
+        var sw = _iconsPrev; _iconsPrev = _icons; _icons = sw; _icons.Clear();
+        float u = MapPipeline.UiScale(MapPipeline.ScreenSize.Y), r = 9f * u;
+        foreach (var w in _iconsPrev) if (MapPipeline.ToScreen(w, out var s)) MapPipeline.Reserve(s - new Vector2(r, r), s + new Vector2(r, r));
+    }
+    /// <summary>A label's line at least this tall (px; about a 10 px font).</summary>
+    const float LabelMinPx = 13f;
+    static float MinPx(float scale, float px) => SEAerospace.MapUi.TextSize.AtLeast(scale, MapPipeline.MeasureText("Ag", 1f).Y, px);
 
     /// <summary>Glide the view to a sector's marker (in this view).</summary>
     public static void CentreOn(string sector)
@@ -482,6 +496,7 @@ public static partial class CleanMap
     static void Marker(Vector3D world, Band b)
     {
         _markerAt[b.Name] = world;
+        _icons.Add(world);   // (next frame's labels keep off it: "Pala[lock]L3" - UI audit cosmetic)
         var c = b.Selected ? LineSel : StateColor(b);
         // The colonization map's own sector icons (locked, or the default), tinted by state.
         if (MapPipeline.ToScreen(world, out var ms))

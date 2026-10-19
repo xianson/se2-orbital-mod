@@ -3,6 +3,7 @@ using Keen.VRage.Core;
 using SEAerospace;
 using SEAerospace.Orbital;
 using SEAerospace.SystemDef;
+using SEAerospace.MapUi;
 using static OrbitalMod.Num;
 
 #pragma warning disable CS0649, CS8632, CS1591, CS1573, CS1570, CS1574, CS0419, CS1734
@@ -122,6 +123,8 @@ public static class RendezvousView
                     if (m.Name == "OnPropertyChanged" && m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == typeof(string)) { raise = m; break; }
             raise?.Invoke(term, new object[] { "SubScreens" });
             _ourSub = ours;
+            // the game's W A S D / wheel hints under this map: they move nothing here (UI audit C6) - emptied, on the UI thread
+            if (CleanMap.Enabled) { var tm = term; var cs = col; UiThread.Post(() => MapChrome.ClearMapHints(tm, cs, ours)); }
             TabStatus = raise != null ? "tab added" : "tab added (row not told)";
         }
         catch (Exception e) { Fail((e.InnerException ?? e).Message); }
@@ -140,15 +143,24 @@ public static class RendezvousView
     /// <summary>The map closed: our state only (the terminal is the game's to close; the next one gets its own tab).</summary>
     public static void Reset() { Active = false; _fitFor = null; }
 
-    /// <summary>Back to the Colonization tab (harness).</summary>
+    /// <summary>Back to the map's tab: Colonization - or, where the world has none (its tab hidden: sectorless), the Contacts
+    /// (GPS) tab, which shows the map there (selecting the hidden Colonization tab left no sub-tab lit - UI audit cosmetic,
+    /// shot l6_05). The porkchop's pick and the harness.</summary>
     public static void Close()
     {
         if (Active && _term != null && _ourSub != null && ReferenceEquals(Prop(_term, "SelectedSubScreen"), _ourSub))
         {
             try
             {
+                object col = null, gps = null;
                 if (Prop(_term, "SubScreens") is System.Collections.IList subs)
-                    foreach (var sub in subs) if (Prop(Prop(sub, "Id"), "Value") as string == "Map/Colonization") { _term.GetType().GetProperty("SelectedSubScreen")?.SetValue(_term, sub); break; }
+                    foreach (var sub in subs)
+                    {
+                        string id = Prop(Prop(sub, "Id"), "Value") as string;
+                        if (id == "Map/Colonization") col = sub; else if (id == "Map/GPS") gps = sub;
+                    }
+                object to = col != null && Prop(col, "IsVisible") is bool v && v ? col : gps ?? col;
+                if (to != null) _term.GetType().GetProperty("SelectedSubScreen")?.SetValue(_term, to);
             }
             catch { }
         }
@@ -310,8 +322,8 @@ public static class RendezvousView
             if (x == tbody)
             {
                 MapPipeline.ClipRect = null;
-                MapPipeline.ScreenText(head, $"Rendezvous · {tn}", white, 1.05f * MapPipeline.MapText);
-                MapPipeline.ScreenText(head + new Vector2(0, 34f * u), $"At {tn}: plan your capture on the map", Dim, 0.8f * MapPipeline.MapText);
+                CleanMap.Plated(head, $"Rendezvous · {tn}", white, 1.05f * MapPipeline.MapText);
+                CleanMap.Plated(head + new Vector2(0, 34f * u), $"At {tn}: plan your capture on the map", Dim, 0.8f * MapPipeline.MapText);
                 Status = "at the target";
                 return;
             }
@@ -350,10 +362,76 @@ public static class RendezvousView
         if (double.IsNaN(dep)) note = "Your plan: no burn yet (add a maneuver on the map)";
         Porkchop.Draw(MapLayout.P(0.27f, 0.22f), MapLayout.P(0.765f, 0.72f), c, from, to, tn,
                       dep, arr, dv, note, t, mouse, u);
+        // A CLICK ON A WINDOW MAKES ITS BURN (UI audit C2: "it says 'pick a window' and clicking does nothing"): the transfer's
+        // first burn as a maneuver, the map shown and framed on it, to fine-tune there
+        if (Porkchop.Picked) MakeTransfer(c, from, to, t, haveBase, bb, bel, tn);
         MapPipeline.ClipRect = null;
-        MapPipeline.ScreenText(head, $"Rendezvous · {tn}", white, 1.05f * MapPipeline.MapText);
-        MapPipeline.ScreenText(head + new Vector2(0, 34f * u), "Pick a window, then shape your burn on the map: your plan is the cross", Dim, 0.8f * MapPipeline.MapText);
+        CleanMap.Plated(head, $"Rendezvous · {tn}", white, 1.05f * MapPipeline.MapText);
+        CleanMap.Plated(head + new Vector2(0, 34f * u), PickHint, Dim, 0.8f * MapPipeline.MapText);
         Status = $"windows to {to.Name} about {c.Name}: {Porkchop.Status}; plan dep {(double.IsNaN(dep) ? "-" : Maneuvers.Clock(dep - t))} entry {(double.IsNaN(arr) ? "-" : Maneuvers.Clock(arr - t))} dv {dv:F0} {note}";
+    }
+
+    const string PickHint = "Click a window to make its burn: the map then shows it to fine-tune  ·  your plan is the cross";
+
+    /// <summary>
+    /// The transfer of the clicked porkchop cell (Porkchop.PickDep / PickTof) as your plan's first burn (UI audit C2). The
+    /// Lambert arc from where you leave to the target then (the cheaper of its two senses, as the plot's cell). Leaving your
+    /// own orbit about the body both go round: the burn at the departure, the arc's velocity minus yours, along your axes.
+    /// Leaving a planet from a parking orbit: a prograde burn where the escape hyperbola's periapsis puts its asymptote along
+    /// v-infinity (SEAerospace.MapUi.Ejection), on the revolution before the departure, of the periapsis speed minus yours.
+    /// The plan so far is replaced (Ctrl+Z on the map brings it back), the map shown and framed on the node.
+    /// </summary>
+    static void MakeTransfer(GravityBody c, Porkchop.From from, GravityBody to, double t, bool haveBase, GravityBody bb, KeplerianElements bel, string tn)
+    {
+        double td = Porkchop.PickDep, tof = Porkchop.PickTof;
+        var d = from.State(td);
+        var to0 = to.OriginInRoot(td + tof); var c0 = c.OriginInRoot(td + tof);
+        var a = new StateVector(to0.Position - c0.Position, to0.Velocity - c0.Velocity);
+        Vector3D nrm = Vector3D.Cross(d.Position, d.Velocity), v1 = default;
+        double cost = double.PositiveInfinity;
+        for (int k = 0; k < 2; k++)
+        {
+            if (!SEAerospace.Rendezvous.Lambert.Solve(d.Position, a.Position, tof, c.Mu, k == 0, nrm, out var s1, out var s2)) continue;
+            double vi1 = (s1 - d.Velocity).Length(), vi2 = (s2 - a.Velocity).Length();
+            double cc = (from.Mu > 0 ? Ejection.PeriapsisSpeed(vi1, from.Mu, Math.Max(1, from.ParkR)) - Math.Sqrt(from.Mu / Math.Max(1, from.ParkR)) : vi1) + vi2;
+            if (cc < cost) { cost = cc; v1 = s1; }
+        }
+        if (double.IsInfinity(cost)) { Messages.Say(SEAerospace.Flight.MessageKinds.Burn, "No transfer from that window (no arc): pick another cell"); return; }
+        double T = td, pro, nor = 0, rad = 0;
+        Vector3D vinf = v1 - d.Velocity;
+        if (from.Mu <= 0)
+        {
+            // your own orbit about c: the burn is the arc's start minus your velocity, on your axes there
+            Maneuvers.Axes(d, out var P, out var N, out var R);
+            pro = Vector3D.Dot(vinf, P); nor = Vector3D.Dot(vinf, N); rad = Vector3D.Dot(vinf, R);
+        }
+        else if (haveBase && bb != null && bb.Name == from.Name && bel.IsElliptic && IsFinite(bel.Period))
+        {
+            var s0 = OrbitPropagation.StateAt(bel, td);
+            Vector3D n = Vector3D.Cross(s0.Position, s0.Velocity);
+            n = n.LengthSquared() > 0 ? Vector3D.Normalize(n) : Vector3D.UnitY;
+            Vector3D pe = Ejection.Periapsis(vinf, n, bb.Mu, s0.Position.Length());
+            double t0 = Math.Max(t + 15, td - bel.Period), t1 = Math.Max(t0 + 1, td);
+            double tb = pe.LengthSquared() > 0 ? Ejection.NearestTime(tk => OrbitPropagation.StateAt(bel, tk).Position, t0, t1, pe, 360, out _) : double.NaN;
+            if (IsFinite(tb)) T = tb;
+            var sb = OrbitPropagation.StateAt(bel, T);
+            pro = Ejection.PeriapsisSpeed(vinf.Length(), bb.Mu, sb.Position.Length()) - sb.Velocity.Length();
+        }
+        else pro = Ejection.PeriapsisSpeed(vinf.Length(), from.Mu, Math.Max(1, from.ParkR)) - Math.Sqrt(from.Mu / Math.Max(1, from.ParkR));
+        if (T < t + 15) T = t + 15;
+        bool had = Maneuvers.Nodes.Count > 0;
+        Maneuvers.UndoMark();
+        Maneuvers.ClearAll();
+        Maneuvers.AddNodeAt(T);
+        var node = Maneuvers.Selected;
+        if (node == null) return;
+        node.Pro = pro; node.Nor = nor; node.Rad = rad; node.Edit();
+        CleanMap.ViewFocus = null;   // (the map about your planet: the node's)
+        Maneuvers.FrameNode(node);
+        Close();
+        Messages.Say(SEAerospace.Flight.MessageKinds.Burn, $"Transfer to {tn}: burn {Math.Sqrt(pro * pro + nor * nor + rad * rad):F0} m/s in {Maneuvers.Clock(T - t)} - fine-tune it on the map"
+            + (had ? " (your plan replaced: Ctrl+Z on the map brings it back)" : ""), 8);
+        Status = $"transfer node at {T - t:F0} s: {pro:F1} / {nor:F1} / {rad:F1} m/s (window {Porkchop.PickDv:F0} m/s)";
     }
 
     /// <summary>
@@ -369,17 +447,17 @@ public static class RendezvousView
         string target = Maneuvers.Target;
         if (target == null)
         {
-            MapPipeline.ScreenText(head, "No target", new ColorSRGB(1f, 1f, 1f, 1f), 1.05f * MapPipeline.MapText);
-            MapPipeline.ScreenText(head + new Vector2(0, 34f * u), "On the map: point at a ship, a sector or a body and press N (or right-click: Set as target), or pick one in the target list", Dim, 0.8f * MapPipeline.MapText);
+            CleanMap.Plated(head, "No target", new ColorSRGB(1f, 1f, 1f, 1f), 1.05f * MapPipeline.MapText);
+            CleanMap.Plated(head + new Vector2(0, 34f * u), "On the map: point at a ship, a sector or a body and press N (or right-click: Set as target), or pick one in the target list", Dim, 0.8f * MapPipeline.MapText);
             Status = "no target";
             return;
         }
         bool targetKnown = TargetAt(target, t, out var tpar, out _);
         if (!Maneuvers.Trajectory(t, out var legs, out var applied) || legs.Count == 0 || !targetKnown)
         {
-            MapPipeline.ScreenText(head, $"Rendezvous · {Targets.Name(target)}", new ColorSRGB(1f, 1f, 1f, 1f), 1.05f * MapPipeline.MapText);
+            CleanMap.Plated(head, $"Rendezvous · {Targets.Name(target)}", new ColorSRGB(1f, 1f, 1f, 1f), 1.05f * MapPipeline.MapText);
             // (a target that is not there any more - a site dissolved, a rock you left: say so, not "no path" forever)
-            MapPipeline.ScreenText(head + new Vector2(0, 34f * u), targetKnown ? "No path to compare yet" : "Target lost  ·  right-click the map to set another, or clear it", Dim, 0.8f * MapPipeline.MapText);
+            CleanMap.Plated(head + new Vector2(0, 34f * u), targetKnown ? "No path to compare yet" : $"{Targets.Name(target)} can't be found now (out of your sensors' range, or gone)  ·  pick another target on the map, or clear it (× in the map's target panel)", Dim, 0.8f * MapPipeline.MapText);
             Status = targetKnown ? "no path" : "target lost";
             return;
         }
@@ -459,10 +537,10 @@ public static class RendezvousView
         Maneuvers.MapDraw(toMap, W, double.PositiveInfinity, t, mouse, null, c.Name, allLive: true);
 
         MapPipeline.ClipRect = null;
-        MapPipeline.ScreenText(head, $"Rendezvous · {Targets.Name(target)} · about {SystemHost.DisplayName(c.Name)}", new ColorSRGB(1f, 1f, 1f, 1f), 1.05f * MapPipeline.MapText);
+        CleanMap.Plated(head, $"Rendezvous · {Targets.Name(target)} · about {SystemHost.DisplayName(c.Name)}", new ColorSRGB(1f, 1f, 1f, 1f), 1.05f * MapPipeline.MapText);
         string line = Maneuvers.TargetLine(t);
-        if (line != null) MapPipeline.ScreenText(head + new Vector2(0, 34f * u), line, Dim, 0.8f * MapPipeline.MapText);
-        CleanMap.DrawWrapped(MapLayout.P(0.265f, 0.9f), "Click the path: add a maneuver   ·   Drag a handle: the burn   ·   Right-click: options   ·   Wheel: zoom", MapLayout.X(0.775f) - MapLayout.X(0.265f), 0.74f, Dim);   // (wrapped to the map: cut, it lost its last hints)
+        if (line != null) CleanMap.Plated(head + new Vector2(0, 34f * u), line, Dim, 0.8f * MapPipeline.MapText);
+        CleanMap.DrawWrapped(MapLayout.P(0.265f, 0.9f), "Click the path: add a maneuver   ·   Drag a handle: the burn (Shift: fine, Ctrl: snap)   ·   Right-click: options   ·   Wheel: zoom   ·   Ctrl+Z: undo", MapLayout.X(0.775f) - MapLayout.X(0.265f), 0.74f, Dim);   // (wrapped to the map: cut, it lost its last hints)
         Status = $"target {target} about {c.Name}, k {_k:G3}";
     }
 }

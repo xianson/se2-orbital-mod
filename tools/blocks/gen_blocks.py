@@ -17,12 +17,12 @@ def g(block, n):   # deterministic GUIDs: block 1..9, item 1..99
 
 BLOCKS = [
     dict(n=1, key="Telescope", name="Telescope", power=50,
-         desc="Passive optical and infrared telescope. Spots sunlit ships and rocks far off, and warm hulls in shadow. Silent: it gives nothing away.",
+         desc="Passive optical and infrared telescope. Spots sunlit rocks and stations far off, warm hulls close by, a firing ship's engine plume far off, and any radar that transmits. Silent: it gives nothing away.",
          dir=r"Blocks\RSS_Scanner\100", base="OreDetector100",
          powerable="OreDetector100_OreDetectorPowerableBlockDefinition.def",
          kind=r"UI\Screens\GScreen\Tools\Detectors\OreDetector_BlockKindDefinition.def"),
     dict(n=2, key="Radar", name="Radar", power=20,
-         desc="Active radar. Ranges every contact in reach at once, fast and exact, but anyone about twice as far away sees you.",
+         desc="Active radar. Ranges every contact in reach at once and fixes its orbit (at full power a large ship ~400 km, a big station ~1200 km). While it transmits, any telescope or radar hears it about ten times as far. Transmit Power: in its control panel.",
          dir=r"Blocks\Antennas\Antennas\150", base="Antenna150",
          powerable="Antenna150_AntennasPowerableBlockDefinition.def",
          kind=r"UI\Screens\GScreen\Communication\Antennas\Antenna\AntennaBlockKindDefinition.def"),

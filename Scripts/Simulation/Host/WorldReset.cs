@@ -89,6 +89,7 @@ public static class WorldReset
         if (!build) return;
         Maneuvers.ResetWorld(); GameMap.ResetWorld(); CleanMap.Reset(); CleanMap.ResetView(); MapGlobes.ResetWorld();
         VoxelBerthRegistry.Clear();
+        Messages.ResetWorld(); AutoBurn.ResetWorld();   // (the last world's notices and auto-burn watch)
     }
 
     // (each step on its own: one that throws leaves the rest done - not a per-tick path)

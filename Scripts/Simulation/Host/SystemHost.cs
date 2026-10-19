@@ -42,6 +42,8 @@ public static class SystemHost
 
     /// <summary>Warp stops here (game time), NaN for none: 'Warp here' on the map.</summary>
     public static double WarpStopAt = double.NaN;
+    /// <summary>(a marker: the warp stop ahead of a burn - its words are made only when it stops, with the seconds left)</summary>
+    static readonly string BurnStopSay = new string('b', 1);
 
     public const double SectorOrbitScale = 0.4;
     /// <summary>The system's unit distance: Verdure's orbit (30,000 km; Kemik 1.524 of it, the belt 2.2-3.2, the ring 3.9).</summary>
@@ -237,7 +239,8 @@ public static class SystemHost
             }
             // a lead time before the next maneuver node
             double tn = Maneuvers.NextBurnStart(Now), lead = Maneuvers.WarpLeadAt(Now);
-            if (!double.IsNaN(tn)) Cand(tn - lead, tn - lead, $"ahead of a maneuver node (t={tn:F1})", null);
+            // (said: "Warp stopped: burn in 30 s" - it stopped silently, the UI audit 2026-10-18; the words made only on a stop)
+            if (!double.IsNaN(tn)) Cand(tn - lead, tn - lead, $"ahead of a maneuver node (t={tn:F1})", BurnStopSay);
             // ahead of a rendezvous that merges frames (screened every 30 ticks: in warp a pass went by between screens)
             double tm = ServerFrames.MergeAhead;
             if (!double.IsNaN(tm) && tm > Now) Cand(tm - ServerFrames.MergeWarpLead, tm - ServerFrames.MergeWarpLead, $"ahead of a rendezvous (t={tm:F1})", "Warp stopped: rendezvous ahead");
@@ -274,7 +277,8 @@ public static class SystemHost
                 next = Math.Max(Now, landAt);
                 if (OrbitalLog.Frames) Log.Default?.Info($"[ORBIT-FRAME] warp x{scale} -> x1 {why}");
                 Timescale = 1.0;
-                if (say != null) WarpControl.Say(say);
+                if (ReferenceEquals(say, BurnStopSay)) say = $"Warp stopped: burn in {Math.Max(0, tn - next):F0} s";
+                if (say != null) Messages.Say(SEAerospace.Flight.MessageKinds.Warp, say, 4);
                 if (clearAsked) WarpStopAt = double.NaN;
             }
         }

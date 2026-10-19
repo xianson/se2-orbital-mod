@@ -4,6 +4,112 @@ What changed for players and for modders. Claims come from the commits (hashes o
 nothing here was flown in game for this release (the one-run in-game check, `tools/harness/test_integrate.sh`, is
 written but has not been run).
 
+## 1.0.2 (Unreleased)
+
+The UI audit's fixes (2026-10-18; offline-tested, not yet flown in game). Flight / data side (branch fix/fx-flight):
+
+- **Landed ships get no orbit** (B1). A ship on the ground was given the orbit of a fall through the planet ("Ap -1.4 km,
+  Pe -63 km, Period 2 min") and one read at the planet's centre "Ap -63 km, Period 0 s, 96,955 m/s"; the HUD's closest
+  approach came from them. `SurfaceRule` (Core/Flight) / `ShipSurface` (Server/): Orbit, Landed (in the ground band,
+  under 5 m/s over the ground), Low (a hop - the player's own "grounded" rule, now shared - or a path under the surface
+  near it) or Unknown (deep inside: never a target state). A landed ship is a point on its ground turning with the
+  planet: the closest approach is measured to it. `ServerFrames.Landed`; `GridView.Velocity` / `HighSpeed`. The API's
+  `SetTarget` / `TryGetTargetState` follow it; `TryGetClosestApproach` is false for a target on the ground.
+- **Auto-burn stops with a reason** (B2): no thrust along the burn (no progress in 6 s, or 0 N along it), the burn
+  going the wrong way, can't turn (20 s without the angle shrinking; not judged in warp), far too long; the node is
+  disarmed and kept. Out of the seat it pauses and goes on when you sit back. `BurnWatch` (Core/Flight).
+- **"Burn done, 0.04 m/s left over"** when a burn completes (flown by hand or auto); **"Warp stopped: burn in 30 s"**.
+- **One notice channel** (B3): `Messages.Say(kind, text)` - a toast titled by its kind (Target, Burn, Warp, Contacts,
+  Entry) in flight, and a line of a board the map draws (`Messages.MapLines`); every `WarpControl.Say` caller goes
+  through it (kind from its words). Before, nothing showed with the map open and every toast was titled "Time warp".
+- **Exact values for a maneuver** (B4): `Maneuvers.EditExact` - the game's number dialog, "prograde, normal, radial".
+- **Burn and entry data for the card and map** (U2/U3): `Maneuvers.BurnSeconds`, `Maneuvers.BurnTag` ("in 2:30" /
+  "late 1:20" / "stopped: no thrust"), `AutoBurn.Tooltip`, `Maneuvers.PlannedEntries` (entry on planned legs),
+  `Maneuvers.Landing` ("Lands on Verdure near Outpost RHA99 (12 km) · 12°N 45°E"), `EntryHost.CardTag` ("ENTRY 2:46 ·
+  1,669 → 990 m/s · heat 82%", also from the plan), `EntryHost.AirGapLine` ("Pe 84 km: above the air (needs < 19 km)"),
+  `EntryHost.HeatHelp`.
+- **Entry predicted from far out** was wrong: `Reentry.Predict` jumped toward the band by today's speed - from an
+  apoapsis past the whole band, so the entry sat at the border with no drag. Bounded by the speed it can have at the
+  band (`Reentry.FastestTo`); in high warp the rails now brake through the band instead of clamping at the border.
+- Tests: `Tests/FlightTests` (new, 64), `Tests/EntryTests` +15.
+
+Detection and targeting (branch fix/fx-detect):
+
+- **A ship's signature is its own.** Every grid counted as a 150 m, 290 K ball. Now its size is its box's mean
+  cross-section ((xy + yz + zx) / 2, `Signature.MeanArea`), its engines firing show as a plume the telescope's infrared
+  sees (~300 m per sqrt(N): 4 MN burning ~600 km; the server sums the thrust of its `IsThrusting` thrusters once a
+  second, `GridView.Firing`), and its transmitting radar is heard (below). Kinds: debris, small / large ship, station,
+  wreck (`Signature.Classify`).
+- **The radar reaches what it should.** `SensorModel.RadarK` 18,400 -> 75,000: at full power a small ship (8 m)
+  ~200 km, a large one (35 m) ~420 km, a big station ~1,200 km, a 3 km rock (radar albedo 0.1) ~2,200 km. From a
+  300 km orbit over Verdure a full-power radar now sees large ships on the ground in view (it saw nothing before).
+- **Transmitting is loud.** A working radar is heard one-way by any telescope or radar at 4,000 km x sqrt(power) - a
+  bearing, not an orbit; others' radars are heard by yours. `Contacts.LoudLine` / `LoudReach` for the HUD and a notice
+  when you start ("You are transmitting: ... heard within ~4,000 km").
+- **The radar's Transmit Power slider is in its control panel.** It never showed (no display mode, no member list) and
+  opening the panel risked the game's fatal `KeyNotFoundException`; now as the Aerodynamics Mod's panels
+  (`DetailModelPairing`, `ModDetailTypeInfo`, copied).
+- **Contacts age.** When each was last seen is kept (saved: `knowngrid <id> <time>`; older saves load as seen now). A
+  moving ship unseen for `Hud.ContactStaleMinutes` (30) is stale - its orbit an estimate ("closest 40 km in 12:00 ·
+  estimate (seen 2 h ago)"), faded; unseen for `Hud.ContactForgetHours` (24) it is forgotten. Stations, wrecks, rocks
+  never. Game time.
+- **No predictions without tracking, ships as rocks.** A contact only detected (a bearing) gets no closest approach,
+  rendezvous mark, orbit line or orbit rows: the target panel shows "position only" with its rough range, bearing,
+  kind, what saw it, tracking % and last seen; the card "Target ≈ X · position only, tracking 40%".
+- **Contact info.** The target panel's "Contact" section: range, bearing (ahead / right / behind / left, up / down in
+  your orbit's frame), relative speed and closing rate (tracked only), kind (and "landed on Verdure"), detected by
+  (sight, telescope, its infrared or plume, radar, its radar heard), tracking, last seen.
+- **Contacts tab.** Group headers with counts; a "Target" group with a "Clear target: X" row; a "Rocks" group (the
+  nearest 40 seen, ring rocks and belt asteroids); rows carry kind, sensor, tracking and age. The screen's hints are
+  true now: R (or F2) renames, Del hides ("Hide contact"). Ring rocks are targets (their seeded orbits).
+- **Targeting says why.** N on nothing: "Nothing to target under the cursor. Ships and rocks show once detected: get
+  them in Telescope or Radar range" (never revealing an undetected one); a ship whose place is unknown cannot be taken;
+  a landed one can ("Target: Red Ship · landed on Verdure (closest approach to where it stands)"). In flight N also
+  takes ships the game already marks (yours, a contract's), sectors and seen rocks.
+- **Unowned grids are contacts** whoever you are (the documented wreck rule; it relied on your identity not being
+  the empty one).
+- **One rock notice per pass**: "Oblivara: 7 rocks spotted" once things go quiet (at most one per 45 s; it was a toast
+  per batch, 7 in 90 s); rock orbits tracked are no longer toasted.
+- The map's target list: no page with only a header ("more (1 / 40)"), "≈ name 40%" while tracking, faded when stale.
+- Not modelled: sensor direction / field of view (sensors see all round); others' lidar.
+- Content: the Telescope's and Radar's descriptions (Assets/Sensors/*_BlockKind.def, Assets/Texts) - a content build.
+- Tests: `Tests/SensingTests` 55 -> 127 (signatures, emission, range sanity from a 300 km orbit, bearing, aging, the
+  tracking gate, the rock summary, the reasons, the contact rule).
+
+Map, HUD and settings (branch fix/fx-ui):
+
+- **The orbit card keeps clear of the game's own notification** (C1): "Press P to Park/Lock/Connect" sat on its speed,
+  BURN, ENTRY and target lines. The game's HUD notification stack is read on the UI thread (`Hud/GameNotes.cs`); the
+  card's lines move above the plot when they would overlap it, and the notifications are hidden over the mod's map.
+- **The card reads plainly** (C3, C4): "period 1h 22m · incl 0.0°" over the disc; the Pe / Ap labels kept off the SPD
+  box; every caption on a dark backplate (white on a white hull, sun glare); the target as "Kemik 14,353 km, receding" /
+  "closest 3.1 km in 4:12" (never "-0:00": `Maneuvers.Clock` is `SEAerospace.MapUi.Words.Clock`); the BURN line with its
+  length and when it starts (fx-flight's `BurnTag`), the ENTRY line (`EntryHost.CardTag`) or the air gap, the radar's
+  "transmitting" line. With a target near you its relative plot is drawn **beside** your orbit's disc (it replaced it),
+  "Relative to X", its axes in words ("ahead", "behind", "toward Verdure").
+- **The porkchop makes the burn** (C2): click a window - the transfer's first burn becomes a maneuver (from a parking
+  orbit: a prograde burn where the escape hyperbola leaves along the needed v-infinity), the plan replaced (Ctrl+Z), the
+  map shown and framed on it. A legend (total delta-v from the cheapest to 4x, black "no transfer", the white circle
+  "cheapest"), the hovered cell outlined, labels at least ~11 px.
+- **The burn editor** (C5): a new node is framed (it was a 40 px knot at a far zoom); `Home` (or right-click > Zoom to my
+  ship) brings the view back to your ship; a handle's pull grows faster zoomed out, `Shift` fine, `Ctrl` snaps to
+  1 / 10 / 100 m/s; the pulled handle shows its number and mode; `Ctrl+Z` undoes node edits (`Flight/Maneuvers.Undo.cs`);
+  the selected node says its burn's length and start; "Edit exact values..." in its menu (fx-flight's dialog);
+  Auto-burn's tooltip.
+- **The map's own words** (C6, C7, B3, U3): a strip of notices over the warp bar (fx-flight's board, by kind); the game's
+  stale "Selected sector" box hidden while the map is about another planet, the empty colonization box of a sectorless
+  world hidden, its W A S D hints emptied (`Map/MapChrome.cs`); right-click on empty map no longer opens the attitude hold
+  (your ship's marker does); entry marks on planned legs, the landing cross and its words, the heat explained over an
+  entry mark; one sun on the map (the sky's put behind the map's star); labels keep off sector icons, Lagrange labels
+  ~10 px, the list's distances whole, hint lines balanced, headers on backplates; leaving Rendezvous in a sectorless world
+  lights the Contacts tab.
+- **Settings menu** (shared with the Aerodynamics Mod: sync with `tools/sync_settings_ui.sh`): the planet day's -1 reads
+  "the world's own"; a group of only advanced settings shows them (no lone "Advanced"); "Forced by the host's
+  OrbitalMod.world.cfg" (no path wrapped mid-word); locked controls greyed; "Reset <group> to defaults"; paths at the body
+  size.
+- Tests: `Tests/MapUiTests` (new, 86: words, card layout, handle zoom / fine / snap, undo, porkchop cells and colours, the
+  ejection burn flown), `Tests/SettingsUiTests` +8.
+
 ## 1.0.1 (2026-10-18)
 
 - **Quick launch moved to the Aerodynamics Mod** (the user: "ctrl+T should be in aero creative"; its branch

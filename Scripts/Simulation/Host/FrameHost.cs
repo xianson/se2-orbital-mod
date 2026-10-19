@@ -90,13 +90,14 @@ public static partial class FrameHost
     /// <summary>The last local trajectory asked for was ground-bound (see TryGetLocalOrbit).</summary>
     public static bool Grounded;
 
-    /// <summary>Periapsis inside the planet and apoapsis under max(15 km, 20% of its radius) above the surface.</summary>
+    /// <summary>Periapsis inside the planet and apoapsis under max(15 km, 20% of its radius) above the surface - the hop
+    /// rule, one place: SurfaceRule.Grounded (other ships' landed / low test uses it too - B1, 2026-10-18).</summary>
     public static bool IsGrounded(string body, KeplerianElements el)
     {
         double r = SystemHost.Registry?.FindDefinition(body)?.RadiusMeters ?? 0;
         if (!(r > 0)) return false;
         double ap = el.IsElliptic ? el.SemiMajorAxis * (1 + el.Eccentricity) : double.PositiveInfinity;
-        return el.PeriapsisRadius < r && ap < r + Math.Max(15000, 0.2 * r);
+        return SEAerospace.Flight.SurfaceRule.Grounded(el.PeriapsisRadius, ap, r);
     }
     /// <summary>The local player's conjunction frame, if framed.</summary>
     public static ProximityFrame PlayerFrame => _pub.Frame;

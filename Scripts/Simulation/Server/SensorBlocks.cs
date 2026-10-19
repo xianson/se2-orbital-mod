@@ -12,7 +12,8 @@ namespace OrbitalMod;
 ///  - Telescope (an ore detector's body): passive. Optical: sunlit targets, by size, albedo and phase,
 ///    none in a planet's shadow, none near the sun. Infrared: a body's own warmth, day or night.
 ///  - Radar (an antenna's body): active. Its own echo, range by (power x cross-section)^1/4: every contact
-///    in reach at once. It gives you away (Contacts.Loud).
+///    in reach at once. It gives you away: anyone's telescope or radar hears it, range by sqrt(power) (Contacts.Loud,
+///    Signature.EmissionReach). Its Transmit Power slider is in its control panel (RadarBlockDetailModel).
 /// A sensor counts when its block works (built, switched on, powered). Contacts does the seeing.
 /// </summary>
 public static class SensorBlocks
@@ -111,12 +112,31 @@ public class RadarComponent : Component, IInSceneListener,
     void IInSceneListener.OnBeforeRemovedFromScene() { lock (SensorBlocks.Radars) SensorBlocks.Radars.Remove(this); }
 }
 
-/// <summary>The radar's terminal slider: its transmit power (host / single player: mod settings do not replicate).</summary>
+/// <summary>
+/// The radar's terminal slider: its transmit power (host / single player: mod settings do not replicate).
+/// 2026-10-19 (fx-detect): the slider never showed - a mod panel model needs [BlockDetailDisplayMode(Controls)] (the
+/// inspector lists no model without it) and its own member list (GetTypeInfo: the source generators that write it do not
+/// run on mod scripts - ModDetailTypeInfo); and opening the panel threw (KeyNotFoundException in the control panel's
+/// TranslateLocalToRemote - fatal) unless the model is paired with itself as it is built (DetailModelPairing). The
+/// Aerodynamics Mod's control surfaces, thrusters, gear and airbrakes do the same.
+/// </summary>
 [BlockDetailProvider]
+[BlockDetailDisplayMode(DisplayMode.Controls)]
 public class RadarBlockDetailModel : BlockDetailModel
 {
+    /// <summary>Its members for the inspector (ModDetailTypeInfo).</summary>
+    static readonly Keen.VRage.Library.Serialization.AccessibleTypeInfo _typeInfo = ModDetailTypeInfo.Build<RadarBlockDetailModel>(
+        "Radar: how hard it transmits. Range goes as the fourth root of power; others hear it as the square root.", nameof(Power));
+    public override Keen.VRage.Library.Serialization.AccessibleTypeInfo GetTypeInfo() => _typeInfo;
+
     [Keen.VRage.DCS.Annotations.Component]
     private RadarComponent _radar;
+
+    public RadarBlockDetailModel()
+    {
+        // (the game runs this after setting _radar - BlockDetailProviderIndexer's Ctor - and before RegisterObservable)
+        DetailModelPairing.Pair(this, _radar);
+    }
 
     [Slider(null)]
     [Range<float>(0f, 1f, RangeMode.InIn)]

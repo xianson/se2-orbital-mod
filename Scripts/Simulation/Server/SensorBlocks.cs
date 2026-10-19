@@ -13,7 +13,8 @@ namespace OrbitalMod;
 ///    none in a planet's shadow, none near the sun. Infrared: a body's own warmth, day or night.
 ///  - Radar (an antenna's body): active. Its own echo, range by (power x cross-section)^1/4: every contact
 ///    in reach at once. It gives you away: anyone's telescope or radar hears it, range by sqrt(power) (Contacts.Loud,
-///    Signature.EmissionReach). Its Transmit Power slider is in its control panel (RadarBlockDetailModel).
+///    Signature.EmissionReach). Its Transmit Power (RadarComponent.Power, saved) has no control in game yet: the panel
+///    model (RadarBlockDetailModel) is not exposed until verified (2026-10-19).
 /// A sensor counts when its block works (built, switched on, powered). Contacts does the seeing.
 /// </summary>
 public static class SensorBlocks
@@ -114,14 +115,22 @@ public class RadarComponent : Component, IInSceneListener,
 
 /// <summary>
 /// The radar's terminal slider: its transmit power (host / single player: mod settings do not replicate).
+/// NOT EXPOSED (2026-10-19, fix-finish): [BlockDetailProvider] / [BlockDetailDisplayMode] are off, so the game builds no
+/// panel model for the radar and its control panel cannot reach this code. Opening a panel with a mod model is the class of
+/// fatal crash that took the cockpit hold actions' model away; the self-pairing below (the Aerodynamics Mod's pattern) is
+/// meant to make it safe, but the in-game check that would prove it for the radar (open its panel, move the slider, draw
+/// 20 + 380 x power) did not complete - the test run was stopped (the machine ran low on memory). Until it is run and
+/// passes, the radar transmits at full power (its saved power still restored, the harness `radarpower` still sets it) and
+/// its block text promises no slider. To expose it: put the two attributes back, run tools/harness `radarpanel open /
+/// select / power 0.25` and check the draw (sensorblocks: 115).
 /// 2026-10-19 (fx-detect): the slider never showed - a mod panel model needs [BlockDetailDisplayMode(Controls)] (the
 /// inspector lists no model without it) and its own member list (GetTypeInfo: the source generators that write it do not
 /// run on mod scripts - ModDetailTypeInfo); and opening the panel threw (KeyNotFoundException in the control panel's
 /// TranslateLocalToRemote - fatal) unless the model is paired with itself as it is built (DetailModelPairing). The
 /// Aerodynamics Mod's control surfaces, thrusters, gear and airbrakes do the same.
 /// </summary>
-[BlockDetailProvider]
-[BlockDetailDisplayMode(DisplayMode.Controls)]
+// [BlockDetailProvider]                              (off until verified in game - see above)
+// [BlockDetailDisplayMode(DisplayMode.Controls)]
 public class RadarBlockDetailModel : BlockDetailModel
 {
     /// <summary>Its members for the inspector (ModDetailTypeInfo).</summary>

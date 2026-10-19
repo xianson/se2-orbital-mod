@@ -166,8 +166,8 @@ public static partial class DevHarness
 
             case "dialog":   // dialog [report] | dialog ok <text> | dialog cancel: the open text/number dialog (as typing + OK)
             {
-                object top = GameUi.TopScreenObject(session);
-                if (top != null && top.GetType().Name == "DialogPresenterScreenViewModel") top = PlanetRenderBridge.GetMember(top, "DialogViewModel");   // (the dialog's screen wraps it)
+                object top = GameUi.TopScreenObject(session), presenter = null;
+                if (top != null && top.GetType().Name == "DialogPresenterScreenViewModel") { presenter = top; top = PlanetRenderBridge.GetMember(top, "DialogViewModel"); }   // (the dialog's screen wraps it)
                 if (top == null || top.GetType().Name != "TextInputDialogViewModel") return "no text dialog on top (" + (top?.GetType().Name ?? "none") + ")";
                 string title = PlanetRenderBridge.GetMember(top, "TitleOverride") as string, text = PlanetRenderBridge.GetMember(top, "InputText") as string;
                 if (a.Length > 1 && (a[1] == "ok" || a[1] == "cancel"))
@@ -180,6 +180,13 @@ public static partial class DevHarness
                         {
                             if (typed != null) t.GetProperty("InputText").SetValue(top, typed);
                             t.GetMethod(a[1] == "ok" ? "Option1" : "Option2").Invoke(top, null);
+                            // (a real click closes it too: DialogPresenterScreen disposes itself on any button's Click - the
+                            //  view model's Option1 alone left the dialog up over every later shot, fix-check f5)
+                            for (var pt = presenter?.GetType(); pt != null; pt = pt.BaseType)
+                            {
+                                var close = pt.GetMethod("SignalWantsClose", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic, null, System.Type.EmptyTypes, null);
+                                if (close != null) { close.Invoke(presenter, null); break; }
+                            }
                         }
                         catch (System.Exception e) { Log.Default?.Info("[ORBIT-DEV] dialog: " + (e.InnerException ?? e).Message); }
                     });

@@ -32,7 +32,8 @@ client half (`Host/FrameHost`) under `ServerFrames.FramesLock`; nothing calls in
   station billed to thrusters, warp billed to batteries/tanks (once per game frame, for its game seconds; `Bills` /
   `BilledSeconds` for the harness), the telescope and radar blocks.
 - `DetailModelPairing.cs`, `ModDetailTypeInfo.cs` - copies of the Aerodynamics Mod's: what lets a mod block's control
-  panel open (the model paired with itself) and list its controls (its member list) - the radar's Transmit Power slider.
+  panel open (the model paired with itself) and list its controls (its member list) - for the radar's Transmit Power
+  slider, which is not exposed yet (RadarBlockDetailModel has no [BlockDetailProvider] until verified in game).
 - `Invariants.cs` - the rules checked all the time (`[ORBIT-INV]`); the server's check is `ServerFrames.CheckInvariants`.
 - `HavokMoves.cs` (engine-free, Tests/HavokMoveTests) and `HavokAudit.cs` - the 2026-10-17 "still active bodies in
   native world" crash. `HavokMoves`: which move is a straight write (a dynamic grid's step up to the engine's 100 m world

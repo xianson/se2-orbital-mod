@@ -22,7 +22,7 @@ BLOCKS = [
          powerable="OreDetector100_OreDetectorPowerableBlockDefinition.def",
          kind=r"UI\Screens\GScreen\Tools\Detectors\OreDetector_BlockKindDefinition.def"),
     dict(n=2, key="Radar", name="Radar", power=20,
-         desc="Active radar. Ranges every contact in reach at once and fixes its orbit (at full power a large ship ~400 km, a big station ~1200 km). While it transmits, any telescope or radar hears it about ten times as far. Transmit Power: in its control panel.",
+         desc="Active radar. Ranges every contact in reach at once and fixes its orbit (at full power a large ship ~400 km, a big station ~1200 km). While it transmits, any telescope or radar hears it about ten times as far: switch it off to go quiet.",
          dir=r"Blocks\Antennas\Antennas\150", base="Antenna150",
          powerable="Antenna150_AntennasPowerableBlockDefinition.def",
          kind=r"UI\Screens\GScreen\Communication\Antennas\Antenna\AntennaBlockKindDefinition.def"),

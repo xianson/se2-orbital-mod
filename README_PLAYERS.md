@@ -89,7 +89,8 @@ working Telescope or Radar on one of your grids, with no planet or moon in betwe
   a contact it sees is **tracked** after about 2 minutes of watching (seconds with its lidar on your target, which
   your target can see).
 - **Radar** (active): every contact in reach at once, its orbit fixed at once. Reach goes with the target's size and
-  the fourth root of its **Transmit Power** (a slider in the radar's control panel; it draws 20 + 380 × power):
+  the fourth root of its **Transmit Power** (it draws 20 + 380 × power). For now a radar always transmits at full
+  power: its control panel has no slider yet (switch the radar off to go quiet):
 
   | at full power | reach |
   |---|---|

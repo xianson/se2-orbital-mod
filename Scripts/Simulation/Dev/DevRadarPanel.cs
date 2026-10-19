@@ -11,9 +11,8 @@ namespace OrbitalMod;
 /// interacted entity), then the radar selected in its block list (ControlPanelViewModel.BlockTerminalSelection, as a click)
 /// - the step whose detail models used to kill the game (KeyNotFoundException in TranslateLocalToRemote, see
 /// DetailModelPairing) - and its detail models / Transmit Power read back. Added 2026-10-19 (fix-check).
-/// OPEN ISSUE (2026-10-19): the client copy of a `testship` radar is not found yet - no client block of the session
-/// (GetEntitiesOfType&lt;CubeBlockComponent&gt;) reports the Radar's compositions (...0003 server / ...0004 client); `open`
-/// says so with the count. Untested past that point.
+/// The client copy of a `testship` radar: no client block reported the Radar's compositions (2026-10-19 fix-check), so it is
+/// the client block nearest where the test radar was spawned (ClientRadar).
 /// </summary>
 public static class DevRadarPanel
 {
@@ -27,7 +26,7 @@ public static class DevRadarPanel
         {
             switch (what)
             {
-                case "open": Open(session); return "opening: " + Status;
+                case "open": Open(session); return "opening: " + Status + "; " + Found;
                 case "select": return Select(session);
                 case "power":
                 {
@@ -46,25 +45,40 @@ public static class DevRadarPanel
         catch (Exception e) { return $"radarpanel {what} failed: {e.GetType().Name}: {e.Message}"; }
     }
 
-    /// <summary>The radar block's client copy (the mod's RadarComponent lives on the server copy only): the client
-    /// session's first block of the Radar's client composition (Radar_Client, ...0004; ...0003 is the server's).</summary>
-    static readonly Guid RadarClient = new Guid("0b170002-5e50-4000-8000-000000000004"), RadarServer = new Guid("0b170002-5e50-4000-8000-000000000003");
+    /// <summary>The radar block's client copy (the mod's RadarComponent lives on the server copy only): a client block of
+    /// the Radar's client composition (...0005; the prefab ...0004, the server's ...0003) if the client reports one, else -
+    /// what works (2026-10-19, fix-finish: no client block reported a mod composition) - the client block nearest the
+    /// spawned test radar (DevTestShip.RadarAt; client and server share the world's coordinates), within 15 m.</summary>
+    static readonly Guid RadarClientPrefab = new Guid("0b170002-5e50-4000-8000-000000000004"), RadarClientComp = new Guid("0b170002-5e50-4000-8000-000000000005"),
+                         RadarServer = new Guid("0b170002-5e50-4000-8000-000000000003");
+    public static string Found = "-";
     static Entity ClientRadar(Keen.VRage.Core.Game.Systems.Session session)
     {
-        foreach (var e in session.GetEntitiesOfType<Keen.Game2.Simulation.WorldObjects.CubeBlocks.CubeBlockComponent>())
-        {
-            Guid g;
-            try { g = e.GetComposition()?.Guid ?? Guid.Empty; } catch { continue; }
-            if (g == RadarClient || g == RadarServer) return e;
-        }
-        // (not found: say what the client has - its blocks and the mod's compositions among them)
         int n = 0; var mine = new System.Text.StringBuilder();
+        Entity near = null; double nd = 15;
+        Vector3D? at = DevTestShip.RadarAt;
         foreach (var e in session.GetEntitiesOfType<Keen.Game2.Simulation.WorldObjects.CubeBlocks.CubeBlockComponent>())
         {
             n++;
-            try { var g = e.GetComposition()?.Guid ?? Guid.Empty; if (g.ToString().StartsWith("0b17")) mine.Append(' ').Append(g); } catch { }
+            Guid g = Guid.Empty;
+            try { g = e.GetComposition()?.Guid ?? Guid.Empty; } catch { }
+            if (g == RadarClientComp || g == RadarClientPrefab || g == RadarServer) { Found = $"by composition {g}"; return e; }
+            if (g.ToString().StartsWith("0b17")) mine.Append(' ').Append(g);
+            if (at.HasValue)
+            {
+                double d;
+                try { d = (e.Data.GetWorldTransform().Position - at.Value).Length(); } catch { continue; }
+                if (d < nd) { nd = d; near = e; }
+            }
         }
-        Status = $"no client radar among {n} client blocks (mod compositions:{mine})";
+        if (near != null)
+        {
+            string comp = "?";
+            try { comp = near.GetComposition()?.Guid.ToString() ?? "none"; } catch (Exception ce) { comp = "throws " + ce.GetType().Name; }
+            Found = $"nearest client block to the test radar: {nd:F1} m, composition {comp}, of {n} client blocks";
+            return near;
+        }
+        Status = $"no client radar among {n} client blocks (mod compositions:{mine}; test radar at {(at.HasValue ? ServerPlanetBeacon.Fmt(at.Value) : "none - testship first")})";
         return null;
     }
 
@@ -128,7 +142,7 @@ public static class DevRadarPanel
 
     static string Report(Keen.VRage.Core.Game.Systems.Session session)
     {
-        var sb = new System.Text.StringBuilder("radarpanel: " + Status + "; pairing " + DetailModelPairing.Status);
+        var sb = new System.Text.StringBuilder("radarpanel: " + Status + "; found " + Found + "; pairing " + DetailModelPairing.Status);
         var p = Panel(session);
         if (p == null) { sb.Append("; no control panel on top (" + (GameUi.TopScreenObject(session)?.GetType().Name ?? "none") + ")"); return sb.ToString(); }
         if (PlanetRenderBridge.GetMember(p, "DetailModels") is IEnumerable models)

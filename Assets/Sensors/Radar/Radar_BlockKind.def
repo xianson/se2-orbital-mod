@@ -8,7 +8,7 @@
   "$Value": {
     "Guid": "0b170002-5e50-4000-8000-000000000007",
     "Name": "Radar",
-    "Description": "Active radar. Ranges every contact in reach at once and fixes its orbit (at full power a large ship ~400 km, a big station ~1200 km). While it transmits, any telescope or radar hears it about ten times as far. Transmit Power: in its control panel.",
+    "Description": "Active radar. Ranges every contact in reach at once and fixes its orbit (at full power a large ship ~400 km, a big station ~1200 km). While it transmits, any telescope or radar hears it about ten times as far: switch it off to go quiet.",
     "OrderingPriority": 0,
     "BlockGroups": [
       {

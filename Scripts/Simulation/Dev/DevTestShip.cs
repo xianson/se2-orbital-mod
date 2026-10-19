@@ -24,6 +24,9 @@ public static class DevTestShip
     static readonly System.Guid Battery = new System.Guid("7046873e-c9fe-408c-96c8-53a7f0e62bcd");      // Battery50_Server
     public static string Status = "none";
     public static Entity Last;
+    /// <summary>Where the last test radar was spawned (its grid's origin; the block sits on it): the harness finds the
+    /// radar's CLIENT copy near it (radarpanel - the client's blocks carry no server composition to match).</summary>
+    public static Vector3D? RadarAt;
 
     /// <summary>Spawn it 60 m ahead of the camera. Server side (the spawner), owned by the local player.</summary>
     public static string Spawn(Keen.VRage.Core.Game.Systems.Session client, WorldTransform camera, double batteryCharge = 1.0)
@@ -56,6 +59,7 @@ public static class DevTestShip
             catch (Exception ex) { why += $" {name} spawn failed: {(ex.InnerException ?? ex).Message};"; continue; }
             if (e == null) { why += $" {name}: nothing spawned;"; continue; }
             Last = e;
+            if (name == "radar") RadarAt = at.Position;
             int n = 0;
             try
             {

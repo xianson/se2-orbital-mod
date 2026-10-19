@@ -8,6 +8,9 @@ client half (`Host/FrameHost`) under `ServerFrames.FramesLock`; nothing calls in
 - `ServerPlanetBeacon.cs` - the server planet component: its two jobs are the entry points. `TeleportJob` (before the
   physics step: `ServerFrames.RunDeferredMoves`, `WarpBill.Run`) and `BeaconJob` (after: `ServerFrames.Tick`, DEV
   `GridGen`, the player's queued `PlayerRequest`, gravity changes). Also `PlanetBeacons`, the server/client twin registry.
+- `ShipSurface.cs` - landed / low / orbiting / nowhere for a grid in a planet's space, from its view (`Core/Flight/SurfaceRule`);
+  `TargetAt` / `TargetAbout` (Targets made surface-aware: a landed ship is a point on its ground), `ServerFrames.Landed`.
+  Client-safe (the views only).
 - `ServerFrames.cs` - `Tick` / `TickBody` (the order of the whole server step), constants, warp limits, requests from the
   client half. Partials by concern:
   `.GridFrame` (one frame's step: anchor, members, warp steering, the exact differential gravity, splits), `.Merge` (the merge screen, its

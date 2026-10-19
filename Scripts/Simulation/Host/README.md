@@ -17,5 +17,7 @@
 - `OrbitalLog.cs` - the log switches: the narrated lines (frame / encounter / asteroid events, setup detail, contacts,
   hitches) are on only with the dev flag; failures use `FrameHost.Problem` (logged in every game) instead of `Event`.
 - `Num.cs` - `Wall()` and `IsFinite`, shared by server and client/HUD code (`using static OrbitalMod.Num;`).
+- `Messages.cs` - the player's notices, one channel: `Say(kind, text)` - a toast titled by its kind in flight, a line of
+  the board the map draws (`MapLines`) always; `Post` from any thread. `WarpControl.Say` goes through it.
 - `FrameMath.cs` (game-free: the offline FrameMathTests compile it), `PlayerCache.cs`, `Prewarm.cs`, `WarpControl.cs`
   (the warp keys).

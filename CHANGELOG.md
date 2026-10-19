@@ -4,6 +4,35 @@ What changed for players and for modders. Claims come from the commits (hashes o
 nothing here was flown in game for this release (the one-run in-game check, `tools/harness/test_integrate.sh`, is
 written but has not been run).
 
+## 1.0.2 (Unreleased)
+
+The UI audit's fixes (2026-10-18; offline-tested, not yet flown in game). Flight / data side (branch fix/fx-flight):
+
+- **Landed ships get no orbit** (B1). A ship on the ground was given the orbit of a fall through the planet ("Ap -1.4 km,
+  Pe -63 km, Period 2 min") and one read at the planet's centre "Ap -63 km, Period 0 s, 96,955 m/s"; the HUD's closest
+  approach came from them. `SurfaceRule` (Core/Flight) / `ShipSurface` (Server/): Orbit, Landed (in the ground band,
+  under 5 m/s over the ground), Low (a hop - the player's own "grounded" rule, now shared - or a path under the surface
+  near it) or Unknown (deep inside: never a target state). A landed ship is a point on its ground turning with the
+  planet: the closest approach is measured to it. `ServerFrames.Landed`; `GridView.Velocity` / `HighSpeed`. The API's
+  `SetTarget` / `TryGetTargetState` follow it; `TryGetClosestApproach` is false for a target on the ground.
+- **Auto-burn stops with a reason** (B2): no thrust along the burn (no progress in 6 s, or 0 N along it), the burn
+  going the wrong way, can't turn (20 s without the angle shrinking; not judged in warp), far too long; the node is
+  disarmed and kept. Out of the seat it pauses and goes on when you sit back. `BurnWatch` (Core/Flight).
+- **"Burn done, 0.04 m/s left over"** when a burn completes (flown by hand or auto); **"Warp stopped: burn in 30 s"**.
+- **One notice channel** (B3): `Messages.Say(kind, text)` - a toast titled by its kind (Target, Burn, Warp, Contacts,
+  Entry) in flight, and a line of a board the map draws (`Messages.MapLines`); every `WarpControl.Say` caller goes
+  through it (kind from its words). Before, nothing showed with the map open and every toast was titled "Time warp".
+- **Exact values for a maneuver** (B4): `Maneuvers.EditExact` - the game's number dialog, "prograde, normal, radial".
+- **Burn and entry data for the card and map** (U2/U3): `Maneuvers.BurnSeconds`, `Maneuvers.BurnTag` ("in 2:30" /
+  "late 1:20" / "stopped: no thrust"), `AutoBurn.Tooltip`, `Maneuvers.PlannedEntries` (entry on planned legs),
+  `Maneuvers.Landing` ("Lands on Verdure near Outpost RHA99 (12 km) · 12°N 45°E"), `EntryHost.CardTag` ("ENTRY 2:46 ·
+  1,669 → 990 m/s · heat 82%", also from the plan), `EntryHost.AirGapLine` ("Pe 84 km: above the air (needs < 19 km)"),
+  `EntryHost.HeatHelp`.
+- **Entry predicted from far out** was wrong: `Reentry.Predict` jumped toward the band by today's speed - from an
+  apoapsis past the whole band, so the entry sat at the border with no drag. Bounded by the speed it can have at the
+  band (`Reentry.FastestTo`); in high warp the rails now brake through the band instead of clamping at the border.
+- Tests: `Tests/FlightTests` (new, 64), `Tests/EntryTests` +15.
+
 ## 1.0.1 (2026-10-18)
 
 - **Quick launch moved to the Aerodynamics Mod** (the user: "ctrl+T should be in aero creative"; its branch

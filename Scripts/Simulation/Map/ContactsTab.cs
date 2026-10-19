@@ -307,14 +307,14 @@ public static class ContactsTab
                 if (_places.TryGetValue(r.Key, out var real))
                 {
                     try { _remove ??= typeof(GPSMarkersData).GetMethod("RemoveMarker", BindingFlags.Public | BindingFlags.Static); _remove?.Invoke(null, new object[] { _session, real }); } catch { }
-                    WarpControl.Say("GPS point deleted: " + real.Name);
+                    Messages.Say(SEAerospace.Flight.MessageKinds.Contacts, "GPS point deleted: " + real.Name);
                 }
             }
             else
             {
                 bool back; lock (Sync) { back = HiddenKeys.Remove(r.Key); if (!back) HiddenKeys.Add(r.Key); }
-                if (back) WarpControl.Say("Contact back: " + Targets.Name(r.Key));
-                else WarpControl.Say("Contact hidden (under Hidden; Del there brings it back): " + Targets.Name(r.Key));
+                if (back) Messages.Say(SEAerospace.Flight.MessageKinds.Contacts, "Contact back: " + Targets.Name(r.Key));
+                else Messages.Say(SEAerospace.Flight.MessageKinds.Contacts, "Contact hidden (under Hidden; Del there brings it back): " + Targets.Name(r.Key));
             }
             Refresh(force: true);
             return;

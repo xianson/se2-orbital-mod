@@ -42,6 +42,10 @@ public static partial class ServerFrames
         /// <summary>The thrust its firing thrusters can give (N; the game's IsThrusting thrusters, their full thrust): its
         /// engines' heat for the telescope's infrared (Contacts / Signature.PlumeReach). 0: nothing firing.</summary>
         public double Firing;
+        /// <summary>Its physical velocity (world, m/s; to 0.05 m/s - a view is kept while it changes less), and whether it
+        /// rides its conic (HighSpeed: no physical velocity - the conic is its motion). ShipSurface reads them: landed or
+        /// orbiting (2026-10-18, B1: a landed ship's orbit was guessed from two positions half a second apart).</summary>
+        public Vector3D Velocity; public bool HighSpeed;
     }
 
     /// <summary>A sensor block as the client may know it: on which grid, where, what, working, how strong.</summary>
@@ -197,12 +201,15 @@ public static partial class ServerFrames
             int vi = views.Count;
             GridView v = vi < prev.Views.Length && prev.Views[vi].Id == g.Id ? prev.Views[vi]
                        : prev.Index.TryGetValue(g.Id, out int pi) ? prev.Views[pi] : null;
-            if (v == null || !SameView(v, g.Id, pos, tb.HasValue, box, dyn, name, mass, owner, hasOwner, enc, hold, joined, hasTr, tr, firing))
+            Vector3D vel = GridMembers.Velocity(g); bool hs = _gridHighSpeed.ContainsKey(g.Id);
+            if (v == null || !SameView(v, g.Id, pos, tb.HasValue, box, dyn, name, mass, owner, hasOwner, enc, hold, joined, hasTr, tr, firing)
+                || v.HighSpeed != hs || (v.Velocity - vel).LengthSquared() > 0.05 * 0.05)
             {
                 v = new GridView { Id = g.Id, Position = pos, Dynamic = dyn, Name = name, Mass = mass, Holding = hold, AnchorJoined = joined, Firing = firing };
                 if (hasTr) { v.TrueRel = tr; v.HasTrueRel = true; }
                 if (tb.HasValue) { v.Box = tb.Value; v.HasBox = true; }
                 v.Owner = owner; v.HasOwner = hasOwner; v.Encounter = enc;
+                v.Velocity = vel; v.HighSpeed = hs;
             }
             if (vi >= prev.Views.Length || !ReferenceEquals(prev.Views[vi], v)) changed = true;
             views.Add(v);

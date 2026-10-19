@@ -253,7 +253,7 @@ public static class BodyMarkers
             foreach (var (belt, label, home, cluster) in AsteroidFrames.All()) if (Contacts.KnownRock(label)) Consider(label, c, ref best, ref key);
         }
         if (_tgtOn && MapPipeline.ToScreen(_tgtWorld, out var ts) && (ts - c).Length() <= best && key == null) key = Maneuvers.Target;
-        if (key == null) { WarpControl.Say(SEAerospace.Sensing.Reasons.Text(SEAerospace.Sensing.Reasons.Why.Nothing, flight: true)); return; }
+        if (key == null) { Messages.Say(SEAerospace.Flight.MessageKinds.Target, SEAerospace.Sensing.Reasons.Text(SEAerospace.Sensing.Reasons.Why.Nothing, flight: true)); return; }
         if (key == Maneuvers.Target) CleanMap.SetTarget(null);
         else CleanMap.SetTarget(key);   // (says why not when it cannot: landed)
     }

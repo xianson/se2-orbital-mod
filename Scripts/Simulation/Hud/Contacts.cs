@@ -5,6 +5,7 @@ using SEAerospace;
 using SEAerospace.Orbital;
 using SEAerospace.Frames;
 using SEAerospace.Sensing;
+using SEAerospace.Flight;
 
 #pragma warning disable CS0649, CS8632, CS1591, CS1573, CS1570, CS1574, CS0419, CS1734
 namespace OrbitalMod;
@@ -261,9 +262,9 @@ public static class Contacts
         // you are loud: the HUD's line, and a toast when it starts (2026-10-19: "anyone sees you" was only words)
         LoudReach = radarOn ? Signature.EmissionReach(RadarPowerNow) : 0;
         LoudLine = !Loud ? null : radarOn ? $"RADAR TRANSMITTING  ·  heard to ~{HudPanel.Km(LoudReach)}" : "LIDAR ON TARGET  ·  it can see you";
-        if (Loud && !_wasLoud && !MapView.Visible) GameUi.Toast(session, "loud", "You are transmitting", radarOn
-            ? $"Your radar can be heard by any telescope or radar within ~{HudPanel.Km(LoudReach)}. Lower its Transmit Power (its control panel) or switch it off to go quiet."
-            : "Your telescope's lidar is ranging your target: it can see you.", 5);
+        if (Loud && !_wasLoud) Messages.Say(MessageKinds.Contacts, radarOn
+            ? $"You are transmitting: any telescope or radar within ~{HudPanel.Km(LoudReach)} hears your radar. Lower its Transmit Power (its control panel) or switch it off to go quiet."
+            : "You are transmitting: your telescope's lidar ranges your target - it can see you.", 6);
         _wasLoud = Loud;
         // newly tracked: ships by name (rocks' orbits quietly: the map and the Contacts tab show them - a toast for them
         // came with every batch)
@@ -271,7 +272,7 @@ public static class Contacts
         {
             var tl = newlyTracked.FindAll(x => !x.Contains(" #"));
             if (tl.Count > 3) { int more = tl.Count - 2; tl.RemoveRange(2, tl.Count - 2); tl.Add($"and {more} more"); }
-            if (tl.Count > 0 && !MapView.Visible && newGrids.Count == 0) GameUi.Toast(session, "tracked", "Tracked", string.Join("\n", tl), 3);
+            if (tl.Count > 0 && newGrids.Count == 0) Messages.Say(MessageKinds.Contacts, "Tracked: " + string.Join(", ", tl), 4);
             if (OrbitalLog.Contacts) Log.Default?.Info("[ORBIT-CONTACT] tracked: " + string.Join("; ", newlyTracked));
         }
         // a new ship: at once; new rocks: gathered, one summary per pass (2026-10-19: a toast per batch, 7 in 90 s)
@@ -282,14 +283,14 @@ public static class Contacts
             var lines = new List<string>();
             foreach (var (name, dist, by) in newGrids) lines.Add($"{name}  ·  {HudPanel.Km(dist)}  ·  {by}");
             if (lines.Count > 4) { int more = lines.Count - 3; lines.RemoveRange(3, lines.Count - 3); lines.Add($"and {more} more"); }
-            if (!MapView.Visible) GameUi.Toast(session, "contact", "Contact", string.Join("\n", lines), 4);
+            Messages.Say(MessageKinds.Contacts, "Contact: " + string.Join("; ", lines), 5);
             if (OrbitalLog.Contacts) Log.Default?.Info("[ORBIT-CONTACT] " + string.Join("; ", lines));
         }
-        if (!MapView.Visible && _rockToasts.Due(wall))
+        if (_rockToasts.Due(wall))
         {
             var lines = _rockToasts.Take(wall);
             if (lines.Count > 4) { int more = lines.Count - 3; lines.RemoveRange(3, lines.Count - 3); lines.Add($"and {more} more"); }
-            GameUi.Toast(session, "asteroids", "Asteroids", string.Join("\n", lines), 4);
+            Messages.Say(MessageKinds.Contacts, string.Join("; ", lines), 5);
             if (OrbitalLog.Contacts) Log.Default?.Info("[ORBIT-CONTACT] " + string.Join("; ", lines));
         }
         int ng; lock (_grids) ng = _grids.Count;
@@ -467,7 +468,7 @@ public static class Contacts
     }
 
     /// <summary>Where a grid is landed (a body's name), else null - fx-flight's B1 rule (ServerFrames.Landed).</summary>
-    public static string LandedOn(long gridId) => null;
+    public static string LandedOn(long gridId) => ServerFrames.Landed(gridId, out var body) ? body : null;
 
     /// <summary>How far along its orbit fit a contact is (0..1); null when the key is not a contact (yours, a body, a
     /// sector, a place) or detection is off. THE GATE: no closest approach, rendezvous or orbit below 1

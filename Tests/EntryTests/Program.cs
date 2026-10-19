@@ -30,6 +30,7 @@ namespace EntryTest
             var vel = new Vector3D(-v * Math.Sin(g), v * Math.Cos(g), 0);
             return Reentry.ToElements(new StateVector(pos, vel), Mu, t);
         }
+        static bool Reset(Pass p) { if (p == null) return false; p.Reset(); return !p.HasBottomEl && !p.Landing && double.IsNaN(p.EnterTime); }
         static double Speed(KeplerianElements el, double t) => OrbitPropagation.StateAt(el, t).Velocity.Length();
         static double Radius(KeplerianElements el, double t) => OrbitPropagation.StateAt(el, t).Position.Length();
 
@@ -253,6 +254,51 @@ namespace EntryTest
             Ok("over the cap: a clamped speed's round-trip hair is at it", !Reentry.OverCap(990.0 * 1.0009, 990.0));
             Ok("over the cap: past the slack is over", Reentry.OverCap(990.0 + Reentry.CapSlack + 0.01, 990.0));
             Ok("over the cap: judged against the cap given (a test cap of 300)", Reentry.OverCap(400, 300) && !Reentry.OverCap(300.5, 300));
+
+            // ENTRY FORECASTS on a planned path (EntryForecast, 2026-10-18 - the UI audit U3: a planned deorbit leg showed no
+            // entry marks; where a path comes down was never told; a pass above the air said nothing)
+            {
+                // the plan: a 300 km circular orbit, a retrograde burn at t=100 dropping the periapsis into the air
+                double r0 = R + 300000, vc = Math.Sqrt(Mu / r0);
+                var coast = Reentry.ToElements(new StateVector(new Vector3D(r0, 0, 0), new Vector3D(0, vc, 0)), Mu, 0);
+                var atNode = OrbitPropagation.StateAt(coast, 100);
+                double rp = R + 3000;   // periapsis 3 km up (inside the band and the border)
+                double va = Math.Sqrt(2 * Mu * rp / (r0 * (r0 + rp)));   // apoapsis speed of the r0 x rp ellipse
+                var dir = atNode.Velocity / atNode.Velocity.Length();
+                var planned = Reentry.ToElements(new StateVector(atNode.Position, dir * va), Mu, 100);
+                double t1 = 100 + 0.5 * planned.Period;
+                Ok("bug reproduced: the orbit you are on has no pass (the old map's only source)", EntryForecast.ForLeg(coast, B, NoSpin, Cap, 0, 100, 0) == null);
+                var pass = EntryForecast.ForLeg(planned, B, NoSpin, Cap, 100, t1, Reentry.DefaultBeta);
+                Ok("planned deorbit leg: a pass with an entry time inside the leg", pass != null && pass.EnterTime > 100 && pass.EnterTime < t1, pass != null ? $"entry at {pass.EnterTime:F1} s, border {pass.BottomTime:F1} s, max-q {pass.MaxQTime:F1} s" : "none");
+                // (the bug under it: predicted from the apoapsis, Predict jumped by today's ~150 m/s - past the whole band, the
+                //  entry put at the border with no drag; the jump is now bounded by the speed it could have at the band)
+                double tTop = double.NaN;
+                for (double tk = 100; tk < t1; tk += 0.05) if (OrbitPropagation.StateAt(planned, tk).Position.Length() < B.Top) { tTop = tk; break; }
+                Ok("predicted from the apoapsis: the entry where the path meets the band, not at the border", pass != null && Math.Abs(pass.EnterTime - tTop) < 2.5 && pass.BottomTime - pass.EnterTime > 10,
+                   pass != null ? $"entry {pass.EnterTime:F1} s, band top at {tTop:F1} s, border {pass.BottomTime:F1} s" : "");
+                Ok("predicted from the apoapsis: drag braked it in the band", pass != null && pass.DragShed > 0);
+                Ok("fastest-to bound: never under today's speed, more falling", Reentry.FastestTo(R, R + 300000, 150, Mu) > 1000 && Reentry.FastestTo(R + 300000, R, 150, Mu) == 150);
+                Ok("planned deorbit leg: arrives over the cap and leaves at or under it", pass != null && pass.ArrivalSpeed > Cap && pass.SpeedAtBottom <= Cap + 0.5,
+                   pass != null ? $"{pass.ArrivalSpeed:F0} -> {pass.SpeedAtBottom:F0} m/s" : "");
+                Ok("planned deorbit leg: goes into the air (Landing) with the orbit at the border kept", pass != null && pass.Landing && pass.HasBottomEl);
+                Ok("a leg that ends before the entry: no pass", pass != null && EntryForecast.ForLeg(planned, B, NoSpin, Cap, 100, pass.EnterTime - 60, Reentry.DefaultBeta) == null);
+                bool landed = EntryForecast.Landing(planned, 100, t1, R, pass, 3600, out double tl, out Vector3D at);
+                Ok("landing estimate: after the border, on the ground", landed && tl >= pass.BottomTime && Math.Abs(at.Length() - R) < 50, $"t {tl:F0} s (border {pass?.BottomTime:F0}), r-R {at.Length() - R:F0} m");
+                // a plain conic into an airless ground (no pass): its first inbound crossing of the surface
+                double rpLow = R - 20000, vaLow = Math.Sqrt(2 * Mu * rpLow / (r0 * (r0 + rpLow)));
+                var plannedLow = Reentry.ToElements(new StateVector(atNode.Position, dir * vaLow), Mu, 100);
+                bool hit = EntryForecast.Landing(plannedLow, 100, t1, R, null, 3600, out double th, out Vector3D ah);
+                Ok("landing estimate without air: the conic's impact", hit && Math.Abs(ah.Length() - R) < 1 && th > 100 && th < t1, $"t {th:F0} s");
+                Ok("no landing for an orbit that clears the ground", !EntryForecast.Landing(coast, 0, 10000, R, null, 3600, out _, out _));
+                Ok("the reset clears the border orbit", Reset(pass));
+            }
+            {
+                // air gap: periapsis 84 km up at Verdure (band top ~19.4 km up) -> 64.6 km above the air; in it -> NaN
+                double gap = EntryForecast.AirGap(R + 84000, B);
+                Ok("air gap: Pe 84 km is ~65 km above the entry interface", Math.Abs(gap - (R + 84000 - B.Top)) < 1e-6 && gap > 60000, $"{gap / 1000:F1} km");
+                Ok("air gap: none once the periapsis dips into the band", double.IsNaN(EntryForecast.AirGap(B.Top - 1000, B)));
+                Ok("air gap: none without air", double.IsNaN(EntryForecast.AirGap(R + 84000, Reentry.For(R, 0, Border))));
+            }
 
             Console.WriteLine($"== {_passed} passed, {_failed} failed");
             return _failed == 0 ? 0 : 1;

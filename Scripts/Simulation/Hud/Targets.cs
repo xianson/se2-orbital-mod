@@ -197,6 +197,10 @@ public static class Targets
                 return IsFinite(rel.Position) && IsFinite(rel.Velocity);
             }
         }
+        // on the ground, low over it, or nowhere real (fx-flight's B1 rule): its place on the turning ground - no orbit -, or
+        // nothing at all (2026-10-19: its "orbit" from two positions put a landed ship through the planet's centre)
+        if (ShipSurface.Of(id, out var sk, out _, out _, out _) && sk != SEAerospace.Flight.SurfaceKind.Orbit)
+            return sk != SEAerospace.Flight.SurfaceKind.Unknown && ShipSurface.GroundState(id, tk, out parent, out rel);
         // in a planet's space: its orbit from its motion
         double now = SystemHost.Now;
         Vector3D m; bool ok;
@@ -211,6 +215,13 @@ public static class Targets
                 if (!double.IsNaN(tr.T1) && now > tr.T1 && now - tr.T1 < 30) { tr.P0 = tr.P1; tr.T0 = tr.T1; }
                 else tr.T0 = double.NaN;
                 tr.P1 = m; tr.T1 = now; tr.HasEl = false;
+            }
+            // (its real velocity when the view has one - ShipSurface.InertialState - rather than two positions half a second apart)
+            if (!tr.HasEl && ShipSurface.InertialState(id, out var ip, out var isv) && ip != null)
+            {
+                if (isv.Velocity.LengthSquared() < 1e-6) isv = new StateVector(isv.Position, Vector3D.Cross(Vector3D.UnitY, isv.Position) * 1e-6);
+                tr.El = OrbitalMath.ToElements(isv, ip.Mu, now);
+                tr.Body = ip.Name; tr.HasEl = true;
             }
             if (!tr.HasEl)
             {
@@ -292,8 +303,9 @@ public static class Targets
     {
         parent = null; el = default;
         if (!GridOf(key, out long id) || SystemHost.Registry == null) return false;
-        // (a contact not tracked yet has no orbit to draw: position only - the tracking gate, 2026-10-19)
-        if (!SEAerospace.Sensing.Tracking.CanPredict(Contacts.TrackingProgress(key))) return false;
+        // (a contact not tracked yet has no orbit to draw: position only - the tracking gate, 2026-10-19; a ship on the ground,
+        //  low over it or nowhere real has none either: fx-flight's B1 rule)
+        if (!SEAerospace.Sensing.Tracking.CanPredict(Contacts.TrackingProgress(key)) || ShipSurface.IsOnSurface(key)) return false;
         lock (ServerFrames.FramesLock)
         {
             var f = SystemHost.Frames?.FindByMember(id);

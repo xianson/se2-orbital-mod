@@ -4,8 +4,8 @@ Maneuver nodes and the things that fly them, plus the warp gauge.
 
 | File | What |
 |---|---|
-| `Maneuvers.cs` (+ partials) | Maneuver nodes: the node list, warp lead. `.Trajectory` the patched-conic path with the nodes applied (cached); `.MapEditor` the map editor (handles, drag, slide); `.MapMarks` its colours, atmosphere rings, navball icons; `.Target` the target's closest approach, rendezvous, sector crossings; `.Lagrange` the Lagrange-sector preview; `.Hud` flying a node (HUD marker, burn countdown, finite burn); `.Harness` dev drivers, save lines, dev finders. Design: `docs/design-maneuver-nodes.md`. |
-| `AutoBurn.cs` | An armed node flies itself (thrusters seated, jetpack on foot). |
+| `Maneuvers.cs` (+ partials) | Maneuver nodes: the node list, warp lead. `.Trajectory` the patched-conic path with the nodes applied (cached); `.MapEditor` the map editor (handles, drag, slide); `.MapMarks` its colours, atmosphere rings, navball icons; `.Target` the target's closest approach, rendezvous, sector crossings; `.Lagrange` the Lagrange-sector preview; `.Hud` flying a node (HUD marker, burn countdown, finite burn); `.Harness` dev drivers, save lines, dev finders; `.Exact` the exact-values dialog (`EditExact`); `.Entry` re-entry on the plan (`PlannedEntries`, `Landing`, `AirGapLine`). `BurnTag` / `BurnSeconds`: the next burn told. Design: `docs/design-maneuver-nodes.md`. |
+| `AutoBurn.cs` | An armed node flies itself (thrusters seated, jetpack on foot); gives up with a reason (`Core/Flight/BurnWatch`), pauses out of the seat; says "Burn done" for any completed burn. |
 | `AttitudeHold.cs` | KSP-style SAS holds (prograde, normal, radial...) through the cockpit's target orientation. |
 | `HoldActions.cs` | DISABLED prototype: the holds as cockpit toolbar actions. Its `[BlockDetailProvider]` was removed 2026-10-08 (it crashed the game), so the model is never registered; `Hook` / `ClientTick` still run. |
 | `AlignButton.cs` | The align button in the cockpit HUD's toggle row (Avalonia by reflection: `Hud/UiThread.cs`). |

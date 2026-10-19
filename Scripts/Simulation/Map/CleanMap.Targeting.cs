@@ -52,9 +52,9 @@ public static partial class CleanMap
     public static void SetTarget(string key)
     {
         string why = Targets.WhyNot(key);
-        if (why != null) { WarpControl.Say(why); return; }
+        if (why != null) { Messages.Say(SEAerospace.Flight.MessageKinds.Target, why); return; }
         Maneuvers.Target = key;
-        WarpControl.Say(key == null ? "Target cleared" : "Target: " + Targets.Name(key));
+        Messages.Say(SEAerospace.Flight.MessageKinds.Target, key == null ? "Target cleared" : "Target: " + Targets.Name(key));
     }
 
     /// <summary>N on the map: target what is under the cursor (again: the next thing there; on the target alone: clear it).</summary>
@@ -64,7 +64,7 @@ public static partial class CleanMap
         if (!n || MapMenu.Open) return;
         var under = TargetsUnder(Mouse);
         // (nothing there: say how things become targetable - never whether an undetected one is there)
-        if (under.Count == 0) { WarpControl.Say(SEAerospace.Sensing.Reasons.Text(SEAerospace.Sensing.Reasons.Why.Nothing)); return; }
+        if (under.Count == 0) { Messages.Say(SEAerospace.Flight.MessageKinds.Target, SEAerospace.Sensing.Reasons.Text(SEAerospace.Sensing.Reasons.Why.Nothing)); return; }
         int i = under.FindIndex(x => x.key == Maneuvers.Target);
         if (i < 0) SetTarget(under[0].key);
         else if (under.Count == 1) SetTarget(null);

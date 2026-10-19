@@ -39,6 +39,9 @@ public static partial class ServerFrames
         /// <summary>In warp, the TRUE velocity relative to its frame the steering keeps (its physical one is N x the average
         /// over the step, a chord: the seated plot built on it drifted off the motion).</summary>
         public Vector3D TrueRel; public bool HasTrueRel;
+        /// <summary>The thrust its firing thrusters can give (N; the game's IsThrusting thrusters, their full thrust): its
+        /// engines' heat for the telescope's infrared (Contacts / Signature.PlumeReach). 0: nothing firing.</summary>
+        public double Firing;
     }
 
     /// <summary>A sensor block as the client may know it: on which grid, where, what, working, how strong.</summary>
@@ -99,13 +102,45 @@ public static partial class ServerFrames
     static Entity _bvSeat;
 
     static bool SameView(GridView o, long id, Vector3D pos, bool hasBox, BoundingBoxD box, bool dyn, string name, double mass,
-        Keen.Game2.Simulation.GameSystems.Ownership.IdentityId owner, bool hasOwner, bool enc, bool holding, bool joined, bool hasTr, Vector3D tr)
-        => o.Id == id && o.Position.X == pos.X && o.Position.Y == pos.Y && o.Position.Z == pos.Z && o.HasBox == hasBox
+        Keen.Game2.Simulation.GameSystems.Ownership.IdentityId owner, bool hasOwner, bool enc, bool holding, bool joined, bool hasTr, Vector3D tr, double firing)
+        => o.Id == id && o.Firing == firing && o.Position.X == pos.X && o.Position.Y == pos.Y && o.Position.Z == pos.Z && o.HasBox == hasBox
            && (!hasBox || (o.Box.Min.X == box.Min.X && o.Box.Min.Y == box.Min.Y && o.Box.Min.Z == box.Min.Z
                            && o.Box.Max.X == box.Max.X && o.Box.Max.Y == box.Max.Y && o.Box.Max.Z == box.Max.Z))
            && o.Dynamic == dyn && o.Name == name && o.Mass == mass && o.HasOwner == hasOwner && o.Owner.Equals(owner) && o.Encounter == enc
            && o.Holding == holding && o.AnchorJoined == joined && o.HasTrueRel == hasTr
            && (!hasTr || (o.TrueRel.X == tr.X && o.TrueRel.Y == tr.Y && o.TrueRel.Z == tr.Z));
+
+    // ENGINES FIRING, by grid (2026-10-19, fx-detect: a burning ship was as cold as a drifting one to the telescope).
+    // Summed once a second (FiringSeconds) from the server scene's thrusters (StationKeepCharge.All: every server thruster
+    // with a powerable block) that carry the game's IsThrusting tag: their full thrust (ThrustData.MaxThrustPower). Server
+    // thread only; the dictionary is kept (no garbage per build).
+    public static double FiringSeconds = 1.0;
+    static readonly Dictionary<Entity, double> _bvFiring = new Dictionary<Entity, double>();
+    static readonly List<StationKeepCharge> _bvThrusters = new List<StationKeepCharge>();
+    static double _bvFiringAt = double.NegativeInfinity;
+    static void CollectFiring(Keen.VRage.DCS.Scenes.Scene scene)
+    {
+        double now = Wall();
+        if (now - _bvFiringAt < FiringSeconds && now >= _bvFiringAt) return;
+        _bvFiringAt = now;
+        _bvFiring.Clear();
+        if (scene == null) return;
+        var all = _bvThrusters; all.Clear();
+        lock (StationKeepCharge.All) all.AddRange(StationKeepCharge.All);
+        foreach (var c in all)
+        {
+            var e = c.Entity;
+            // (the server scene's only - the client copies are read on their own thread: StationKeepCharge.RebuildByGrid)
+            if (e == null || !ReferenceEquals(e.Data.Scene, scene) || !EntityAlive(e)) continue;
+            if (!e.Data.Has<Keen.Game2.Simulation.WorldObjects.Movement.IsThrusting>()) continue;
+            if (!e.Data.TryGet<Keen.Game2.Simulation.WorldObjects.Movement.ThrustData>(out var td) || !(td.MaxThrustPower > 0)) continue;
+            var top = e.GetTopLevelParent();
+            if (top == null) continue;
+            _bvFiring.TryGetValue(top, out double f);
+            _bvFiring[top] = f + td.MaxThrustPower;
+        }
+        all.Clear();
+    }
 
     static bool EntityAlive(Entity e)
     {
@@ -136,6 +171,9 @@ public static partial class ServerFrames
             foreach (var kv in _trueRel) trueRel[kv.Key] = kv.Value;
         }
         bool changed = false;
+        Keen.VRage.DCS.Scenes.Scene serverScene = null;
+        foreach (var g in GridMembers.All()) if (g.IsServer && EntityAlive(g.Entity)) { serverScene = g.Entity.Data.Scene; break; }
+        try { CollectFiring(serverScene); } catch { _bvFiring.Clear(); }
         foreach (var g in GridMembers.All())
         {
             // (a grid deleted before its Unregister ran is left out: its Position threw out of the whole build, ~200 ms - 2026-10-15)
@@ -154,13 +192,14 @@ public static partial class ServerFrames
             }
             catch { }
             BoundingBoxD box = tb.HasValue ? tb.Value : default;
+            _bvFiring.TryGetValue(g.Entity, out double firing);
             // (the last snapshot's view of this grid: at the same place in the array when nothing came or went)
             int vi = views.Count;
             GridView v = vi < prev.Views.Length && prev.Views[vi].Id == g.Id ? prev.Views[vi]
                        : prev.Index.TryGetValue(g.Id, out int pi) ? prev.Views[pi] : null;
-            if (v == null || !SameView(v, g.Id, pos, tb.HasValue, box, dyn, name, mass, owner, hasOwner, enc, hold, joined, hasTr, tr))
+            if (v == null || !SameView(v, g.Id, pos, tb.HasValue, box, dyn, name, mass, owner, hasOwner, enc, hold, joined, hasTr, tr, firing))
             {
-                v = new GridView { Id = g.Id, Position = pos, Dynamic = dyn, Name = name, Mass = mass, Holding = hold, AnchorJoined = joined };
+                v = new GridView { Id = g.Id, Position = pos, Dynamic = dyn, Name = name, Mass = mass, Holding = hold, AnchorJoined = joined, Firing = firing };
                 if (hasTr) { v.TrueRel = tr; v.HasTrueRel = true; }
                 if (tb.HasValue) { v.Box = tb.Value; v.HasBox = true; }
                 v.Owner = owner; v.HasOwner = hasOwner; v.Encounter = enc;

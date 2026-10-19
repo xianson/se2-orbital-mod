@@ -30,6 +30,15 @@ namespace SEAerospace.Sensing
         public static Quality Of(bool detected, double dwell)
             => !detected ? Quality.Unknown : dwell >= PassiveSeconds ? Quality.Tracked : Quality.Detected;
 
+        /// <summary>The sensor kind a sighting counts as for watching: sight and an echo fix the orbit at once; anything
+        /// else (a telescope's light, warmth or plume, a radar only heard) is bearings, watched over time.</summary>
+        public static SensorModel.Kind KindFor(SensorModel.Via via)
+            => via == SensorModel.Via.Eyes ? SensorModel.Kind.Eyes : via == SensorModel.Via.Echo ? SensorModel.Kind.Radar : SensorModel.Kind.Telescope;
+
+        /// <summary>THE GATE (2026-10-19: ships were predicted from the first glimpse; only rocks waited): closest
+        /// approaches, rendezvous and orbits are predicted only from a known orbit - progress null (not a contact) or 1.</summary>
+        public static bool CanPredict(double? progress) => progress == null || progress.Value >= 1;
+
         /// <summary>How far along a fit is (0..1), for "tracking 40%".</summary>
         public static double Progress(double dwell) => Math.Max(0, Math.Min(1, dwell / PassiveSeconds));
 

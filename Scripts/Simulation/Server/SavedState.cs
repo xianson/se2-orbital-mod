@@ -111,7 +111,14 @@ public static class SavedState
             foreach (var k in FrameMarkers.HiddenKeys()) sb.Append("gpshid ").Append(Esc(k)).Append((char)10);
             // What you have seen (Contacts): rocks by label, grids by id (mapped on load as members are).
             foreach (var k in Contacts.RockKeys()) sb.Append("knownrock ").Append(Esc(k)).Append((char)10);
-            foreach (long id in Contacts.GridKeys()) { sb.Append("knowngrid ").Append(id).Append((char)10); Remember(ob, id); }
+            // (and when each was last seen, game time - 2026-10-19, contacts age: an older build reads the id alone)
+            foreach (long id in Contacts.GridKeys())
+            {
+                sb.Append("knowngrid ").Append(id);
+                double seen = Contacts.LastSeenGrid(id);
+                if (!double.IsNaN(seen)) sb.Append(' ').Append(seen.ToString("R", Inv));
+                sb.Append((char)10); Remember(ob, id);
+            }
             foreach (var k in Contacts.TrackedKeys())
             {
                 if (k.StartsWith("r:")) sb.Append("trackedrock ").Append(Esc(k.Substring(2))).Append((char)10);
@@ -380,7 +387,8 @@ public static class SavedState
                     case "knowngrid":
                     {
                         long kid = Map(long.Parse(p[1], Inv));
-                        if (kid != 0) Contacts.RestoreGrid(kid);
+                        double seen = p.Length > 2 && double.TryParse(p[2], NumberStyles.Float, Inv, out double ls) ? ls : double.NaN;
+                        if (kid != 0) Contacts.RestoreGridSeen(kid, seen);
                         break;
                     }
                     case "hs":

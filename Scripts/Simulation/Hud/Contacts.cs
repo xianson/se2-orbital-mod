@@ -10,13 +10,19 @@ using SEAerospace.Sensing;
 namespace OrbitalMod;
 
 /// <summary>
-/// CONTACTS BY SIGHT (SE1's tracking, simplified: no error bands, no sensor blocks). What is not yours
-/// is unknown until you have seen it: an NPC station or encounter, another's ship (or an unowned wreck),
-/// a ring rock or belt asteroid. Seen by your eyes (MinRange), or by the sensor blocks on your grids
-/// (SensorBlocks): a telescope (sunlight off it, or its warmth) or a radar (its echo); always with no
-/// planet or moon between. Once seen it is known for good (saved with the world): on the map, targetable, its
-/// rendezvous predicted. Knowledge never feeds the physics: what is unknown is simulated all the same.
-/// A new contact is announced (rocks by the batch: "Oblivara: 14 rocks spotted").
+/// CONTACTS BY SIGHT (SE1's tracking, simplified: no error bands). What is not yours is unknown until you have
+/// seen it: an NPC station or encounter, another's ship (or an unowned wreck - no owner is not yours), a ring rock or
+/// belt asteroid. Seen by your eyes (MinRange), or by the sensor blocks on your grids (SensorBlocks): a telescope
+/// (sunlight off it, its warmth, its engines' plume, or its radar heard) or a radar (its echo, or another's radar
+/// heard); always with no planet or moon between. Each ship's SIGNATURE is its own (Core/Sensing/Signature, from the
+/// server's snapshot: its box, its firing thrusters, its transmitting radars) - it was a fixed 150 m / 290 K ball.
+/// Once seen it is known (saved with the world): on the map, targetable; its rendezvous predicted once TRACKED (an
+/// orbit fixed - Core/Sensing/Tracking; detected only: a bearing and a rough range, "position only"). Contacts AGE
+/// (Core/Sensing/Aging): when each was last seen is kept; a moving ship unseen for StaleMinutes is stale (its orbit
+/// an estimate), for ForgetHours forgotten. Knowledge never feeds the physics: what is unknown is simulated all the same.
+/// A new ship is announced at once; rocks by one summary a pass ("Oblivara: 14 rocks spotted" - Aging.Batcher).
+/// YOU ARE LOUD while a radar of yours transmits (or a telescope's lidar ranges your target): LoudLine, and a toast
+/// when it starts - anyone's telescope or radar hears it far off (Signature.EmissionReach).
 /// </summary>
 public static class Contacts
 {
@@ -26,10 +32,22 @@ public static class Contacts
     /// <summary>Your own eyes (and the cockpit's): everything within this, in line of sight (m).</summary>
     public const double MinRange = SensorModel.EyeRange;
     // (the sensor physics: Core/Sensing/SensorModel, tested offline in Tests/SensingTests)
-    const double GridSize = 150, GridAlbedo = 0.5, GridTempK = 290, RockAlbedo = 0.15, RockTempK = 250, TickSeconds = 0.5;
+    // (a hull's albedo and warmth, a rock's; a ship's SIZE and HEAT are its own now - GridTarget)
+    const double GridAlbedo = 0.5, GridTempK = 290, RockAlbedo = 0.15, RockTempK = 250, TickSeconds = 0.5;
     public enum Sensor { Eyes, Telescope, Radar }
-    /// <summary>A radar of yours is transmitting: it gives you away (to whoever listens: not modelled yet).</summary>
+    /// <summary>A radar of yours is transmitting (or a telescope's lidar ranges your target): it gives you away - every
+    /// telescope and radar within <see cref="LoudReach"/> hears it (Signature.EmissionReach; they see you as you see them).</summary>
     public static bool Loud;
+    /// <summary>How far your loudest radar is heard now (m; 0 quiet), and the line the HUD shows for it (null: quiet).</summary>
+    public static double LoudReach;
+    public static string LoudLine;
+    static bool _wasLoud;
+    /// <summary>A moving ship contact not seen for this long (game minutes) is STALE: its orbit shown as an estimate, its
+    /// marker faded (0: never). A setting (Hud.ContactStaleMinutes).</summary>
+    public static double StaleMinutes = 30;
+    /// <summary>A moving ship contact not seen for this long (game hours) is forgotten - find it again (0: never).
+    /// Stations, wrecks and rocks never are. A setting (Hud.ContactForgetHours).</summary>
+    public static double ForgetHours = 24;
     /// <summary>Your strongest radar's power now (0 when none transmits).</summary>
     public static double RadarPowerNow;
 
@@ -67,7 +85,8 @@ public static class Contacts
         {
             var players = _session?.Get<ClientPlayersSessionComponent>();
             if (!v.HasOwner || players == null) return false;
-            return !v.Owner.Equals(players.LocalPlayerIdentity);
+            // (no owner is a contact whoever you are - it was "not yours" only by comparing with your identity)
+            return ContactRule(false, true, v.Owner.Equals(default(IdentityId)), v.Owner.Equals(players.LocalPlayerIdentity));
         }
         catch { return false; }
     }
@@ -81,7 +100,8 @@ public static class Contacts
             var own = g.Session?.SessionComponents.TryGet<OwnershipSessionComponent>();
             var players = _session?.Get<ClientPlayersSessionComponent>();
             if (own == null || players == null) return false;
-            return !own.TryGetOwnerOf(g.Entity).Equals(players.LocalPlayerIdentity);
+            var owner = own.TryGetOwnerOf(g.Entity);
+            return ContactRule(false, true, owner.Equals(default(IdentityId)), owner.Equals(players.LocalPlayerIdentity));
         }
         catch { return false; }
     }
@@ -141,16 +161,24 @@ public static class Contacts
         }
         // Harness: a stand-in sensor where you are (tests the physics without building the block).
         if (DevSensor.HasValue) obs.Add(new SensorModel.Looker { At = eye, Kind = DevSensor.Value == Sensor.Radar ? SensorModel.Kind.Radar : SensorModel.Kind.Telescope, Power = 1 });
-        Loud = obs.Exists(o => o.Kind == SensorModel.Kind.Radar);
-        RadarPowerNow = 0; foreach (var o in obs) if (o.Kind == SensorModel.Kind.Radar && o.Power > RadarPowerNow) RadarPowerNow = o.Power;
-
-        // Seen by whom (null: by none): r its radius (m), its albedo, its temperature (a powered hull, a rock).
-        SensorModel.Kind? SeenKind(Vector3D at, double r, double albedo, double tempK)
+        bool radarOn = false;
+        RadarPowerNow = 0; foreach (var o in obs) if (o.Kind == SensorModel.Kind.Radar) { radarOn = true; if (o.Power > RadarPowerNow) RadarPowerNow = o.Power; }
+        Loud = radarOn;
+        // Others' radars transmitting: heard by your telescopes and radars (their grid -> how far its loudest is heard)
+        var emit = _emit; emit.Clear();
+        foreach (var sv in ServerFrames.SensorViews)
         {
-            int i = SensorModel.SeenBy(obs, new SensorModel.Target { At = at, Radius = r, Albedo = albedo, TempK = tempK }, bodies, sun);
-            return i < 0 ? (SensorModel.Kind?)null : obs[i].Kind;
+            if (!sv.Radar || !sv.Working || !(sv.Power > 0) || yours.TryGetValue(sv.Grid, out bool own) && own) continue;
+            double reach = Signature.EmissionReach(sv.Power);
+            if (!emit.TryGetValue(sv.Grid, out double r0) || reach > r0) emit[sv.Grid] = reach;
         }
-        static string Name(SensorModel.Kind k) => k == SensorModel.Kind.Eyes ? "sight" : k == SensorModel.Kind.Radar ? "radar" : "telescope";
+
+        // Seen how (Via.None: by none): a rock's radius (m), albedo, temperature, its radar albedo.
+        SensorModel.Via SeenRock(Vector3D at, double r)
+        {
+            SensorModel.Detect(obs, new SensorModel.Target { At = at, Radius = r, Albedo = RockAlbedo, TempK = RockTempK, RadarAlbedo = Signature.RockRadarAlbedo }, bodies, sun, out var via);
+            return via;
+        }
         // Watching: what is seen and not yet tracked is watched (the telescope's lidar on your target speeds it).
         string target = Maneuvers.Target;
         bool lidar = false;
@@ -159,8 +187,9 @@ public static class Contacts
         double simNow = SystemHost.Now, watchDt = double.IsNaN(_lastWatchT) ? TickSeconds : Math.Max(0, Math.Min(60, simNow - _lastWatchT));
         _lastWatchT = simNow;
         var newlyTracked = _newlyTracked; newlyTracked.Clear();   // (the tick's lists, reused: cleared here, read only below)
-        void Watch(string key, string name, SensorModel.Kind k)
+        void Watch(string key, string name, SensorModel.Via via)
         {
+            var k = Tracking.KindFor(via);
             bool targeted = target != null && (name == target || key.StartsWith("g:", StringComparison.Ordinal) && target == Targets.GridPrefix + key.Substring(2));
             if (targeted && k == SensorModel.Kind.Telescope) lidar = true;
             lock (_dwell)
@@ -176,22 +205,25 @@ public static class Contacts
 
         var newGrids = _newGrids; newGrids.Clear();
         var newRocks = _newRocks; newRocks.Clear();
-        // Grids that are not yours.
+        // Grids that are not yours: every one, every tick (it was skipped once tracked: now when it was last seen matters).
         foreach (var g in views)
         {
-            bool known; lock (_grids) known = _grids.Contains(g.Id);
-            if (known && TrackedGrid(g.Id)) continue;
             if (!IsContact(g)) continue;
+            bool known; lock (_grids) known = _grids.Contains(g.Id);
             Vector3D m; bool ok;
             lock (ServerFrames.FramesLock) ok = FrameMarkers.ModelOf(g.Position, t, out m, out _, out _);
             if (!ok) continue;
-            var k = SeenKind(m, GridSize, GridAlbedo, GridTempK);
-            if (k == null) continue;
-            Watch(GridKey(g.Id), GroupName(g), k.Value);
+            emit.TryGetValue(g.Id, out double heard);
+            if (SensorModel.Detect(obs, GridTarget(g, m, heard), bodies, sun, out var via) < 0) continue;
+            string key = GridKey(g.Id);
+            double range = (m - eye).Length();
+            lock (_dwell) _seen[key] = new Seen { At = simNow, Via = via, Range = range };
+            if (!TrackedKey(key)) Watch(key, GroupName(g), via);
             if (known) continue;
             lock (_grids) _grids.Add(g.Id);
-            newGrids.Add((g.Name, (m - eye).Length(), Name(k.Value)));
+            newGrids.Add((g.Name, range, Signature.Name(via)));
         }
+        AgeGrids(simNow);
         // Planet ring rocks (seeded) and belt asteroids.
         foreach (var b in RingRocks.Belts())
         {
@@ -202,9 +234,10 @@ public static class Contacts
                 string label = labels[i];
                 bool known = KnownRock(label);
                 if (known && TrackedKey(keys[i])) continue;   // (its watch key, made once: TrackedRock built "r:" + label anew for every known rock)
-                var k = SeenKind(o + RingRocks.At(b, i, t), b.Cluster[i] ? 2600 : 1500, RockAlbedo, RockTempK);
-                if (k == null) continue;
-                Watch(keys[i], label, k.Value);
+                var k = SeenRock(o + RingRocks.At(b, i, t), b.Cluster[i] ? 2600 : 1500);
+                if (k == SensorModel.Via.None) continue;
+                lock (_dwell) _seen[keys[i]] = new Seen { At = simNow, Via = k, Range = double.NaN };
+                Watch(keys[i], label, k);
                 if (known) continue;
                 lock (_rocks) _rocks.Add(label);
                 newRocks.TryGetValue(b.Name, out int n); newRocks[b.Name] = n + 1;
@@ -214,9 +247,10 @@ public static class Contacts
         {
             bool known = KnownRock(label);
             if (known && TrackedRock(label)) continue;
-            var k = SeenKind(SectorHomes.Where(home, reg, t), cluster ? 2600 : 1500, RockAlbedo, RockTempK);
-            if (k == null) continue;
-            Watch(RockKey(label), label, k.Value);
+            var k = SeenRock(SectorHomes.Where(home, reg, t), cluster ? 2600 : 1500);
+            if (k == SensorModel.Via.None) continue;
+            lock (_dwell) _seen[RockKey(label)] = new Seen { At = simNow, Via = k, Range = double.NaN };
+            Watch(RockKey(label), label, k);
             if (known) continue;
             lock (_rocks) _rocks.Add(label);
             newRocks.TryGetValue(belt, out int n); newRocks[belt] = n + 1;
@@ -224,23 +258,38 @@ public static class Contacts
 
         Lidar = lidar;
         if (lidar) Loud = true;
+        // you are loud: the HUD's line, and a toast when it starts (2026-10-19: "anyone sees you" was only words)
+        LoudReach = radarOn ? Signature.EmissionReach(RadarPowerNow) : 0;
+        LoudLine = !Loud ? null : radarOn ? $"RADAR TRANSMITTING  ·  heard to ~{HudPanel.Km(LoudReach)}" : "LIDAR ON TARGET  ·  it can see you";
+        if (Loud && !_wasLoud && !MapView.Visible) GameUi.Toast(session, "loud", "You are transmitting", radarOn
+            ? $"Your radar can be heard by any telescope or radar within ~{HudPanel.Km(LoudReach)}. Lower its Transmit Power (its control panel) or switch it off to go quiet."
+            : "Your telescope's lidar is ranging your target: it can see you.", 5);
+        _wasLoud = Loud;
+        // newly tracked: ships by name (rocks' orbits quietly: the map and the Contacts tab show them - a toast for them
+        // came with every batch)
         if (newlyTracked.Count > 0)
         {
-            int rocks = newlyTracked.FindAll(x => x.Contains(" #")).Count;
             var tl = newlyTracked.FindAll(x => !x.Contains(" #"));
-            if (rocks > 0) tl.Add(rocks == 1 ? "a rock's orbit" : $"{rocks} rocks' orbits");
             if (tl.Count > 3) { int more = tl.Count - 2; tl.RemoveRange(2, tl.Count - 2); tl.Add($"and {more} more"); }
-            if (!MapView.Visible && newGrids.Count == 0 && newRocks.Count == 0) GameUi.Toast(session, "tracked", "Tracked", string.Join("\n", tl), 3);
-            if (OrbitalLog.Contacts) Log.Default?.Info("[ORBIT-CONTACT] tracked: " + string.Join("; ", tl));
+            if (tl.Count > 0 && !MapView.Visible && newGrids.Count == 0) GameUi.Toast(session, "tracked", "Tracked", string.Join("\n", tl), 3);
+            if (OrbitalLog.Contacts) Log.Default?.Info("[ORBIT-CONTACT] tracked: " + string.Join("; ", newlyTracked));
         }
-        if (newGrids.Count > 0 || newRocks.Count > 0)
+        // a new ship: at once; new rocks: gathered, one summary per pass (2026-10-19: a toast per batch, 7 in 90 s)
+        foreach (var kv in newRocks) _rockToasts.Add(kv.Key, kv.Value, wall);
+        if (newGrids.Count > 0 || newRocks.Count > 0) Version++;
+        if (newGrids.Count > 0)
         {
-            Version++;
             var lines = new List<string>();
             foreach (var (name, dist, by) in newGrids) lines.Add($"{name}  ·  {HudPanel.Km(dist)}  ·  {by}");
-            foreach (var kv in newRocks) lines.Add(kv.Value == 1 ? $"{kv.Key}: a rock spotted" : $"{kv.Key}: {kv.Value} rocks spotted");
             if (lines.Count > 4) { int more = lines.Count - 3; lines.RemoveRange(3, lines.Count - 3); lines.Add($"and {more} more"); }
-            if (!MapView.Visible) GameUi.Toast(session, "contact", newGrids.Count > 0 ? "Contact" : "Asteroids", string.Join("\n", lines), 4);
+            if (!MapView.Visible) GameUi.Toast(session, "contact", "Contact", string.Join("\n", lines), 4);
+            if (OrbitalLog.Contacts) Log.Default?.Info("[ORBIT-CONTACT] " + string.Join("; ", lines));
+        }
+        if (!MapView.Visible && _rockToasts.Due(wall))
+        {
+            var lines = _rockToasts.Take(wall);
+            if (lines.Count > 4) { int more = lines.Count - 3; lines.RemoveRange(3, lines.Count - 3); lines.Add($"and {more} more"); }
+            GameUi.Toast(session, "asteroids", "Asteroids", string.Join("\n", lines), 4);
             if (OrbitalLog.Contacts) Log.Default?.Info("[ORBIT-CONTACT] " + string.Join("; ", lines));
         }
         int ng; lock (_grids) ng = _grids.Count;
@@ -253,6 +302,60 @@ public static class Contacts
 
     // ── tracking (Core/Sensing/Tracking: detected -> tracked) ──
     static readonly Dictionary<string, double> _dwell = new Dictionary<string, double>();
+    /// <summary>When and how each contact was last seen (watch key -> game time, how, range from you; lock _dwell).</summary>
+    struct Seen { public double At, Range; public SensorModel.Via Via; }
+    static readonly Dictionary<string, Seen> _seen = new Dictionary<string, Seen>();
+    static readonly Dictionary<long, double> _emit = new Dictionary<long, double>();
+    static readonly Batcher _rockToasts = new Batcher();
+    static readonly List<long> _forget = new List<long>();
+
+    /// <summary>A grid as a target for the sensors: its size from its box (mean cross-section), its engines' plume, its
+    /// radar heard (2026-10-19: a fixed 150 m / 290 K ball for every grid).</summary>
+    static SensorModel.Target GridTarget(ServerFrames.GridView g, Vector3D at, double heard)
+    {
+        double x = 0, y = 0, z = 0;
+        if (g.HasBox) { x = g.Box.Max.X - g.Box.Min.X; y = g.Box.Max.Y - g.Box.Min.Y; z = g.Box.Max.Z - g.Box.Min.Z; }
+        return new SensorModel.Target
+        {
+            At = at, Radius = Signature.EquivalentRadius(Signature.MeanArea(x, y, z)), Albedo = GridAlbedo, TempK = GridTempK,
+            Plume = Signature.PlumeReach(g.Firing), Emit = heard,
+        };
+    }
+
+    /// <summary>AGING (Core/Sensing/Aging): a known grid never stamped (restored from an old save) is stamped now; a moving
+    /// one unseen past ForgetHours is forgotten (detect it again). Once a second.</summary>
+    static double _agedAt = double.NegativeInfinity;
+    static void AgeGrids(double simNow)
+    {
+        double wall = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+        if (wall - _agedAt < 1.0 && wall >= _agedAt) return;
+        _agedAt = wall;
+        var forget = _forget; forget.Clear();
+        lock (_grids)
+            foreach (long id in _grids)
+            {
+                string key = GridKey(id);
+                Seen s;
+                lock (_dwell) { if (!_seen.TryGetValue(key, out s)) { _seen[key] = new Seen { At = simNow, Range = double.NaN }; continue; } }
+                bool moving = ServerFrames.View(id, out var v) && v.Dynamic;
+                if (Aging.Of(simNow - s.At, StaleMinutes * 60, ForgetHours * 3600, moving) == Aging.State.Lost) forget.Add(id);
+            }
+        if (forget.Count == 0) return;
+        foreach (long id in forget)
+        {
+            string key = GridKey(id);
+            lock (_grids) _grids.Remove(id);
+            lock (_dwell) { _dwell.Remove(key); _seen.Remove(key); }
+            if (OrbitalLog.Contacts) Log.Default?.Info($"[ORBIT-CONTACT] lost: grid {id} not seen for {ForgetHours:G3} h");
+        }
+        Version++;
+        forget.Clear();
+    }
+
+    /// <summary>The contact rule (2026-10-19, item 9: the docs say an unowned wreck must be found like any contact): an
+    /// encounter's grid, one with no owner, or one owned by someone else. Not yours = a contact.</summary>
+    public static bool ContactRule(bool encounter, bool hasOwner, bool ownerIsNobody, bool ownerIsYou)
+        => Signature.IsContact(encounter, hasOwner, ownerIsNobody, ownerIsYou);
     /// <summary>A telescope of yours is ranging your target with its laser (lidar): it gives you away.</summary>
     public static bool Lidar;
     static double DwellOf(string key) { if (!Enabled) return Tracking.PassiveSeconds; lock (_dwell) return _dwell.TryGetValue(key, out double d) ? d : 0; }
@@ -283,6 +386,135 @@ public static class Contacts
         if (!isRock) foreach (var r in AsteroidFrames.All()) if (r.label == label) isRock = true;
         return isRock ? Tracking.Progress(DwellOf(RockKey(label))) : (double?)null;
     }
+    // ── what is known of one contact (the Contacts tab, the target panel, the map's lists; 2026-10-19) ──
+
+    /// <summary>One contact as known: whether it is one at all (yours / a body / a sector: not), detected, tracked (and how
+    /// far along), how it was last seen and how long ago (game seconds), its kind, where it is landed.</summary>
+    public struct Info
+    {
+        public bool Contact, Known, Tracked, Rock;
+        public double Progress, Age;
+        public SensorModel.Via Via;
+        public Signature.Class Class;
+        public Aging.State State;
+        public string LandedOn;
+        public bool Stale => State == Aging.State.Stale;
+    }
+
+    /// <summary>A target key's contact state (a ship's "grid:id" - its frame's grids together: the best known of them -,
+    /// or a rock's label). False: not a contact (yours, a body, a sector, a place) or detection is off.</summary>
+    public static bool InfoOf(string key, out Info info)
+    {
+        info = default;
+        if (!Enabled || key == null) return false;
+        double now = SystemHost.Now;
+        if (Targets.GridOf(key, out long id))
+        {
+            if (!ServerFrames.View(id, out var v0) || !IsContact(v0)) return false;
+            info.Contact = true;
+            info.Class = ClassOf(v0);
+            info.LandedOn = LandedOn(id);
+            info.Age = double.NaN; info.Progress = 0;
+            bool moving = false;
+            ProximityFrame f;
+            lock (ServerFrames.FramesLock) f = SystemHost.Frames?.FindByMember(id);
+            if (f == null) Merge(ref info, id, now, ref moving);
+            else
+            {
+                // (a frame's grids are one ship: its best-known grid tells; a member list copy - the frame changes under the lock)
+                var members = _members; members.Clear();
+                lock (ServerFrames.FramesLock) foreach (long m in f.Members) if (GridMembers.IsGridId(m)) members.Add(m);
+                foreach (long m in members) if (IsContactId(m)) Merge(ref info, m, now, ref moving);
+                members.Clear();
+            }
+            info.State = info.Known ? Aging.Of(info.Age, StaleMinutes * 60, ForgetHours * 3600, moving) : Aging.State.Lost;
+            return true;
+        }
+        if (RockProgress(key) is double p)
+        {
+            info.Contact = info.Rock = true; info.Class = Signature.Class.Rock;
+            info.Known = KnownRock(key); info.Progress = p; info.Tracked = p >= 1;
+            lock (_dwell) if (_seen.TryGetValue(RockKey(key), out var s)) { info.Age = now - s.At; info.Via = s.Via; } else info.Age = double.NaN;
+            info.State = Aging.Of(info.Age, 0, 0, false);
+            return true;
+        }
+        return false;
+    }
+    static readonly List<long> _members = new List<long>();
+
+    static void Merge(ref Info info, long id, double now, ref bool moving)
+    {
+        bool known; lock (_grids) known = _grids.Contains(id);
+        if (!known) return;
+        string key = GridKey(id);
+        double prog = Tracking.Progress(DwellOf(key));
+        Seen s; bool has; lock (_dwell) has = _seen.TryGetValue(key, out s);
+        double age = has ? now - s.At : double.NaN;
+        if (!info.Known || prog > info.Progress) info.Progress = prog;
+        if (!info.Known || has && (double.IsNaN(info.Age) || age < info.Age)) { info.Age = age; if (has) info.Via = s.Via; }
+        info.Known = true;
+        info.Tracked = info.Progress >= 1;
+        if (ServerFrames.View(id, out var v) && v.Dynamic) moving = true;
+    }
+
+    /// <summary>What a grid looks like (Signature.Classify): its box's largest side, fixed or not, its owner, its mass.</summary>
+    public static Signature.Class ClassOf(ServerFrames.GridView v)
+    {
+        double side = 0;
+        if (v.HasBox) side = Math.Max(v.Box.Max.X - v.Box.Min.X, Math.Max(v.Box.Max.Y - v.Box.Min.Y, v.Box.Max.Z - v.Box.Min.Z));
+        bool unowned = v.HasOwner && !v.Encounter && v.Owner.Equals(default(IdentityId));
+        return Signature.Classify(!v.Dynamic, unowned, side, v.Mass);
+    }
+
+    /// <summary>Where a grid is landed (a body's name), else null - fx-flight's B1 rule (ServerFrames.Landed).</summary>
+    public static string LandedOn(long gridId) => null;
+
+    /// <summary>How far along its orbit fit a contact is (0..1); null when the key is not a contact (yours, a body, a
+    /// sector, a place) or detection is off. THE GATE: no closest approach, rendezvous or orbit below 1
+    /// (Tracking.CanPredict) - ships as rocks (2026-10-19: ships were predicted from the first glimpse).</summary>
+    public static double? TrackingProgress(string key)
+    {
+        if (!Enabled || key == null) return null;
+        if (Targets.GridOf(key, out _)) return InfoOf(key, out var i) && i.Known ? i.Progress : (double?)null;
+        return RockProgress(key);
+    }
+
+    /// <summary>How bright to draw a contact (1 fresh .. 0.4 long unseen; 1 when not a contact): Aging.Fade.</summary>
+    public static double Fade(string key)
+    {
+        if (!InfoOf(key, out var i) || i.Rock) return 1;
+        bool moving = i.Class != Signature.Class.Station && i.Class != Signature.Class.Wreck;
+        return Aging.Fade(i.Age, StaleMinutes * 60, ForgetHours * 3600, moving);
+    }
+
+    /// <summary>The kind in words, with where it is landed: "large ship", "station", "small ship · landed on Verdure".</summary>
+    public static string KindText(in Info i)
+        => Signature.Name(i.Class) + (i.LandedOn != null ? $"  ·  landed on {SystemHost.DisplayName(i.LandedOn)}" : "");
+
+    /// <summary>The short state for a list row: "≈ 40%" while tracking, "last seen 2 h ago" when not in sight, "" fresh.</summary>
+    public static string StateText(in Info i)
+    {
+        if (!i.Known) return "";
+        string s = i.Tracked ? "" : $"tracking {i.Progress:P0}";
+        if (i.State != Aging.State.InSight) s += (s.Length > 0 ? "  ·  " : "") + "seen " + Aging.Ago(i.Age);
+        if (i.Stale) s += "  ·  estimate";
+        return s;
+    }
+
+    /// <summary>Harness / log: one contact's state.</summary>
+    public static string Describe(in Info i)
+        => $"{KindText(i)} | {(i.Known ? i.Tracked ? "tracked" : $"tracking {i.Progress:P0}" : "unknown")} | by {Signature.Name(i.Via)} | {Aging.Ago(i.Age)} ({i.State})";
+
+    // ── save: when each grid contact was last seen (game time) ──
+    public static double LastSeenGrid(long id) { lock (_dwell) return _seen.TryGetValue(GridKey(id), out var s) ? s.At : double.NaN; }
+    /// <summary>A known grid from a save, with when it was last seen (NaN: stamped at the next look).</summary>
+    public static void RestoreGridSeen(long id, double lastSeen)
+    {
+        lock (_grids) _grids.Add(id);
+        if (!double.IsNaN(lastSeen)) lock (_dwell) _seen[GridKey(id)] = new Seen { At = lastSeen, Range = double.NaN };
+        Version++;
+    }
+
     /// <summary>The name a grid is targeted and marked by: its site's label, else its own.</summary>
     static string GroupName(ServerFrames.GridView g)
     {
@@ -304,14 +536,27 @@ public static class Contacts
     public static void RestoreGrid(long id) { lock (_grids) _grids.Add(id); Version++; }
     /// <summary>A new world (WorldReset): nothing known of the last one (2026-10-15: its contacts showed in the next world
     /// and were written into its save; only the dev "forget" cleared them).</summary>
-    public static void ResetWorld() { lock (_rocks) _rocks.Clear(); lock (_grids) _grids.Clear(); lock (_dwell) _dwell.Clear(); lock (_gridKeys) _gridKeys.Clear(); Version++; }
+    public static void ResetWorld()
+    {
+        lock (_rocks) _rocks.Clear(); lock (_grids) _grids.Clear(); lock (_dwell) { _dwell.Clear(); _seen.Clear(); } lock (_gridKeys) _gridKeys.Clear();
+        _rockToasts.Clear(); _wasLoud = false; Loud = false; LoudLine = null; LoudReach = 0;
+        Version++;
+    }
 
     /// <summary>Harness: contacts reveal | forget | (status).</summary>
     public static string Command(string[] a)
     {
         switch (a.Length > 1 ? a[1] : "")
         {
-            case "forget": lock (_rocks) _rocks.Clear(); lock (_grids) _grids.Clear(); lock (_dwell) _dwell.Clear(); Version++; return "contacts forgotten";
+            case "forget": lock (_rocks) _rocks.Clear(); lock (_grids) _grids.Clear(); lock (_dwell) { _dwell.Clear(); _seen.Clear(); } Version++; return "contacts forgotten";
+            case "age":   // harness: contacts age <seconds> - every contact seen that much earlier (tests staleness / forgetting)
+            {
+                double by = a.Length > 2 && double.TryParse(a[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double sec) ? sec : 3600;
+                lock (_dwell) foreach (var k in new List<string>(_seen.Keys)) { var sv = _seen[k]; sv.At -= by; _seen[k] = sv; }
+                _agedAt = double.NegativeInfinity;
+                return $"contacts aged {by:G4} s";
+            }
+            case "info": return a.Length > 2 && InfoOf(string.Join(" ", a, 2, a.Length - 2), out var inf) ? Describe(inf) : "no such contact";
             case "reveal":
                 lock (_rocks)
                 {

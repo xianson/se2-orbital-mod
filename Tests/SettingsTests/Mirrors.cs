@@ -69,7 +69,7 @@ namespace OrbitalMod
     [Mirror] public static class AlignButton { public static bool On; }
     [Mirror] public static class SpdIcon { public static bool On; }
     [Mirror] public static class BuildHints { public static bool On; }
-    [Mirror] public static class Contacts { public static bool Enabled; public static int Version; }
+    [Mirror] public static class Contacts { public static bool Enabled; public static int Version; public static double StaleMinutes, ForgetHours; }
     [Mirror] public static class CleanMap { public static bool Enabled, ManeuverEditor; }
     [Mirror] public static class MapPipeline { public static float TextScale; }
     [Mirror] public static class GameMap { public static double ZoomOutFactor; public static bool HideGameSectors; }

@@ -87,6 +87,8 @@ public static class OrbitInfo
     {
         if (Targets.GridOf(key, out long id))
         {
+            // (a contact's kind - a large ship, a station, a wreck ... - fx-detect 2026-10-19)
+            if (Contacts.InfoOf(key, out var ci)) return "Contact  ·  " + Contacts.KindText(ci) + (ci.Tracked ? "" : "  ·  not yet tracked");
             foreach (var e in Targets.ShipsCached()) if (e.Key == key) return e.Yours ? "Ship  ·  yours" : e.Tracked ? "Contact" : "Contact  ·  not yet tracked";
             return "Ship";
         }
@@ -128,6 +130,15 @@ public static class OrbitInfo
         var i = new Info { Title = Targets.Name(key), Target = true };
         string kind = Kind(key);
         if (!o.Ok) { i.Sub = kind; i.Add(null).Row("Where", "lost: not where it was", 2); return i; }
+        // A CONTACT detected but not tracked: where it is, roughly - no orbit, no prediction (fx-detect 2026-10-19: ships
+        // were given orbits and closest approaches from the first glimpse)
+        bool contact = Contacts.InfoOf(key, out var ci);
+        if (contact && !ci.Tracked)
+        {
+            i.Sub = kind;
+            ContactRows(i.Add("Contact"), key, ci, t);
+            return i;
+        }
         i.Sub = kind + "  ·  " + (o.Surface ? $"on {Body(o.Parent)}" : $"around {Body(o.Parent)}");
 
         var ap = Maneuvers.TargetApproach(t);
@@ -186,6 +197,7 @@ public static class OrbitInfo
             else if (me.Ok) you.Row("You orbit", Body(me.Parent));
         }
 
+        if (contact) ContactRows(i.Add("Contact"), key, ci, t);
         if (!o.Surface)
         {
             var m = i.Add("More elements");
@@ -199,6 +211,37 @@ public static class OrbitInfo
             if (EncounterFrames.TargetSite(key)?.Home?.Kind == SectorHomes.Kind.Lagrange) m.Row("Note", "a Lagrange point: osculating");
         }
         return i;
+    }
+
+    /// <summary>
+    /// A contact's own rows: its range and bearing from you (in your orbit's frame: ahead / right / behind / left, up /
+    /// down), how fast it closes (tracked only - a bearing has no range-rate), what saw it, its tracking and when it was
+    /// last seen. Untracked: the range rounded, "position only".
+    /// </summary>
+    static void ContactRows(Section s, string key, in Contacts.Info ci, double t)
+    {
+        if (Maneuvers.Trajectory(t, out var legs, out _) && legs.Count > 0 && Targets.RootAt(key, t, out var tr))
+        {
+            var leg = legs[0];
+            var me = OrbitPropagation.StateAt(leg.El, t);
+            var org = leg.Body.OriginInRoot(t);
+            Vector3D you = org.Position + me.Position, youV = org.Velocity + me.Velocity;
+            Vector3D rel = tr.Position - you;
+            double range = rel.Length();
+            s.Row("Range", ci.Tracked ? Km(range) : "≈ " + Km(SEAerospace.Sensing.Tracking.Rough(range)));
+            if (SEAerospace.Sensing.Signature.Bearing(rel, me.Position, me.Velocity, out double az, out double el))
+                s.Row("Bearing", SEAerospace.Sensing.Signature.BearingText(az, el));
+            if (ci.Tracked && range > 0)
+            {
+                Vector3D dv = tr.Velocity - youV;
+                double closing = -Vector3D.Dot(dv, rel) / range;
+                s.Row("Relative speed", $"{dv.Length():N0} m/s  ·  {(closing >= 0 ? "closing" : "opening")} {Math.Abs(closing):N0}");
+            }
+        }
+        s.Row("Kind", Contacts.KindText(ci));
+        s.Row("Detected by", SEAerospace.Sensing.Signature.Name(ci.Via));
+        s.Row("Tracking", ci.Tracked ? "orbit known" : $"{ci.Progress:P0}  ·  position only{(Contacts.Lidar ? "  ·  lidar ranging" : "")}", ci.Tracked ? 0 : 2);
+        s.Row("Last seen", SEAerospace.Sensing.Aging.Ago(ci.Age) + (ci.Stale ? "  ·  orbit an estimate" : ""), ci.Stale ? 2 : 0);
     }
 
     static double Norm(double a) { a %= 2 * Math.PI; return a < 0 ? a + 2 * Math.PI : a; }

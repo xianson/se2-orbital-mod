@@ -32,10 +32,15 @@ arriving in the same place at the same time, and come back down through a re-ent
   re-entry and at a sphere-of-influence change. Warp is not free: batteries and tanks run at the warp rate.
 - **Maneuver planning on the map** (terminal, Map tab): your path drawn ahead, burns you place and drag, a target with
   its closest approach, a Rendezvous tab with a porkchop plot for planet transfers. A burn can fly itself
-  ("Auto-burn: on" in its right-click menu).
+  ("Auto-burn: on" in its right-click menu): the ship turns to the burn and fires when it starts, until it is done. If
+  it can't, it stops and says why ("no thrust along the burn", "can't turn to the burn"); out of the seat it pauses.
+  The orbit card shows the burn's length and when it starts; warp stops ahead of it and says so ("burn in 30 s").
+  Ships landed on a planet show as landed (no orbit, no Ap/Pe); their closest approach is to where they stand.
 - **Re-entry.** Coming in from orbit, speed over the world's cap is braked away in the upper air; the energy shed heats
   the front of your ship. Normal transfers stay within tolerance; a much faster arrival wears the forward armour.
-  The orbit card warns you ahead ("Entry in 2:46 · 1,669 -> 990 m/s · heat 82%").
+  The orbit card warns you ahead ("ENTRY 2:46 · 1,669 → 990 m/s · heat 82%": heat is how much of what your hull takes
+  the pass puts in; over 100% the forward blocks wear). A planned deorbit shows its entry on the map and where it comes
+  down ("Lands on Verdure near ..."); a periapsis just above the air says how low it must go.
 - **Sensors.** Two new blocks, unlocked from the start: the **Telescope** (passive; spots sunlit or warm things far
   away, gives nothing away) and the **Radar** (active; ranges everything in reach, but others see you). What you can target beyond your own
   things is what you have seen. The map's GPS tab becomes a Contacts list.
@@ -52,8 +57,10 @@ arriving in the same place at the same time, and come back down through a re-ent
 | `Ctrl` + `;` | pick the hold mode: prograde, retrograde, normal, anti-normal, radial out / in, level |
 | `Del`, `F2` | on the Contacts tab: hide a row / rename it |
 
-On the map: right-click your path to **Add maneuver**, right-click a maneuver to remove it or type its numbers, drag
-its six handles to add delta-v.
+On the map: right-click your path to **Add maneuver**, right-click a maneuver to remove it or **Edit exact values...**
+(prograde, normal, radial in m/s, e.g. `120, 0, -5`), drag its six handles to add delta-v. Notices (a target set, a
+warp stop, a burn done or stopped, contacts) come as a toast in flight, titled by what they are about, and as a line on
+the map.
 
 **Quick launch** (`Ctrl` + `T` seated, creative worlds) is part of the **Aerodynamics Mod** now (its settings: Settings >
 Mods > Aerodynamics, Quick launch and Controls). With both mods loaded, this mod moves the ship for it and keeps it under

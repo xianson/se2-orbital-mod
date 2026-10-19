@@ -129,7 +129,7 @@ public static partial class CleanMap
             {
                 if (!ci.Tracked) nm += $"  {ci.Progress:P0}";
                 if (ci.LandedOn != null) nm += "  · landed";
-                col = HudPanel.Alpha(col, (float)(col.A / 255.0 * Contacts.Fade(e.Key)));
+                col = HudPanel.Alpha(col, (float)(col.A / 255.0 * Contacts.FadeOf(ci)));
             }
             ships.Add((e.Key, nm, Dist(e.Key), col));
         }

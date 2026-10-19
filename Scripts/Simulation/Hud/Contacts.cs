@@ -350,6 +350,8 @@ public static class Contacts
             if (OrbitalLog.Contacts) Log.Default?.Info($"[ORBIT-CONTACT] lost: grid {id} not seen for {ForgetHours:G3} h");
         }
         Version++;
+        Messages.Say(MessageKinds.Contacts, forget.Count == 1 ? $"Contact lost: a ship not seen for {ForgetHours:G3} h (find it again)"
+                                                              : $"Contacts lost: {forget.Count} ships not seen for {ForgetHours:G3} h (find them again)");
         forget.Clear();
     }
 
@@ -476,14 +478,18 @@ public static class Contacts
     public static double? TrackingProgress(string key)
     {
         if (!Enabled || key == null) return null;
-        if (Targets.GridOf(key, out _)) return InfoOf(key, out var i) && i.Known ? i.Progress : (double?)null;
+        // (a contact not known - never seen, or forgotten - has no orbit at all: 0)
+        if (Targets.GridOf(key, out _)) return InfoOf(key, out var i) ? (i.Known ? i.Progress : 0) : (double?)null;
         return RockProgress(key);
     }
 
     /// <summary>How bright to draw a contact (1 fresh .. 0.4 long unseen; 1 when not a contact): Aging.Fade.</summary>
-    public static double Fade(string key)
+    public static double Fade(string key) => InfoOf(key, out var i) ? FadeOf(i) : 1;
+
+    /// <summary><see cref="Fade"/> from a contact's info already read (the lists read it once a row).</summary>
+    public static double FadeOf(in Info i)
     {
-        if (!InfoOf(key, out var i) || i.Rock) return 1;
+        if (i.Rock) return 1;
         bool moving = i.Class != Signature.Class.Station && i.Class != Signature.Class.Wreck;
         return Aging.Fade(i.Age, StaleMinutes * 60, ForgetHours * 3600, moving);
     }

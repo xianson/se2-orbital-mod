@@ -265,7 +265,7 @@ public static class Contacts
         LoudLine = !Loud ? null : radarOn ? $"RADAR TRANSMITTING  ·  heard to ~{HudPanel.Km(LoudReach)}" : "LIDAR ON TARGET  ·  it can see you";
         // (once per start, and not again within a minute: a radar losing and regaining power would say it every flicker)
         if (Loud && !_wasLoud && !(wall - _loudSaidAt < 60)) { _loudSaidAt = wall; Messages.Say(MessageKinds.Contacts, radarOn
-            ? $"You are transmitting: any telescope or radar within ~{HudPanel.Km(LoudReach)} hears your radar. Switch it off to go quiet."
+            ? $"You are transmitting: any telescope or radar within ~{HudPanel.Km(LoudReach)} hears your radar. Lower its Transmit Power (its control panel) or switch it off to go quiet."
             : "You are transmitting: your telescope's lidar ranges your target - it can see you.", 6); }
         _wasLoud = Loud;
         // newly tracked: ships by name (rocks' orbits quietly: the map and the Contacts tab show them - a toast for them

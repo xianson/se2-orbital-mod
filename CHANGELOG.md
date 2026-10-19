@@ -46,11 +46,11 @@ Detection and targeting (branch fix/fx-detect):
 - **Transmitting is loud.** A working radar is heard one-way by any telescope or radar at 4,000 km x sqrt(power) - a
   bearing, not an orbit; others' radars are heard by yours. `Contacts.LoudLine` / `LoudReach` for the HUD and a notice
   when you start ("You are transmitting: ... heard within ~4,000 km").
-- **The radar's Transmit Power slider is held back.** It never showed (no display mode, no member list) and opening the
-  panel risked the game's fatal `KeyNotFoundException`. The fix is written as the Aerodynamics Mod's panels
-  (`DetailModelPairing`, `ModDetailTypeInfo`, copied), but its in-game check did not complete, so the radar's panel model
-  stays unexposed (no `[BlockDetailProvider]`): a radar transmits at full power and its block text no longer promises a
-  slider. Switch it off to go quiet.
+- **The radar's Transmit Power slider is in its control panel.** It never showed (no display mode, no member list) and
+  opening the panel risked the game's fatal `KeyNotFoundException`; now as the Aerodynamics Mod's panels
+  (`DetailModelPairing`, `ModDetailTypeInfo`, copied). Checked in game (final-check): the panel opens with the radar's
+  Transmit Power slider, no crash; 25 % draws 115 (20 + 380 x power), 100 % 400. (Briefly held back in 9a504f9 until
+  that check ran.)
 - **Map and card layout (fix-finish).** The landing estimate's words ("Lands on Verdure near ...") are always drawn (they
   were culled among the ship names round the globe); map labels never overlap once shown (a shown label kept its place
   3 px into another's); "Verdure L4 · L4" says its point once; the relative plot's title stops short of the disc's

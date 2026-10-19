@@ -120,33 +120,37 @@ public static partial class OrbitalApi
     public static bool SetTarget(string key)
     {
         if (string.IsNullOrEmpty(key)) { Maneuvers.Target = null; return true; }
-        if (!Targets.At(key, SystemHost.Now, out _, out _)) return false;
+        if (!ShipSurface.TargetAt(key, SystemHost.Now, out _, out _)) return false;   // (a ship read inside a planet is no target - B1)
         Maneuvers.Target = key;
         return true;
     }
 
     /// <summary>(v2) A target's state at a universe time (NaN: now): the body it is about and its state relative to it (m, m/s,
-    /// inertial). A ship on rails: its frame's orbit plus its place in the berth; in a planet's space, the arc its motion gives.
+    /// inertial). A ship on rails: its frame's orbit plus its place in the berth; in a planet's space, the arc its motion gives;
+    /// landed or flying low (OrbitalApi.TryGetGridSurface): its point on the ground, turning with the planet; read deep inside
+    /// a planet: false.
     /// Takes the frame lock.</summary>
     public static bool TryGetTargetState(string key, double time, out string body, out Vector3D position, out Vector3D velocity)
     {
         body = null; position = velocity = default;
         if (key == null || !SystemHost.Built) return false;
-        if (!Targets.At(key, double.IsNaN(time) ? SystemHost.Now : time, out var parent, out var rel) || parent == null) return false;
+        if (!ShipSurface.TargetAt(key, double.IsNaN(time) ? SystemHost.Now : time, out var parent, out var rel) || parent == null) return false;
         body = parent.Name; position = rel.Position; velocity = rel.Velocity;
         return true;
     }
 
     /// <summary>(v2) The closest approach of two targets (keys) over the universe times [t0, t1] (s): when, how close (m) and the
     /// relative speed then (m/s) - the deepest pass in the window, each on its present orbit (two-body: no burn, no sphere change).
-    /// False: unknown target, not about the same body now, or no pass found. Takes the frame lock; allocates (a planning call:
+    /// False: unknown target, not about the same body now, either on the ground (no orbit), or no pass found. Takes the frame lock; allocates (a planning call:
     /// not every frame).</summary>
     public static bool TryGetClosestApproach(string keyA, string keyB, double t0, double t1, out double time, out double distance, out double relativeSpeed)
     {
         time = distance = relativeSpeed = 0;
         if (keyA == null || keyB == null || !SystemHost.Built || !(t1 > t0) || !OrbitQueries.Finite(t0) || !OrbitQueries.Finite(t1)) return false;
         double now = SystemHost.Now;
-        if (!Targets.At(keyA, now, out var pa, out var ra) || !Targets.At(keyB, now, out var pb, out var rb) || pa == null || !ReferenceEquals(pa, pb)) return false;
+        // (a ship landed or flying low is on no conic: no two-body pass to find - B1, 2026-10-18)
+        if (ShipSurface.IsOnSurface(keyA) || ShipSurface.IsOnSurface(keyB)) return false;
+        if (!ShipSurface.TargetAt(keyA, now, out var pa, out var ra) || !ShipSurface.TargetAt(keyB, now, out var pb, out var rb) || pa == null || !ReferenceEquals(pa, pb)) return false;
         if (!OrbitQueries.FromState(ra.Position, ra.Velocity, pa.Mu, now, out var ea) || !OrbitQueries.FromState(rb.Position, rb.Velocity, pa.Mu, now, out var eb)) return false;
         var ev = ClosestApproach.Find(ea, eb, t0, t1 - t0, 256);
         if (!ev.Found) return false;

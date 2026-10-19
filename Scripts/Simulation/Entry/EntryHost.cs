@@ -704,6 +704,53 @@ public static class EntryHost
         return p.EnterTime - WarpLead;
     }
 
+    /// <summary>What the heat % means (the card's / map's legend - U3, 2026-10-18: "heat 82%" was never explained).</summary>
+    public const string HeatHelp = "Heat: how much of what your hull takes the pass puts into it. Over 100%: forward blocks wear "
+        + "(heavy armour in front doubles it). It cools off over a couple of minutes.";
+
+    /// <summary>"Pe 84 km: above the air (needs < 19 km)" - your path skims over the air (Maneuvers.AirGapLine). Null: nothing.</summary>
+    public static string AirGapLine(double now) => Maneuvers.AirGapLine(now);
+
+    /// <summary>
+    /// The card's ENTRY tag (U3, 2026-10-18 - the richer line README promised; it was the dev harness's only): braking now
+    /// ("ENTRY braking 2.1 g · heat 40%"), the next pass on your orbit or else on your PLAN ("ENTRY 2:46 · 1,669 → 990 m/s ·
+    /// heat 82%", "ENTRY 2:46 · aerobrake −120 m/s · heat 30%"), or an airless border over the cap ("NO AIR 2:46 · 1,200 >
+    /// 1,000 m/s"). Null: none. Made anew only when its words change (once a second at most).
+    /// </summary>
+    public static string CardTag(double now)
+    {
+        var f = FrameHost.PlayerFrame;
+        Pass p = null; bool planned = false; double decel = 0; bool braking = f != null && Braking(f.Id, out decel);
+        var air = Airless;
+        if (!braking && !air.HasValue)
+        {
+            p = Prediction;
+            if (p == null || double.IsNaN(p.EnterTime))
+            {
+                p = null;
+                var pe = Maneuvers.PlannedEntries(now);
+                if (pe.Count > 0) { p = pe[0].Pass; planned = true; }
+            }
+            if (p == null) return null;
+        }
+        int key = braking ? -1 - (int)(decel * 10) : air.HasValue ? (int)(air.Value.t - now) : (int)(p.EnterTime - now);
+        object src = braking ? (object)"braking" : air.HasValue ? "air" : p;
+        if (key == _tagKey && ReferenceEquals(src, _tagSrc) && _tag != null) return _tag;
+        _tagKey = key; _tagSrc = src;
+        if (braking) return _tag = $"ENTRY braking {decel / 9.81:F1} g  ·  heat {Reentry.Share(HeatOf(f.Id), false):P0}";
+        if (air.HasValue)
+        {
+            string at = air.Value.t - now <= 10 ? "now" : Maneuvers.Clock(air.Value.t - now);
+            return _tag = $"NO AIR {at}  ·  {air.Value.speed:N0} > {Cap:N0} m/s";
+        }
+        string when = p.EnterTime - now <= 10 ? "now" : Maneuvers.Clock(p.EnterTime - now);
+        double share = Reentry.Share(p.PeakHeat, false);
+        string to = p.HasAfter && p.DragShed > 0 && p.DragShed >= p.Shed * 0.5 ? $"aerobrake −{p.Dv:N0} m/s"
+                  : double.IsNaN(p.SpeedAtBottom) ? $"aerobrake −{p.Dv:N0} m/s" : $"{p.ArrivalSpeed:N0} → {p.SpeedAtBottom:N0} m/s";
+        return _tag = $"ENTRY {when}{(planned ? " (plan)" : "")}  ·  {to}  ·  heat {share:P0}{(share > 1 ? " too hot" : "")}";
+    }
+    static int _tagKey = int.MinValue; static object _tagSrc; static string _tag;
+
     /// <summary>The orbit card's line: the next pass (ahead), or the braking now.</summary>
     public static string CardLine(double now)
     {

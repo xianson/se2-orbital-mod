@@ -173,6 +173,9 @@ public static class DevFlight
     public static string Attitude = "";
     public const double AlignDeg = 3.0;
     public static bool Aligned;
+    /// <summary>The thrust (N) the commanded ship can make along its main axis - the one turned onto the burn (NaN: not
+    /// measured yet). AutoBurn gives up on 0 (BurnWatch).</summary>
+    public static double AxisForce = double.NaN;
     /// <summary>Degrees between the nearest ship's main thrust axis and the next burn (NaN: none).</summary>
     public static double OffBurnDeg = double.NaN;
 
@@ -216,6 +219,7 @@ public static class DevFlight
         }
         var q = e.Data.GetWorldTransform().Orientation;
         Vector3 uLocal = MainAxis(e, out float force);
+        AxisForce = force;   // (AutoBurn's watch: 0 N along the burn - no thrust, 2026-10-18)
         double ang = Turn(q, uLocal, _cmdDir, out _, out _);
         Aligned = ang * 180 / Math.PI <= AlignDeg;
         _move = Aligned && _cmdK > 0 ? uLocal * (float)_cmdK : Vector3.Zero;

@@ -56,11 +56,22 @@ arriving in the same place at the same time, and come back down through a re-ent
 | `;` | attitude hold on / off (seated) |
 | `Ctrl` + `;` | pick the hold mode: prograde, retrograde, normal, anti-normal, radial out / in, level |
 | `Del`, `F2` | on the Contacts tab: hide a row / rename it |
+| `Home` | on the map: back to your ship, your orbit framed (also: right-click empty map > Zoom to my ship) |
+| `Ctrl` + `Z` | on the map: undo the last maneuver edit (an add, a drag, a removal, typed values, a porkchop pick) |
+| `Shift` / `Ctrl` while dragging a handle | fine (a tenth as fast) / snap the value to 1, 10 or 100 m/s |
 
-On the map: right-click your path to **Add maneuver**, right-click a maneuver to remove it or **Edit exact values...**
-(prograde, normal, radial in m/s, e.g. `120, 0, -5`), drag its six handles to add delta-v. Notices (a target set, a
-warp stop, a burn done or stopped, contacts) come as a toast in flight, titled by what they are about, and as a line on
-the map.
+On the map: click your path (or right-click it: **Add maneuver**) to add a burn - the map frames it - then drag its six
+handles: the further you pull, the faster the delta-v grows (faster when zoomed out; the number shows while you pull).
+Right-click a maneuver to remove it or **Edit exact values...**
+(prograde, normal, radial in m/s, e.g. `120, 0, -5`). Right-click your ship's marker for the attitude hold. On the
+Rendezvous tab, a planet or moon target shows its transfer windows (the porkchop: colour = total delta-v, green the
+cheapest - circled - to red at four times it; black: no transfer for that pair); **click a window** and its first burn is
+made as a maneuver (your plan replaced; `Ctrl` + `Z` brings it back) and the map shows it to fine-tune. Notices (a target set, a
+warp stop, a burn done or stopped, contacts) come as a toast in flight, titled by what they are about, and as a line over
+the map's warp bar. The orbit card under the speed box shows your orbit (period and inclination over it), the next
+burn, your target ("Kemik 14,353 km, receding" / "closest 3.1 km in 4:12"), re-entry and the hold; with a target near you
+its relative plot is drawn beside your orbit's disc. When the game's own "Press P to ..." box would cover those lines, they
+move above the disc.
 
 **Quick launch** (`Ctrl` + `T` seated, creative worlds) is part of the **Aerodynamics Mod** now (its settings: Settings >
 Mods > Aerodynamics, Quick launch and Controls). With both mods loaded, this mod moves the ship for it and keeps it under
@@ -70,7 +81,7 @@ the planet's space; ships on rails are not moved.
 
 In a world: **pause menu > Settings > Mods**, section **Orbital** (one Mods tab is shared with the Aerodynamics Mod).
 Basic settings are shown; each group's advanced ones are under "Advanced". Every setting has its description in the
-screen's side panel and "Reset to defaults" per group.
+screen's side panel and a "Reset <group> to defaults" button per group.
 
 **World settings** are saved with the world; only the host (or you, in single player) can change them:
 

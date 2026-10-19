@@ -679,7 +679,7 @@ public static partial class Maneuvers
         {
             double dvm = Math.Sqrt(Selected.Pro * Selected.Pro + Selected.Nor * Selected.Nor + Selected.Rad * Selected.Rad);
             double left = selA.Dv.Length();
-            string head = (Math.Abs(left - dvm) > 0.05 ? $"{left:F1} / {dvm:F1} m/s" : $"{dvm:F1} m/s") + "  ·  " + Clock(Selected.T - t);
+            string head = NodeHead(left, dvm, Selected, t);   // (its burn's length and start too - UI audit U2)
             // In the widest gap between the handles (below the node when it can), clear of them all.
             Vector2 gap = new Vector2(0, 1);
             if (handles.Count > 0)
@@ -742,6 +742,21 @@ public static partial class Maneuvers
 
         // (Selecting a sector no longer marks your closest approach to it: that is what 'Set as target' is for.)
         Status = $"nodes {Nodes.Count}, legs {legs.Count}, mouse {MapInput.Status}";
+    }
+
+    static string _head; static long _headKey = long.MinValue;
+    /// <summary>The selected node's tag: "12.4 m/s · 25 s burn · starts in 3:44" (left / total when part is flown); made anew only
+    /// when what it says changes (it was a new string every frame).</summary>
+    static string NodeHead(double left, double dvm, Node n, double t)
+    {
+        double a = Accel, dur = a > 0.01 ? dvm / a : double.NaN, start = BurnStart(n) - t;
+        long key = (long)Math.Round(left * 10) * 1_000_003 + (long)Math.Round(dvm * 10) * 7919 + (long)Math.Floor(start) * 31 + (IsFinite(dur) ? (long)Math.Round(dur) : -1);
+        if (key == _headKey && _head != null) return _head;
+        _headKey = key;
+        string dv = Math.Abs(left - dvm) > 0.05 ? $"{left:F1} / {dvm:F1} m/s" : $"{dvm:F1} m/s";
+        string len = !IsFinite(dur) || dvm < 0.05 ? "" : dur < 60 ? $"  ·  {Math.Max(1, dur):F0} s burn" : $"  ·  {Clock(dur)} burn";
+        string when = start > 0.5 ? (IsFinite(dur) && dvm >= 0.05 ? "  ·  starts in " : "  ·  in ") + Clock(start) : "  ·  now";
+        return _head = dv + len + when;
     }
 
     /// <summary>The re-entry marks drawn this frame (screen), and the mouse on one (the map's hint line then explains the heat).</summary>

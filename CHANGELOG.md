@@ -33,6 +33,40 @@ The UI audit's fixes (2026-10-18; offline-tested, not yet flown in game). Flight
   band (`Reentry.FastestTo`); in high warp the rails now brake through the band instead of clamping at the border.
 - Tests: `Tests/FlightTests` (new, 64), `Tests/EntryTests` +15.
 
+Map, HUD and settings (branch fix/fx-ui):
+
+- **The orbit card keeps clear of the game's own notification** (C1): "Press P to Park/Lock/Connect" sat on its speed,
+  BURN, ENTRY and target lines. The game's HUD notification stack is read on the UI thread (`Hud/GameNotes.cs`); the
+  card's lines move above the plot when they would overlap it, and the notifications are hidden over the mod's map.
+- **The card reads plainly** (C3, C4): "period 1h 22m · incl 0.0°" over the disc; the Pe / Ap labels kept off the SPD
+  box; every caption on a dark backplate (white on a white hull, sun glare); the target as "Kemik 14,353 km, receding" /
+  "closest 3.1 km in 4:12" (never "-0:00": `Maneuvers.Clock` is `SEAerospace.MapUi.Words.Clock`); the BURN line with its
+  length and when it starts (fx-flight's `BurnTag`), the ENTRY line (`EntryHost.CardTag`) or the air gap, the radar's
+  "transmitting" line. With a target near you its relative plot is drawn **beside** your orbit's disc (it replaced it),
+  "Relative to X", its axes in words ("ahead", "behind", "toward Verdure").
+- **The porkchop makes the burn** (C2): click a window - the transfer's first burn becomes a maneuver (from a parking
+  orbit: a prograde burn where the escape hyperbola leaves along the needed v-infinity), the plan replaced (Ctrl+Z), the
+  map shown and framed on it. A legend (total delta-v from the cheapest to 4x, black "no transfer", the white circle
+  "cheapest"), the hovered cell outlined, labels at least ~11 px.
+- **The burn editor** (C5): a new node is framed (it was a 40 px knot at a far zoom); `Home` (or right-click > Zoom to my
+  ship) brings the view back to your ship; a handle's pull grows faster zoomed out, `Shift` fine, `Ctrl` snaps to
+  1 / 10 / 100 m/s; the pulled handle shows its number and mode; `Ctrl+Z` undoes node edits (`Flight/Maneuvers.Undo.cs`);
+  the selected node says its burn's length and start; "Edit exact values..." in its menu (fx-flight's dialog);
+  Auto-burn's tooltip.
+- **The map's own words** (C6, C7, B3, U3): a strip of notices over the warp bar (fx-flight's board, by kind); the game's
+  stale "Selected sector" box hidden while the map is about another planet, the empty colonization box of a sectorless
+  world hidden, its W A S D hints emptied (`Map/MapChrome.cs`); right-click on empty map no longer opens the attitude hold
+  (your ship's marker does); entry marks on planned legs, the landing cross and its words, the heat explained over an
+  entry mark; one sun on the map (the sky's put behind the map's star); labels keep off sector icons, Lagrange labels
+  ~10 px, the list's distances whole, hint lines balanced, headers on backplates; leaving Rendezvous in a sectorless world
+  lights the Contacts tab.
+- **Settings menu** (shared with the Aerodynamics Mod: sync with `tools/sync_settings_ui.sh`): the planet day's -1 reads
+  "the world's own"; a group of only advanced settings shows them (no lone "Advanced"); "Forced by the host's
+  OrbitalMod.world.cfg" (no path wrapped mid-word); locked controls greyed; "Reset <group> to defaults"; paths at the body
+  size.
+- Tests: `Tests/MapUiTests` (new, 86: words, card layout, handle zoom / fine / snap, undo, porkchop cells and colours, the
+  ejection burn flown), `Tests/SettingsUiTests` +8.
+
 ## 1.0.1 (2026-10-18)
 
 - **Quick launch moved to the Aerodynamics Mod** (the user: "ctrl+T should be in aero creative"; its branch

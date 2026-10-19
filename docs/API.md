@@ -378,6 +378,8 @@ A world setting the host file names is **forced**: a change through the API is r
 | `Hud.SpeedIcon` | client | bool | true |  | Orbital speed icon · Flight HUD · advanced | The orbital speed icon. |
 | `Hud.BuildHints` | client | bool | true |  | Build and aero hints · Flight HUD · basic | Build and aero hints while building (O cycles the overlay). |
 | `Hud.ContactsNeedDetection` | client | bool | true |  | Contacts must be detected · Flight HUD · advanced | Other ships and rocks show only once your sensors have seen them. Off: everything is known. |
+| `Hud.ContactStaleMinutes` | client | float | 30 | 0..10080 | Contact goes stale after · Flight HUD · advanced | A moving ship not seen for this long (game minutes) is stale: its orbit is shown as an estimate and it fades. 0: never. |
+| `Hud.ContactForgetHours` | client | float | 24 | 0..720 | Forget unseen ships after · Flight HUD · advanced | A moving ship not seen for this long (game hours) is forgotten: detect it again. Stations, wrecks and rocks are never forgotten. 0: never. |
 | `Map.Orbital` | client | bool | true |  | Orbital map · Map · basic | The orbital map in place of the game's map. |
 | `Map.ManeuverEditor` | client | bool | true |  | Maneuver nodes · Map · basic | Maneuver nodes on the map. |
 | `Map.OrbitPatches` | client | int | 3 | 0..10 | Predicted orbit segments · Map · basic | Conic patches drawn ahead. |

@@ -205,6 +205,13 @@ public static partial class OrbitalSettings
         B("Hud.ContactsNeedDetection", "client", false, () => Contacts.Enabled, v => { Contacts.Enabled = v; Contacts.Version++; },
             "Other ships and rocks show only once your sensors have seen them. Off: everything is known.")
             .Ui("Contacts must be detected", GHud, Tier.Advanced);
+        // (contacts age, 2026-10-19: game time - warp ages them as fast)
+        F("Hud.ContactStaleMinutes", "client", 0, 10080, false, () => Contacts.StaleMinutes, v => Contacts.StaleMinutes = v,
+            "A moving ship not seen for this long (game minutes) is stale: its orbit is shown as an estimate and it fades. 0: never.")
+            .Ui("Contact goes stale after", GHud, Tier.Advanced, "min", 5);
+        F("Hud.ContactForgetHours", "client", 0, 720, false, () => Contacts.ForgetHours, v => Contacts.ForgetHours = v,
+            "A moving ship not seen for this long (game hours) is forgotten: detect it again. Stations, wrecks and rocks are never forgotten. 0: never.")
+            .Ui("Forget unseen ships after", GHud, Tier.Advanced, "h", 1);
 
         B("Map.Orbital", "client", false, () => CleanMap.Enabled, v => CleanMap.Enabled = v,
             "The orbital map in place of the game's map (orbits, planets to scale, maneuver nodes).")

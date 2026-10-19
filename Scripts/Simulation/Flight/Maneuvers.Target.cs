@@ -51,6 +51,9 @@ public static partial class Maneuvers
         lock (Nodes) foreach (var nd in Nodes) ks.Append('|').Append(nd.T).Append(',').Append(nd.Pro).Append(',').Append(nd.Nor).Append(',').Append(nd.Rad);
         string sig = ks.ToString();
         double gt = SystemHost.Now;
+        // THE TRACKING GATE (2026-10-19, fx-detect): no orbit fixed for the target (a rock or a ship only detected): no
+        // closest approach - the map's mark, the flight disc's rendezvous, the card, the panel alike
+        if (Contacts.TrackingProgress(Target) is double tp && !SEAerospace.Sensing.Tracking.CanPredict(tp)) return default;
         if (sig == _caSig && now - _caAt < 1.0 && Math.Abs(gt - _caGameT) < 30) return _ca;
         if (sig == _caSig2 && now - _caAt2 < 1.0 && Math.Abs(gt - _caGameT2) < 30) return _ca2;
         _caSig2 = _caSig; _caAt2 = _caAt; _caGameT2 = _caGameT; _ca2 = _ca;   // (the other caller's, kept)
@@ -117,6 +120,8 @@ public static partial class Maneuvers
     public struct Approach
     {
         public bool Ok, Here, Rendezvous, Impact, Body, Tracking;
+        /// <summary>A stale contact (not seen for a while): its orbit, and so this approach, an estimate.</summary>
+        public bool Estimate;
         public double At, Dist, Alt, RelV;
         public string TrackingText;
     }
@@ -124,8 +129,10 @@ public static partial class Maneuvers
     {
         var a = new Approach();
         if (Target == null) return a;
-        if (Contacts.RockProgress(Target) is double prog && prog < 1)
+        // (the tracking gate - ships as rocks, 2026-10-19: no orbit fixed yet, no prediction; fx-detect)
+        if (Contacts.TrackingProgress(Target) is double prog && !SEAerospace.Sensing.Tracking.CanPredict(prog))
         { a.Tracking = true; a.TrackingText = $"{prog:P0}{(Contacts.Lidar ? " (lidar ranging)" : " (bearing only)")}"; return a; }
+        a.Estimate = Contacts.InfoOf(Target, out var ci) && ci.Stale;
         if (RendezvousView.TargetIsOwnFrame(Target)) { a.Here = true; return a; }
         if (!Trajectory(t, out var legs, out _)) return a;
         var ca = ClosestApproach(legs);
@@ -144,14 +151,16 @@ public static partial class Maneuvers
     public static string TargetLine(double t)
     {
         if (Target == null) return null;
-        // a rock seen but not tracked: no orbit yet, so no closest approach (a telescope's lidar on it speeds the fit)
-        if (Contacts.RockProgress(Target) is double prog && prog < 1)
-            return $"Target ≈ {Target}  ·  tracking {prog:P0}{(Contacts.Lidar ? "  ·  lidar ranging" : "  ·  bearing only")}";
         string name = Targets.Name(Target);
+        // a rock or a ship seen but not tracked: no orbit yet, so no closest approach (a telescope's lidar on it speeds the fit)
+        if (Contacts.TrackingProgress(Target) is double prog && !SEAerospace.Sensing.Tracking.CanPredict(prog))
+            return $"Target ≈ {name}  ·  position only, tracking {prog:P0}{(Contacts.Lidar ? "  ·  lidar ranging" : "  ·  bearing only")}";
         if (RendezvousView.TargetIsOwnFrame(Target)) return $"Target {name}  ·  here";
         if (!Trajectory(t, out var legs, out _)) return null;
         var ca = ClosestApproach(legs);
         if (!ca.ok) return ShipSurface.TargetAt(Target, t, out _, out _) ? $"Target {name}  ·  no approach on this path" : $"Target {name}  ·  {ShipSurface.Describe(Target) ?? "lost"}";
+        // (a stale contact: an estimate - it may have burned since it was last seen)
+        if (Contacts.InfoOf(Target, out var ci) && ci.Stale) return $"Target {name}  ·  {ApproachText(ca, t)}  ·  estimate (seen {SEAerospace.Sensing.Aging.Ago(ci.Age)})";
         return $"Target {name}  ·  {ApproachText(ca, t)}";
     }
 

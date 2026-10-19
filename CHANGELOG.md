@@ -54,7 +54,8 @@ Detection and targeting (branch fix/fx-detect):
 - **Map and card layout (fix-finish).** The landing estimate's words ("Lands on Verdure near ...") are always drawn (they
   were culled among the ship names round the globe); map labels never overlap once shown (a shown label kept its place
   3 px into another's); "Verdure L4 · L4" says its point once; the relative plot's title stops short of the disc's
-  header, and the disc's Ap/Pe labels stay off the relative plot; the sun's lens flare is off while the map is open (its
+  header, and the disc's Ap/Pe labels stay off the relative plot (and off each other: pushed right, Ap landed on Pe -
+  it now goes above or below it, `CardLayout.ClearOf`); the sun's lens flare is off while the map is open (its
   ghosts read as a second sun); the porkchop's sub-line and other plated map text are darker-plated.
 - **Contacts age.** When each was last seen is kept (saved: `knowngrid <id> <time>`; older saves load as seen now). A
   moving ship unseen for `Hud.ContactStaleMinutes` (30) is stale - its orbit an estimate ("closest 40 km in 12:00 ·

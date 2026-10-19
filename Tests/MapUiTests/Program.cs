@@ -97,6 +97,14 @@ namespace MapUiTest
             Check(x + 90 <= 418 + 1e-3, "label's right edge left of the SPD box: " + x);
             Check(CardLayout.ClampX(100, 90, 0, 418) == 100, "a label clear of it stays");
             Check(CardLayout.ClampX(-20, 90, 0, 418) == 0, "kept on screen at the left");
+            // ClearOf: the second apsis label kept off the first (2026-10-19 final-check: Ap pushed onto Pe)
+            {
+                var pe = new Rect(284, 446, 412, 464);
+                Check(CardLayout.ClearOf(new Rect(240, 470, 380, 488), pe, 2) == 470, "clear of it: unchanged");
+                Check(CardLayout.ClearOf(new Rect(240, 438, 380, 456), pe, 2) == 446 - 2 - 18, "overlapping, its middle higher: just above");
+                Check(CardLayout.ClearOf(new Rect(240, 452, 380, 470), pe, 2) == 464 + 2, "overlapping, its middle lower: just below");
+                Check(CardLayout.ClearOf(new Rect(240, 438, 380, 456), default, 2) == 438, "nothing placed yet: unchanged");
+            }
         }
 
         // C5: a 70 px pull at a far zoom gave 0.11 m/s

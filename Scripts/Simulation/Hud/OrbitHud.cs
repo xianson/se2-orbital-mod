@@ -436,6 +436,7 @@ public static class OrbitHud
         foreach (var q in r.RelPath) if (IsFinite(q)) path.Add(P(q));
         MapPipeline.ScreenPath(path, r.PathClosed, Orbit, 1.6f * u);
         // Pe / Ap.
+        var apsisPlaced = default(SEAerospace.MapUi.Rect);   // (the first label drawn: the second keeps off it)
         void Apsis(Vector3D q, string label)
         {
             var s = P(q);
@@ -454,6 +455,11 @@ public static class OrbitHud
             //  (2026-10-19, fix-finish) - it stays right of the gap between the two)
             float minX = _relBeside ? RelBesideCentre(c, R, u).X + R + 6f * u : 4f * u;
             x = SEAerospace.MapUi.CardLayout.ClampX(x, sz.X, minX, gs != null && gs[3] > 4f ? gs[0] - 4f * u : scr.X - 4f * u);
+            // (and off the other apsis label: pushed right off the relative plot, "Ap 300 km · 1h 17m" landed on "Pe 280 km ·
+            //  37:52" - 2026-10-19, final-check - so it goes above or below it)
+            float px = 4f * u, py = 1f * u;
+            y = SEAerospace.MapUi.CardLayout.ClearOf(new SEAerospace.MapUi.Rect(x - px, y - py, x + sz.X + px, y + sz.Y + py), apsisPlaced, 2f * u) + py;
+            apsisPlaced = new SEAerospace.MapUi.Rect(x - px, y - py, x + sz.X + px, y + sz.Y + py);
             Plated(new Vector2(x, y), label, Orbit, 0.42f * u, u);
         }
         if (r.Pe > -r.BodyRadius) Apsis(r.PeRel, _capPe);

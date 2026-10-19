@@ -99,6 +99,17 @@ namespace SEAerospace.MapUi
             if (x < minX) x = minX;
             return x;
         }
+
+        /// <summary>A label's top y kept off a label already placed (both rects padded as drawn): unchanged when they do not
+        /// overlap, else just above that label when its own middle is above that label's middle, else just below (gap px). The
+        /// disc's Ap label, pushed right off the relative plot beside it, landed on the Pe label (2026-10-19, final-check: "Ap
+        /// 300 km · 1h 17m" over "Pe 280 km · 37:52" on a 300 x 280 km orbit).</summary>
+        public static float ClearOf(Rect label, Rect placed, float gap)
+        {
+            if (!label.Overlaps(placed)) return label.Y0;
+            float h = label.Y1 - label.Y0;
+            return (label.Y0 + label.Y1) * 0.5f <= (placed.Y0 + placed.Y1) * 0.5f ? placed.Y0 - gap - h : placed.Y1 + gap;
+        }
     }
 
     /// <summary>

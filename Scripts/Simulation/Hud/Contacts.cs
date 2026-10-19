@@ -117,7 +117,7 @@ public static class Contacts
     static readonly List<SensorModel.Body> _bodies = new();
     static readonly Dictionary<long, bool> _yours = new();
     static readonly List<SensorModel.Looker> _obs = new();
-    static (string[] labels, string[] keys) RockLabels(string belt, int[] numbers)
+    internal static (string[] labels, string[] keys) RockLabels(string belt, int[] numbers)
     {
         if (_rockLabels.TryGetValue(belt, out var c) && ReferenceEquals(c.numbers, numbers)) return (c.labels, c.keys);
         var labels = new string[numbers.Length]; var keys = new string[numbers.Length];

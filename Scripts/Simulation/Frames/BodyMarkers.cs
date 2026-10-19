@@ -25,6 +25,9 @@ namespace OrbitalMod;
 ///
 /// TARGETING in flight: N takes the marked body or contact nearest the crosshair as your target (again on it: clears
 /// it); the target, whatever it is (a ship of yours too), is bracketed where it lies, with its name and distance.
+/// 2026-10-19 (fx-detect): N also takes what is not drawn here - a ship the game marks already (a GPS / ownership marker:
+/// yours, a contract's), a sector, a rock you have seen - and says why when it takes nothing (CleanMap.SetTarget:
+/// "landed on Verdure"; nothing there: how things become targetable).
 /// </summary>
 public static class BodyMarkers
 {
@@ -48,7 +51,8 @@ public static class BodyMarkers
     /// <summary>Client tick, from FrameMarkers (the camera's true place known): which bodies to mark, and where.</summary>
     public static void Collect(WorldTransform camera, Vector3D camModel, Chart camChart, double t)
     {
-        _items.Clear(); _tgtOn = false;
+        _items.Clear(); _tgtOn = false; _pick.Clear();
+        _cam = camera.Position; _camModel = camModel; _camChart = camChart; _camT = t; _camOk = true;
         var reg = SystemHost.Registry;
         if (!Enabled || reg == null || MapView.Visible || OrbitHud.Walking) { Status = "off"; return; }
         // the target, wherever it is (bracketed in Draw)
@@ -137,11 +141,12 @@ public static class BodyMarkers
             if (!Targets.GridOf(e.Key, out long id) || !ServerFrames.View(id, out var g)) continue;
             bool targeted = target != null && Targets.SameShip(target, id);
             bool pinned = ContactsTab.Pinned.Contains(e.Key);
-            if (e.Yours && !targeted && !pinned) continue;
-            // the game marks it already (a contract's station, an antenna's broadcast): not twice
+            // (your own ships: the game marks them - N takes them where they are)
+            if (e.Yours && !targeted && !pinned) { _pick.Add((e.Key, g.Position)); continue; }
+            // the game marks it already (a contract's station, an antenna's broadcast): not twice - but N still takes it
             Vector3D wpos = g.Position; bool marked = false;
             foreach (var gm in gameMarked) if ((gm - wpos).LengthSquared() < GameMarkRadius * GameMarkRadius) { marked = true; break; }
-            if (marked) continue;
+            if (marked) { _pick.Add((e.Key, wpos)); continue; }
             Vector3D m; bool ok;
             lock (ServerFrames.FramesLock) ok = FrameMarkers.ModelOf(g.Position, t, out m, out _, out _);
             if (!ok) continue;
@@ -235,11 +240,40 @@ public static class BodyMarkers
             float d = (s - c).Length();
             if (d < best) { best = d; key = it.Key; name = it.M?.Name; }
         }
+        // what is not drawn here: ships the game marks, sectors, rocks you have seen (found only when N is pressed)
+        foreach (var (k, w) in _pick)
+            if (MapPipeline.ToScreen(w, out var s)) { float d = (s - c).Length(); if (d < best) { best = d; key = k; } }
+        if (_camOk)
+        {
+            var secs = _secScratch; secs.Clear();
+            foreach (var st in EncounterFrames.Sites) if (st.Anchor && st.Sector != null && secs.Add(st.Sector)) Consider(st.Sector, c, ref best, ref key);
+            secs.Clear();
+            foreach (var b in RingRocks.Belts())
+                for (int i = 0; i < b.R.Length; i++) { string label = Targets.RingRockLabel(b, i); if (Contacts.KnownRock(label)) Consider(label, c, ref best, ref key); }
+            foreach (var (belt, label, home, cluster) in AsteroidFrames.All()) if (Contacts.KnownRock(label)) Consider(label, c, ref best, ref key);
+        }
         if (_tgtOn && MapPipeline.ToScreen(_tgtWorld, out var ts) && (ts - c).Length() <= best && key == null) key = Maneuvers.Target;
-        if (key == null) { WarpControl.Say("Nothing to target at the crosshair: aim at a marker and press N"); return; }
-        if (key == Maneuvers.Target) { Maneuvers.Target = null; WarpControl.Say("Target cleared"); }
-        else { Maneuvers.Target = key; WarpControl.Say("Target: " + Targets.Name(key)); }
+        if (key == null) { WarpControl.Say(SEAerospace.Sensing.Reasons.Text(SEAerospace.Sensing.Reasons.Why.Nothing, flight: true)); return; }
+        if (key == Maneuvers.Target) CleanMap.SetTarget(null);
+        else CleanMap.SetTarget(key);   // (says why not when it cannot: landed)
     }
+
+    /// <summary>N's candidates beyond the drawn markers: where this key's target is now, on the screen, nearer the crosshair.</summary>
+    static void Consider(string key, Vector2 c, ref float best, ref string pick)
+    {
+        if (!Targets.RootAt(key, _camT, out var root)) return;
+        Vector3D d = root.Position - _camModel; double dist = d.Length();
+        if (!(dist > 1)) return;
+        Vector3D w = _cam + _camChart.FromInertial(d) * (System.Math.Min(dist, 5e4) / dist);
+        if (!MapPipeline.ToScreen(w, out var s)) return;
+        float dd = (s - c).Length();
+        if (dd < best) { best = dd; pick = key; }
+    }
+
+    // (N's extra candidates: the game-marked and your own ships of this frame; the camera of the last Collect)
+    static readonly List<(string key, Vector3D world)> _pick = new List<(string, Vector3D)>();
+    static readonly HashSet<string> _secScratch = new HashSet<string>();
+    static Vector3D _cam, _camModel; static Chart _camChart; static double _camT; static bool _camOk;
 
     static readonly Dictionary<long, GPSMarker> _contacts = new Dictionary<long, GPSMarker>();
     // (an untracked contact's "≈ name", made again only when its name changes - it was a new string every frame for each)

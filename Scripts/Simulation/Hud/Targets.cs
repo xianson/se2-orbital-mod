@@ -11,7 +11,8 @@ namespace OrbitalMod;
 /// <summary>
 /// What can be targeted, and where it is: one key per target in <see cref="Maneuvers.Target"/>.
 ///  - a planet or moon: its name ("Verdure")
-///  - a sector's site or a rock: its sector name / label (EncounterFrames.TargetSite)
+///  - a sector's site or a belt asteroid: its sector name / label (EncounterFrames.TargetSite)
+///  - a ring rock: its label ("Oblivara #12": RingRocks, its seeded circular orbit - 2026-10-19, targetable once seen)
 ///  - a ship or station: "grid:&lt;entity id&gt;" (<see cref="OfGrid"/>) - on rails, its frame's orbit plus its place in the
 ///    frame; in a planet's space, the orbit its last two positions give (a free flier's Kepler arc about the planet)
 /// <see cref="At"/> is the target's state about its parent body at any time, for the closest approach, the relative
@@ -96,8 +97,34 @@ public static class Targets
         if (key.StartsWith(ContactsTab.PlacePrefix, StringComparison.Ordinal)) return PlaceAt(key, tk, out parent, out rel);
         var body = Body(key);
         if (body != null && body.Parent != null) { parent = body.Parent; rel = body.StateInParentAt(tk); return true; }
+        if (RingRockAt(key, tk, out parent, out rel)) return true;
         var site = EncounterFrames.TargetSite(key);
         return site != null && EncounterFrames.Ephemeris(site, tk, out parent, out rel);
+    }
+
+    /// <summary>A ring rock's label ("Oblivara #12"), made once per ring (Contacts' own labels).</summary>
+    public static string RingRockLabel(RingRocks.Belt b, int i) => Contacts.RockLabels(b.Name, b.Number).labels[i];
+
+    /// <summary>A ring rock's state about its planet at tk (its seeded circular orbit: RingRocks.At, the velocity by a
+    /// central difference). False: not a ring rock's label.</summary>
+    static bool RingRockAt(string key, double tk, out GravityBody parent, out StateVector rel)
+    {
+        parent = null; rel = default;
+        int hash = key.LastIndexOf(" #", StringComparison.Ordinal);
+        if (hash <= 0 || !int.TryParse(key.AsSpan(hash + 2), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int num)) return false;
+        foreach (var b in RingRocks.Belts())
+        {
+            if (b.Name.Length != hash || string.CompareOrdinal(b.Name, 0, key, 0, hash) != 0) continue;
+            for (int i = 0; i < b.Number.Length; i++)
+            {
+                if (b.Number[i] != num) continue;
+                const double h = 0.5;
+                Vector3D p = RingRocks.At(b, i, tk), v = (RingRocks.At(b, i, tk + h) - RingRocks.At(b, i, tk - h)) / (2 * h);
+                parent = b.Body; rel = new StateVector(p, v);
+                return IsFinite(rel.Position) && IsFinite(rel.Velocity);
+            }
+        }
+        return false;
     }
 
     /// <summary>The target's sun-centred state at tk.</summary>
@@ -265,6 +292,8 @@ public static class Targets
     {
         parent = null; el = default;
         if (!GridOf(key, out long id) || SystemHost.Registry == null) return false;
+        // (a contact not tracked yet has no orbit to draw: position only - the tracking gate, 2026-10-19)
+        if (!SEAerospace.Sensing.Tracking.CanPredict(Contacts.TrackingProgress(key))) return false;
         lock (ServerFrames.FramesLock)
         {
             var f = SystemHost.Frames?.FindByMember(id);
@@ -273,6 +302,19 @@ public static class Targets
         if (!GridAt(id, SystemHost.Now, out parent, out _)) return false;
         lock (_tracks) { if (!_tracks.TryGetValue(id, out var tr) || !tr.HasEl) return false; el = tr.El; }
         return true;
+    }
+
+    /// <summary>
+    /// Why this key cannot be your target now (the words to say), or null when it can (2026-10-19: N or a click on a ship on
+    /// the ground took it, with an impossible orbit; nothing said why a pick failed). Landed: fx-flight's rule
+    /// (Contacts.LandedOn) - a ship on the ground has no orbit to meet.
+    /// </summary>
+    public static string WhyNot(string key)
+    {
+        if (key == null || !GridOf(key, out long id)) return null;
+        string body = Contacts.LandedOn(id);
+        var why = SEAerospace.Sensing.Reasons.Of(body, true);
+        return SEAerospace.Sensing.Reasons.Text(why, Name(key), body != null ? SystemHost.DisplayName(body) : null);
     }
 
     public static bool HasGrid(ProximityFrame f) { foreach (long id in f.Members) if (GridMembers.IsGridId(id)) return true; return false; }

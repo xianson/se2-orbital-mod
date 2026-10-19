@@ -510,7 +510,9 @@ public static class ContactsTab
         Counts(want, rocksKnown);
         if (regroup || force)
         {
-            try { _vm?.GetType().GetMethod("RefreshGroups", BindingFlags.Instance | BindingFlags.NonPublic)?.Invoke(_vm, null); }
+            // (SE2 4.0: RefreshGroups is gone - RequestRefreshTree, which coalesces and runs RefreshTree on the UI thread)
+            try { (_vm?.GetType().GetMethod("RequestRefreshTree", BindingFlags.Instance | BindingFlags.NonPublic, null, System.Type.EmptyTypes, null)
+                   ?? _vm?.GetType().GetMethod("RefreshGroups", BindingFlags.Instance | BindingFlags.NonPublic, null, System.Type.EmptyTypes, null))?.Invoke(_vm, null); }
             catch (Exception e) { PlanetRenderBridge.WarnOnce("contacts-regroup", "contacts tab regroup: " + PlanetRenderBridge.Inner(e)); }
         }
         Sanitize();
@@ -682,7 +684,9 @@ public static class ContactsTab
                 return $"{a[2]} renamed: names {(Names.TryGetValue(a[2], out var nm) ? nm : "-")}";
             case "select":
                 if (a.Length < 3 || !_rows.TryGetValue(a[2], out var rs)) return "no such row";
-                foreach (var mv in (System.Collections.IEnumerable)Field(_vm, "_markerViewModels"))
+                // (SE2 4.0: _markerViewModels is a GPSMarker -> view model dictionary, was a list)
+                var mvs = Field(_vm, "_markerViewModels");
+                foreach (var mv in mvs is System.Collections.IDictionary md ? md.Values : (System.Collections.IEnumerable)mvs)
                     if (ReferenceEquals(Prop(mv, "GPSMarker"), rs.M)) { _vm.GetType().GetProperty("SelectedMarker")?.SetValue(_vm, mv); OnSelection(); return "selected " + a[2] + ", target " + (Maneuvers.Target ?? "none"); }
                 return "row not in the screen's list";
         }

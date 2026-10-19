@@ -177,6 +177,40 @@ public static partial class PlanetRenderBridge
 
     static Type Plain(ParameterInfo pi) => pi.ParameterType.IsByRef ? pi.ParameterType.GetElementType() : pi.ParameterType;
 
+    // SE2 4.0: CreatePlanetEnvironmentEntity takes one `in PlanetEnvironmentEntityBuildParameters` (a struct whose fields
+    // are the old 12 parameters, plus FrameSettingsOverride, left null) instead of 12 parameters. The old order is kept as
+    // the argument list here: EnvArgType(i) is the type of argument i, CreateEnvEntity builds the struct from the list.
+    static readonly string[] EnvParamFields = { "DebugName", "AtmosphereDefinition", "AtmosphereRadius", "RadiusWithMaxHills", "CloudDefinition",
+        "SphereData", "AtmosphereSpherizationData", "SkyboxSpherizationData", "SpherizeRadius", "PlanetCenter", "PlanetOverlayDefinition", "PreloadItems" };
+    static FieldInfo[] _envFields;
+    static bool ResolveCreateEnv()
+    {
+        if (_createEnv != null) return true;
+        foreach (var m in _contracts.GetType().GetMethods())
+        {
+            if (m.Name != "CreatePlanetEnvironmentEntity") continue;
+            var ps = m.GetParameters();
+            if (ps.Length == 12) { _createEnv = m; return true; }
+            if (ps.Length == 1 && Plain(ps[0]).IsValueType)
+            {
+                var t = Plain(ps[0]);
+                var fs = new FieldInfo[EnvParamFields.Length];
+                for (int i = 0; i < fs.Length; i++) { fs[i] = t.GetField(EnvParamFields[i]); if (fs[i] == null) return false; }
+                _envFields = fs; _createEnv = m; return true;
+            }
+        }
+        return false;
+    }
+    static Type EnvArgType(int i) => _envFields != null ? _envFields[i].FieldType : Plain(_createEnv.GetParameters()[i]);
+    static object CreateEnvEntity(object[] args)
+    {
+        if (_envFields == null) return _createEnv.Invoke(_contracts, args);
+        var t = Plain(_createEnv.GetParameters()[0]);
+        object box = t.GetConstructor(Type.EmptyTypes)?.Invoke(null) ?? Activator.CreateInstance(t);   // (its own defaults: no frame override, an empty preload list)
+        for (int i = 0; i < args.Length; i++) _envFields[i].SetValue(box, args[i]);
+        return _createEnv.Invoke(_contracts, new[] { box });
+    }
+
     static void UpdateAtmosphere(PlanetHandles h, Proxy p, Vector3D center, double radius)
     {
         if (h.EnvShowArgs == null || h.EnvShowArgs[0] == null || !(h.SurfaceRadius > 0)) return;
@@ -215,13 +249,9 @@ public static partial class PlanetRenderBridge
                 // remake in one frame (dispose + create) left another planet's environment first for that frame - the sky
                 // undimmed (multiplier 1 against ~0.24 at 13 km) for a frame, 6-8 times a second where the proxy drifts fast.
                 // (Since 2026-10-11 the proxy carries the planet's skybox spherization: before, the multiplier was 1 anyway.)
-                if (_createEnv == null)
-                    foreach (var m in _contracts.GetType().GetMethods())
-                        if (m.Name == "CreatePlanetEnvironmentEntity" && m.GetParameters().Length == 12) _createEnv = m;
-                if (_createEnv == null) { DisposeAtmosphere(p); ProxyAtmospheresWork = false; WarnOnce("proxy-atmo", "no CreatePlanetEnvironmentEntity: proxy atmospheres off"); return; }
-                var ps = _createEnv.GetParameters();
+                if (!ResolveCreateEnv()) { DisposeAtmosphere(p); ProxyAtmospheresWork = false; WarnOnce("proxy-atmo", "no CreatePlanetEnvironmentEntity: proxy atmospheres off"); return; }
                 float F(object o) => (float)(Convert.ToDouble(o) * k);
-                p.AtmoNext = _createEnv.Invoke(_contracts, new object[]
+                p.AtmoNext = CreateEnvEntity(new object[]
                 {
                     "OrbitalProxyAtmosphere_" + h.Name,
                     null,                                         // no atmosphere yet (stage 2 gives it)
@@ -229,11 +259,11 @@ public static partial class PlanetRenderBridge
                     null,                                         // no clouds
                     // the planet's spherization, its distances scaled as the proxy is (AtmoSpherize: the atmosphere pulled
                     // down to the ground at a distance as the real one is; off: none - the proxy is already a sphere)
-                    AtmoSpherize ? Sphere(h.EnvShowArgs[4], k, Plain(ps[5])) : Activator.CreateInstance(Plain(ps[5])),
-                    AtmoSpherize ? Sphere(h.AtmoSphere, k, Plain(ps[6])) : Activator.CreateInstance(Plain(ps[6])),
-                    AtmoSpherize ? Sphere(h.SkySphere, k, Plain(ps[7])) : Activator.CreateInstance(Plain(ps[7])),
+                    AtmoSpherize ? Sphere(h.EnvShowArgs[4], k, EnvArgType(5)) : Activator.CreateInstance(EnvArgType(5)),
+                    AtmoSpherize ? Sphere(h.AtmoSphere, k, EnvArgType(6)) : Activator.CreateInstance(EnvArgType(6)),
+                    AtmoSpherize ? Sphere(h.SkySphere, k, EnvArgType(7)) : Activator.CreateInstance(EnvArgType(7)),
                     F(h.EnvShowArgs[5]) * AtmoStageShrink, center, null,
-                    Array.CreateInstance(Plain(ps[11]).GetElementType(), 0),
+                    Array.CreateInstance(EnvArgType(11).GetElementType(), 0),
                 });
                 p.AtmoNextAt = center; p.AtmoNextK = k; p.AtmoNextFrame = p.AtmoUpdates; p.AtmoNextWall = now; p.AtmoNextGen = _atmoGen;
                 if (!AtmoStaged)

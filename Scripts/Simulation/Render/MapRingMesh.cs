@@ -105,8 +105,14 @@ public static class MapRingMesh
         if (_tColoring == null || model == null) return true;   // (nothing to do it with: left as it is)
         object d = Activator.CreateInstance(_tColoring);
         // (the value is stored shifted by -0.55, HSVDeltaColoring: the shift here is the shader's)
-        _tColoring.GetField("ColoringHSV").SetValue(d, new ColorHSV(Hue, Sat, 0.55f + Dim, Tint));
+        // (SE2 4.0 split ColoringHSV into PrimaryColoringHSV / SecondaryColoringHSV: both set - the whole ring, as before)
+        var hsv = new ColorHSV(Hue, Sat, 0.55f + Dim, Tint);
+        var f1 = _tColoring.GetField("PrimaryColoringHSV") ?? _tColoring.GetField("ColoringHSV");
+        var f2 = _tColoring.GetField("SecondaryColoringHSV");
         var fFlags = _tColoring.GetField("ColoringFlags");
+        if (f1 == null || fFlags == null) return true;   // (not found: left as it is)
+        f1.SetValue(d, hsv);
+        f2?.SetValue(d, hsv);
         fFlags.SetValue(d, Enum.ToObject(fFlags.FieldType, 1));   // IgnoreColorMask: the whole ring
         return PlanetRenderBridge.SetEntityCustomData(model, d);
     }

@@ -121,7 +121,9 @@ public static class DevRadarPanel
     {
         var p = Panel(session);
         if (p == null) return "no control panel on top (" + (GameUi.TopScreenObject(session)?.GetType().Name ?? "none") + ")";
-        if (!(PlanetRenderBridge.GetMember(p, "Blocks") is IEnumerable blocks)) return "panel has no Blocks";
+        // (SE2 4.0 moved the block list into the panel's Tree, a ControlPanelTreeViewModel)
+        var blocksOf = PlanetRenderBridge.GetMember(p, "Blocks") ?? PlanetRenderBridge.GetMember(PlanetRenderBridge.GetMember(p, "Tree"), "Blocks");
+        if (!(blocksOf is IEnumerable blocks)) return "panel has no Blocks (nor Tree.Blocks)";
         int n = 0; object radar = null;
         foreach (var b in blocks) { n++; if (radar == null && IsRadar(b)) radar = b; }
         if (radar == null) return $"{n} blocks listed, none offers RadarBlockDetailModel";

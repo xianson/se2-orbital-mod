@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The flight rules (2026-10-18, the UI audit's fixes): landed vs orbiting ships (B1), auto-burn's watch (B2), the
+       notices' board and kinds (B3), typed burn numbers (B4), ground points (U3). -->
+  <ItemGroup>
+    <Compile Include="$(Core)\Flight\*.cs" />
+    <Compile Include="$(Core)\Orbital\*.cs" />
+  </ItemGroup>
+</Project>

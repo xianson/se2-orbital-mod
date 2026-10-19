@@ -22,6 +22,8 @@ namespace FlightTest
         const double R = 63000, Mu = 7.785e10;
         const double Omega = 2 * Math.PI / 7200;   // a spin: a 2 h day (surface speed ~55 m/s)
 
+        static double ApOf(Vector3D r, Vector3D v) { SurfaceRule.Apsides(r, v, Mu, out _, out double ap); return ap; }
+
         static int Main()
         {
             Console.WriteLine("Flight rules offline tests");
@@ -46,30 +48,47 @@ namespace FlightTest
             var el = OrbitalMath.ToElements(new StateVector(r, vIn), Mu, 0);
             Ok("bug reproduced: a landed ship's Kepler orbit dips deep into the planet", el.PeriapsisRadius < 0.1 * R, $"Pe alt {(el.PeriapsisRadius - R) / 1000:F1} km");
             Ok("periapsis helper agrees with the elements", Math.Abs(pe - el.PeriapsisRadius) < 1, $"{pe:F0} vs {el.PeriapsisRadius:F0}");
-            Ok("crashed ship at rest below the datum: Landed", SurfaceRule.Classify(r.Length(), R, 0.3, pe) == SurfaceKind.Landed);
-            Ok("parked on a hill 2 km up: Landed", SurfaceRule.Classify(R + 2000, R, 0.0, 0) == SurfaceKind.Landed);
-            Ok("creeping 4 m/s over the ground: Landed", SurfaceRule.Classify(R + 50, R, 4.0, 0) == SurfaceKind.Landed);
+            Ok("crashed ship at rest below the datum: Landed", SurfaceRule.Classify(r.Length(), R, 0.3, pe, r.Length()) == SurfaceKind.Landed);
+            Ok("parked on a hill 2 km up: Landed", SurfaceRule.Classify(R + 2000, R, 0.0, 0, R + 2000) == SurfaceKind.Landed);
+            Ok("creeping 4 m/s over the ground: Landed", SurfaceRule.Classify(R + 50, R, 4.0, 0, R + 50) == SurfaceKind.Landed);
             // The audit's "Red Ship": read at the planet's very centre ("Ap -63 km, Period 0 s, 96,955 m/s").
-            Ok("at the centre: Unknown (never a target state)", SurfaceRule.Classify(0, R, 0, double.NaN) == SurfaceKind.Unknown);
-            Ok("deep inside (30% of the radius): Unknown", SurfaceRule.Classify(0.3 * R, R, 10, double.NaN) == SurfaceKind.Unknown);
-            Ok("a NaN position: Unknown", SurfaceRule.Classify(double.NaN, R, 0, 0) == SurfaceKind.Unknown);
+            Ok("at the centre: Unknown (never a target state)", SurfaceRule.Classify(0, R, 0, double.NaN, double.NaN) == SurfaceKind.Unknown);
+            Ok("deep inside (30% of the radius): Unknown", SurfaceRule.Classify(0.3 * R, R, 10, double.NaN, double.NaN) == SurfaceKind.Unknown);
+            Ok("a NaN position: Unknown", SurfaceRule.Classify(double.NaN, R, 0, 0, 0) == SurfaceKind.Unknown);
             // flying low on a hop: in the air, no orbit
             {
                 var rp = new Vector3D(R + 2000, 0, 0); var vp = new Vector3D(0, 150, 0) + Vector3D.Cross(new Vector3D(0, Omega, 0), rp);
                 double pep = SurfaceRule.Periapsis(rp, vp, Mu);
-                Ok("a plane at 2 km, 150 m/s: Low", SurfaceRule.Classify(rp.Length(), R, 150, pep) == SurfaceKind.Low, $"Pe alt {(pep - R) / 1000:F0} km");
+                Ok("a plane at 2 km, 150 m/s: Low", SurfaceRule.Classify(rp.Length(), R, 150, pep, ApOf(rp, vp)) == SurfaceKind.Low, $"Pe alt {(pep - R) / 1000:F0} km");
             }
             // a real low orbit that clears the ground: an orbit even inside the band
             {
                 double rr = R + 4000, vc = Math.Sqrt(Mu / rr);
                 double peo = SurfaceRule.Periapsis(new Vector3D(rr, 0, 0), new Vector3D(0, vc, 0), Mu);
-                Ok("circular at 4 km: Orbit", SurfaceRule.Classify(rr, R, vc, peo) == SurfaceKind.Orbit, $"Pe {peo:F0}");
+                Ok("circular at 4 km: Orbit", SurfaceRule.Classify(rr, R, vc, peo, rr) == SurfaceKind.Orbit, $"Pe {peo:F0}");
                 Ok("circular orbit's periapsis is its radius", Math.Abs(peo - rr) < 1);
             }
-            Ok("300 km up, at rest: Orbit (out of the ground band)", SurfaceRule.Classify(R + 300000, R, 0, 0) == SurfaceKind.Orbit);
+            Ok("300 km up, at rest: Orbit (out of the ground band)", SurfaceRule.Classify(R + 300000, R, 0, 0, R + 300000) == SurfaceKind.Orbit);
             Ok("ground band: at least 5 km", SurfaceRule.Band(10000) == 5000 && Math.Abs(SurfaceRule.Band(R) - 5040) < 1);
-            Ok("near the ground, speed unknown: Low (no orbit guessed)", SurfaceRule.Classify(R + 100, R, double.NaN, double.NaN) == SurfaceKind.Low);
-            Ok("a body with no surface radius: Orbit", SurfaceRule.Classify(10, 0, 0, 0) == SurfaceKind.Orbit);
+            Ok("near the ground, speed unknown: Low (no orbit guessed)", SurfaceRule.Classify(R + 100, R, double.NaN, double.NaN, double.NaN) == SurfaceKind.Low);
+            Ok("a body with no surface radius: Orbit", SurfaceRule.Classify(10, 0, 0, 0, 0) == SurfaceKind.Orbit);
+            {
+                // a hop above the ground band: 8 km up, climbing 300 m/s - Ap ~13 km, Pe inside: the player's own "grounded"
+                // rule (FrameHost.IsGrounded, now SurfaceRule.Grounded) - Low, not an orbit
+                var rh = new Vector3D(R + 8000, 0, 0); var vh = new Vector3D(300, 100, 0);
+                SurfaceRule.Apsides(rh, vh, Mu, out double peh, out double aph);
+                Ok("a hop 8 km up: Low (the player's own hop rule)", SurfaceRule.Classify(rh.Length(), R, 316, peh, aph) == SurfaceKind.Low, $"Pe {(peh - R) / 1000:F0} km, Ap {(aph - R) / 1000:F1} km");
+                Ok("the hop rule: Pe inside and Ap under max(15 km, 20% R)", SurfaceRule.Grounded(R - 1, R + 14000, R) && !SurfaceRule.Grounded(R - 1, R + 16000, R) && !SurfaceRule.Grounded(R + 1, R + 1000, R));
+                // a deorbit falling from high up (Ap 300 km, Pe inside) is still an orbit - a real path, its impact predicted
+                var rd = new Vector3D(R + 300000, 0, 0); var vd = new Vector3D(0, 150, 0);
+                SurfaceRule.Apsides(rd, vd, Mu, out double ped, out double apd);
+                Ok("a deorbit from 300 km: Orbit", SurfaceRule.Classify(rd.Length(), R, 150, ped, apd) == SurfaceKind.Orbit, $"Pe {(ped - R) / 1000:F0} km");
+                double vcirc = Math.Sqrt(Mu / (R + 300000));
+                SurfaceRule.Apsides(rd, new Vector3D(0, vcirc, 0), Mu, out double pec, out double apc);
+                Ok("apsides of a circular orbit", Math.Abs(pec - rd.Length()) < 1 && Math.Abs(apc - rd.Length()) < 1);
+                SurfaceRule.Apsides(rd, new Vector3D(0, 3 * vcirc, 0), Mu, out _, out double apx);
+                Ok("an unbound state's apoapsis is infinite", double.IsPositiveInfinity(apx));
+            }
             Ok("a radial state's periapsis is 0", Math.Abs(SurfaceRule.Periapsis(new Vector3D(R, 0, 0), new Vector3D(-10, 0, 0), Mu)) < 1e-6);
             Ok("no orbit for Landed/Low/Unknown, one for Orbit", SurfaceRule.NoOrbit(SurfaceKind.Landed) && SurfaceRule.NoOrbit(SurfaceKind.Low)
                 && SurfaceRule.NoOrbit(SurfaceKind.Unknown) && !SurfaceRule.NoOrbit(SurfaceKind.Orbit));

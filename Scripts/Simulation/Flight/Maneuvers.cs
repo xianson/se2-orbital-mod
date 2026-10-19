@@ -80,6 +80,8 @@ public static partial class Maneuvers
         ClearAll();
         Target = null; _lag = null; Targets.ResetWorld(); ContactsTab.ResetWorld();
         _cT = double.NaN; _cLegs = null; _cApplied = null; _cOk = false;
+        _pe.Clear(); _land = default; _peSig = long.MinValue; _peAt = double.NegativeInfinity;   // (the plan's entries and landing)
+        lock (_removedByPlayer) _removedByPlayer.Clear(); _tag = null; _gapLine = null;
     }
 
     /// <summary>The next burn, one line for the orbit card (null when none).</summary>

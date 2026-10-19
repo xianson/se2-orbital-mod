@@ -104,6 +104,16 @@ public static partial class CleanMap
         for (var b = view; b != null; b = b.Parent) chain.Insert(0, b);
         if (chain.Count == 0 && SystemHost.Registry?.Root != null) chain.Add(SystemHost.Registry.Root);
         float x = at.X;
+        {
+            // its backplate (UI audit cosmetic: the breadcrumb washed out in the sun's glare)
+            float gap0 = 10f * MapPipeline.UiScale(scr.Y), w = 0, h = 0;
+            for (int i = 0; i < chain.Count; i++)
+            {
+                var sz = CrumbSize(chain[i].Parent == null ? StarName : chain[i].Name);
+                w += sz.X + (i < chain.Count - 1 ? 2 * gap0 + CrumbSize(">").X : 0); h = Math.Max(h, sz.Y);
+            }
+            if (w > 0) MapPipeline.ScreenRect(at - new Vector2(gap0, 2f), at + new Vector2(w + gap0, h + 2f), TextPlate);
+        }
         for (int i = 0; i < chain.Count; i++)
         {
             string name = chain[i].Parent == null ? StarName : chain[i].Name;

@@ -456,6 +456,7 @@ public static class MapView
         _gSession = session; _gMap = map;
         FrameHost.Guard("MapView.Sectorless", _sectorless);
         Visible = map != null && map.IsVisible;
+        MapChrome.Tick(session, map != null && map.IsVisible && SystemHost.Built);   // (the game's contradicting map panels - UI audit C6)
         if (map == null || !map.IsVisible || !SystemHost.Built) { RendezvousView.Reset(); ContactsTab.Reset(); MapCamera.Release(session); CleanMap.ResetView(); if (map != null) GameMap.RestoreGame(map); MapGlobes.HideAll(); Clear(); Status = map == null ? "no map component" : "map closed"; return; }
         SectorsSessionComponent sectors = null;
         try { sectors = session.SessionComponents.TryGet<SectorsSessionComponent>(); } catch { }

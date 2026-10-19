@@ -144,6 +144,12 @@ public static partial class CleanMap
         _hoverOrbitLast = _hoverOrbitD <= 7f * MapPipeline.UiScale(MapPipeline.ScreenSize.Y) ? _hoverOrbit : null; _hoverOrbit = null; _hoverOrbitD = float.MaxValue;
         GravityBody focusPlanet = anchor.IsRoot ? null : anchor.Parent != null && !anchor.Parent.IsRoot ? anchor.Parent : anchor;
         string focus = focusPlanet?.Name;
+        {
+            // the game's "Selected sector" box is stale while the map is about another planet (MapChrome hides it - UI audit C6)
+            bool stale = false;
+            foreach (var bd in bands) if (bd.Selected) { stale = focus != null && bd.Host != focus && bd.Home.Host != focus; break; }
+            MapChrome.StaleSector = stale;
+        }
         // The planet's own level (its sectors listed) while its system shows.
         bool sys = focusPlanet == null || !_detailPrev.Contains(focusPlanet.Name);
         _planetLevel = !sys;
@@ -164,6 +170,7 @@ public static partial class CleanMap
                 RendezvousView.Draw(session, reg, t, W, Mouse);
                 if (ManeuverEditor && ui) ContextMenu(bands, t);
                 WarpBar.DrawMap(Mouse);
+                MessageStrip();
             }
             else
             {
@@ -173,6 +180,7 @@ public static partial class CleanMap
             MapPipeline.Reserve(Vector2.Zero, new Vector2(MapLayout.X(0.255f), scrR.Y));
             MapPipeline.Reserve(Vector2.Zero, new Vector2(scrR.X, MapLayout.Y(TabRowBottom)));
             MapPipeline.Reserve(new Vector2(0, MapLayout.Y(0.93f)), scrR);
+            ReserveIcons();
             // The system level lists every sector (the star's opened); a planet's level only that planet's.
             long s0 = ModCost.Start();
             // (with a target the right column is its panel: the lists come back with "Lists")
@@ -258,6 +266,7 @@ public static partial class CleanMap
             if (ui) ShipKey();
             ModCost.Sec("ui.targets").Stop(tl0);
             Hints();
+            MessageStrip();   // (the map's notices: fx-flight's board - UI audit B3)
             ModCost.Sec("ui.list+hints").Stop(u0); u0 = ModCost.Start();
             WarpBar.DrawMap(Mouse);
             ModCost.Sec("ui.warpbar").Stop(u0);

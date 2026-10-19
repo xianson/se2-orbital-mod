@@ -67,8 +67,12 @@ public static partial class CleanMap
             float nameX = Math.Max(x + MapLayout.LenY(0.045f) * k, dotX + 9f);
             MapPipeline.ScreenText(new Vector2(x, r.y), b.Number.ToString(), Dim, scale);
             MapPipeline.ScreenDot(new Vector2(dotX, r.y + line * 0.42f), 4.5f, StateColor(b));
-            MapPipeline.ScreenText(new Vector2(nameX, r.y), b.Name == Maneuvers.Target ? Label(b) + "  · target" : Label(b), b.Name == Maneuvers.Target ? TargetText : c, scale);
-            MapPipeline.ScreenText(new Vector2(x + MapLayout.LenY(0.19f) * k, r.y), Fit(Where(b), x1 - (x + MapLayout.LenY(0.19f) * k) - 6f, scale * 0.85f), Dim, scale * 0.85f);
+            // the "where" column right-aligned and whole when it fits beside the name ("87 km-137 k..." was cut - UI audit
+            // cosmetic); the name gives way first, cut with an ellipsis
+            string where = Where(b), name = b.Name == Maneuvers.Target ? Label(b) + "  · target" : Label(b);
+            float ww = MapPipeline.MeasureText(where, scale * 0.85f).X, wx = Math.Max(x1 - 6f - ww, nameX + MapLayout.LenY(0.06f) * k);
+            MapPipeline.ScreenText(new Vector2(nameX, r.y), Fit(name, wx - nameX - 8f, scale), b.Name == Maneuvers.Target ? TargetText : c, scale);
+            MapPipeline.ScreenText(new Vector2(wx, r.y), Fit(where, x1 - wx - 6f, scale * 0.85f), Dim, scale * 0.85f);
             MapPipeline.PickName = null;
         }
         MapPipeline.Reserve(new Vector2(x0, top), new Vector2(scr.X, bottom));
@@ -141,7 +145,8 @@ public static partial class CleanMap
         string h;
         bool undo = Maneuvers.UndoDepth > 0;
         // (the map's own keys - the game's W A S D line under the map is gone: it moved nothing here, UI audit C6)
-        if (Maneuvers.OnGizmo) h = undo ? HintGizmoUndo : HintGizmo;
+        if (Maneuvers.EntryMarkHover) h = EntryHost.HeatHelp;   // (what the heat % means - UI audit U3)
+        else if (Maneuvers.OnGizmo) h = undo ? HintGizmoUndo : HintGizmo;
         else if (!double.IsNaN(Maneuvers.HoverT)) h = "Click: add a maneuver here   \u00b7   Right-click: options   \u00b7   N: target what is under the cursor   \u00b7   Drag: pan";
         else if (TargetsUnder(Mouse).Count > 0) h = "N: target it   \u00b7   Right-click: options   \u00b7   Double-click: focus   \u00b7   Drag: pan";
         else h = undo ? HintMapUndo : HintMap;
@@ -150,7 +155,66 @@ public static partial class CleanMap
         DrawWrapped(MapLayout.P(0.265f, 0.9f), h, MapLayout.X(0.775f) - MapLayout.X(0.265f), 0.74f * MapPipeline.MapText, Dim);
     }
 
-    const string HintGizmo = "Drag a handle: the burn (Shift: fine, Ctrl: snap)   ·   Drag the node along the path   ·   Right-click: options";
+    static readonly ColorSRGB TextPlate = new ColorSRGB(0.01f, 0.025f, 0.04f, 0.55f);
+    /// <summary>Text on a dark backplate (UI audit cosmetic: the breadcrumb, the "Rendezvous" sub-line and the porkchop's sub-line
+    /// were lost in the sun's glare).</summary>
+    internal static void Plated(Vector2 at, string text, ColorSRGB c, float scale)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        float u = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
+        var sz = MapPipeline.MeasureText(text, scale);
+        MapPipeline.ScreenRect(at - new Vector2(6f * u, 2f * u), at + sz + new Vector2(6f * u, 2f * u), TextPlate);
+        MapPipeline.ScreenText(at, text, c, scale);
+    }
+
+    // ── the map's notices (UI audit B3: on the map, "Target: X", "Nothing to target under the cursor", warp stops... were
+    //    lost - fx-flight's Messages board; drawn here, a strip above the warp bar, newest at the bottom) ──
+    static readonly SEAerospace.Flight.MessageBoard.Line[] _msg = new SEAerospace.Flight.MessageBoard.Line[SEAerospace.Flight.MessageBoard.Capacity];
+    static readonly ColorSRGB MsgPlate = new ColorSRGB(0.02f, 0.045f, 0.07f, 0.78f);
+
+    /// <summary>The kind's tag and colour (the strings constant: no garbage per frame).</summary>
+    static string KindTag(string kind, out ColorSRGB c)
+    {
+        switch (kind)
+        {
+            case SEAerospace.Flight.MessageKinds.Target: c = TargetText; return "TARGET";
+            case SEAerospace.Flight.MessageKinds.Burn: c = new ColorSRGB(0.35f, 0.90f, 1.00f, 1f); return "BURN";
+            case SEAerospace.Flight.MessageKinds.Warp: c = new ColorSRGB(1.00f, 0.85f, 0.35f, 1f); return "WARP";
+            case SEAerospace.Flight.MessageKinds.Contacts: c = EncColor; return "CONTACTS";
+            case SEAerospace.Flight.MessageKinds.Entry: c = new ColorSRGB(1.00f, 0.50f, 0.30f, 1f); return "ENTRY";
+            default: c = Dim; return "MAP";
+        }
+    }
+
+    /// <summary>The board's showing lines over the map: a dark plate each, the kind as a coloured tag, the text; each fades
+    /// out over its last half second. The map tab and the Rendezvous tab both.</summary>
+    internal static void MessageStrip()
+    {
+        int n = Messages.MapLines(_msg);
+        if (n == 0) return;
+        float u = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
+        float ts = 0.72f * MapPipeline.MapText, ks = 0.58f * MapPipeline.MapText;
+        float lh = MapPipeline.MeasureText("Ag", ts).Y + 8f * u;
+        float x = MapLayout.X(0.265f), bottom = MapLayout.Y(0.812f), maxW = MapLayout.X(0.775f) - x;
+        double now = Messages.Now;
+        for (int i = 0; i < n; i++)
+        {
+            var l = _msg[i];
+            float a = (float)Math.Clamp((l.Until - now) / 0.5, 0, 1);
+            if (a <= 0) continue;
+            string tag = KindTag(l.Kind, out var kc);
+            float y = bottom - (i + 1) * lh;
+            var tsz = MapPipeline.MeasureText(tag, ks);
+            string text = Fit(l.Text, maxW - tsz.X - 30f * u, ts);
+            var xsz = MapPipeline.MeasureText(text, ts);
+            MapPipeline.ScreenRect(new Vector2(x, y), new Vector2(x + tsz.X + xsz.X + 30f * u, y + lh - 3f * u), HudPanel.Alpha(MsgPlate, 0.78f * a));
+            MapPipeline.ScreenRect(new Vector2(x, y), new Vector2(x + 3f * u, y + lh - 3f * u), HudPanel.Alpha(kc, a));
+            MapPipeline.ScreenText(new Vector2(x + 10f * u, y + (lh - 3f * u - tsz.Y) * 0.5f), tag, HudPanel.Alpha(kc, a), ks);
+            MapPipeline.ScreenText(new Vector2(x + tsz.X + 22f * u, y + (lh - 3f * u - xsz.Y) * 0.5f), text, HudPanel.Alpha(Text, a), ts);
+        }
+    }
+
+    const string HintGizmo ="Drag a handle: the burn (Shift: fine, Ctrl: snap)   ·   Drag the node along the path   ·   Right-click: options";
     const string HintGizmoUndo = HintGizmo + "   ·   Ctrl+Z: undo";
     const string HintMap = "Drag: pan   ·   Right-drag: orbit   ·   Wheel: zoom   ·   Double-click: focus   ·   N or right-click: target   ·   Home: your ship   ·   , . /: warp";
     const string HintMapUndo = HintMap + "   ·   Ctrl+Z: undo";
@@ -197,7 +261,8 @@ public static partial class CleanMap
             // Warp to it (as KSP): top warp; warp stops by itself ahead of the burn.
             if (node.T - t > Maneuvers.WarpLead + 10) items.Add(new MapMenu.Item("Warp to maneuver", () => WarpControl.SetLevel(WarpControl.Levels.Length - 1), FrameHost.PlayerFrame != null));
             // (each edit kept for Ctrl+Z first - UI audit C5; what auto-burn does, said under the menu - U2)
-            items.Add(new MapMenu.Item(node.Auto ? "Auto-burn: on" : "Auto-burn: off", () => { Maneuvers.UndoMark(); node.Auto = !node.Auto; }) { Tip = AutoBurnTip });
+            items.Add(new MapMenu.Item("Edit exact values...", () => { Maneuvers.UndoMark(); Maneuvers.EditExact(node); }));   // (README promised it: audit B4, fx-flight's dialog)
+            items.Add(new MapMenu.Item(node.Auto ? "Auto-burn: on" : "Auto-burn: off", () => { Maneuvers.UndoMark(); node.Auto = !node.Auto; }) { Tip = AutoBurn.Tooltip });
             items.Add(new MapMenu.Item("Remove maneuver", () => { Maneuvers.UndoMark(); Maneuvers.Delete(node, false); }));
         }
         else if (_youScreen.HasValue && (_youScreen.Value - Mouse).Length() <= 14f * u)
@@ -269,8 +334,6 @@ public static partial class CleanMap
     /// <summary>"Remove all maneuvers" - kept for Ctrl+Z first.</summary>
     static MapMenu.Item RemoveAllItem() => new MapMenu.Item("Remove all maneuvers", () => { Maneuvers.UndoMark(); Maneuvers.ClearAll(); });
 
-    /// <summary>What auto-burn does (UI audit U2: "say what Auto-burn does"), under the menu while its item is hovered.</summary>
-    const string AutoBurnTip = "Auto-burn: at the burn's start the ship turns to it and fires its thrusters by itself until it is done (stay seated). Warp stops 5 s before it.";
 
     /// <summary>Home on the map: onto your ship (UI audit C5).</summary>
     static void ShipKey()

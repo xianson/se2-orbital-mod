@@ -157,7 +157,14 @@ public static class OrbitHud
             // word and its numbers each - the next burn, the target's approach, reentry, the attitude hold; the mode, the
             // ring crossings and transmitting are left to the map
             double now2 = SystemHost.Now;
-            if (burn != null) lines.Add($"BURN  {Maneuvers.BurnLeft:F1} m/s  ·  {(Maneuvers.BurnIn > 0.5 ? Maneuvers.Clock(Maneuvers.BurnIn) : "now")}");
+            // the burn: what is left, how long it takes at full thrust, and when (fx-flight's BurnTag: "in 2:30", "now", "late 0:40",
+            // "stopped: no thrust" - UI audit U2: the length and start were computed and never drawn)
+            if (burn != null)
+            {
+                double bs = Maneuvers.BurnSeconds;
+                string len = !IsFinite(bs) ? "" : bs < 60 ? $"  ·  {Math.Max(1, bs):F0} s burn" : $"  ·  {Maneuvers.Clock(bs)} burn";
+                lines.Add($"BURN  {Maneuvers.BurnLeft:F1} m/s{len}  ·  {Maneuvers.BurnTag ?? "now"}");
+            }
             var ap = Maneuvers.TargetApproach(now2);
             if (Maneuvers.Target != null)
             {
@@ -175,10 +182,11 @@ public static class OrbitHud
                     if (tl2 != null) lines.Add(tl2);
                 }
             }
-            var pf = FrameHost.PlayerFrame;
-            if (pf != null && EntryHost.Braking(pf.Id, out double decel)) lines.Add($"ENTRY  {decel / 9.81:F1} g  ·  heat {SEAerospace.Entry.Reentry.Share(EntryHost.HeatOf(pf.Id), false):P0}");
-            else if (EntryHost.Prediction is var pp && pp != null && !double.IsNaN(pp.EnterTime))
-                lines.Add($"ENTRY  {(pp.EnterTime - now2 <= 10 ? "now" : Maneuvers.Clock(pp.EnterTime - now2))}  ·  heat {SEAerospace.Entry.Reentry.Share(pp.PeakHeat, false):P0}");
+            // re-entry: fx-flight's card tag (braking now; the next pass on your orbit or your PLAN, "ENTRY 2:46 · 1,669 → 990
+            // m/s · heat 82%"; an airless border over the cap) - else, skimming above the air, how low it must go (UI audit U3)
+            string et = EntryHost.CardTag(now2);
+            if (et != null) lines.Add(et);
+            else if (EntryHost.AirGapLine(now2) is string gap) lines.Add(gap);
             if (AttitudeHold.Current != AttitudeHold.Mode.Off) lines.Add($"HOLD  {AttitudeHold.Label(AttitudeHold.Current)}");
             _info = (title, rows, lines);
             // (the plot's own words, made here twice a second - drawn every frame they were new strings every frame)

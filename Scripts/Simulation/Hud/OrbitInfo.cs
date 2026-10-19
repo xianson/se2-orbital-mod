@@ -22,6 +22,7 @@ public static class OrbitInfo
         public StateVector Rel;
         public double R;          // the parent's radius (0: the star - distances, not heights)
         public bool Surface;      // a place on the ground: no orbit to tell
+        public string Where;      // a ship's place in words ("Landed on Verdure", "Flying low over Verdure"); null: none
     }
 
     /// <summary>A panel: a title and its subtitle, sections of rows, an optional foot (a hint).</summary>
@@ -50,6 +51,8 @@ public static class OrbitInfo
         o.Parent = p; o.Rel = rel; o.Ok = true;
         o.R = p.IsRoot ? 0 : SystemHost.Registry?.FindDefinition(p.Name)?.RadiusMeters ?? 0;
         o.Surface = key.StartsWith(ContactsTab.PlacePrefix, StringComparison.Ordinal) && rel.Position.Length() < o.R * 1.05;
+        o.Surface |= ShipSurface.IsOnSurface(key);   // (a ship landed, or flying low: no orbit to tell - audit B1, fx-flight's rule)
+        o.Where = ShipSurface.Describe(key);
         o.El = OrbitalMath.ToElements(rel, p.Mu, t);
         return o;
     }
@@ -116,7 +119,7 @@ public static class OrbitInfo
     {
         var i = new Info { Title = title, Foot = foot };
         if (!o.Ok) { i.Sub = kind; return i; }
-        i.Sub = (kind != null ? kind + "  ·  " : "") + (o.Surface ? $"on {Body(o.Parent)}" : $"around {Body(o.Parent)}");
+        i.Sub = (kind != null ? kind + "  ·  " : "") + (o.Where ?? (o.Surface ? $"on {Body(o.Parent)}" : $"around {Body(o.Parent)}"));
         if (!o.Surface) OrbitRows(i.Add(null), o);
         return i;
     }
@@ -127,8 +130,9 @@ public static class OrbitInfo
         var o = Of(key, t);
         var i = new Info { Title = Targets.Name(key), Target = true };
         string kind = Kind(key);
-        if (!o.Ok) { i.Sub = kind; i.Add(null).Row("Where", "lost: not where it was", 2); return i; }
-        i.Sub = kind + "  ·  " + (o.Surface ? $"on {Body(o.Parent)}" : $"around {Body(o.Parent)}");
+        // (2026-10-18, UI audit C7: "lost: not where it was" - say what it means)
+        if (!o.Ok) { i.Sub = kind; i.Add(null).Row("Where", "unknown: not seen where it was", 2); return i; }
+        i.Sub = kind + "  ·  " + (o.Where ?? (o.Surface ? $"on {Body(o.Parent)}" : $"around {Body(o.Parent)}"));
 
         var ap = Maneuvers.TargetApproach(t);
         if (o.Surface)

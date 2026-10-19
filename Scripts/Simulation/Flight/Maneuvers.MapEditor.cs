@@ -300,6 +300,7 @@ public static partial class Maneuvers
             break;
         }
 
+        _entryMarkS.Clear();
         // Reentry: where the braking band starts (the entry interface) and max-q, on the leg about that body;
         // an airless body you would reach over the cap: its border, flagged.
         {
@@ -314,6 +315,7 @@ public static partial class Maneuvers
                     first ??= es;
                     MapPipeline.ScreenCircle(es, (strong ? 5f : 3.5f) * u, EntryColor, 2f * u);
                     if (strong) MapPipeline.ScreenCircle(es, 1.5f * u, EntryColor, 2.5f * u);
+                    _entryMarkS.Add(es);
                     HudPanel.TagAt(es + new Vector2(10f * u, 0), what, EntryColor, u, diamond: false);
                 }
                 if (ep != null && l.Body.Name == EntryHost.PredictedBody)
@@ -339,6 +341,33 @@ public static partial class Maneuvers
                     break;
                 }
             }
+            // ON THE PLAN too (UI audit U3: a planned deorbit leg showed no entry mark): each planned leg's pass through the air
+            // (fx-flight's PlannedEntries), marked as the orbit's own; and where the path comes down (Landing), a cross and
+            // its words ("Lands on Verdure near Outpost RHA99 (12 km) · 12°N 45°E")
+            var planned = PlannedEntries(t);
+            for (int k = 0; k < planned.Count; k++)
+            {
+                var pm = planned[k];
+                if (pm.Pass == null || !Live(pm.Leg.Body)) continue;
+                double tm = pm.Pass.EnterTime;
+                if (double.IsNaN(tm) || tm < pm.Leg.T0 || tm > pm.Leg.T1 || !MapPipeline.ToScreen(W(LegLoc(pm.Leg, tm)), out var es) || !InMapArea(es)) continue;
+                if (first.HasValue && (es - first.Value).Length() < 60f * u) continue;
+                first ??= es;
+                MapPipeline.ScreenCircle(es, 5f * u, EntryColor, 2f * u);
+                MapPipeline.ScreenCircle(es, 1.5f * u, EntryColor, 2.5f * u);
+                _entryMarkS.Add(es);
+                HudPanel.TagAt(es + new Vector2(10f * u, 0), PlannedEntryText(k, pm.Pass), EntryColor, u, diamond: false);
+            }
+            if (Landing(t, out var land) && Live(land.Leg.Body) && MapPipeline.ToScreen(W(Loc(land.Leg.Body, land.At, land.T)), out var ls) && InMapArea(ls))
+            {
+                float r = 6f * u;
+                MapPipeline.ScreenLine(ls - new Vector2(r, r), ls + new Vector2(r, r), EntryColor, 2.2f * u);
+                MapPipeline.ScreenLine(ls - new Vector2(r, -r), ls + new Vector2(r, -r), EntryColor, 2.2f * u);
+                _entryMarkS.Add(ls);
+                if (land.Text != null) HudPanel.TagAt(ls + new Vector2(10f * u, 0), land.Text, EntryColor, u, diamond: false);
+            }
+            EntryMarkHover = false;
+            foreach (var em in _entryMarkS) if ((em - mouse).Length() < 16f * u) { EntryMarkHover = true; break; }
         }
 
         // Target: the closest approach on the path, and where the target is then (a ring), joined.
@@ -713,6 +742,22 @@ public static partial class Maneuvers
 
         // (Selecting a sector no longer marks your closest approach to it: that is what 'Set as target' is for.)
         Status = $"nodes {Nodes.Count}, legs {legs.Count}, mouse {MapInput.Status}";
+    }
+
+    /// <summary>The re-entry marks drawn this frame (screen), and the mouse on one (the map's hint line then explains the heat).</summary>
+    static readonly List<Vector2> _entryMarkS = new List<Vector2>(8);
+    public static bool EntryMarkHover;
+
+    static readonly string[] _peText = new string[4]; static readonly object[] _peFor = new object[4];
+    /// <summary>A planned pass's tag (made once per pass: the passes are recomputed at most a few times a second).</summary>
+    static string PlannedEntryText(int k, SEAerospace.Entry.Pass p)
+    {
+        int i = k & 3;
+        if (ReferenceEquals(_peFor[i], p) && _peText[i] != null) return _peText[i];
+        _peFor[i] = p;
+        double share = SEAerospace.Entry.Reentry.Share(p.PeakHeat, false);
+        return _peText[i] = p.Landing ? $"Atmosphere entry (planned)  {p.ArrivalSpeed:N0} m/s · heat {share:P0}{(share > 1 ? " — too hot" : "")}"
+                                      : p.HasAfter ? $"Aerobrake (planned)  −{p.Dv:N0} m/s · heat {share:P0}" : $"Atmosphere entry (planned)  heat {share:P0}";
     }
 
     /// <summary>The pull's mode: 0 normal, 1 fine (Shift), 2 snap (Ctrl), 3 fine snap.</summary>

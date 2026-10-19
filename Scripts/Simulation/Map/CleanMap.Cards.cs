@@ -206,7 +206,7 @@ public static partial class CleanMap
             var b = Targets.Body(key);
             if (b != null) FocusOn(b, SystemHost.Registry, t, W, false);
             else if (Maneuvers.TargetWorld is Vector3D tw) MapCamera.PanTo(tw, smooth: true);
-            else WarpControl.Say("Not on this view: focus its planet first");
+            else Messages.Say(SEAerospace.Flight.MessageKinds.Map, "Not on this view: focus its planet first");
         }
         bx += MapPipeline.MeasureText("Show on map", bs).X + sp;
         if (Button(new Vector2(bx, by), "Rendezvous \u203a", bs, u, click) && _session != null) RendezvousView.Open(_session);

@@ -234,7 +234,9 @@ public static partial class CleanMap
             if (MapPipeline.ToScreen(W(c + ax), out var se)) rpx = Math.Max(rpx, (se - sc).Length());
         float u = MapPipeline.UiScale(MapPipeline.ScreenSize.Y);
         float h = MapPipeline.MeasureText(name, scale).Y;
-        MapPipeline.TextScreen(sc + new Vector2(0, Math.Max(rpx, ringPx * u) + 6f * u + h * 0.5f), name, col, scale);
+        // under the globe; when that spot is taken (a sector icon, another name) over it - "Ve[lock]ure" (UI audit cosmetic)
+        float off = Math.Max(rpx, ringPx * u) + 6f * u + h * 0.5f;
+        if (!MapPipeline.TextScreen(sc + new Vector2(0, off), name, col, scale)) MapPipeline.TextScreen(sc - new Vector2(0, off), name, col, scale);
     }
     /// <summary>
     /// A planet's own sector (its near space): not an orbit, so a faint dashed boundary (gold when

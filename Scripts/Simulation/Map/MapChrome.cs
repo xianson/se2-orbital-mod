@@ -22,7 +22,7 @@ public static class MapChrome
     public static volatile bool StaleSector;
     static double _next; static volatile bool _posted;
     static volatile bool _open, _sectorless;
-    static object _shared;
+    static object _shared, _session;
     static object _terminal, _sectorBox, _indexBox;
     static IDisposable _sectorHold, _indexHold;
     static readonly Action _job = Job;
@@ -34,6 +34,7 @@ public static class MapChrome
         double now = Num.Wall();
         if ((now < _next && mapOpen == _open) || _posted) return;
         _next = now + 0.5;
+        if (!ReferenceEquals(session, _session)) { _session = session; _shared = null; }   // (a new world: its own UI)
         _shared ??= AvaloniaReflect.SharedUi(session);
         if (_shared == null) return;
         _open = mapOpen && CleanMap.Enabled;

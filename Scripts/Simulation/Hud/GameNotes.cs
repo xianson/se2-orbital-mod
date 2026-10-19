@@ -20,7 +20,7 @@ public static class GameNotes
     public static volatile float[] Rect;
     public static string Status = "-";
     static double _next; static volatile bool _posted;
-    static object _shared;
+    static object _shared, _session;
     static object _screen; static IDisposable _hide;
     static readonly Action _job = Job;
     static volatile bool _wantHidden; static float _scrW;
@@ -31,6 +31,7 @@ public static class GameNotes
         double now = Num.Wall();
         if (now < _next || _posted) return;
         _next = now + 0.25;
+        if (!ReferenceEquals(session, _session)) { _session = session; _shared = null; }   // (a new world: its own UI)
         _shared ??= AvaloniaReflect.SharedUi(session);
         if (_shared == null) { Status = "no SharedUIComponent"; return; }
         _wantHidden = MapView.Visible && CleanMap.Enabled;

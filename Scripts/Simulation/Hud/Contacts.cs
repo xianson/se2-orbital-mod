@@ -43,6 +43,7 @@ public static class Contacts
     public static double LoudReach;
     public static string LoudLine;
     static bool _wasLoud;
+    static double _loudSaidAt = double.NegativeInfinity;
     /// <summary>A moving ship contact not seen for this long (game minutes) is STALE: its orbit shown as an estimate, its
     /// marker faded (0: never). A setting (Hud.ContactStaleMinutes).</summary>
     public static double StaleMinutes = 30;
@@ -262,9 +263,10 @@ public static class Contacts
         // you are loud: the HUD's line, and a toast when it starts (2026-10-19: "anyone sees you" was only words)
         LoudReach = radarOn ? Signature.EmissionReach(RadarPowerNow) : 0;
         LoudLine = !Loud ? null : radarOn ? $"RADAR TRANSMITTING  ·  heard to ~{HudPanel.Km(LoudReach)}" : "LIDAR ON TARGET  ·  it can see you";
-        if (Loud && !_wasLoud) Messages.Say(MessageKinds.Contacts, radarOn
+        // (once per start, and not again within a minute: a radar losing and regaining power would say it every flicker)
+        if (Loud && !_wasLoud && !(wall - _loudSaidAt < 60)) { _loudSaidAt = wall; Messages.Say(MessageKinds.Contacts, radarOn
             ? $"You are transmitting: any telescope or radar within ~{HudPanel.Km(LoudReach)} hears your radar. Lower its Transmit Power (its control panel) or switch it off to go quiet."
-            : "You are transmitting: your telescope's lidar ranges your target - it can see you.", 6);
+            : "You are transmitting: your telescope's lidar ranges your target - it can see you.", 6); }
         _wasLoud = Loud;
         // newly tracked: ships by name (rocks' orbits quietly: the map and the Contacts tab show them - a toast for them
         // came with every batch)
@@ -546,7 +548,7 @@ public static class Contacts
     public static void ResetWorld()
     {
         lock (_rocks) _rocks.Clear(); lock (_grids) _grids.Clear(); lock (_dwell) { _dwell.Clear(); _seen.Clear(); } lock (_gridKeys) _gridKeys.Clear();
-        _rockToasts.Clear(); _wasLoud = false; Loud = false; LoudLine = null; LoudReach = 0;
+        _rockToasts.Clear(); _wasLoud = false; _loudSaidAt = double.NegativeInfinity; Loud = false; LoudLine = null; LoudReach = 0;
         Version++;
     }
 

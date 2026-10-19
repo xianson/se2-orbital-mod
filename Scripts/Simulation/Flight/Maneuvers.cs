@@ -68,7 +68,7 @@ public static partial class Maneuvers
     /// <summary>A new world: the last one's nodes (a reload doubled the saved ones), target, Lagrange plan and path cache.</summary>
     public static void ResetWorld()
     {
-        ResetOwnOrbit();
+        ResetOwnOrbit(); UndoClear();   // (no undo into the last world's plan: fx-ui 2026-10-18)
         ClearAll();
         Target = null; _lag = null; Targets.ResetWorld(); ContactsTab.ResetWorld();
         _cT = double.NaN; _cLegs = null; _cApplied = null; _cOk = false;

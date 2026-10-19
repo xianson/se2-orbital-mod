@@ -24,6 +24,18 @@ public static partial class Maneuvers
     /// <summary>The selected node's handles are folded away (zoomed out; hover the node to open them).</summary>
     public static bool GizmoCompact;
     private static bool _addPending; private static double _addT; private static Vector2 _addAt;
+    // (2026-10-18, UI audit C5) a handle's pull: the component as pulled (unsnapped), the zoom's factor at the pull's start
+    // (HandleDrag), the selected node's orbit on screen this frame (px, node to its body's centre); a node to frame once drawn
+    private static double _dragRaw, _dragZoom = 1, _orbitPx;
+    private static Node _frameReq; private static int _frameTries;
+
+    /// <summary>Glide the map onto this node's orbit (its body centred, the orbit about a third of the screen tall) once it
+    /// is drawn - a new node, a porkchop window (UI audit C5: a node made at a far zoom was a 40 px knot).</summary>
+    public static void FrameNode(Node n) { _frameReq = n; _frameTries = 0; }
+
+    /// <summary>Ctrl and Shift on the map's editor (the modifiers of a handle's pull, and Ctrl+Z).</summary>
+    static bool CtrlDown => MapInput.KeyDown(Keen.VRage.Core.Input.KeyboardInputs.Control) || MapInput.DevKeys.Contains("ctrl");
+    static bool ShiftDown => MapInput.KeyDown(Keen.VRage.Core.Input.KeyboardInputs.Shift) || MapInput.DevKeys.Contains("shift");
 
     private struct Sample { public double T; public Vector2 S; public bool Planned; }
     private static readonly List<Sample> _samplesA = new List<Sample>(1024), _samplesB = new List<Sample>(1024);
@@ -424,6 +436,12 @@ public static partial class Maneuvers
                 compact = (ns0.s - bc).Length() < 90f * u && (mouse - ns0.s).Length() > 60f * u;
         }
         GizmoCompact = compact;
+        _orbitPx = 0;
+        if (Selected != null && selA.Node != null)
+        {
+            var ns1 = nodeScreen.Find(x => x.n == Selected);
+            if (ns1.n != null && MapPipeline.ToScreen(W(Loc(selA.Body, Vector3D.Zero, Selected.T)), out var bc1)) _orbitPx = (ns1.s - bc1).Length();
+        }
         if (edit && !compact && Selected != null && selA.Node != null && nodeScreen.Exists(x => x.n == Selected && InMapArea(x.s)))   // not when the node is off view
         {
             selS = nodeScreen.Find(x => x.n == Selected).s;
@@ -504,24 +522,40 @@ public static partial class Maneuvers
                 _addPending = false;
                 if (!double.IsNaN(_addT) && _addT > t + 5)
                 {
+                    UndoMark();
                     var n = new Node { T = _addT };
                     lock (Nodes) Nodes.Add(n);
                     Selected = n;
+                    FrameNode(n);   // (framed at once: at a far zoom its handles were a knot - UI audit C5)
                 }
             }
         }
+
+        // Ctrl+Z: the plan before the last edit (UI audit C5)
+        if (edit && !MapMenu.Open && _drag == Drag.None && CtrlDown && (MapInput.KeyPressed(Keen.VRage.Core.Input.KeyboardInputs.Z) | MapInput.DevKeys.Remove("undo")))
+            Status = Undo() ? "undone" : "nothing to undo";
 
         if (_drag == Drag.Handle && Selected != null)
         {
             if (!lDown) _drag = Drag.None;
             else
             {
-                // Pull along the handle's axis: the delta-v grows faster the further you pull.
+                // Pull along the handle's axis: the delta-v grows faster the further you pull (20 px 0.5 m/s a second, 60 px
+                // 4.5, 120 px 18 at 1080p), times the zoom's factor taken at the pull's start (zoomed out: faster), a tenth
+                // with Shift; with Ctrl the component sits on a clean step (1 / 10 / 100 m/s by how fast it grows; 0.1 with
+                // Shift) - the pull itself runs on unsnapped (SEAerospace.MapUi.HandleDrag; UI audit C5)
                 float pull = Math.Max(0f, Vector2.Dot(mouse - _anchor, _dir));
-                double rate = 0.5 * Math.Pow(pull / (20.0 * u), 2);      // m/s per second: 20 px 0.5, 60 px 4.5, 120 px 18
-                double d = _sign * rate * dt;
-                if (_axis == 0) Selected.Pro += d; else if (_axis == 1) Selected.Nor += d; else Selected.Rad += d;
-                Selected.Edit();
+                bool fine = ShiftDown, snap = CtrlDown;
+                double rate = SEAerospace.MapUi.HandleDrag.Rate(pull, u, _dragZoom, fine);
+                _dragRaw += _sign * rate * dt;
+                double v = snap ? SEAerospace.MapUi.HandleDrag.Snap(_dragRaw, SEAerospace.MapUi.HandleDrag.SnapStep(rate, fine)) : _dragRaw;
+                _dragMode = snap ? (fine ? 3 : 2) : fine ? 1 : 0;
+                double was = _axis == 0 ? Selected.Pro : _axis == 1 ? Selected.Nor : Selected.Rad;
+                if (v != was)
+                {
+                    if (_axis == 0) Selected.Pro = v; else if (_axis == 1) Selected.Nor = v; else Selected.Rad = v;
+                    Selected.Edit();
+                }
                 MapPipeline.ScreenLine(_anchor, _anchor + _dir * pull, NodeColor, 1.5f);
             }
         }
@@ -539,8 +573,14 @@ public static partial class Maneuvers
         }
         else if (lPressed)
         {
-            if (hoverHandle >= 0) { _drag = Drag.Handle; _axis = handles[hoverHandle].axis; _sign = handles[hoverHandle].sign; _anchor = handles[hoverHandle].at; _dir = handles[hoverHandle].dir; }
-            else if (hoverNode != null) { Selected = hoverNode; _drag = Drag.Slide; }
+            if (hoverHandle >= 0)
+            {
+                UndoMark();
+                _drag = Drag.Handle; _axis = handles[hoverHandle].axis; _sign = handles[hoverHandle].sign; _anchor = handles[hoverHandle].at; _dir = handles[hoverHandle].dir;
+                _dragRaw = _axis == 0 ? Selected.Pro : _axis == 1 ? Selected.Nor : Selected.Rad;
+                _dragZoom = SEAerospace.MapUi.HandleDrag.ZoomFactor(_orbitPx, u);
+            }
+            else if (hoverNode != null) { UndoMark(); Selected = hoverNode; _drag = Drag.Slide; }
             else if (!double.IsNaN(hoverT) && hoverT > t + 5) { _addPending = true; _addT = hoverT; _addAt = mouse; }
             else Selected = null;
         }
@@ -597,10 +637,12 @@ public static partial class Maneuvers
             // R shows retrograde): the number reads along the node's own axes.
             double comp = axis == 0 ? Selected.Pro : axis == 1 ? Selected.Nor : Selected.Rad;
             bool mine = sign > 0 ? comp > 0.05 : comp < -0.05;
+            bool pulling = _drag == Drag.Handle && _axis == axis && _sign == sign;
             if (mine || hot)
             {
-                // Centred on the axis, a fixed gap beyond the icon: the labels fan out with the handles.
-                string txt = hot && !mine ? HandleName(label) : $"{Math.Abs(comp):F1}";
+                // Centred on the axis, a fixed gap beyond the icon: the labels fan out with the handles. While pulled: the
+                // number in m/s and the mode (fine / snap) - UI audit C5 (the strings kept per handle, made on a change)
+                string txt = pulling ? HandleText(i, comp, _dragMode) : hot && !mine ? HandleName(label) : HandleText(i, Math.Abs(comp), -1);
                 AxisLabel(tip, dir, 11f * u, txt, c, u);
             }
         }
@@ -648,8 +690,42 @@ public static partial class Maneuvers
         else if (!double.IsNaN(hoverT) && _drag == Drag.None)
             HudPanel.TagAt(mouse + new Vector2(16f * u, 14f * u), $"Add maneuver  (in {Clock(hoverT - t)})", PlanColor, u, diamond: false);
 
+        // A node to frame (FrameNode): its body centred, the orbit through it about 0.3 screen heights from the centre - the
+        // node on screen, its handles open (UI audit C5). In the Rendezvous tab's relative view: not (its scale is its own).
+        if (_frameReq != null)
+        {
+            if (allLive) _frameReq = null;
+            else
+            {
+                var fa = applied.Find(x => x.Node == _frameReq);
+                var fn = nodeScreen.Find(x => x.n == _frameReq);
+                Vector3D bw = fa.Node != null ? W(Loc(fa.Body, Vector3D.Zero, _frameReq.T)) : default;
+                if (fa.Node != null && fn.n != null && MapCamera.Distance > 0 && MapPipeline.ToScreen(bw, out var fbc))
+                {
+                    float px = (fn.s - fbc).Length(), want = MapPipeline.ScreenSize.Y * 0.3f;
+                    if (px > 1f) { MapCamera.PanTo(bw, smooth: true); MapCamera.ZoomTo(MapCamera.Distance * px / want); }
+                    _frameReq = null;
+                }
+                else if (++_frameTries > 90) _frameReq = null;   // (not drawn for a second and a half: given up)
+                else if (_frameTries == 5 && fa.Node != null && MapCamera.Distance > 0) MapCamera.PanTo(bw, smooth: true);   // (off the view: its body brought in first)
+            }
+        }
+
         // (Selecting a sector no longer marks your closest approach to it: that is what 'Set as target' is for.)
         Status = $"nodes {Nodes.Count}, legs {legs.Count}, mouse {MapInput.Status}";
+    }
+
+    /// <summary>The pull's mode: 0 normal, 1 fine (Shift), 2 snap (Ctrl), 3 fine snap.</summary>
+    private static int _dragMode;
+    static readonly string[] _hText = new string[6]; static readonly long[] _hKey = new long[6];
+    /// <summary>A handle's number: "12.3" (mode -1), pulled "+12.3 m/s" with "· fine" / "· snap 10" (made only when it changes).</summary>
+    static string HandleText(int i, double v, int mode)
+    {
+        long key = (long)Math.Round(v * 10) * 8 + (mode + 1);
+        if (_hText[i] != null && _hKey[i] == key) return _hText[i];
+        _hKey[i] = key;
+        string n = mode < 0 ? $"{v:F1}" : $"{(v >= 0 ? "+" : "")}{v:F1} m/s";
+        return _hText[i] = mode switch { 1 => n + "  · fine", 2 => n + "  · snap", 3 => n + "  · fine snap", _ => n };
     }
 
     private static string OrbitText(Applied a)
@@ -663,11 +739,7 @@ public static partial class Maneuvers
     }
 
 
-    public static string Clock(double s)
-    {
-        if (!IsFinite(s)) return "-";
-        if (s < 0) return "-" + Clock(-s);
-        var ts = TimeSpan.FromSeconds(s);
-        return ts.TotalDays >= 1 ? $"{(int)ts.TotalDays}d {ts.Hours}h" : ts.TotalHours >= 1 ? $"{(int)ts.TotalHours}h {ts.Minutes:D2}m" : $"{ts.Minutes}:{ts.Seconds:D2}";
-    }
+    /// <summary>A duration as a clock ("4:12", "1h 05m"): SEAerospace.MapUi.Words.Clock (tested offline) - never "-0:00" (UI audit
+    /// C4, 2026-10-18: the target line said "-0:00" at the closest approach).</summary>
+    public static string Clock(double s) => SEAerospace.MapUi.Words.Clock(s);
 }

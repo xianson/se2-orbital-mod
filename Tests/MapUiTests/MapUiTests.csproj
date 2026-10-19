@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The map / HUD UI arithmetic (Scripts/Simulation/Core/MapUi: words, card layout, handle drag, undo, porkchop, ejection),
+       with the orbital core for the ejection burn's check. No engine, no game. -->
+  <ItemGroup>
+    <Compile Include="$(Core)\Orbital\*.cs" />
+    <Compile Include="$(Core)\MapUi\*.cs" />
+  </ItemGroup>
+</Project>

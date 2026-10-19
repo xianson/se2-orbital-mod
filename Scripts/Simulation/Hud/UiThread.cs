@@ -167,6 +167,28 @@ public static class UiThread
         catch { return null; }
     }
 
+    static object _isVisibleProp; static bool _visLooked;
+    /// <summary>IsVisible held at Animation priority (above the game's own value or binding, which takes over again when the
+    /// handle is disposed): the game's HUD notifications off over the map, a stale map panel off (2026-10-18, UI audit C1/C6).
+    /// Null: not possible. UI thread.</summary>
+    public static IDisposable HoldVisible(object v, bool visible)
+    {
+        Look();
+        if (v == null || _setValue == null || _animPriority == null) return null;
+        if (!_visLooked)
+        {
+            _visLooked = true;
+            foreach (var a in AppDomain.CurrentDomain.GetAssemblies())
+                if (a.GetName().Name == "Avalonia.Base") { _isVisibleProp = a.GetType("Avalonia.Visual")?.GetField("IsVisibleProperty", BindingFlags.Public | BindingFlags.Static)?.GetValue(null); break; }
+        }
+        if (_isVisibleProp == null) return null;
+        try { return _setValue.Invoke(v, new[] { _isVisibleProp, (object)visible, _animPriority }) as IDisposable; }
+        catch { return null; }
+    }
+
+    /// <summary>A control's parent (StyledElement.Parent), or null.</summary>
+    public static object Parent(object v) { try { return v == null ? null : Prop(v.GetType(), "Parent")?.GetValue(v); } catch { return null; } }
+
     /// <summary>Breadth-first through fields and a few view properties, the first object whose type is so named.</summary>
     public static object FindByTypeName(object root, string typeName, int maxDepth, int budget)
     {

@@ -140,7 +140,7 @@ public static partial class CleanMap
         }
 
         Frame = $"anchor {anchor.Name} pxPerV {_pxPerV:G3} d {MapCamera.Distance:G3} min {GameMap.MinZoom:G3} focusV {MapCamera.FocusV.Length():G3} scale {_wscale:G3}";
-        _hits.Clear(); _crumbs.Clear(); SwapLens(); SwapPins(); _bandsLast = bands;
+        _hits.Clear(); _crumbs.Clear(); SwapLens(); SwapPins(); _bandsLast = bands; _youWorld = null; _youScreen = null;
         _hoverOrbitLast = _hoverOrbitD <= 7f * MapPipeline.UiScale(MapPipeline.ScreenSize.Y) ? _hoverOrbit : null; _hoverOrbit = null; _hoverOrbitD = float.MaxValue;
         GravityBody focusPlanet = anchor.IsRoot ? null : anchor.Parent != null && !anchor.Parent.IsRoot ? anchor.Parent : anchor;
         string focus = focusPlanet?.Name;
@@ -217,6 +217,15 @@ public static partial class CleanMap
                 }
             }
             _off = Vector3D.Zero;
+            // Home / "Zoom to my ship" (UI audit C5): onto your ship, your orbit framed as on opening the map
+            if (_fitShip && cam && _pxPerV > 0 && _youWorld.HasValue)
+            {
+                _fitShip = false;
+                double far = 1.6 * aR;
+                if (playerOrbit.HasValue && IsFinite(playerOrbit.Value.SemiMajorAxis)) { var o = playerOrbit.Value; far = Math.Max(far, o.IsElliptic ? o.SemiMajorAxis * (1 + o.Eccentricity) : 4 * aR); }
+                MapCamera.PanTo(_youWorld.Value, smooth: true);
+                if (IsFinite(far) && far > 0) MapCamera.ZoomTo(MapCamera.Distance * far * Sigma * _pxPerV / (MapPipeline.ScreenSize.Y * 0.28));
+            }
             ModCost.Sec("systems").Stop(s0); s0 = ModCost.Start();
             foreach (var d in _deferred) d();
             _deferred.Clear();
@@ -246,6 +255,7 @@ public static partial class CleanMap
             long tl0 = ModCost.Start();
             if (!TargetPanelShown) TargetList(reg, t, ui);
             if (ui) TargetKey();
+            if (ui) ShipKey();
             ModCost.Sec("ui.targets").Stop(tl0);
             Hints();
             ModCost.Sec("ui.list+hints").Stop(u0); u0 = ModCost.Start();
@@ -442,6 +452,11 @@ public static partial class CleanMap
     /// <summary>The map closed: the next opening starts from where you are.</summary>
     public static void ResetView() { ViewFocus = null; _fitPending = true; _anchor = null; _zoomTo = null; }
     private static bool _fitPending = true;
+
+    /// <summary>Your ship on the map this frame (world, screen; null: not drawn), and a pending "zoom to my ship".</summary>
+    static Vector3D? _youWorld; static Vector2? _youScreen; static bool _fitShip;
+    /// <summary>Home on the map, or the menu: the view about your planet, glided onto your ship, your orbit framed.</summary>
+    public static void ZoomToShip() { ViewFocus = null; _fitShip = true; }
 
     /// <summary>The planet the view is about (null: the system view). Only its own things are drawn.</summary>
     private static GravityBody _viewBody;

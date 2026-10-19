@@ -85,24 +85,51 @@ public static partial class CleanMap
     /// <summary>A hint line wrapped at its separators to a width (each piece kept whole; one wider than the width is cut).</summary>
     internal static void DrawWrapped(Vector2 at, string text, float width, float scale, ColorSRGB color)
     {
-        string sep = "   " + (char)0x00b7 + "   ";
-        var parts = text.Split(new[] { sep }, StringSplitOptions.None);
-        string line = "";
+        var lines = Wrapped(text, width, scale);
         float lh = MapPipeline.MeasureText("Ag", scale).Y * 1.25f;
         if (!(lh > 0)) lh = 22f * scale;
-        int n = 0;
-        foreach (var p in parts)
-        {
-            string tryLine = line.Length == 0 ? p : line + sep + p;
-            if (line.Length > 0 && MapPipeline.MeasureText(tryLine, scale).X > width)
-            {
-                MapPipeline.ScreenText(at + new Vector2(0, n++ * lh), Fit(line, width, scale), color, scale);
-                line = p;
-            }
-            else line = tryLine;
-        }
-        if (line.Length > 0) MapPipeline.ScreenText(at + new Vector2(0, n * lh), Fit(line, width, scale), color, scale);
+        for (int n = 0; n < lines.Length; n++) MapPipeline.ScreenText(at + new Vector2(0, n * lh), lines[n], color, scale);
     }
+
+    /// <summary>
+    /// A hint line's lines (kept: laid out once per text, width and scale - it was split and measured every frame). Wrapped at
+    /// its separators, BALANCED: as many lines as the greedy wrap needs, but each about as wide as the others (a last line
+    /// of ", . / warp" alone under a full one - UI audit cosmetic).
+    /// </summary>
+    static string[] Wrapped(string text, float width, float scale)
+    {
+        var key = (text, (int)MathF.Round(width), (int)MathF.Round(scale * 1000f));
+        if (_wrapped.TryGetValue(key, out var done)) return done;
+        string sep = "   " + (char)0x00b7 + "   ";
+        var parts = text.Split(new[] { sep }, StringSplitOptions.None);
+        List<string> Greedy(float w)
+        {
+            var res = new List<string>(); string line = "";
+            foreach (var p in parts)
+            {
+                string tryLine = line.Length == 0 ? p : line + sep + p;
+                if (line.Length > 0 && MapPipeline.MeasureText(tryLine, scale).X > w) { res.Add(line); line = p; }
+                else line = tryLine;
+            }
+            if (line.Length > 0) res.Add(line);
+            return res;
+        }
+        var lines = Greedy(width);
+        if (lines.Count > 1)
+        {
+            // the narrowest width that still needs no more lines than that
+            float total = MapPipeline.MeasureText(text, scale).X, lo = total / lines.Count, hi = width;
+            for (int k = 0; k < 12 && hi - lo > 4f; k++) { float mid = 0.5f * (lo + hi); if (Greedy(mid).Count <= lines.Count) hi = mid; else lo = mid; }
+            lines = Greedy(hi);
+        }
+        var arr = new string[lines.Count];
+        for (int i = 0; i < arr.Length; i++) arr[i] = Fit(lines[i], width, scale);
+        if (!MapPipeline.CanMeasure) return arr;   // (an estimate: not kept)
+        if (_wrapped.Count > 64) _wrapped.Clear();
+        _wrapped[key] = arr;
+        return arr;
+    }
+    static readonly Dictionary<(string, int, int), string[]> _wrapped = new Dictionary<(string, int, int), string[]>();
 
     /// <summary>
     /// A line of the controls, in the map's open area above the game's own hint bar: what the mouse can
@@ -112,14 +139,21 @@ public static partial class CleanMap
     {
         var scr = MapPipeline.ScreenSize;
         string h;
-        if (Maneuvers.OnGizmo) h = "Drag a handle to change the burn   \u00b7   Drag the node along the path   \u00b7   Right-click: options";
+        bool undo = Maneuvers.UndoDepth > 0;
+        // (the map's own keys - the game's W A S D line under the map is gone: it moved nothing here, UI audit C6)
+        if (Maneuvers.OnGizmo) h = undo ? HintGizmoUndo : HintGizmo;
         else if (!double.IsNaN(Maneuvers.HoverT)) h = "Click: add a maneuver here   \u00b7   Right-click: options   \u00b7   N: target what is under the cursor   \u00b7   Drag: pan";
         else if (TargetsUnder(Mouse).Count > 0) h = "N: target it   \u00b7   Right-click: options   \u00b7   Double-click: focus   \u00b7   Drag: pan";
-        else h = "Drag: pan   \u00b7   Right-drag: orbit   \u00b7   Wheel: zoom   \u00b7   Double-click: focus   \u00b7   N or right-click: target   \u00b7   . , /  warp";   // (two lines at most: the game's text is wide)
+        else h = undo ? HintMapUndo : HintMap;
         // (wrapped to the map's width at its separators: a long hint ran onto the right panel at 4:3 and 5:4; cut short, it
         //  lost its last hints)
         DrawWrapped(MapLayout.P(0.265f, 0.9f), h, MapLayout.X(0.775f) - MapLayout.X(0.265f), 0.74f * MapPipeline.MapText, Dim);
     }
+
+    const string HintGizmo = "Drag a handle: the burn (Shift: fine, Ctrl: snap)   ·   Drag the node along the path   ·   Right-click: options";
+    const string HintGizmoUndo = HintGizmo + "   ·   Ctrl+Z: undo";
+    const string HintMap = "Drag: pan   ·   Right-drag: orbit   ·   Wheel: zoom   ·   Double-click: focus   ·   N or right-click: target   ·   Home: your ship   ·   , . /: warp";
+    const string HintMapUndo = HintMap + "   ·   Ctrl+Z: undo";
 
     // ───────────────────────────── encounters and GPS (both views) ─────────────────────────────
 
@@ -162,19 +196,33 @@ public static partial class CleanMap
             Maneuvers.Selected = node;
             // Warp to it (as KSP): top warp; warp stops by itself ahead of the burn.
             if (node.T - t > Maneuvers.WarpLead + 10) items.Add(new MapMenu.Item("Warp to maneuver", () => WarpControl.SetLevel(WarpControl.Levels.Length - 1), FrameHost.PlayerFrame != null));
-            items.Add(new MapMenu.Item(node.Auto ? "Auto-burn: on" : "Auto-burn: off", () => node.Auto = !node.Auto));
-            items.Add(new MapMenu.Item("Remove maneuver", () => Maneuvers.Delete(node, false)));
+            // (each edit kept for Ctrl+Z first - UI audit C5; what auto-burn does, said under the menu - U2)
+            items.Add(new MapMenu.Item(node.Auto ? "Auto-burn: on" : "Auto-burn: off", () => { Maneuvers.UndoMark(); node.Auto = !node.Auto; }) { Tip = AutoBurnTip });
+            items.Add(new MapMenu.Item("Remove maneuver", () => { Maneuvers.UndoMark(); Maneuvers.Delete(node, false); }));
+        }
+        else if (_youScreen.HasValue && (_youScreen.Value - Mouse).Length() <= 14f * u)
+        {
+            // Your ship's marker: the attitude hold (as KSP's SAS buttons) while seated, and the view onto it - only here now
+            // (it opened on any empty spot of the map - UI audit C7)
+            title = "Your ship";
+            items.Add(new MapMenu.Item("Zoom to my ship", ZoomToShip));
+            if (FrameHost.Seated)
+                foreach (AttitudeHold.Mode m in Enum.GetValues(typeof(AttitudeHold.Mode)))
+                {
+                    var mm = m;
+                    items.Add(new MapMenu.Item((AttitudeHold.Current == mm ? "• " : "") + (mm == AttitudeHold.Mode.Off ? "Hold off" : "Hold " + AttitudeHold.Label(mm)), () => AttitudeHold.Set(mm)));
+                }
         }
         else if (!double.IsNaN(ht))
         {
             double T = ht;
             title = "Trajectory  ·  in " + Maneuvers.Clock(T - t);
-            items.Add(new MapMenu.Item("Add maneuver", () => Maneuvers.AddNodeAt(T)));
+            items.Add(new MapMenu.Item("Add maneuver", () => { Maneuvers.UndoMark(); Maneuvers.AddNodeAt(T); Maneuvers.FrameNode(Maneuvers.Selected); }));
             // Warp until the ship gets there (as KSP); other stops (burns, spheres) still come first.
             if (T - t > 30) items.Add(new MapMenu.Item("Warp here", () => { SystemHost.WarpStopAt = T; WarpControl.SetLevel(WarpControl.Levels.Length - 1); }, FrameHost.PlayerFrame != null));
             // (what lies under the path is still a target from here: the path claims the mouse)
             foreach (var x in under) items.Add(TargetItem(x.key, x.name, true));
-            if (hasNodes) items.Add(new MapMenu.Item("Remove all maneuvers", Maneuvers.ClearAll));
+            if (hasNodes) items.Add(RemoveAllItem());
         }
         else if (pinUnder || under.Count > 1)
         {
@@ -182,7 +230,7 @@ public static partial class CleanMap
             title = under.Count == 1 ? under[0].name : "Under the cursor";
             foreach (var x in under) items.Add(TargetItem(x.key, x.name, under.Count > 1));
             if (Hovered != null && _markerAt.ContainsKey(Hovered)) { string sec = Hovered; items.Add(new MapMenu.Item("Centre on " + sec, () => CentreOn(sec))); }
-            if (hasNodes) items.Add(new MapMenu.Item("Remove all maneuvers", Maneuvers.ClearAll));
+            if (hasNodes) items.Add(RemoveAllItem());
         }
         else if (BodyAt(Mouse) is GravityBody bh && !bh.IsRoot)
         {
@@ -191,7 +239,7 @@ public static partial class CleanMap
             title = SystemHost.DisplayName(bn);
             items.Add(Maneuvers.Target == bn ? new MapMenu.Item("Clear target", () => Maneuvers.Target = null)
                                              : new MapMenu.Item("Set as target", () => Maneuvers.Target = bn));
-            if (hasNodes) items.Add(new MapMenu.Item("Remove all maneuvers", Maneuvers.ClearAll));
+            if (hasNodes) items.Add(RemoveAllItem());
         }
         else if (Hovered != null)
         {
@@ -206,23 +254,32 @@ public static partial class CleanMap
             if (tgt != null)
                 items.Add(Maneuvers.Target == tgt ? new MapMenu.Item("Clear target", () => Maneuvers.Target = null)
                                                   : new MapMenu.Item("Set as target", () => Maneuvers.Target = tgt));
-            if (hasNodes) items.Add(new MapMenu.Item("Remove all maneuvers", Maneuvers.ClearAll));
+            if (hasNodes) items.Add(RemoveAllItem());
         }
         else
         {
-            // Empty space: the attitude hold (as KSP's SAS buttons), while seated
-            if (FrameHost.Seated)
-            {
-                title = "Attitude hold";
-                foreach (AttitudeHold.Mode m in Enum.GetValues(typeof(AttitudeHold.Mode)))
-                {
-                    var mm = m;
-                    items.Add(new MapMenu.Item((AttitudeHold.Current == mm ? "• " : "") + (mm == AttitudeHold.Mode.Off ? "Hold off" : "Hold " + AttitudeHold.Label(mm)), () => AttitudeHold.Set(mm)));
-                }
-            }
-            if (hasNodes) items.Add(new MapMenu.Item("Remove all maneuvers", Maneuvers.ClearAll));
+            // Empty space: the view back onto your ship (the attitude hold is on your ship's marker now - UI audit C7)
+            title = "Map";
+            items.Add(new MapMenu.Item("Zoom to my ship   (Home)", ZoomToShip));
+            if (hasNodes) items.Add(RemoveAllItem());
         }
         if (items.Count > 0) { MapMenu.Show(Mouse + new Vector2(4f * u, 4f * u), title, items); Maneuvers.ClaimsMouse = true; }
+    }
+
+    /// <summary>"Remove all maneuvers" - kept for Ctrl+Z first.</summary>
+    static MapMenu.Item RemoveAllItem() => new MapMenu.Item("Remove all maneuvers", () => { Maneuvers.UndoMark(); Maneuvers.ClearAll(); });
+
+    /// <summary>What auto-burn does (UI audit U2: "say what Auto-burn does"), under the menu while its item is hovered.</summary>
+    const string AutoBurnTip = "Auto-burn: at the burn's start the ship turns to it and fires its thrusters by itself until it is done (stay seated). Warp stops 5 s before it.";
+
+    /// <summary>Home on the map: onto your ship (UI audit C5).</summary>
+    static void ShipKey()
+    {
+        bool key = MapInput.KeyPressed(KeyboardInputs.Home) | MapInput.DevKeys.Remove("home");
+        if (!key || MapMenu.Open) return;
+        var s = MapView.SessionForLayout;   // (not while a dialog over the terminal has the keyboard)
+        object top = s != null ? GameUi.TopScreenObject(s) : null;
+        if (top == null || top.GetType().Name == "TerminalScreenViewModel") ZoomToShip();
     }
     /// <summary>The mouse (screen px) for this frame's editors.</summary>
     public static Vector2 Mouse;

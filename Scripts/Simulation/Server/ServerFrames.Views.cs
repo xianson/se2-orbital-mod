@@ -39,6 +39,10 @@ public static partial class ServerFrames
         /// <summary>In warp, the TRUE velocity relative to its frame the steering keeps (its physical one is N x the average
         /// over the step, a chord: the seated plot built on it drifted off the motion).</summary>
         public Vector3D TrueRel; public bool HasTrueRel;
+        /// <summary>Its physical velocity (world, m/s; to 0.05 m/s - a view is kept while it changes less), and whether it
+        /// rides its conic (HighSpeed: no physical velocity - the conic is its motion). ShipSurface reads them: landed or
+        /// orbiting (2026-10-18, B1: a landed ship's orbit was guessed from two positions half a second apart).</summary>
+        public Vector3D Velocity; public bool HighSpeed;
     }
 
     /// <summary>A sensor block as the client may know it: on which grid, where, what, working, how strong.</summary>
@@ -158,12 +162,15 @@ public static partial class ServerFrames
             int vi = views.Count;
             GridView v = vi < prev.Views.Length && prev.Views[vi].Id == g.Id ? prev.Views[vi]
                        : prev.Index.TryGetValue(g.Id, out int pi) ? prev.Views[pi] : null;
-            if (v == null || !SameView(v, g.Id, pos, tb.HasValue, box, dyn, name, mass, owner, hasOwner, enc, hold, joined, hasTr, tr))
+            Vector3D vel = GridMembers.Velocity(g); bool hs = _gridHighSpeed.ContainsKey(g.Id);
+            if (v == null || !SameView(v, g.Id, pos, tb.HasValue, box, dyn, name, mass, owner, hasOwner, enc, hold, joined, hasTr, tr)
+                || v.HighSpeed != hs || (v.Velocity - vel).LengthSquared() > 0.05 * 0.05)
             {
                 v = new GridView { Id = g.Id, Position = pos, Dynamic = dyn, Name = name, Mass = mass, Holding = hold, AnchorJoined = joined };
                 if (hasTr) { v.TrueRel = tr; v.HasTrueRel = true; }
                 if (tb.HasValue) { v.Box = tb.Value; v.HasBox = true; }
                 v.Owner = owner; v.HasOwner = hasOwner; v.Encounter = enc;
+                v.Velocity = vel; v.HighSpeed = hs;
             }
             if (vi >= prev.Views.Length || !ReferenceEquals(prev.Views[vi], v)) changed = true;
             views.Add(v);

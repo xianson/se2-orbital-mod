@@ -43,6 +43,26 @@ static class Program
         Check(need.Count >= 8, $"the keys found ({need.Count})");
         Check(missing.Count == 0, $"every key in the texts file ({missing.Count} of {need.Count} missing)");
         Check(texts.All(kv => !string.IsNullOrEmpty(kv.Value)), "no empty text (the game's label lookup falls back to the key)");
+        // (a toast's title and content are localization KEYS: a sentence passed as one logged two "Could not find key" warnings a
+        //  toast. Every toast goes through Ui/ModToast.Literal - the game's "{Title}" / "{Content}" keys, the text the parameter:
+        //  no UserMessage built anywhere else, no TitleId / ContentId made from a string but ModToast's own two keys)
+        var bad = new List<string>();
+        foreach (var f in Directory.EnumerateFiles(Path.Combine(root, "Scripts"), "*.cs", SearchOption.AllDirectories))
+        {
+            string name = Path.GetFileName(f);
+            var lines = File.ReadAllLines(f);
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string t = lines[i].Trim();
+                if (t.StartsWith("//")) continue;
+                bool built = Regex.IsMatch(t, @"new\s+UserMessage\b") && name != "ModToast.cs";
+                bool asKey = Regex.IsMatch(t, @"\b(TitleId|ContentId)\s*=\s*(LocKey\.FromString|new\s+LocKey)\b") && !Regex.IsMatch(t, @"FromString\((TitleKey|ContentKey)\)");
+                if (built || asKey) bad.Add($"{name}:{i + 1}");
+            }
+        }
+        string mt = Path.Combine(root, "Scripts", "Simulation", "Ui", "ModToast.cs");
+        Check(File.Exists(mt) && File.ReadAllText(mt).Contains("\"UserMessageFanfareContent\""), "toasts: Ui/ModToast.cs shows the text through the game's {Title} / {Content} keys");
+        Check(bad.Count == 0, $"toasts: no UserMessage outside ModToast, no title / content key made from a text ({string.Join(", ", bad)})");
         Console.WriteLine($"== TextsTests: {(_fails == 0 ? $"{_checks} passed, 0 failed" : $"{_fails} of {_checks} FAILED")}");
         return _fails == 0 ? 0 : 1;
     }

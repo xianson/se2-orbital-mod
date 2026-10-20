@@ -56,12 +56,7 @@ public static class GameUi
             var msgs = session.Get<IUserMessages>();
             if (msgs == null) { LastError = "no IUserMessages"; return; }
             if (_toasts.TryGetValue(key, out var old)) { try { old.Dispose(); } catch { } _toasts.Remove(key); }
-            var m = new UserMessage
-            {
-                TitleId = LocKey.FromString(title), ContentId = LocKey.FromString(text),
-                Type = UserMessageType.Game, TextTimeout = TimeSpan.FromSeconds(seconds),
-                MessageKey = Keen.VRage.Library.Utils.StringId.Get("orbital." + key),
-            };
+            var m = ModToast.Literal(title, text, seconds, "orbital." + key);   // (the text as written, not as a key - ModToast)
             var h = msgs.DisplayMessage(m);
             if (h != null) _toasts[key] = h;
         }

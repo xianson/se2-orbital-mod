@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The world settings' carriers (Scripts/Simulation/Save/WorldCarriers.cs, shared with the Aerodynamics Mod) with mock
+       sessions: Program.cs is shared too (the Aerodynamics Mod's tools/shared/modsrc). No game. -->
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\Scripts\Simulation\Save\WorldCarriers.cs" />
+  </ItemGroup>
+</Project>

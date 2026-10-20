@@ -202,16 +202,19 @@ else
   echo "      (note: settings UI parity skipped - the aero side has no UI metadata yet)"
 fi
 
-# 9. THE SETTINGS MENU (2026-10-15, settings DESIGN.md W4): the "Mods" tab is written once here (Scripts/Simulation/Ui/
-#    AvaloniaReflect.cs, SettingsModel.cs, SettingsTab.cs, Tests/SettingsUiTests/Program.cs) and copied into aero by
-#    tools/sync_settings_ui.sh: the copies identical but for the namespace line, an adapter (Ui/SettingsTab.Mod.cs) on each
-#    side, and the two sections' ModIds different. SKIP while the aero side has no copy yet.
+# 9. THE SHARED SOURCE (2026-10-15 the settings menu, settings DESIGN.md W4; its home moved 2026-10-19): the files both mods
+#    carry (Scripts/Simulation/Ui/AvaloniaReflect.cs, SettingsModel.cs, SettingsTab.cs, Tests/SettingsUiTests/Program.cs -
+#    every file under modsrc/files/) are written once in the Aerodynamics Mod's tools/shared/modsrc/files/ and copied into
+#    both mods by its sync.sh: BOTH copies (this mod's and aero's) as written there but for the namespace line, an adapter
+#    (Ui/SettingsTab.Mod.cs) on each side, and the two sections' ModIds different. The shared source: AERO_TOOLS's when set,
+#    else the checked aero tree's own tools/shared. SKIP (a note) when that aero tree predates tools/shared/modsrc.
 uicopy=""
-if [ -f "$AERO/Simulation/Ui/SettingsTab.cs" ]; then
-  uicopy=", settings UI copies"
-  out=$(tools/sync_settings_ui.sh --check "$AERO/..") || { rc=1; echo "$out" | sed 's/^/      /'; }
+SYNC="${AERO_TOOLS:-$AERO/../tools/shared}/modsrc/sync.sh"
+if [ -f "$SYNC" ]; then
+  uicopy=", shared source copies"
+  out=$(bash "$SYNC" --check --aero "$AERO/.." --orbital "$PWD") || { rc=1; echo "$out" | sed 's/^/      /'; }
 else
-  echo "      (note: settings UI copy check skipped - the aero side has no Ui/SettingsTab.cs yet)"
+  echo "      (note: shared source copy check skipped - no $SYNC: an aero tree before tools/shared/modsrc)"
 fi
 
 [ $rc -eq 0 ] && echo "PASS  contract (aero API $a, entry source $e; names, signatures both ways, explicit lookups, one link each way, no overloads, $nflags harness flags$parity$uicopy)" || echo "FAIL  contract"

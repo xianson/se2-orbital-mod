@@ -5,9 +5,12 @@
   rails, the harness orbit commands), `.Rider` (the treadmill and the rider in a frame), `.Arrival` (into a planet cell;
   the server half's requests), `.Teleport`, `.Seat` (the seated player's orbit), `.Crossing` (camera / shake / cockpit
   target across a chart crossing), `.Guard` (faults logged and skipped, per-system cost, the DEV allocation watch).
+- `OrbitalClientHost.cs` - the client's session tick (2026-10-19): injected into the render camera's prefab; runs the
+  settings poll and the settings tab every frame, planet or none (the planets' `FrameHost.Tick` only as its fallback).
 - `SystemHost.cs` - builds and owns the system from the world: registry, universe clock (`AdvanceClock`, warp), frames.
 - `WorldReset.cs` - THE per-world reset (statics outlive a world: the assembly stays loaded). Run once per world change:
-  the last server planet leaving the scene (`Unloaded`), or a server planet joining in a session not the last world's
+  the last world-settings carrier (planet or player's server body) leaving while its session unloads (`Unloaded`, through
+  `Save/WorldCarriers.cs`: planetless worlds too), or a carrier joining in a session not the last world's
   with no unload seen (`ServerSession`; the new world's pending save is kept). Every per-world static goes through it -
   a new one is added to its list, not given a reset of its own. `ResetSystem` is the system's part, also run by every
   `SystemHost.Build`.

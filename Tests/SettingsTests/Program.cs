@@ -45,6 +45,7 @@ namespace OrbitalTests.Settings
                 WorldEditRefused();
                 HostFileForces();
                 WorldSave();
+                Planetless();
                 Persistence();
                 BackgroundPoll();
                 Denylist();
@@ -327,13 +328,60 @@ namespace OrbitalTests.Settings
                 OrbitalSettings.Poll(true);
                 Ok("commented out: not forced", !OrbitalSettings.IsForced("Warp.MaxLevel") && OrbitalSettings.IsForced("Warp.CostsEnergy"));
                 Ok("then settable", OrbitalSettings.Set("Warp.MaxLevel", 5, out _) && Val("Warp.MaxLevel") == 5);
-                OrbitalSettings.BeaconAdded();   // (balances the removal: one beacon)
-                OrbitalSettings.BeaconRemoved();
+                WorldGone();   // (one carrier added, then gone at the unload)
                 Ok("the world gone: nothing forced, defaults, saved", !OrbitalSettings.IsForced("Warp.CostsEnergy") && Val("Warp.MaxLevel") == 6
                     && Val("World.Asteroids") == 1 && !OrbitalSettings.WorldUnsaved);
                 File.WriteAllText(world, "# nothing forced\n");   // (the beacons below poll it again)
                 File.SetLastWriteTimeUtc(world, DateTime.UtcNow.AddSeconds(10));
             }
+        }
+
+        /// <summary>A world's carrier added (its forced poll), then the world closes (the last carrier while unloading).</summary>
+        static void WorldGone()
+        {
+            var session = new object();
+            OrbitalSettings.CarrierAdded(session);
+            OrbitalSettings.CarrierRemoved(session, unloading: true);
+        }
+
+        // ── a planetless world (2026-10-19): the players' bodies carry the world's settings (Save/WorldCarriers.cs) ──
+        static void Planetless()
+        {
+            Console.WriteLine("-- a planetless world (the bodies' builder)");
+            var body = WorldCarriers.Kind.Body; var planet = WorldCarriers.Kind.Planet;
+            var s1 = new object();
+            OrbitalSettings.CarrierAdded(s1); OrbitalSettings.CarrierAdded(s1);   // (a new world: its spectator and character, empty builders)
+            Ok("a world setting changes", OrbitalSettings.Set("Warp.MaxLevel", 2, out _) && Val("Warp.MaxLevel") == 2);
+            var ob = new Keen.Game2.Simulation.GameSystems.EntityNameSessionComponentObjectBuilder { NamedEntities = new Dictionary<string, Entity>() };
+            OrbitalSettings.Save(ob, new Entity());   // (what each body writes: its root as the value)
+            Ok("a body saves one key", ob.NamedEntities.Count == 1 && ob.NamedEntities.Keys.First() == OrbitalSettings.SaveKey + "Warp.MaxLevel = 2\n");
+            OrbitalSettings.CarrierRemoved(s1, unloading: false);   // (the character died: a body gone mid-session)
+            Ok("a body leaving mid-session keeps the world's settings", Val("Warp.MaxLevel") == 2);
+            OrbitalSettings.CarrierRemoved(s1, unloading: true);
+            Ok("the unload resets them", Val("Warp.MaxLevel") == 6);
+            var s2 = new object();
+            OrbitalSettings.Load(ob, body, s2); OrbitalSettings.Load(ob, body, s2);
+            OrbitalSettings.CarrierAdded(s2); OrbitalSettings.CarrierAdded(s2);
+            Ok("reloaded: the save's value back, nothing unsaved", Val("Warp.MaxLevel") == 2 && !OrbitalSettings.WorldUnsaved);
+            OrbitalSettings.CarrierRemoved(s2, true); OrbitalSettings.CarrierRemoved(s2, true);
+            var old = new Keen.Game2.Simulation.GameSystems.EntityNameSessionComponentObjectBuilder { NamedEntities = new Dictionary<string, Entity> { [OrbitalSettings.SaveKey + "Warp.MaxLevel = 4\n"] = new Entity() } };
+            var s3 = new object();
+            OrbitalSettings.Load(old, planet, s3); OrbitalSettings.CarrierAdded(s3);
+            Ok("an old save: the planets' text loads", Val("Warp.MaxLevel") == 4);
+            OrbitalSettings.CarrierRemoved(s3, true);
+            var s4 = new object();
+            OrbitalSettings.Load(old, planet, s4); OrbitalSettings.Load(ob, body, s4);
+            OrbitalSettings.CarrierAdded(s4); OrbitalSettings.CarrierAdded(s4);
+            Ok("planet then body: the body's", Val("Warp.MaxLevel") == 2);
+            OrbitalSettings.CarrierRemoved(s4, true); OrbitalSettings.CarrierRemoved(s4, true);
+            var s5 = new object();
+            OrbitalSettings.Load(ob, body, s5); OrbitalSettings.Load(old, planet, s5);
+            OrbitalSettings.CarrierAdded(s5); OrbitalSettings.CarrierAdded(s5);
+            Ok("body then planet: the body's", Val("Warp.MaxLevel") == 2);
+            int unloads = 0; var hooks = OrbitalSettings.WorldHooks; OrbitalSettings.WorldHooks = u => { if (u) unloads++; };
+            OrbitalSettings.CarrierRemoved(s5, true); OrbitalSettings.CarrierRemoved(s5, true);
+            Ok("the world's end hook once, at the unload (WorldReset.Unloaded)", unloads == 1 && Val("Warp.MaxLevel") == 6);
+            OrbitalSettings.WorldHooks = hooks;
         }
 
         static void WorldSave()
@@ -346,13 +394,13 @@ namespace OrbitalTests.Settings
             Ok("saved: one key", ob.NamedEntities != null && ob.NamedEntities.Count == 1 && ob.NamedEntities.Keys.First().StartsWith(OrbitalSettings.SaveKey));
             Ok("saved: not unsaved", !OrbitalSettings.WorldUnsaved);
             Ok("saved: world only", !ob.NamedEntities.Keys.First().Contains("Map.TextScale"));
-            OrbitalSettings.BeaconAdded(); OrbitalSettings.BeaconRemoved();
+            WorldGone();
             Ok("unloaded: defaults", Val("Warp.MaxLevel") == 6 && Val("Orbit.PlanetDaySeconds") == -1);
-            OrbitalSettings.Load(ob);
+            OrbitalSettings.Load(ob, WorldCarriers.Kind.Planet, new object());
             Ok("loaded: the saved values", Val("Warp.MaxLevel") == 2 && Val("Orbit.PlanetDaySeconds") == 3600);
             Ok("loaded: not unsaved", !OrbitalSettings.WorldUnsaved);
             var empty = new Keen.Game2.Simulation.GameSystems.EntityNameSessionComponentObjectBuilder();
-            OrbitalSettings.BeaconAdded(); OrbitalSettings.BeaconRemoved();
+            WorldGone();
             OrbitalSettings.Save(empty, new Entity());
             Ok("all defaults: nothing saved", empty.NamedEntities == null || empty.NamedEntities.Count == 0);
             OrbitalSettings.ResetScope("client");
@@ -434,7 +482,7 @@ namespace OrbitalTests.Settings
             File.WriteAllText(world, "# nothing forced\n");
             File.SetLastWriteTimeUtc(world, DateTime.UtcNow.AddSeconds(40));
             PollBackground();
-            OrbitalSettings.BeaconAdded(); OrbitalSettings.BeaconRemoved();   // (the world gone: nothing forced, defaults)
+            WorldGone();   // (the world gone: nothing forced, defaults)
             Ok("unloaded: nothing forced", !OrbitalSettings.IsForced("Warp.CostsEnergy") && Val("Warp.CostsEnergy") == 1);
             OrbitalSettings.ResetScope("client");
             PollBackground();

@@ -33,7 +33,7 @@ namespace OrbitalMod;
 ///
 /// gen spawn FILE [name=N] [ahead=M] [up=M] [right=M] (the overrides: a second copy beside the first) | gen whole [N] (grid N
 /// whole? its blocks against the spec's, any piece split off, its hinges' heads) | gen owner (each grid's and head grid's
-/// owner, and its blocks') | gen status | gen clear | gen measure FILE
+/// owner, and its blocks'; gen owner ID: a world grid's) | gen status | gen clear | gen measure FILE
 /// (each Guid line: a lone block 30 m apart) | gen report (their mass and cell bounds -> %TEMP%\OrbitalMod\gen\catalog.txt)
 ///
 /// THE SPAWN (2026-10-20): on the SERVER thread, STAGED and async (IEntitySpawner.SpawnBundleAsync - as DevTestShip,
@@ -125,7 +125,7 @@ public static class GridGen
             {
                 case "spawn": return a.Length > 2 ? Spawn(me, camera, Path.IsPathRooted(a[2]) ? a[2] : Path.Combine(Dir, a[2]), a) : "gen spawn FILE [name=N] [ahead=M] [up=M] [right=M]";
                 case "whole": return Whole(a);
-                case "owner": return Owners(me);
+                case "owner": return Owners(me, a.Length > 2 && long.TryParse(a[2], out long oid) ? oid : 0);
                 case "clear": return Clear();
                 case "measure": return a.Length > 2 ? Measure(camera, Path.IsPathRooted(a[2]) ? a[2] : Path.Combine(Dir, a[2])) : "gen measure FILE";
                 case "report": return Report();
@@ -367,7 +367,7 @@ public static class GridGen
     /// <summary>gen owner: who owns each spawned grid, each hinge head's grid and the blocks on them that have an owner of their
     /// own (the aero Enemy switch's check: the whole construct the hostile NPC's, then given back) - "you" for the asking
     /// player. Server thread.</summary>
-    static string Owners(IdentityId me)
+    static string Owners(IdentityId me, long worldId)
     {
         string Who(IdentityId id) => id == me ? "you" : id.ToString();
         string Of(Entity g)
@@ -380,17 +380,24 @@ public static class GridGen
             return sb.ToString();
         }
         var parts = new List<string>();
-        foreach (var e in _spawned)
+        // (the grids: a world grid by its findgrids id - one from a save - else every spawned one; their hinge heads found
+        //  through their own hinge blocks, not this session's spawn records)
+        var list = worldId != 0 ? new List<Entity> { WorldGrid(worldId) } : new List<Entity>(_spawned);
+        if (worldId != 0 && list[0] == null) return "no grid " + worldId;
+        foreach (var e in list)
             try
             {
                 var line = new List<string> { Of(e) };
-                foreach (var h in _hinges)
-                {
-                    if (h.Entity == null || GridOfBlock(e, h.Entity) == null) continue;
-                    var head = h.Entity.TryGet<HingeComponent>()?.ConnectedEntity; var hg = head != null ? GridOf(head) : null;
-                    line.Add(hg != null ? "head " + Of(hg) : "head: none");
-                }
-                parts.Add($"'{(_specOf.TryGetValue(e, out var sp) ? sp.name : "?")}': " + string.Join("; ", line));
+                var kids = e.TryGet<HierarchyComponent>()?.Children;
+                if (kids != null)
+                    foreach (var k in kids)
+                    {
+                        var hc = k?.TryGet<HingeComponent>(); if (hc == null) continue;
+                        var head = hc.ConnectedEntity; var hg = head != null ? GridOf(head) : null;
+                        line.Add(hg != null ? "head " + Of(hg) : "head: none");
+                    }
+                string nm = _specOf.TryGetValue(e, out var sp) ? sp.name : GridMembers.All().FirstOrDefault(g => g.IsServer && g.Entity == e)?.DisplayName ?? "?";
+                parts.Add($"'{nm}': " + string.Join("; ", line));
             }
             catch (Exception x) { parts.Add("a grid gone or unreadable: " + x.Message); }
         return parts.Count > 0 ? string.Join(" || ", parts) : "nothing spawned";

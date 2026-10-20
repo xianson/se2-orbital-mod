@@ -15,6 +15,11 @@ namespace OrbitalMod;
 ///    offering AeroAutopilotBlockDetailModel selected (as a click), its buttons pressed (the [Button] method the panel's
 ///    button calls: HoverHold, HeightHold, AutopilotOff, ToggleHoverHold, ToggleHeightHold) and its fields set (HeightM ...)
 ///    through the detail model on the UI thread; report: every detail model's members and the autopilot's Status / HeightM.
+///  - `appanel seat` / `appanel actions` / `appanel actionsclose` (2026-10-20): the TOOLBAR's action list for the Autopilot
+///    block, as a player assigns one - the seat (the block with a toolbar, ToolbarBlockDetailModel) selected in the control
+///    panel, then the panel's toolbar editor (ControlPanelViewModel.Toolbar) opened on its first slot for the Autopilot block
+///    (ControlPanelToolbarViewModel.EditTile: the game's BlockActionDetailsScreen); `actions` again lists its action names
+///    (ActionItemViewModel.Name); `actionsclose` cancels it (CancelCommand - no slot is changed).
 ///  - `apkeys MX MY MZ SECONDS [PITCH YAW ROLL deg/s]`: a seated pilot's input on the seat grid's client copy, every frame for
 ///    SECONDS: ControlData.Movement (the movement keys) and, with a rate, ControlData.Rotation plus the reticle
 ///    (TargetControlData) turned at that rate about the grid's own axes - what a mouse / the roll keys write.
@@ -42,6 +47,18 @@ public static class DevAutopilot
             {
                 case "open": Open(session); return "opening: " + Status;
                 case "select": return Select(session, a.Length > 2 ? int.Parse(a[2], CI) : 0);
+                case "seat": return SelectOffering(session, "ToolbarBlockDetailModel");
+                case "actions": return Actions(session);
+                case "actionsclose":
+                {
+                    var top = GameUi.TopScreenObject(session);
+                    if (top == null || top.GetType().Name != "BlockActionDetailsScreenViewModel") return "no action list on top (" + (top?.GetType().Name ?? "none") + ")";
+                    var cmd = PlanetRenderBridge.GetMember(top, "CancelCommand");   // (an ICommand: its Execute by reflection)
+                    var exec = cmd?.GetType().GetMethod("Execute", new[] { typeof(object) });
+                    if (exec == null) return "no CancelCommand";
+                    UiThread.Post(() => { try { exec.Invoke(cmd, new object[] { null }); Status = "action list closed"; } catch (Exception e) { Status = "close: " + (e.InnerException ?? e).Message; } });
+                    return "closing the action list";
+                }
                 case "press":
                 {
                     var m = ApModel(session); if (m == null) return "no AeroAutopilotBlockDetailModel in the panel (open, select first)";
@@ -143,6 +160,56 @@ public static class DevAutopilot
         if (selection == null) return "panel has no BlockTerminalSelection";
         UiThread.Post(() => { try { selection.Clear(); selection.Add(pick); Status = $"autopilot #{which} selected"; } catch (Exception e) { Status = "select failed: " + e.GetType().Name + ": " + e.Message; } });
         return $"{n} blocks listed, {k} autopilot(s):{names}; selecting #{which}";
+    }
+
+    /// <summary>The first block in the control panel offering a detail model of that type, selected (as a click).</summary>
+    static string SelectOffering(Keen.VRage.Core.Game.Systems.Session session, string modelType)
+    {
+        var p = ControlPanel(session);
+        if (p == null) return "no control panel on top (" + (GameUi.TopScreenObject(session)?.GetType().Name ?? "none") + ")";
+        var blocksOf = PlanetRenderBridge.GetMember(p, "Blocks") ?? PlanetRenderBridge.GetMember(PlanetRenderBridge.GetMember(p, "Tree"), "Blocks");
+        if (!(blocksOf is IEnumerable blocks)) return "panel has no Blocks";
+        object pick = null;
+        foreach (var b in blocks) if (Offers(b, modelType)) { pick = b; break; }
+        if (pick == null) return "no block offering " + modelType;
+        var selection = PlanetRenderBridge.GetMember(p, "BlockTerminalSelection") as IList;
+        if (selection == null) return "panel has no BlockTerminalSelection";
+        UiThread.Post(() => { try { selection.Clear(); selection.Add(pick); Status = $"{Name(pick)} selected"; } catch (Exception e) { Status = "select failed: " + e.Message; } });
+        return "selecting " + Name(pick);
+    }
+
+    /// <summary>appanel actions: the action list open - its names; else the toolbar editor opened on slot 1 for the Autopilot block
+    /// (the seat selected first: `appanel seat`).</summary>
+    static string Actions(Keen.VRage.Core.Game.Systems.Session session)
+    {
+        var top = GameUi.TopScreenObject(session);
+        if (top != null && top.GetType().Name == "BlockActionDetailsScreenViewModel")
+        {
+            if (!(PlanetRenderBridge.GetMember(top, "Actions") is IEnumerable acts)) return "action list: no Actions";
+            var names = new System.Collections.Generic.List<string>();
+            foreach (var x in acts) names.Add(PlanetRenderBridge.GetMember(x, "Name")?.ToString() ?? "(null)");
+            int blank = names.FindAll(n => string.IsNullOrWhiteSpace(n) || n == "(null)").Count;
+            return $"action list: {names.Count} actions, {blank} blank: " + string.Join(" | ", names);
+        }
+        var p = ControlPanel(session);
+        if (p == null) return "no control panel on top (" + (top?.GetType().Name ?? "none") + ")";
+        var tb = PlanetRenderBridge.GetMember(p, "Toolbar");
+        var tvm = tb == null ? null : PlanetRenderBridge.GetMember(tb, "ToolbarViewModel");
+        if (tvm == null) return "no toolbar in the panel (select the seat first: appanel seat)";
+        if (!(PlanetRenderBridge.GetMember(tvm, "ToolbarTileViewModels") is IList tiles) || tiles.Count == 0) return "the toolbar has no slots";
+        object ap = null;
+        if (PlanetRenderBridge.GetMember(p, "Blocks") is IEnumerable blocks) foreach (var b in blocks) if (Offers(b, "AeroAutopilotBlockDetailModel")) { ap = b; break; }
+        if (ap == null) return "no Autopilot block in the panel";
+        System.Reflection.MethodInfo edit = null;
+        foreach (var m in tb.GetType().GetMethods(Inst))
+        {
+            var ps = m.GetParameters();
+            if (m.Name == "EditTile" && ps.Length == 2 && ps[0].ParameterType.IsInstanceOfType(ap) && ps[1].ParameterType.IsInstanceOfType(tiles[0])) { edit = m; break; }
+        }
+        if (edit == null) return "no EditTile(block, tile) on " + tb.GetType().Name;
+        var tile = tiles[0];
+        UiThread.Post(() => { try { edit.Invoke(tb, new[] { ap, tile }); Status = "action list asked"; } catch (Exception e) { Status = "edit: " + (e.InnerException ?? e).Message; } });
+        return $"opening the action list of {Name(ap)} on slot 1";
     }
 
     static object Model(Keen.VRage.Core.Game.Systems.Session session, string typeName)

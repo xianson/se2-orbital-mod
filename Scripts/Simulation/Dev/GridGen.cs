@@ -32,7 +32,8 @@ namespace OrbitalMod;
 ///   F HINGE PREFAB X Y Z FWD UP   a flap block on hinge number HINGE's head grid (its frame: the head at 0 0 0)
 ///
 /// gen spawn FILE [name=N] [ahead=M] [up=M] [right=M] (the overrides: a second copy beside the first) | gen whole [N] (grid N
-/// whole? its blocks against the spec's, any piece split off, its hinges' heads) | gen status | gen clear | gen measure FILE
+/// whole? its blocks against the spec's, any piece split off, its hinges' heads) | gen owner (each grid's and head grid's
+/// owner, and its blocks') | gen status | gen clear | gen measure FILE
 /// (each Guid line: a lone block 30 m apart) | gen report (their mass and cell bounds -> %TEMP%\OrbitalMod\gen\catalog.txt)
 ///
 /// THE SPAWN (2026-10-20): on the SERVER thread, STAGED and async (IEntitySpawner.SpawnBundleAsync - as DevTestShip,
@@ -109,7 +110,7 @@ public static class GridGen
         if (sub == "hold" || sub == "free" || sub == "steer" || sub == "clear") return RunOnServer(() => CommandOnServer(me, camera, a));
         // (the reads of the server's grids - a body, a transform, blocks, hinges, the aero readout, a mass: from here they were
         //  the cross-scene read the game's DataGuard asserts on, the 2026-10-15 scene audit - and the spawns)
-        if (sub == "rate" || sub == "dump" || sub == "probe" || sub == "aero" || sub == "hinges" || sub == "report" || sub == "whole"
+        if (sub == "rate" || sub == "dump" || sub == "probe" || sub == "aero" || sub == "hinges" || sub == "report" || sub == "whole" || sub == "owner"
             || sub == "spawn" || sub == "measure" || sub == "add" || sub == "air" && !(a.Length > 2 && a[2] == "off"))
             return OnServerThread(() => CommandOnServer(me, camera, a));
         return CommandOnServer(me, camera, a);
@@ -124,6 +125,7 @@ public static class GridGen
             {
                 case "spawn": return a.Length > 2 ? Spawn(me, camera, Path.IsPathRooted(a[2]) ? a[2] : Path.Combine(Dir, a[2]), a) : "gen spawn FILE [name=N] [ahead=M] [up=M] [right=M]";
                 case "whole": return Whole(a);
+                case "owner": return Owners(me);
                 case "clear": return Clear();
                 case "measure": return a.Length > 2 ? Measure(camera, Path.IsPathRooted(a[2]) ? a[2] : Path.Combine(Dir, a[2])) : "gen measure FILE";
                 case "report": return Report();
@@ -360,6 +362,38 @@ public static class GridGen
         }
         catch (Exception x) { all = false; parts.Add("a grid gone or unreadable: " + x.Message); }
         return (all ? "WHOLE " : "NOT WHOLE ") + string.Join(" || ", parts);
+    }
+
+    /// <summary>gen owner: who owns each spawned grid, each hinge head's grid and the blocks on them that have an owner of their
+    /// own (the aero Enemy switch's check: the whole construct the hostile NPC's, then given back) - "you" for the asking
+    /// player. Server thread.</summary>
+    static string Owners(IdentityId me)
+    {
+        string Who(IdentityId id) => id == me ? "you" : id.ToString();
+        string Of(Entity g)
+        {
+            var sb = new System.Text.StringBuilder($"grid {IdOf(g)} {Who(g.TryGet<OwnershipComponent>()?.Owner ?? default)}");
+            var kids = g.TryGet<HierarchyComponent>()?.Children;
+            var blocks = new Dictionary<string, int>();
+            if (kids != null) foreach (var k in kids) { var o = k?.TryGet<OwnershipComponent>(); if (o != null) { string w = Who(o.Owner); blocks[w] = blocks.TryGetValue(w, out int c) ? c + 1 : 1; } }
+            if (blocks.Count > 0) sb.Append(" (blocks: ").Append(string.Join(", ", blocks.Select(kv => $"{kv.Value} {kv.Key}"))).Append(')');
+            return sb.ToString();
+        }
+        var parts = new List<string>();
+        foreach (var e in _spawned)
+            try
+            {
+                var line = new List<string> { Of(e) };
+                foreach (var h in _hinges)
+                {
+                    if (h.Entity == null || GridOfBlock(e, h.Entity) == null) continue;
+                    var head = h.Entity.TryGet<HingeComponent>()?.ConnectedEntity; var hg = head != null ? GridOf(head) : null;
+                    line.Add(hg != null ? "head " + Of(hg) : "head: none");
+                }
+                parts.Add($"'{(_specOf.TryGetValue(e, out var sp) ? sp.name : "?")}': " + string.Join("; ", line));
+            }
+            catch (Exception x) { parts.Add("a grid gone or unreadable: " + x.Message); }
+        return parts.Count > 0 ? string.Join(" || ", parts) : "nothing spawned";
     }
 
     /// <summary>Grid g when the block entity is one of its children (else null).</summary>

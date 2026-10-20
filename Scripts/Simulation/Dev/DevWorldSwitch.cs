@@ -8,7 +8,7 @@ namespace OrbitalMod;
 /// DEV (harness, 2026-10-20: the world-switch check, RUNBOOK "world switch"). `worldload &lt;save folder&gt;`: what a player does
 /// through the menus, in this one game process - Escape -> Exit to main menu (the in-game menu's own call:
 /// IGameApp.Disconnect, InGameMenuScreenViewModel.RequestReturnToMainMenu), then, from the main menu, Load (the main menu's own
-/// call: IGameApp.LoadGame(WorldLoadArgs { SaveId }), MainMenuComponent.LoadGame). Both on the UI thread, as the menus call
+/// call: IGameApp.LoadGame(WorldLoadArgs { SaveId }), MainMenuComponent.LoadGame). Both on the engine's main loop queue, as the menus call
 /// them; the load DelaySeconds after the exit (the main menu up, this world's projects unloaded - the path the world-switch fix
 /// is for). The world loaded is the next world's copy of this mod (its own harness answers again). Nothing is saved.
 /// Everything by reflection (SharedUIComponent._gameApp, the game's IGameApp, WorldLoadArgs, ContainerId).
@@ -43,16 +43,18 @@ public static class DevWorldSwitch
         double delay = DelaySeconds;
         Status = $"exit to the main menu, then '{save}' in {delay:F0} s";
         Log.Default?.Info($"[ORBIT] worldload: exit to the main menu, then load '{save}' in {delay:F0} s (dev harness)");
-        UiThread.Post(() => { try { disconnect.Invoke(app, null); } catch (Exception e) { Status = "exit failed: " + (e.InnerException ?? e).Message; } });
-        System.Threading.Tasks.Task.Run(async () =>
+        // (on the engine's main loop queue, VRageCore.UpdateQueue - the thread's own SynchronizationContext, which the game's
+        //  transitions await on (GameAppComponent.NextFrame: SynchronizationContext.Current.Queue). From Avalonia's dispatcher
+        //  (UiThread.Post) that context was not current: Disconnect threw a NullReferenceException in NextFrame and the game's
+        //  crash handler stopped it, in game 2026-10-20. Never from the harness's scene job: there Post runs it at once.)
+        var queue = Keen.VRage.Core.VRageCore.Instance?.UpdateQueue;
+        if (queue == null) return "no engine update queue (VRageCore.UpdateQueue)";
+        queue.Enqueue(() => { try { disconnect.Invoke(app, null); } catch (Exception e) { Status = "exit failed: " + (e.InnerException ?? e).Message; } });
+        queue.Enqueue(() =>
         {
-            await System.Threading.Tasks.Task.Delay(TimeSpan.FromSeconds(delay));
-            UiThread.Post(() =>
-            {
-                try { load.Invoke(app, new[] { args }); Status = $"loading '{save}'"; }
-                catch (Exception e) { Status = "load failed: " + (e.InnerException ?? e).Message; }
-            });
-        });
+            try { load.Invoke(app, new[] { args }); Status = $"loading '{save}'"; }
+            catch (Exception e) { Status = "load failed: " + (e.InnerException ?? e).Message; }
+        }, TimeSpan.FromSeconds(delay));
         return Status;
     }
 }

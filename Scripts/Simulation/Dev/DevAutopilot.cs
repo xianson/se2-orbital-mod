@@ -10,7 +10,7 @@ namespace OrbitalMod;
 /// <summary>
 /// DEV (harness, 2026-10-19 in-game check of the aero mod's Autopilot block and flight assists). Everything by reflection on
 /// the aero mod's types (this mod never references it):
-///  - `appanel open|select [n]|press METHOD|set MEMBER VALUE|report|close`: the Autopilot block's REAL control panel - opened
+///  - `appanel open|select [n]|press METHOD|set MEMBER VALUE|report|close`: the Autopilot block's REAL control panel (an enum VALUE by name) - opened
 ///    as the game opens a block's terminal (TerminalControllerSessionComponent.OpenTerminal, ControlPanel), the n-th block
 ///    offering AeroAutopilotBlockDetailModel selected (as a click), its buttons pressed (the [Button] method the panel's
 ///    button calls: HoverHold, HeightHold, AutopilotOff, ToggleHoverHold, ToggleHeightHold) and its fields set (HeightM ...)
@@ -56,7 +56,7 @@ public static class DevAutopilot
                     var pi = m.GetType().GetProperty(a[2], Inst); if (pi == null || !pi.CanWrite) return "no writable " + a[2] + " on " + m.GetType().Name;
                     object v = pi.PropertyType == typeof(bool) ? (object)(a[3] == "1" || a[3].Equals("true", StringComparison.OrdinalIgnoreCase) || a[3] == "on")
                         : pi.PropertyType == typeof(float) ? float.Parse(a[3], CI) : pi.PropertyType == typeof(double) ? double.Parse(a[3], CI)
-                        : pi.PropertyType == typeof(int) ? (object)int.Parse(a[3], CI) : a[3];
+                        : pi.PropertyType == typeof(int) ? (object)int.Parse(a[3], CI) : pi.PropertyType.IsEnum ? Enum.Parse(pi.PropertyType, a[3], true) : a[3];
                     UiThread.Post(() => { try { pi.SetValue(m, v); Status = $"set {m.GetType().Name}.{a[2]} = {v}"; } catch (Exception e) { Status = "set: " + (e.InnerException ?? e).Message; } });
                     return $"setting {m.GetType().Name}.{a[2]} = {v}";
                 }

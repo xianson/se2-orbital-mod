@@ -26,6 +26,9 @@ public static partial class DevHarness
                 });
             }
 
+            case "worldload":   // worldload <save folder>: exit to the main menu, then load that save, in this process (the world-switch check; DevWorldSwitch)
+                return DevWorldSwitch.Load(session, a.Length > 1 ? string.Join(" ", a, 1, a.Length - 1) : null);
+
             case "appanel":   // appanel open|select [n]|press METHOD|set MEMBER VALUE [Model]|report|close: the Autopilot block's real control panel (DevAutopilot)
                 return DevAutopilot.Panel(session, a);
 

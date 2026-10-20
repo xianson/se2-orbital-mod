@@ -136,7 +136,7 @@ aeroflames allocs atmohills bigs blockhealth breakblocks buildmenu burn camdiag 
 debugdraw debugpanel devbtn devfar dialog encounters fakevel flightdump floaters fps framedv freegrids front gc gen gotosite gps
 gpsat gravity gridup gridvel hide hidesectors hinge hsfold kick lagstop lagtest look lookat mapcamon mapclick mapdiag
 mapview meshrebuild nearcenter npcrel numdialog perf planets porkchop proxyring radarpanel seats sectors sectorvis selrock starproxy
-starscale stow sun targets tp turntest ui unified view warpbill warphere. (`flightdump` is used by the aero mod's
+starscale stow sun targets tp turntest ui unified view warpbill warphere worldload. (`flightdump` is used by the aero mod's
 tools/flightdump.sh.)
 
 ## Dev keys (`key <name>`: `MapInput.DevKeys`, consumed where the real key is read)

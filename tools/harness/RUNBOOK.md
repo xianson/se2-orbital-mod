@@ -134,6 +134,11 @@ the log audit. Under 5 minutes; nobody else using the game.
 4. In A: Escape -> Load (quick load of the same world, the path that worked before): it must load too.
 5. Fly a few seconds in A (aero forces, the Orbital map opens): the reloaded copies run.
 
+**Scripted** (no hands): the harness verb `worldload <save folder>` does steps 2-3 as the menus do (the in-game menu's
+`IGameApp.Disconnect`, then after `DevWorldSwitch.DelaySeconds` (12 s) the main menu's `IGameApp.LoadGame` with that save):
+launch into A, `worldload <B>`, wait for B's harness, `worldload <A>`, wait, then the audit below. Under 5 minutes once the
+game's caches are warm.
+
 **Verdict** (no game needed): `bash tools/harness/test_integrate.sh --audit-log` (the newest log; or pass it). PASS:
 
 ```

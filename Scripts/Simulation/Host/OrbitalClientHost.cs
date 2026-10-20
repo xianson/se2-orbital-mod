@@ -43,6 +43,9 @@ public static class OrbitalClientHost
     /// <summary>Diagnostics: frames run by the host / by a planet's fallback; the last failure.</summary>
     public static long HostFrames, FallbackFrames;
     public static string Status = "not ticked";
+    /// <summary>One of this mod's own en-US text keys (Assets/Texts/en-US/OrbitalMod.loc-texts): missing - the texts are read again
+    /// (Ui/ModTexts.cs: the game reads them only at start-up, before a world's mods load).</summary>
+    public const string ModTextsProbe = "OrbitalModTexts_Probe";
     static long _hostAt;
 
     internal static void Frame(Session session, bool fromHost)
@@ -57,6 +60,7 @@ public static class OrbitalClientHost
             if (!OrbitalSettings.SawClient) OrbitalSettings.SawClient = true;
             OrbitalSettings.Poll();   // (the settings files, every ~2 s)
             SettingsTab.Tick(session);   // (the Options screen's Mods tab, Ui/SettingsTab.cs: a timestamp compare; 4 Hz a UI-thread check)
+            ModTexts.Tick(session, ModTextsProbe);   // (the mod's en-US texts into the game's table, once a session - Ui/ModTexts.cs)
         }
         catch (Exception e)
         {

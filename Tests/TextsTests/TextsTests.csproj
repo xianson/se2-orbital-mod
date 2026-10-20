@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The mod's texts (Program.cs): every key the game looks up for this mod is in Assets/Texts/en-US/OrbitalMod.loc-texts -
+       its panels' [Label] / [Group] / [Button] keys (read as source), the blocks' names and descriptions in their definitions,
+       and the probe Ui/ModTexts.cs reads the texts in by. -->
+</Project>

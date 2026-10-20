@@ -336,8 +336,9 @@ structure failures (aero's event queue, section 12) as one toast. See each folde
   a section per mod: `docs/API.md` Settings), rows generated from the registry by the engine-free `SettingsModel` (basic
   shown, advanced collapsed, hidden left out; a slider's edit applies once it holds still), reset per group, lock and
   refusal reasons, the world-unsaved hint. `SettingsTab.Tick` (from `FrameHost.Tick`, a timestamp compare) posts
-  `UiTick` to the UI thread every 250 ms. Written once here; `tools/sync_settings_ui.sh "<aero mod>"` copies the shared
-  files into the Aerodynamics Mod (namespace line rewritten), `tools/check_contract.sh` checks the copies.
+  `UiTick` to the UI thread every 250 ms. The shared files are written once in the Aerodynamics
+  Mod's `tools/shared/modsrc/files/` and copied into both mods by its `sync.sh` (namespace line rewritten; here
+  `tools/sync_settings_ui.sh "<aero mod>"` wraps it); `tools/check_contract.sh` checks both copies.
 - **Core/Persistence** (`FramePersistence`, `FrameRegistrySnapshot`, `FrameSnapshot`): the game uses
   `FramePersistence.Capture` and `IsValidElements`; the XML round trip is exercised only by `Tests/PersistenceTests`.
 

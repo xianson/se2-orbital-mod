@@ -1,8 +1,9 @@
 # Ui/ - the in-game settings menu (client)
 
 The Options screen's **Mods** tab (pause menu -> Settings -> Mods), generated from the settings registry
-(`Host/OrbitalSettings*.cs`). Written once here; `tools/sync_settings_ui.sh "../Aerodynamics Mod"` copies the shared files
-into the Aerodynamics Mod (only the namespace line differs) and `tools/check_contract.sh` checks the copies.
+(`Host/OrbitalSettings*.cs`). The shared files are COPIES: written once in the Aerodynamics Mod's
+`tools/shared/modsrc/files/`, whose `sync.sh` writes them into both mods (only the namespace line differs; here
+`tools/sync_settings_ui.sh "../Aerodynamics Mod"` wraps it) and `tools/check_contract.sh` checks both. Edit them there, not here.
 
 | File | What | Shared |
 |---|---|---|

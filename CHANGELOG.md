@@ -4,6 +4,13 @@ What changed for players and for modders. Claims come from the commits (hashes o
 nothing here was flown in game for this release (the one-run in-game check, `tools/harness/test_integrate.sh`, is
 written but has not been run).
 
+## Unreleased
+
+- **For modders / developers:** the shared settings menu (`Ui/AvaloniaReflect.cs`, `SettingsModel.cs`, `SettingsTab.cs`,
+  `Tests/SettingsUiTests/Program.cs`) is now written once in the Aerodynamics Mod's `tools/shared/modsrc/files/` (beside
+  ModCheck and Publish) and copied into both mods by its `sync.sh`; `tools/sync_settings_ui.sh` wraps it,
+  `tools/check_contract.sh` checks both copies. Edit there, not here. No change in game.
+
 ## 1.0.3 (2026-10-19) - works on SE2 4.0
 
 Ported to Space Engineers 2 **4.0.0.3151** (from 2.4.0.95; 4.0 only from this version on). Checked in game on 4.0 with

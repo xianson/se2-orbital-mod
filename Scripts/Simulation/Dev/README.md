@@ -15,5 +15,7 @@ Runs only when `%TEMP%\OrbitalMod\dev.flag` exists (`OrbitalConfig.DevHarness`).
   its client side after the answer goes in `GridGen.Then`, and the poll finishes it (and holds the file's later lines) once
   the server ran it - `ServerAsks`, `Tests/HarnessTests`. Polled reads (findgrids, nearcenter, seat, thrust) answer from what
   the server step publishes: `ServerFrames.ViewValues` (id, name, place, dynamic, mass), `ServerFrames.GridPositions`.
-  Spawning (`gen spawn|measure|add`, `testship`, GridGen's client tick) is the measured exception: it works only from here.
-  `Tests/SceneTests` (section 4) checks it from source.
+  Spawning too (`gen spawn|measure|add`, `testship`, the hinge heads and their blocks): on the server thread, staged and
+  async (IEntitySpawner.SpawnBundleAsync; GridGen finds the new grid by its name a tick later) - a synchronous spawn from
+  here raced the server's tick and crashed the game, one inside the server's job failed ("Data not found"), 2026-10-19/20.
+  `Tests/SceneTests` (section 4) checks it from source: no synchronous spawn in Dev/, every SpawnBundleAsync on the server thread.

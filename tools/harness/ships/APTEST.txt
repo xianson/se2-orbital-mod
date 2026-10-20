@@ -1,0 +1,36 @@
+# APTEST - THE AUTOPILOT TEST SHIP (2026-10-20). One 2.5 m armour core, a charged 2.5 m battery, a gyroscope, a control
+# seat (toolbar, seatid), the aero mod's Autopilot (Large, 1 m), two 1.5 m atmospheric thrusters pushing each of the six
+# ways (hover, cruise, six-axis; exhausts and intakes clear of the ship), and a 2.5 m hinge carrying a subgrid - an armour
+# cube and an interior turret on the hinge head (the Enemy switch's subgrid check: both grids NPC-owned, and back).
+# 21 blocks + 3 on the head's grid, 19.2 t, 574 kN of lift (TWR 3). Every block meets its neighbours on mount faces
+# (built and checked by build_aptest.py - the aero gridgen's measured boxes and mounts), so it spawns whole.
+#   cp tools/harness/ships/APTEST.txt %TEMP%/OrbitalMod/gen/   then   gen spawn APTEST.txt   (a second copy beside it:
+#   gen spawn APTEST.txt name=APLEAD right=40)   gen whole -> WHOLE ... ; findgrids APTEST
+name APTEST
+ahead 40
+up 30
+static 0
+B 2eacbbf2-d8fb-4a78-91dc-7b492517ef97 0 0 0 Forward Up   # ArmorCubeLight250
+B b22450b6-ad1d-4902-a768-f54adb49516f -10 0 0 Forward Up charge=1   # Battery250
+B 2eacbbf2-d8fb-4a78-91dc-7b492517ef97 10 0 0 Forward Up   # ArmorCubeLight250
+B 2eacbbf2-d8fb-4a78-91dc-7b492517ef97 0 0 -10 Forward Up   # ArmorCubeLight250
+B 2eacbbf2-d8fb-4a78-91dc-7b492517ef97 0 0 10 Forward Up   # ArmorCubeLight250
+B 2eacbbf2-d8fb-4a78-91dc-7b492517ef97 0 -10 0 Forward Up   # ArmorCubeLight250
+B 2eacbbf2-d8fb-4a78-91dc-7b492517ef97 0 10 -10 Forward Up   # ArmorCubeLight250
+B a029b001-36b5-4508-b05b-0223662d91a5 0 7 0 Forward Up   # ControlSeat250
+B 8342bb99-8e28-4f14-a2c1-22620b8d3e4f 10 10 0 Forward Up   # Hinge250
+B 4465b025-4193-407f-9a2e-b04f0e51271c 0 10 10 Forward Up   # Gyroscope250
+B ae200001-ae00-a901-0011-000000000001 -17 1 1 Forward Up   # Autopilot_Large
+B 90c41d51-8ec6-4409-8c15-7faab87d804c 8 -14 0 Up Backward   # AtmosphericThruster250
+B 90c41d51-8ec6-4409-8c15-7faab87d804c -8 -14 0 Up Backward   # AtmosphericThruster250
+B 90c41d51-8ec6-4409-8c15-7faab87d804c 8 10 -11 Down Forward   # AtmosphericThruster250
+B 90c41d51-8ec6-4409-8c15-7faab87d804c -8 10 -11 Down Forward   # AtmosphericThruster250
+B 90c41d51-8ec6-4409-8c15-7faab87d804c 8 0 12 Forward Up   # AtmosphericThruster250
+B 90c41d51-8ec6-4409-8c15-7faab87d804c -8 0 12 Forward Up   # AtmosphericThruster250
+B 90c41d51-8ec6-4409-8c15-7faab87d804c 8 0 -12 Backward Up   # AtmosphericThruster250
+B 90c41d51-8ec6-4409-8c15-7faab87d804c -8 0 -12 Backward Up   # AtmosphericThruster250
+B 90c41d51-8ec6-4409-8c15-7faab87d804c 0 -10 -8 Right Up   # AtmosphericThruster250
+B 90c41d51-8ec6-4409-8c15-7faab87d804c 0 -10 8 Left Up   # AtmosphericThruster250
+H 8 -10 10
+F 0 2eacbbf2-d8fb-4a78-91dc-7b492517ef97 0 10 0 Forward Up   # ArmorCubeLight250 (on the hinge head's grid)
+F 0 5ac58356-45bf-4d3a-b082-5300d9c354fa 0 18 0 Forward Up   # InteriorTurret150 (on the hinge head's grid)

@@ -10,6 +10,8 @@ using Keen.Game2.Simulation.WorldObjects.CubeBlocks.MechanicalBlocks;
 using Keen.VRage.Core.Game.Components;
 using Keen.VRage.Library.Mathematics;
 using Keen.Game2.Simulation.GameSystems.Ownership;
+using Keen.Game2.Simulation.WorldObjects.CubeBlocks.ResourceDistribution.Resources;
+using Keen.Game2.Simulation.WorldObjects.CubeGrids;
 
 namespace OrbitalMod;
 
@@ -24,12 +26,24 @@ namespace OrbitalMod;
 ///   name TEXT              the grid's name
 ///   ahead M / up M         where: metres ahead of / above the camera (default 120 / 0)
 ///   static 1               spawn static (else dynamic)
-///   B PREFAB X Y Z FWD UP  a block of the main grid (PREFAB: the block's server prefab Guid)
+///   B PREFAB X Y Z FWD UP [charge=F]  a block of the main grid (PREFAB: the block's server prefab Guid; charge: a battery's
+///                          stored energy, 0..1)
 ///   H INDEX MIN MAX        block INDEX (0-based among the B lines) is a hinge: spawn its head; limits in degrees
 ///   F HINGE PREFAB X Y Z FWD UP   a flap block on hinge number HINGE's head grid (its frame: the head at 0 0 0)
 ///
-/// gen spawn FILE | gen status | gen clear | gen measure FILE (each Guid line: a lone block 30 m apart, static)
-/// | gen report (their mass and cell bounds -> %TEMP%\OrbitalMod\gen\catalog.txt)
+/// gen spawn FILE [name=N] [ahead=M] [up=M] [right=M] (the overrides: a second copy beside the first) | gen whole [N] (grid N
+/// whole? its blocks against the spec's, any piece split off, its hinges' heads) | gen status | gen clear | gen measure FILE
+/// (each Guid line: a lone block 30 m apart) | gen report (their mass and cell bounds -> %TEMP%\OrbitalMod\gen\catalog.txt)
+///
+/// THE SPAWN (2026-10-20): on the SERVER thread, STAGED and async (IEntitySpawner.SpawnBundleAsync - as DevTestShip,
+/// WarmBerths and the game's encounters), every block's owner set in its builder; the grid is found by its name and place a
+/// tick or more later (Adopt), then its hinges get their heads (HingeComponent.RequestSpawnTop - the game's own path, on the
+/// server thread as its terminal action runs it) and their flap blocks (GridBuilder.AddBlockToGrid, the server thread). It
+/// used to be GridBuilder.BuildOne (a synchronous SpawnEntity) from the harness's CLIENT frame, with the heads and flaps from
+/// the client tick: a race with the server's tick on its entity storage - DevTestShip's 2026-10-19 crashes ("Concurrent
+/// access (write) GetOrAddArchetype", a native crash in HavokSessionComponent.OnRigidBodyAdded), and a hinge ship that took the
+/// game down in the harness. A grid that comes out in pieces is a SPEC whose blocks do not meet on mount faces (the game splits
+/// a grid by connectivity - H25L's "H25L_Split", 2026-10-20): `gen whole` says so.
 /// </summary>
 public static class GridGen
 {
@@ -37,6 +51,11 @@ public static class GridGen
     static readonly List<Entity> _spawned = new List<Entity>();
     static readonly List<Hinge> _hinges = new List<Hinge>();
     static readonly List<(Guid prefab, Entity grid)> _measured = new List<(Guid, Entity)>();
+    /// <summary>A spawn asked, its grid not found yet (server thread only): found by its name near where it was put (Adopt).</summary>
+    sealed class Pending { public string Name; public Vector3D At; public List<Hinge> Hinges; public int Blocks; public Guid Measure; public long Until; }
+    static readonly List<Pending> _adopt = new List<Pending>();
+    /// <summary>Each spawned grid's name and its spec's block count (gen whole).</summary>
+    static readonly Dictionary<Entity, (string name, int blocks)> _specOf = new Dictionary<Entity, (string, int)>();
     public static string Status = "none";
     static readonly System.Globalization.CultureInfo CI = System.Globalization.CultureInfo.InvariantCulture;
 
@@ -65,34 +84,33 @@ public static class GridGen
     /// <summary>Harness: <paramref name="work"/> queued for the server thread (ServerAsks.Pending); or why not.</summary>
     internal static string OnServerThread(Func<string> work) => ServerTicking ? RunOnServer(work) : "not run: the server thread is not ticking (paused, loading, or no planet beacon)";
 
-    /// <summary>Server thread (ServerPlanetBeacon's job): queued hinge/steer commands, the hinges held.</summary>
+    /// <summary>Server thread (ServerPlanetBeacon's job): queued commands, new grids adopted, hinge heads and flaps grown, the
+    /// hinges held.</summary>
     public static void ServerTick()
     {
         System.Threading.Volatile.Write(ref _serverTickAt, System.Diagnostics.Stopwatch.GetTimestamp());
         ServerAsks.Drain();
+        Adopt();
+        Tick();
         Hold();
         HingeRig.Tick();
     }
-
-    /// <summary>Client tick (the harness's thread): hinge heads spawned and flaps grown - as spawning, it works here.</summary>
-    public static void ClientTick() => Tick();
 
     public static string Command(Keen.VRage.Core.Game.Systems.Session client, WorldTransform camera, string[] a)
     {
         IdentityId me = default;
         try { me = client.Get<ClientPlayersSessionComponent>().LocalPlayerIdentity; } catch { }
-        // (where each runs, as measured: spawning inside the server's job fails - a new battery's inventory is not readable
-        //  there, "Data not found" - and works from here, the client thread, as DevTestShip always has; a hinge's
-        //  SetVelocity from here raced the server's entity storage and crashed the game - hinge and steering writes,
-        //  and the hold loop, run in the server's job)
+        // (where each runs: EVERYTHING that touches the server's entities, on the server's job. A hinge's SetVelocity from
+        //  here raced the server's entity storage and crashed the game; deleting from here raced its own access ("Concurrent
+        //  access", then a crash); and spawning from here - a synchronous SpawnEntity in the client's frame - raced it too
+        //  (the class header). A synchronous spawn INSIDE the server's job failed ("Data not found": a new battery's inventory,
+        //  the anchoring test): there the spawn is staged and async, as the game spawns its encounters.)
         string sub = a.Length > 1 ? a[1] : "status";
-        // (clear too: deleting from here raced the server's own access to those grids - "Concurrent access", then a crash;
-        //  the asteroid frames delete from the server's job the same way)
         if (sub == "hold" || sub == "free" || sub == "steer" || sub == "clear") return RunOnServer(() => CommandOnServer(me, camera, a));
-        // (and the reads of the server's grids - a body, a transform, blocks, hinges, the aero readout, a mass: from here they
-        //  were the cross-scene read the game's DataGuard asserts on - the 2026-10-15 scene audit. Spawning and growing blocks
-        //  stay here, as measured above.)
-        if (sub == "rate" || sub == "dump" || sub == "probe" || sub == "aero" || sub == "hinges" || sub == "report" || sub == "air" && !(a.Length > 2 && a[2] == "off"))
+        // (the reads of the server's grids - a body, a transform, blocks, hinges, the aero readout, a mass: from here they were
+        //  the cross-scene read the game's DataGuard asserts on, the 2026-10-15 scene audit - and the spawns)
+        if (sub == "rate" || sub == "dump" || sub == "probe" || sub == "aero" || sub == "hinges" || sub == "report" || sub == "whole"
+            || sub == "spawn" || sub == "measure" || sub == "add" || sub == "air" && !(a.Length > 2 && a[2] == "off"))
             return OnServerThread(() => CommandOnServer(me, camera, a));
         return CommandOnServer(me, camera, a);
     }
@@ -104,7 +122,8 @@ public static class GridGen
         {
             switch (sub)
             {
-                case "spawn": return a.Length > 2 ? Spawn(me, camera, Path.IsPathRooted(a[2]) ? a[2] : Path.Combine(Dir, a[2])) : "gen spawn FILE";
+                case "spawn": return a.Length > 2 ? Spawn(me, camera, Path.IsPathRooted(a[2]) ? a[2] : Path.Combine(Dir, a[2]), a) : "gen spawn FILE [name=N] [ahead=M] [up=M] [right=M]";
+                case "whole": return Whole(a);
                 case "clear": return Clear();
                 case "measure": return a.Length > 2 ? Measure(camera, Path.IsPathRooted(a[2]) ? a[2] : Path.Combine(Dir, a[2])) : "gen measure FILE";
                 case "report": return Report();
@@ -162,7 +181,11 @@ public static class GridGen
                 case "free":
                     foreach (var h in _hinges) { h.Target = float.NaN; h.Entity?.TryGet<HingeComponent>()?.SetVelocity(0f); }
                     return "free";
-                default: return Status + $" | grids {string.Join(",", _spawned.Select(IdOf))}; hinges " + string.Join(" ", _hinges.Select((h, i) => $"#{i}:{(h.Done ? "flap ok" : h.Spawned ? "head..." : "pending")}{(h.Why != "" ? " " + h.Why : "")}"));
+                default:
+                    // (the lists are the server thread's: copies - a status line, no read of a grid; a change mid-copy: ask again)
+                    try { return Status + $" | grids {string.Join(",", _spawned.ToArray().Select(IdOf))}{(_adopt.Count > 0 ? $" ({_adopt.Count} spawning)" : "")}; hinges " + string.Join(" ", _hinges.ToArray().Select((h, i) => $"#{i}:{(h.Done ? "flap ok" : h.Spawned ? "head..." : "pending")}{(h.Why != "" ? " " + h.Why : "")}")); }
+                    catch (ArgumentException) { return Status + " (the lists changed - ask again)"; }
+                    catch (InvalidOperationException) { return Status + " (the lists changed - ask again)"; }
             }
         }
         catch (Exception e) { var x = e.InnerException ?? e; return "gen failed: " + x.Message + " @ " + string.Join(" < ", (x.StackTrace ?? "").Split((char)10).Take(4).Select(l => l.Trim())); }
@@ -173,13 +196,15 @@ public static class GridGen
 
     static Vector3I Cell(string x, string y, string z) => new Vector3I(int.Parse(x, CI), int.Parse(y, CI), int.Parse(z, CI));
 
-    static string Spawn(IdentityId me, WorldTransform camera, string file)
+    static string Spawn(IdentityId me, WorldTransform camera, string file, string[] args)
     {
         var server = ServerPlanetBeacon.ServerSession;
         if (server == null) return "no server session";
+        var spawner = server.Get<Keen.VRage.Core.Game.Systems.IEntitySpawner>();
+        if (spawner == null) return "no spawner";
         if (!File.Exists(file)) return "no file " + file;
-        string name = Path.GetFileNameWithoutExtension(file); double ahead = 120, up = 0; bool isStatic = false;
-        var blocks = new List<(Guid p, Vector3I at, IntegerOrientation o)>();
+        string name = Path.GetFileNameWithoutExtension(file); double ahead = 120, up = 0, right = 0; bool isStatic = false;
+        var blocks = new List<(Guid p, Vector3I at, IntegerOrientation o, double charge)>();
         var hinges = new List<Hinge>();
         foreach (var raw in File.ReadAllLines(file))
         {
@@ -192,40 +217,157 @@ public static class GridGen
                 case "ahead": ahead = double.Parse(t[1], CI); break;
                 case "up": up = double.Parse(t[1], CI); break;
                 case "static": isStatic = t[1] != "0"; break;
-                case "B": blocks.Add((Guid.Parse(t[1]), Cell(t[2], t[3], t[4]), Orient(t[5], t[6]))); break;
+                case "B":
+                {
+                    double charge = -1;
+                    for (int k = 7; k < t.Length; k++) if (t[k].StartsWith("charge=")) charge = Math.Clamp(double.Parse(t[k].Substring(7), CI), 0, 1);
+                    blocks.Add((Guid.Parse(t[1]), Cell(t[2], t[3], t[4]), Orient(t[5], t[6]), charge));
+                    break;
+                }
                 case "H": hinges.Add(new Hinge { Block = int.Parse(t[1], CI), Min = float.Parse(t[2], CI), Max = float.Parse(t[3], CI) }); break;
                 case "F": hinges[int.Parse(t[1], CI)].Flap.Add((Guid.Parse(t[2]), Cell(t[3], t[4], t[5]), Orient(t[6], t[7]))); break;
+            }
+        }
+        // (the command line's overrides: the same spec spawned twice, the second beside the first - the follow test's leader)
+        for (int k = 3; k < args.Length; k++)
+        {
+            var kv = args[k].Split('=', 2);
+            if (kv.Length != 2) continue;
+            switch (kv[0])
+            {
+                case "name": name = kv[1]; break;
+                case "ahead": ahead = double.Parse(kv[1], CI); break;
+                case "up": up = double.Parse(kv[1], CI); break;
+                case "right": right = double.Parse(kv[1], CI); break;
             }
         }
         if (blocks.Count == 0) return "no blocks in " + file;
         var gb = new GridBuilder(server);
         gb.SetName(name); gb.SetDebugName(name);
         gb.SetMotionType(isStatic ? Keen.VRage.Physics.Data.BodyArgs.Motion.Static : Keen.VRage.Physics.Data.BodyArgs.Motion.Dynamic);
-        Vector3D fwd = (QuaternionD)camera.Orientation * Vector3D.Forward, upv = (QuaternionD)camera.Orientation * Vector3D.Up;
-        gb.SetTransform(new WorldTransform(camera.Position + fwd * ahead + upv * up, camera.Orientation));
+        Vector3D fwd = (QuaternionD)camera.Orientation * Vector3D.Forward, upv = (QuaternionD)camera.Orientation * Vector3D.Up, rv = (QuaternionD)camera.Orientation * Vector3D.Right;
+        var at0 = camera.Position + fwd * ahead + upv * up + rv * right;
+        gb.SetTransform(new WorldTransform(at0, camera.Orientation));
         gb.SetOwner(me);
-        int missing = 0;
-        foreach (var (p, at, o) in blocks)
+        int missing = 0, charged = 0;
+        foreach (var (p, at, o, charge) in blocks)
         {
             if (!DefinitionManager.Instance.TryGetDefinition(p, out PrefabDefinition pd) || pd == null) { missing++; continue; }
-            gb.AddBlock(at, o, pd);
+            var b = pd.Get();
+            var bo = b.TryGetOB<OwnershipComponent, OwnershipObjectBuilder>();   // (a block's own owner, if it has one: yours)
+            if (bo != null) bo.Owner = me;
+            if (charge >= 0)
+            {
+                var rc = b.TryGetOB<ResourceContainerComponent, ResourceContainerObjectBuilder>();
+                if (rc != null) { rc.CurrentChargeLevel = (Keen.VRage.Library.Mathematics.FixedPoint)charge; charged++; }
+            }
+            gb.AddBlock(at, o, b);
         }
-        var e = gb.BuildOne();
-        if (e == null) return "nothing spawned";
-        _spawned.Add(e);
-        // the hinges: the main grid's children in the order added (missing prefabs shift it - none allowed with hinges)
-        if (hinges.Count > 0 && missing == 0)
+        var bundle = new Keen.VRage.Core.Game.Systems.EntityBundle();
+        bundle.Add(gb.CompileObjectBuilder(), null, true);
+        spawner.SpawnBundleAsync(new Keen.VRage.Core.Game.Systems.GameEntitySerializer.BundleInitArgs { Bundle = bundle });
+        // (the hinges: the grid's children in the order added - missing prefabs shift it, so none with hinges)
+        _adopt.Add(new Pending
         {
-            var kids = e.TryGet<HierarchyComponent>()?.Children;
-            foreach (var h in hinges)
+            Name = name, At = at0, Hinges = missing == 0 ? hinges : new List<Hinge>(), Blocks = blocks.Count - missing,
+            Until = System.Diagnostics.Stopwatch.GetTimestamp() + 15 * System.Diagnostics.Stopwatch.Frequency,
+        });
+        Status = $"spawning '{name}' (async): {blocks.Count - missing} blocks{(missing > 0 ? $" ({missing} unknown prefabs{(hinges.Count > 0 ? ": no hinges" : "")})" : "")}, {hinges.Count} hinges{(charged > 0 ? $", {charged} charged" : "")}";
+        return Status;
+    }
+
+    /// <summary>Server tick: the grids spawned async found - by name, near where they were put, none already known.</summary>
+    static void Adopt()
+    {
+        if (_adopt.Count == 0) return;
+        var server = ServerPlanetBeacon.ServerSession;
+        if (server == null) return;
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        for (int i = _adopt.Count - 1; i >= 0; i--)
+        {
+            var p = _adopt[i];
+            Entity found = null;
+            foreach (var e in server.GetEntitiesOfType<CubeGridComponent>())
+            {
+                if (_specOf.ContainsKey(e)) continue;
+                string n;
+                try { n = e.TryGet<CubeGridComponent>()?.DisplayName.EvaluateText(); } catch { continue; }
+                if (n != p.Name || (e.Data.GetWorldTransform().Position - p.At).LengthSquared() > 100.0 * 100.0) continue;
+                found = e; break;
+            }
+            if (found == null)
+            {
+                if (now > p.Until) { Status = $"'{p.Name}': never appeared (15 s after its spawn)"; _adopt.RemoveAt(i); }
+                continue;
+            }
+            _adopt.RemoveAt(i);
+            _specOf[found] = (p.Name, p.Blocks);
+            if (p.Measure != Guid.Empty) { _measured.Add((p.Measure, found)); continue; }
+            _spawned.Add(found);
+            var kids = found.TryGet<HierarchyComponent>()?.Children;
+            foreach (var h in p.Hinges)
             {
                 h.Entity = kids != null && h.Block < kids.Count ? kids[h.Block] : null;
                 if (h.Entity?.TryGet<HingeComponent>() == null) { h.Why = "block " + h.Block + " is not a hinge"; continue; }
                 _hinges.Add(h);
             }
+            Status = $"spawned '{p.Name}': grid {IdOf(found)}, {kids?.Count ?? 0} of {p.Blocks} blocks on it, {p.Hinges.Count} hinges";
         }
-        Status = $"spawned '{name}': {blocks.Count - missing} blocks{(missing > 0 ? $" ({missing} unknown prefabs)" : "")}, {hinges.Count} hinges";
-        return Status;
+    }
+
+    /// <summary>gen whole [N]: is spawned grid N (default: every one) WHOLE - the spec's blocks all on its grid, no piece split
+    /// off (the game splits a grid whose blocks do not meet on mount faces into "&lt;name&gt;_Split" grids), each hinge's head grid
+    /// with its flap blocks. Server thread.</summary>
+    static string Whole(string[] a)
+    {
+        var server = ServerPlanetBeacon.ServerSession;
+        if (server == null) return "no server session";
+        var list = a.Length > 2 && int.TryParse(a[2], out int n)
+            ? (n >= 0 && n < _spawned.Count ? new List<Entity> { _spawned[n] } : new List<Entity>())
+            : new List<Entity>(_spawned);
+        if (list.Count == 0) return _adopt.Count > 0 ? $"still spawning ({_adopt.Count})" : "nothing spawned";
+        var parts = new List<string>();
+        bool all = true;
+        foreach (var e in list)
+        try
+        {
+            var (name, want) = _specOf.TryGetValue(e, out var sp) ? sp : ("?", -1);
+            bool alive = e.Data.Scene != null && e.TryGet<CubeGridComponent>() != null;
+            int have = alive ? e.TryGet<HierarchyComponent>()?.Children?.Count ?? 0 : 0;
+            var at = alive ? e.Data.GetWorldTransform().Position : default;
+            var splits = new List<string>();
+            if (alive)
+                foreach (var g in server.GetEntitiesOfType<CubeGridComponent>())
+                {
+                    if (g == e) continue;
+                    string gn;
+                    try { gn = g.TryGet<CubeGridComponent>()?.DisplayName.EvaluateText() ?? ""; } catch { continue; }
+                    if (gn.StartsWith(name + "_Split") && (g.Data.GetWorldTransform().Position - at).LengthSquared() < 200.0 * 200.0)
+                        splits.Add($"{gn} ({g.TryGet<HierarchyComponent>()?.Children?.Count ?? 0} blocks)");
+                }
+            var heads = new List<string>();
+            foreach (var h in _hinges)
+            {
+                if (h.Entity == null || GridOfBlock(e, h.Entity) == null) continue;
+                var head = h.Entity.TryGet<HingeComponent>()?.ConnectedEntity;
+                var hg = head != null ? GridOf(head) : null;
+                int hb = hg?.TryGet<HierarchyComponent>()?.Children?.Count ?? 0;
+                all &= hg != null && hb == 1 + h.Flap.Count;
+                heads.Add($"hinge {h.Block}: {(hg == null ? "no head" : $"head grid {IdOf(hg)}, {hb} of {1 + h.Flap.Count} blocks")}{(h.Why != "" ? " " + h.Why : "")}");
+            }
+            all &= alive && have == want && splits.Count == 0;
+            parts.Add($"'{name}' grid {IdOf(e)}: {(alive ? $"{have} of {want} blocks" : "GONE")}{(splits.Count > 0 ? "; split off: " + string.Join(", ", splits) : "")}{(heads.Count > 0 ? "; " + string.Join("; ", heads) : "")}");
+        }
+        catch (Exception x) { all = false; parts.Add("a grid gone or unreadable: " + x.Message); }
+        return (all ? "WHOLE " : "NOT WHOLE ") + string.Join(" || ", parts);
+    }
+
+    /// <summary>Grid g when the block entity is one of its children (else null).</summary>
+    static Entity GridOfBlock(Entity g, Entity block)
+    {
+        var kids = g.TryGet<HierarchyComponent>()?.Children;
+        if (kids != null) foreach (var k in kids) if (k == block) return g;
+        return null;
     }
 
     /// <summary>Server tick: every held hinge toward its target (P control), error and swing recorded.</summary>
@@ -266,7 +408,8 @@ public static class GridGen
         return $"#{i} {(h.Done ? "flap" : "...")}{lim}{(h.Why != "" ? " " + h.Why : "")} angle {ang} vel {hc?.Velocity:F3} working {hc?.Entity?.TryGet<FunctionalBlockComponent>()?.Working}{(float.IsNaN(h.Target) ? " free" : $" target {h.Target * 180f / MathF.PI:F1}°")}{st}";
     }
 
-    /// <summary>Server tick: hinge heads spawned one tick after their grid, flaps grown once the head is connected.</summary>
+    /// <summary>Server tick: hinge heads spawned once their grid is adopted, flaps grown once the head is connected (the server
+    /// thread, as the game's own terminal action and block placer run them).</summary>
     static void Tick()
     {
         if (_hinges.Count == 0) return;
@@ -410,7 +553,7 @@ public static class GridGen
         foreach (var h in _hinges) { var head = h.Entity?.TryGet<HingeComponent>()?.ConnectedEntity; var g = head != null ? GridOf(head) : null; if (g != null) try { spawner?.DeleteEntity(g); n++; } catch { } }
         foreach (var e in _spawned) try { spawner?.DeleteEntity(e); n++; } catch { }
         foreach (var (_, e) in _measured) try { spawner?.DeleteEntity(e); n++; } catch { }
-        _spawned.Clear(); _hinges.Clear(); _measured.Clear();
+        _spawned.Clear(); _hinges.Clear(); _measured.Clear(); _adopt.Clear(); _specOf.Clear();
         Status = $"cleared {n} grids";
         return Status;
     }
@@ -451,11 +594,14 @@ public static class GridGen
         return $"mounts: {n} prefabs, {bad} failed -> gen/mounts.txt";
     }
 
-    /// <summary>Each prefab Guid in the file (first token of a line) as a lone static block, 30 m apart.</summary>
+    /// <summary>Each prefab Guid in the file (first token of a line) as a lone block, 30 m apart (server thread, staged async as
+    /// a spawn; each found by its name a tick later - 'gen report' after a second).</summary>
     static string Measure(WorldTransform camera, string file)
     {
         var server = ServerPlanetBeacon.ServerSession;
         if (server == null) return "no server session";
+        var spawner = server.Get<Keen.VRage.Core.Game.Systems.IEntitySpawner>();
+        if (spawner == null) return "no spawner";
         Vector3D fwd = (QuaternionD)camera.Orientation * Vector3D.Forward, right = (QuaternionD)camera.Orientation * Vector3D.Right;
         int k = 0, bad = 0;
         foreach (var raw in File.ReadAllLines(file))
@@ -464,13 +610,24 @@ public static class GridGen
             if (line.Length == 0 || !Guid.TryParse(line.Split(' ')[0], out var g)) continue;
             if (!DefinitionManager.Instance.TryGetDefinition(g, out PrefabDefinition pd) || pd == null) { bad++; continue; }
             var gb = new GridBuilder(server);
+            string name = "gen-measure-" + k.ToString(CI);
+            gb.SetName(name); gb.SetDebugName(name);
             gb.SetMotionType(Keen.VRage.Physics.Data.BodyArgs.Motion.Dynamic);
-            gb.SetTransform(new WorldTransform(camera.Position + fwd * 300 + right * (30 * (k++ % 20)) + (QuaternionD)camera.Orientation * Vector3D.Up * (30 * (k / 20)), camera.Orientation));
+            var at = camera.Position + fwd * 300 + right * (30 * (k % 20)) + (QuaternionD)camera.Orientation * Vector3D.Up * (30 * (k / 20));
+            k++;
+            gb.SetTransform(new WorldTransform(at, camera.Orientation));
             gb.AddBlock(Vector3I.Zero, IntegerOrientation.Identity, pd);
-            var e = gb.BuildOne();
-            if (e != null) _measured.Add((g, e)); else bad++;
+            var bundle = new Keen.VRage.Core.Game.Systems.EntityBundle();
+            bundle.Add(gb.CompileObjectBuilder(), null, true);
+            try { spawner.SpawnBundleAsync(new Keen.VRage.Core.Game.Systems.GameEntitySerializer.BundleInitArgs { Bundle = bundle }); }
+            catch { bad++; continue; }
+            _adopt.Add(new Pending
+            {
+                Name = name, At = at, Hinges = new List<Hinge>(), Blocks = 1, Measure = g,
+                Until = System.Diagnostics.Stopwatch.GetTimestamp() + 15 * System.Diagnostics.Stopwatch.Frequency,
+            });
         }
-        return Status = $"measuring {_measured.Count} blocks ({bad} failed): 'gen report' after a second";
+        return Status = $"measuring {k} blocks ({bad} failed): 'gen report' after a second";
     }
 
     /// <summary>A world grid (findgrids' id), server copy.</summary>

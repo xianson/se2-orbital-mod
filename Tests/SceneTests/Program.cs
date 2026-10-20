@@ -17,8 +17,11 @@
 //    entities, the server's sensor blocks, a helper that reads them - happens on the server thread: inside a GridGen
 //    OnServerThread / RunOnServer call, in a method only the server thread runs (its entry points listed below; a method
 //    every caller of which is such a place counts as one), in a `gen` verb GridGen.Command sends there, or in a loop that
-//    keeps to the caller's own scene first. Spawning (GridGen's measured exception) is listed with why. (2026-10-15: the
-//    harness's leftover cross-scene reads - findgrids, exitcheck, seat, thrust, cam grid, ... - the DataGuard class.)
+//    keeps to the caller's own scene first. (2026-10-15: the harness's leftover cross-scene reads - findgrids, exitcheck,
+//    seat, thrust, cam grid, ... - the DataGuard class.) Spawning too, since 2026-10-20: staged and async on the server
+//    thread (IEntitySpawner.SpawnBundleAsync); no synchronous spawn (GridBuilder.BuildOne, IEntitySpawner.SpawnEntity /
+//    SpawnBundle) anywhere in the harness - from the client's frame it raced the server's tick and crashed the game, inside
+//    the server's job it failed ("Data not found").
 // 6. THE CLIENT'S SESSION TICK (2026-10-19): the client's session-level work (the settings files' poll, SawClient, the
 //    Options screen's Mods tab) is called from OrbitalClientHost.Frame only - the render camera's job (injected for the game's
 //    CameraComponent), planet or no planet; the planets' FrameHost.Tick only as its fallback. (It ran from the client
@@ -68,13 +71,11 @@ static class Program
     static readonly string[] OnServerCalls = { "OnServerThread", "RunOnServer", "OnServer" };
     /// <summary>Dev methods the server thread calls (from ServerFrames / ServerPlanetBeacon / GridGen.ServerTick).</summary>
     static readonly string[] ServerEntries = { "DevFlight.ServerTick", "DevFlight.ServerCommandTick", "DevReentry.ServerTick", "DevReentry.Expect", "DevStress.Tick", "GridGen.ServerTick", "HingeRig.Tick" };
-    /// <summary>Spawning and growing blocks: measured to work only from the client thread (GridGen.Command's notes: a new
-    /// battery's inventory is not readable inside the server's job, "Data not found").</summary>
-    static readonly Dictionary<string, string> SpawnPath = new()
-    {
-        ["GridGen.Tick"] = "the client tick: hinge heads spawned and flaps grown (GridBuilder.AddBlockToGrid), as spawning works there",
-        ["GridGen.AddTo"] = "gen add: blocks grown on a grid as the flaps are (GridBuilder.AddBlockToGrid)",
-    };
+    /// <summary>Client-thread exceptions to the rule (none since 2026-10-20: GridGen's spawns, hinge heads and flaps, gen add and
+    /// gen measure moved to the server thread - the client-frame spawns raced the server's tick, the class header).</summary>
+    static readonly Dictionary<string, string> SpawnPath = new();
+    /// <summary>A synchronous spawn: never in the harness (see the header, 4).</summary>
+    static readonly Regex SyncSpawn = new(@"\.BuildOne\(\)|\.SpawnEntity\(|\.SpawnBundle\(");
     /// <summary>Helpers outside Dev/ (or taking a server entity as a parameter) that read server entities.</summary>
     static readonly string[] ServerHelpers = { "StationKeepCharge.Describe", "EntryDamage.Damaged", "EntryDamage.Health", "EncounterFrames.Describe", "WarmBerths.Clear", "SensorBlocks.Describe", "Contacts.Command", "WarpBill.Describe", "ServerFrames.StaticAnchorOf", "GridGen.AeroReadout" };
     static readonly string[] PhysicsReads = { "Position", "TryPosition", "Velocity", "Mass", "IsDynamic", "IsDynamicNow", "ThrustDv", "IsConstrained", "MoveSet", "SetVelocity", "AddVelocity", "SetPosition", "Rotate", "Unmanage" };
@@ -208,6 +209,23 @@ static class Program
             Check(Ok(node), $"{rel(f)}:{line}: {MethodKey(node)} reads '{what}' (a server entity) off the server thread");
         }
         Check(hits.Count >= 40, $"harness: server-entity reads found ({hits.Count})");
+        // (spawns: staged and async on the server thread only - GridGen.Spawn / Measure, DevTestShip, DevStress)
+        int asyncSpawns = 0;
+        foreach (var (f, root) in trees)
+        {
+            foreach (var inv in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
+            {
+                string t = Regex.Replace(inv.Expression.ToString(), @"\s+", "") + "(";
+                int line = inv.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
+                Check(!SyncSpawn.IsMatch(t + (t.EndsWith("BuildOne(") ? ")" : "")), $"{rel(f)}:{line}: {MethodKey(inv)} spawns synchronously ({t}) - stage it: SpawnBundleAsync on the server thread");
+                if (t.EndsWith(".SpawnBundleAsync("))
+                {
+                    asyncSpawns++;
+                    Check(Ok(inv), $"{rel(f)}:{line}: {MethodKey(inv)} spawns (SpawnBundleAsync) off the server thread");
+                }
+            }
+        }
+        Check(asyncSpawns >= 4, $"harness: the staged spawns found ({asyncSpawns}: GridGen.Spawn / Measure, DevTestShip, DevStress)");
         Check(onServer >= 25, $"harness: reads inside OnServerThread / RunOnServer found ({onServer})");
     }
 

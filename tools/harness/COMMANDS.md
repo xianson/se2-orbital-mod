@@ -139,6 +139,21 @@ mapview meshrebuild nearcenter npcrel numdialog perf planets porkchop proxyring 
 starscale stow sun targets tp turntest ui unified view warpbill warphere worldload. (`flightdump` is used by the aero mod's
 tools/flightdump.sh.)
 
+## Generated ships (`gen`, Dev/GridGen.cs)
+
+A spec (a text file of blocks - GridGen.cs's header) in `%TEMP%\OrbitalMod\gen\`, spawned in front of the camera:
+`gen spawn FILE [name=N] [ahead=M] [up=M] [right=M]` (the overrides spawn a second copy beside the first), then
+`gen whole` - `WHOLE` when every spec block is on the grid, nothing split off and each hinge head carries its blocks, else
+`NOT WHOLE` with the count and the `<name>_Split` pieces (blocks that do not meet on mount faces: the spec's fault).
+`gen status`, `gen clear`, `findgrids <name>` for its id. Spawns run on the server thread, staged and async: the grid is
+there a tick or two after the answer ("spawning ... (async)"; `gen status` then says "spawned ... grid <id>").
+
+Specs kept in this repo (`tools/harness/ships/`; copy one into the gen folder to spawn it):
+
+| spec | what | built by |
+|---|---|---|
+| `APTEST.txt` | the autopilot test ship: seat, Autopilot (Large), battery, gyro, two atmospheric thrusters each way, a hinge with an armour cube and an interior turret on its head (the Enemy switch's subgrid) - 21 + 3 blocks, 19 t | `build_aptest.py` (checks overlaps, mount-face joins, exhaust lanes) |
+
 ## Dev keys (`key <name>`: `MapInput.DevKeys`, consumed where the real key is read)
 
 | key | read in (Orbital) | scripts |

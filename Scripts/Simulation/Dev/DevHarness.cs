@@ -82,7 +82,6 @@ public static partial class DevHarness
                          FrameHost.PlayerPosition);
         }
         catch (Exception e) { SpecCam.Status = "error " + e.Message; }
-        GridGen.ClientTick(); // (DEV: generated grids - hinge heads spawned and flaps grown, here as spawning works here)
         try { _clientGravityMultiplier = session.Get<Keen.VRage.Physics.IPhysics>().GravityMultiplier; } catch { }
         // (a command file waiting on the server thread: finished the frame its answer is in - ServerAsks; the status then, as
         //  the scripts read it a second after the file is taken)

@@ -100,7 +100,9 @@ worldreset_audit() {
 # (A mod pushed with the engine at start - e.g. by -globalProjectDirs - is never unloaded by a world change: 0 unloads is fine.)
 worldswitch_audit() {
     awk '
-      function mod(s) { if (s ~ /Aerodynamics Mod/) return "Aerodynamics Mod"; if (s ~ /Orbital Mod/) return "Orbital Mod"; return "" }
+      # (the mod NAMED by the line - "Pushing / Unloading Project <mod> ", "[<mod>.Simulation]": the $Bundles of a push line name
+      #  every mod loaded - the Orbital Mod push was counted for the Aerodynamics Mod, 2026-10-20)
+      function mod(s) { if (match(s, /(Project |\[)(Aerodynamics Mod|Orbital Mod)( |\.Simulation\])/)) { t = substr(s, RSTART, RLENGTH); return t ~ /Aerodynamics Mod/ ? "Aerodynamics Mod" : "Orbital Mod" } return "" }
       /\[Project Manager\] Pushing Project (Aerodynamics Mod|Orbital Mod) / { m = mod($0); push[m]++; if (wait[m]) { miss[m]++; wait[m] = 0 } next }
       /\[Project Manager\] Unloading Project (Aerodynamics Mod|Orbital Mod) / { m = mod($0); unl[m]++; wait[m] = 1; next }
       /\.Simulation\] world switch: watching/ { watch[mod($0)]++; next }

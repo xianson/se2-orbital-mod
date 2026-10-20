@@ -102,7 +102,12 @@ public partial class ServerPlanetBeacon : Component, IInSceneListener
 
     /// <summary>Load: the saved orbital state (frames, clock, HighSpeed conics). See <see cref="SavedState"/>.</summary>
     [Keen.VRage.DCS.Annotations.Init]
-    private void InitState(Keen.Game2.Simulation.GameSystems.EntityNameSessionComponentObjectBuilder ob) { OrbitalSettings.Load(ob); SavedState.OnLoaded(ob); }
+    private void InitState(Keen.Game2.Simulation.GameSystems.EntityNameSessionComponentObjectBuilder ob)
+    {
+        OrbitalWorldBody.EnsureHooks();
+        OrbitalSettings.Load(ob, WorldCarriers.Kind.Planet, OrbitalWorldBody.SessionOf(Entity));   // (a body's copy wins: Save/WorldCarriers.cs)
+        SavedState.OnLoaded(ob);
+    }
 
     /// <summary>Save: every planet writes the same global state (the first one read on load wins).</summary>
     [Keen.VRage.DCS.Annotations.Serializer]
@@ -114,7 +119,8 @@ public partial class ServerPlanetBeacon : Component, IInSceneListener
         //  session, and IsServer was false for every grid in it - nothing framed)
         ServerSession = Entity.GetSession();
         WorldReset.ServerSession(ServerSession);   // (another world's session, its unload not seen: the last world's statics dropped)
-        OrbitalSettings.BeaconAdded();   // (the world's settings: the host's overrides file, the server side seen)
+        OrbitalWorldBody.EnsureHooks();
+        OrbitalSettings.CarrierAdded(ServerSession);   // (the world's settings: the host's overrides file, the server side seen)
         _beacon = new PlanetBeacon
         {
             Center = Entity.Data.GetWorldTransform().Position,
@@ -144,10 +150,13 @@ public partial class ServerPlanetBeacon : Component, IInSceneListener
     void IInSceneListener.OnBeforeRemovedFromScene()
     {
         AsteroidBridge.Restore();   // the session ends: shared definitions get their densities back
-        OrbitalSettings.BeaconRemoved();   // (the last one: world settings back to defaults for the next world)
         if (_beacon != null) PlanetBeacons.Remove(_beacon);
         _beacon = null;
-        if (PlanetBeacons.Count == 0) WorldReset.Unloaded();   // (the last planet: every per-world static dropped)
+        // (the last carrier - planet or player's body - while the session unloads: world settings back to defaults, then
+        //  WorldReset.Unloaded - every per-world static dropped; Save/WorldCarriers.cs, OrbitalWorldBody.Hooks. It was the last
+        //  PLANET: a world with none never reset)
+        var s = OrbitalWorldBody.SessionOf(Entity);
+        OrbitalSettings.CarrierRemoved(s, s == null || s.IsUnloading);
     }
 
     internal static string Fmt(Vector3D v) => $"({v.X / 1000:F1}, {v.Y / 1000:F1}, {v.Z / 1000:F1}) km";

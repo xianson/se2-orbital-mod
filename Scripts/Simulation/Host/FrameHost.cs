@@ -143,9 +143,7 @@ public static partial class FrameHost
         TickRate.Client.Count();
         PlanetRenderBridge.CameraPos = camera.Position;
         if (!ReferenceEquals(session, _session)) { _session = session; WorldReset.ClientSession(); }
-        if (!OrbitalSettings.SawClient) OrbitalSettings.SawClient = true;
-        OrbitalSettings.Poll();   // (the settings files, every ~2 s)
-        SettingsTab.Tick(session);   // (the Options screen's Mods tab, Ui/SettingsTab.cs: a timestamp compare; 4 Hz a UI-thread check)
+        OrbitalClientHost.Frame(session, fromHost: false);   // (the settings and the Mods tab: the camera's job runs them - planet or none; this only if it has not)
         if (!SystemHost.Built)
         {
             try

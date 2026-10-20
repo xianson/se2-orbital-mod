@@ -5,6 +5,7 @@
   <ItemGroup>
     <Compile Include="$(MSBuildThisFileDirectory)..\..\Scripts\Simulation\Host\OrbitalSettings.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)..\..\Scripts\Simulation\Host\OrbitalSettings.Store.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)..\..\Scripts\Simulation\Save\WorldCarriers.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)..\..\Scripts\Simulation\Ui\SettingsModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)..\..\Scripts\Simulation\Ui\SettingsTab.Mod.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)..\SettingsTests\Mirrors.cs" />

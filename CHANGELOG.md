@@ -6,6 +6,11 @@ written but has not been run).
 
 ## Unreleased
 
+- **Fixed: the Orbital Mod in a world with no planet** (space only, the Empty World): its section on Options > Mods never
+  appeared (the menu ran from the planets), and its world settings were never saved (they were kept only on the planets).
+  The menu now runs from the camera; the players' character and spectator carry the world settings too (older saves
+  still load from the planets; a body's copy wins where both exist).
+
 - **For modders / developers:** the shared settings menu (`Ui/AvaloniaReflect.cs`, `SettingsModel.cs`, `SettingsTab.cs`,
   `Tests/SettingsUiTests/Program.cs`) is now written once in the Aerodynamics Mod's `tools/shared/modsrc/files/` (beside
   ModCheck and Publish) and copied into both mods by its `sync.sh`; `tools/sync_settings_ui.sh` wraps it,

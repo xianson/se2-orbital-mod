@@ -19,6 +19,13 @@
 //    every caller of which is such a place counts as one), in a `gen` verb GridGen.Command sends there, or in a loop that
 //    keeps to the caller's own scene first. Spawning (GridGen's measured exception) is listed with why. (2026-10-15: the
 //    harness's leftover cross-scene reads - findgrids, exitcheck, seat, thrust, cam grid, ... - the DataGuard class.)
+// 6. THE CLIENT'S SESSION TICK (2026-10-19): the client's session-level work (the settings files' poll, SawClient, the
+//    Options screen's Mods tab) is called from OrbitalClientHost.Frame only - the render camera's job (injected for the game's
+//    CameraComponent), planet or no planet; the planets' FrameHost.Tick only as its fallback. (It ran from the client
+//    planets only: a world with no planet showed no Orbital section.)
+// 7. THE WORLD'S CARRIERS (2026-10-19): the world's settings ride on the players' SERVER bodies too (OrbitalWorldBody: the
+//    character and spectator server compositions, a fixed id, the engine's builder); the world's end (WorldReset.Unloaded) is
+//    WorldCarriers' (Save/WorldCarriers.cs: the last carrier while its session unloads) - never "the last planet left".
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -293,6 +300,48 @@ static class Program
             Check(!m.Success, $"{Rel(f)}: no blocking wait in the harness ({(m.Success ? "'" + m.Value + "'" : "none")}) - queue it (ServerAsks)");
         }
         Check(devFiles >= 10, $"harness: Dev/ files found ({devFiles})");
+
+        // ── 6. the client's session tick (2026-10-19): from the render camera, planet or none ──
+        static string Code(SyntaxNode n) => string.Concat(n.DescendantTokens().Select(t => t.Text));
+        string Src(string rel) => File.ReadAllText(Path.Combine(sim, rel));
+        var hostFrame = trees.ContainsKey(Path.Combine(sim, "Host", "OrbitalClientHost.cs")) ? Method("Host/OrbitalClientHost.cs", "Frame") : null;
+        string hostCode = hostFrame == null ? "" : Code(hostFrame);
+        foreach (var call in new[] { "OrbitalSettings.Poll(", "SettingsTab.Tick(", "OrbitalSettings.SawClient=true" })
+        {
+            Check(hostCode.Contains(call), $"OrbitalClientHost.Frame: calls {call}..)");
+            foreach (var (f, root) in trees)
+            {
+                string rel = Rel(f);
+                // (elsewhere only the server's own poll - the frames' server tick - and the store itself)
+                if (rel == "Host/OrbitalClientHost.cs" || rel.StartsWith("Host/OrbitalSettings") || rel.StartsWith("Ui/") || (call == "OrbitalSettings.Poll(" && rel == "Server/ServerFrames.cs")) continue;
+                Check(!Code(root).Contains(call), $"{rel}: no {call}..) of its own (the client's session tick owns it: OrbitalClientHost.Frame)");
+            }
+        }
+        var tick = Method("Host/FrameHost.cs", "Tick");
+        Check(tick != null && Code(tick).Contains("OrbitalClientHost.Frame(session,fromHost:false)"), "FrameHost.Tick: the session tick's fallback only");
+        string inj = Src("Injection/PlanetInjector.cs");
+        Check(Regex.IsMatch(inj, @"typeof\(Keen\.Game2\.Client\.GameSystems\.CameraSystems\.CameraComponent\)\) isRenderCamera = true[\s\S]*Add\(prefab, typeof\(OrbitalClientHostComponent\)\)"),
+            "PlanetInjector: OrbitalClientHostComponent into the render camera's prefab (CameraComponent)");
+
+        // ── 7. the world's carriers (2026-10-19): a planetless world saves its settings and ends ──
+        Check(Regex.IsMatch(inj, @"typeof\(Keen\.Game2\.Simulation\.WorldObjects\.Characters\.CharacterMovementServerComponent\)[\s\S]*typeof\(Keen\.Game2\.Simulation\.WorldObjects\.Spectators\.ServerSpectatorComponent\)\) isServerBody = true"),
+            "PlanetInjector: the server bodies found by server-only types (CharacterMovementServerComponent, ServerSpectatorComponent)");
+        Check(Regex.IsMatch(inj, @"Type = typeof\(OrbitalWorldBody\),\s*ComponentId = OrbitalWorldBody\.Id,\s*ObjectBuilder = new Keen\.Game2\.Simulation\.GameSystems\.EntityNameSessionComponentObjectBuilder\(\)"),
+            "PlanetInjector: the body carrier with its fixed id and the engine's builder");
+        string bodySrc = Src("Server/OrbitalWorldBody.cs");
+        Check(bodySrc.Contains("Id = new System.Guid(\"0a7b17a1-5eed-4f00-8a11-0000000000b2\")") && inj.Contains("new System.Guid(\"0a7b17a1-5eed-4f00-8a11-0000000000b1\")"), "the fixed ids: the beacon ...b1 (older saves), the body ...b2");
+        Check(Regex.IsMatch(bodySrc, @"OrbitalSettings\.Save\(ob, RootOf\(Entity\)\)"), "OrbitalWorldBody: its key points at the body's root (an entity the save holds)");
+        foreach (var (f, root) in trees)
+        {
+            string rel = Rel(f);
+            if (rel == "Server/OrbitalWorldBody.cs" || rel == "Host/WorldReset.cs") continue;
+            Check(!Code(root).Contains("WorldReset.Unloaded("), $"{rel}: no WorldReset.Unloaded(..) of its own (the world's end is WorldCarriers': planetless worlds too)");
+        }
+        var hooks = Method("Server/OrbitalWorldBody.cs", "Hooks");
+        Check(hooks != null && Code(hooks).Contains("WorldReset.Unloaded("), "OrbitalWorldBody.Hooks: WorldReset.Unloaded at the world's end");
+        var removed = trees[Path.Combine(sim, "Server", "ServerPlanetBeacon.cs")].DescendantNodes().OfType<MethodDeclarationSyntax>().FirstOrDefault(m => m.Identifier.Text == "OnBeforeRemovedFromScene");
+        Check(removed != null && Code(removed).Contains("OrbitalSettings.CarrierRemoved(") && !Code(removed).Contains("PlanetBeacons.Count==0"), "ServerPlanetBeacon: leaves through the carriers (not the last planet's count)");
+        Check(Regex.IsMatch(Src("Host/OrbitalSettings.Store.cs"), @"new WorldCarriers\("), "OrbitalSettings: the world's text and end through WorldCarriers");
 
         Console.WriteLine(_fails == 0 ? $"SceneTests: {_checks}/{_checks} passed" : $"SceneTests: {_fails} of {_checks} FAILED");
         return _fails == 0 ? 0 : 1;

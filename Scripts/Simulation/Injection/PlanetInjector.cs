@@ -40,6 +40,8 @@ public class InjectPlanetComponents : Injections
         bool isClientPlanet = false;
         bool isClientVolume = false;
         bool isThruster = false, isPowerable = false;
+        bool isServerBody = false, hasBodyCarrier = false;   // (a player's server character or spectator: the world's settings)
+        bool isRenderCamera = false, hasClientHost = false;   // (the client's render camera: the client's session tick)
         foreach (var type in prefab.Composition.Types)
         {
             if (type == typeof(Keen.Game2.Simulation.WorldObjects.CubeBlocks.Movement.ThrusterComponent)) isThruster = true;
@@ -48,6 +50,34 @@ public class InjectPlanetComponents : Injections
             if (type == typeof(PlanetEnvironmentRenderComponent)) isClientPlanet = true;
             if (type == typeof(Keen.Game2.Client.GameSystems.Render.ProceduralVolumeRenderComponent)) isClientVolume = true;
             if (type == typeof(Keen.Game2.Simulation.WorldObjects.CubeGrids.CubeGridComponent)) isServerGrid = true;
+            if (type == typeof(Keen.Game2.Simulation.WorldObjects.Characters.CharacterMovementServerComponent)
+                || type == typeof(Keen.Game2.Simulation.WorldObjects.Spectators.ServerSpectatorComponent)) isServerBody = true;
+            if (type == typeof(OrbitalWorldBody)) hasBodyCarrier = true;   // (a composition two prefabs share: once)
+            if (type == typeof(Keen.Game2.Client.GameSystems.CameraSystems.CameraComponent)) isRenderCamera = true;
+            if (type == typeof(OrbitalClientHostComponent)) hasClientHost = true;
+        }
+
+        if (isServerBody && !hasBodyCarrier)
+        {
+            // (2026-10-19, planetless worlds: a space-only save holds only the players' bodies - the world's settings ride on
+            //  them too; the SERVER compositions only (those two types are in no client one), a fixed id and the engine's
+            //  builder as the beacon - Server/OrbitalWorldBody.cs)
+            Add(prefab, new Keen.VRage.DCS.Builders.EntityBuilder.ComponentBuildInfo
+            {
+                Type = typeof(OrbitalWorldBody),
+                ComponentId = OrbitalWorldBody.Id,
+                ObjectBuilder = new Keen.Game2.Simulation.GameSystems.EntityNameSessionComponentObjectBuilder(),
+            });
+            Log.Default?.Info($"[ORBIT] server body prefab '{prefab.DebugName}' +OrbitalWorldBody (world settings carrier)");
+        }
+
+        if (isRenderCamera && !hasClientHost)
+        {
+            // (2026-10-19: the client scene's one camera entity - there with no planet, no grid, on foot, in spectator; the
+            //  settings menu, the files' poll run from it - Host/OrbitalClientHost.cs. They ran from the client planets only:
+            //  in a world with no planet the Orbital Mod alone showed no section on Options > Mods)
+            Add(prefab, typeof(OrbitalClientHostComponent));
+            Log.Default?.Info($"[ORBIT] camera prefab '{prefab.DebugName}' +OrbitalClientHostComponent");
         }
 
         if (isServerPlanet)

@@ -218,46 +218,64 @@ public static partial class OrbitalSettings
         return n;
     }
 
-    // ── the world save (ServerPlanetBeacon's builder) ──
+    // ── the world save (the carriers: ServerPlanetBeacon on the server planets, OrbitalWorldBody on the players' server
+    //    bodies - Save/WorldCarriers.cs decides which text is applied and when the world is over) ──
 
     internal const string SaveKey = "settings:";
-    static int _beacons;
-    static bool _worldApplied;
 
-    /// <summary>A server planet loaded with its saved builder: the world's settings (the first non-empty one wins).</summary>
-    internal static void Load(EntityNameSessionComponentObjectBuilder ob)
+    /// <summary>The world's settings carriers (2026-10-19: planetless worlds - the bodies carry the text too; a body's text
+    /// wins over a planet's; the world's end is its last carrier leaving while the session unloads, or another session).</summary>
+    internal static readonly WorldCarriers Carriers = new WorldCarriers(
+        (text, kind) => WorldLoaded(text),
+        (why, unloading) => { Log.Default?.Info($"[ORBIT] world settings reset: {why}"); WorldDefaults(); WorldHooks?.Invoke(unloading); },
+        () => _worldUnsaved);
+
+    /// <summary>The world's end beyond the settings (set by the game side: WorldReset.Unloaded at the unload - OrbitalWorldBody.Hooks).</summary>
+    internal static Action<bool> WorldHooks;
+
+    /// <summary>A carrier's [Init]: its saved key (the first `settings:` one) to the carriers. `session`: null if not known yet.</summary>
+    internal static void Load(EntityNameSessionComponentObjectBuilder ob, WorldCarriers.Kind kind, object session)
     {
-        if (_worldApplied || ob?.NamedEntities == null) return;
+        if (ob?.NamedEntities == null) return;
         foreach (var kv in ob.NamedEntities)
         {
-            if (!kv.Key.StartsWith(SaveKey)) continue;
-            _worldApplied = true;
-            ResetScope("world");
-            int n = Apply(kv.Key.Substring(SaveKey.Length), "world");
-            _worldUnsaved = false;   // (what the save holds)
-            Log.Default?.Info($"[ORBIT] world settings loaded: {n}");
-            _worldFileAt = DateTime.MinValue;   // (the host's overrides again, over the save)
+            if (kv.Key == null || !kv.Key.StartsWith(SaveKey) || kv.Key.Length == SaveKey.Length) continue;
+            Carriers.Read(kv.Key.Substring(SaveKey.Length), kind, session);
             return;
         }
     }
 
-    /// <summary>Save: the world settings off their default, as one key (the planet itself as the value: one must exist).</summary>
-    internal static void Save(EntityNameSessionComponentObjectBuilder ob, Entity self)
+    /// <summary>The world's settings from a saved text (Carriers picks which; the host's overrides re-read over it).</summary>
+    internal static void WorldLoaded(string text)
     {
-        string text = Text("world", false);
-        if (self != null) _worldUnsaved = false;   // (written now, or all at their defaults: nothing to write)
-        if (text.Length == 0 || self == null) return;
-        ob.NamedEntities ??= new Dictionary<string, Entity>();
-        ob.NamedEntities[SaveKey + text] = self;
+        if (string.IsNullOrEmpty(text)) return;
+        ResetScope("world");
+        int n = Apply(text, "world");
+        _worldUnsaved = false;   // (what the save holds)
+        Log.Default?.Info($"[ORBIT] world settings loaded: {n}");
+        _worldFileAt = DateTime.MinValue;   // (the host's overrides again, over the save)
     }
 
-    internal static void BeaconAdded() { SawServer = true; System.Threading.Interlocked.Increment(ref _beacons); Poll(true); }
-
-    /// <summary>The last beacon gone (the world unloaded): world settings back to defaults for the next world.</summary>
-    internal static void BeaconRemoved()
+    /// <summary>Save: the world settings off their default, as one key -&gt; `value` (an entity the save holds: the planet, a
+    /// body's root; one must exist).</summary>
+    internal static void Save(EntityNameSessionComponentObjectBuilder ob, Entity value)
     {
-        if (System.Threading.Interlocked.Decrement(ref _beacons) > 0) return;
-        _worldApplied = false;
+        string text = Text("world", false);
+        if (value != null) _worldUnsaved = false;   // (written now, or all at their defaults: nothing to write)
+        if (text.Length == 0 || value == null) return;
+        ob.NamedEntities ??= new Dictionary<string, Entity>();
+        ob.NamedEntities[SaveKey + text] = value;
+    }
+
+    /// <summary>A carrier joined its session's scene (the server side is here).</summary>
+    internal static void CarrierAdded(object session) { SawServer = true; Carriers.Added(session); Poll(true); }
+
+    /// <summary>A carrier leaves its session's scene; the last one while the session unloads ends the world (Carriers).</summary>
+    internal static void CarrierRemoved(object session, bool unloading) => Carriers.Removed(session, unloading);
+
+    /// <summary>The world is over: world settings back to defaults for the next world.</summary>
+    internal static void WorldDefaults()
+    {
         ResetScope("world");
         _worldFileAt = DateTime.MinValue;
         _forced = null; _worldUnsaved = false;   // (the next world applies the host file again)

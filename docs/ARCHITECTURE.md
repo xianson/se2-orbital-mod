@@ -188,9 +188,10 @@ after render submission begins) for each planet. Under `PlanetRenderBridge.Lock`
 
 `FrameHost.Tick` (the first planet job of a frame does the work: `SystemHost.AdvanceClock` returns dt <= 0 for the rest):
 
-1. Session change (`NewSession`, through `WorldReset.ClientSession`: the client half of the world reset), the settings tab's
-   timestamp check (`SettingsTab.Tick`, section 10), `OrbitalSettings.Poll`, `SystemHost.EnsureBuilt`,
-   `SystemHost.AdvanceClock`.
+1. Session change (`NewSession`, through `WorldReset.ClientSession`: the client half of the world reset), the client's
+   session tick's fallback (`OrbitalClientHost.Frame(fromHost: false)`: the settings poll and the settings tab, section 10 -
+   run by the render camera's job, `Host/OrbitalClientHost.cs`, planet or none; here only while that has not ticked for 1 s),
+   `SystemHost.EnsureBuilt`, `SystemHost.AdvanceClock`.
 2. A fresh `PlayerState` (`_cur`, Core/Frames) built every tick and published whole (`_pub`, volatile) at the end.
 3. On foot, under `FramesLock`: settle a teleport, apply a loaded save (`SavedState.TryApply`), the server's requests
    (`ApplyServerRequests`: arrival, merge, shift), leave / join checks (`PlayerOrbit`), then `UpdatePlayerFrame`
@@ -324,7 +325,10 @@ structure failures (aero's event queue, section 12) as one toast. See each folde
   `FrameRegistry.RestoreFrame`.
 - **Settings.** `OrbitalSettings` (`Host/`: the registry - each setting's field, range, description and menu metadata,
   registration order = screen order; `OrbitalSettings.Store.cs`: the API, the text, the world save, the files):
-  world-scope values (saved with the world under `settings:`, only those off their default; host overrides in
+  world-scope values (saved with the world under `settings:`, only those off their default - on the server planets'
+  beacon and, since 2026-10-19, on the players' server bodies, `Server/OrbitalWorldBody.cs`: a world with no planet;
+  which text a load applies and when a world is over is `Save/WorldCarriers.cs`, shared with the Aerodynamics Mod: a
+  body's copy wins over a planet's, older saves load from the planets; host overrides in
   `%APPDATA%\SpaceEngineers2\ModSettings\OrbitalMod.world.cfg` win - `IsForced`, refused by `Set`, dropped with the
   world) and client-scope values (`OrbitalMod.client.cfg`). `OrbitalSettings.Poll`: a `[ThreadStatic]` 1/4 s gate per
   thread, the shared 2 s due time, the file I/O on one background task; what it read is applied by the next tick's poll
@@ -335,7 +339,8 @@ structure failures (aero's event queue, section 12) as one toast. See each folde
 - **The settings menu** (`Ui/`): the Options screen's **Mods** tab, one tab for both mods (Tag contract `ModSettings/v1`,
   a section per mod: `docs/API.md` Settings), rows generated from the registry by the engine-free `SettingsModel` (basic
   shown, advanced collapsed, hidden left out; a slider's edit applies once it holds still), reset per group, lock and
-  refusal reasons, the world-unsaved hint. `SettingsTab.Tick` (from `FrameHost.Tick`, a timestamp compare) posts
+  refusal reasons, the world-unsaved hint. `SettingsTab.Tick` (from `OrbitalClientHost.Frame` - the render camera's job,
+  planet or none - a timestamp compare) posts
   `UiTick` to the UI thread every 250 ms. The shared files are written once in the Aerodynamics
   Mod's `tools/shared/modsrc/files/` and copied into both mods by its `sync.sh` (namespace line rewritten; here
   `tools/sync_settings_ui.sh "<aero mod>"` wraps it); `tools/check_contract.sh` checks both copies.
@@ -444,8 +449,9 @@ The 2026-10-15 list (CW in the comments, a 20 km frame size, `SunDriver` "off", 
 Statics outlive a world (the mod's assembly stays loaded from one world to the next), so state is dropped by one rule
 per lifetime, never by a reset of its own at each site:
 
-- **Per world: `Host/WorldReset`.** Run once per world change: the last server planet leaving the scene (`Unloaded`), or
-  a server planet joining in a session not the last world's with no unload seen (`ServerSession`). It drops `Built` (the
+- **Per world: `Host/WorldReset`.** Run once per world change: the last world-settings carrier (a server planet or a
+  player's server body) leaving the scene while its session unloads (`Unloaded`, through `Save/WorldCarriers.cs` - a
+  planetless world too), or a carrier joining in a session not the last world's with no unload seen (`ServerSession`). It drops `Built` (the
   server stops stepping the last world's frames), zeroes the universe clock and warp, resets the server tick's game
   clock and both `FrameClaim`s, runs the system's resets (`ResetSystem`, also run by every `SystemHost.Build`), and drops
   contacts, grid tombstones, the player cache and - at an unload only - the pending saved state (the next world's planets

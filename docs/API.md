@@ -328,7 +328,7 @@ What the API does **not** give yet, and why. Additions only; each would come as 
 
 Two scopes, the same design as the Aerodynamics Mod's settings:
 
-- **World** (the same for every player): saved **with the world**, next to the orbital state on the server planets (`ServerPlanetBeacon`'s `EntityNameSessionComponentObjectBuilder`, key `settings:`). Only values off their default are saved. A host or dedicated server can force values in `%APPDATA%\SpaceEngineers2\ModSettings\OrbitalMod.world.cfg`: uncommented lines win over the save. The mod writes that file, all commented out, the first time.
+- **World** (the same for every player): saved **with the world**, next to the orbital state on the server planets (`ServerPlanetBeacon`'s `EntityNameSessionComponentObjectBuilder`, key `settings:`) and, since 2026-10-19, on the players' server bodies - character and spectator (`OrbitalWorldBody`: a world with no planet); a body's copy wins over a planet's (older saves load from the planets). Only values off their default are saved. A host or dedicated server can force values in `%APPDATA%\SpaceEngineers2\ModSettings\OrbitalMod.world.cfg`: uncommented lines win over the save. The mod writes that file, all commented out, the first time.
 - **Client** (this PC): `%APPDATA%\SpaceEngineers2\ModSettings\OrbitalMod.client.cfg`, written with every setting and its description, and rewritten after a change through the API.
 
 Both files are read again within ~2 s of an edit, so they can be changed while playing. The format is `name = value`, `#` for comments, `true` / `false` for switches. Settings marked **reload** are read when the solar system is built: change them, then reload the world.

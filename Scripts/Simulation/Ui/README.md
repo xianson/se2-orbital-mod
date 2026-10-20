@@ -12,7 +12,8 @@ The Options screen's **Mods** tab (pause menu -> Settings -> Mods), generated fr
 | `AvaloniaReflect.cs` | Avalonia and the game's screens by reflection (types, properties, dispatcher, the open screen, Click). | yes |
 | `SettingsTab.Mod.cs` | This mod's adapter: its id and title, files, log tag, the registry's API. | no |
 
-**Entry points / threading.** `SettingsTab.Tick(session)` from `FrameHost.Tick` (any game thread, every frame: a timestamp
+**Entry points / threading.** `SettingsTab.Tick(session)` from `OrbitalClientHost.Frame` (the render camera's job, planet or
+none; `FrameHost.Tick` its fallback) (any game thread, every frame: a timestamp
 compare; every 250 ms it finds `SharedUIComponent` and posts `UiTick`). Everything else runs on Avalonia's UI thread: find
 the open `OptionsScreen`, attach once per screen instance, and while the tab is selected (~4 Hz) read the controls, `Set`
 through the registry, refresh on a `Version` change. Offline tests: `Tests/SettingsUiTests` (`-- dump` prints the menu).

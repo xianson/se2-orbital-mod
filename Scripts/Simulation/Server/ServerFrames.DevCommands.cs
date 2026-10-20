@@ -99,6 +99,7 @@ public static partial class ServerFrames
         if (double.IsNaN(rGround)) { rGround = def.RadiusMeters; over = "sea level"; }
         float speed = AeroCruiseSpeed(g, noseL, OrbitalMod.FlyTest.CruiseThrottle);
         if (!(speed > 1f) || float.IsInfinity(speed)) speed = OrbitalMod.FlyTest.FallbackSpeed;
+        if (OrbitalMod.FlyTest.SpeedOverride > 0f) speed = OrbitalMod.FlyTest.SpeedOverride;
         double r = rGround + OrbitalMod.FlyTest.AltitudeM;
         bool ok = FlyLevel(g, pos, cell, noseL, topL, r, speed, out var with);
         OrbitalMod.FlyTest.Status = Event2($"flytest: grid {id} '{g.DisplayName}' {OrbitalMod.FlyTest.AltitudeM:F0} m over {over}, level, {speed:F0} m/s ({(ok ? $"{with.Count} grid(s) with it" : "refused")})");

@@ -310,6 +310,7 @@ public static partial class FrameHost
         Guard("CrossingFade", static a => CrossingFade.Tick(a.Session), ta);
         Guard("Invariants", static a => Invariants.ClientCheck(), ta);
         Guard("DevTurn.ClientTick", static a => DevTurn.ClientTick(a.Session), ta);
+        Guard("DevAutopilot.ClientTick", static a => DevAutopilot.ClientTick(), ta);   // (DEV: apkeys)
         Guard("DevReentry.ClientTick", static a => DevReentry.ClientTick(a.Session, a.Camera), ta);
         Guard("AttitudeHold.ClientTick", static a => AttitudeHold.ClientTick(a.Session), ta);
         Guard("FlyTest.ClientTick", static a => FlyTest.ClientTick(a.Session), ta);   // (DEV: harness key flytest - 1 km, level, cruise)

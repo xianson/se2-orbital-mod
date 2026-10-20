@@ -26,6 +26,30 @@ public static partial class DevHarness
                 });
             }
 
+            case "appanel":   // appanel open|select [n]|press METHOD|set MEMBER VALUE [Model]|report|close: the Autopilot block's real control panel (DevAutopilot)
+                return DevAutopilot.Panel(session, a);
+
+            case "apkeys":   // apkeys MX MY MZ SECONDS [PITCH YAW ROLL deg/s]: a seated pilot's keys / steering on the seat grid (DevAutopilot)
+                return DevAutopilot.Keys(a);
+
+            case "apdiag":   // apdiag: the seat grid's pilot input as the aero autopilot reads it (DevAutopilot)
+                return DevAutopilot.Diag();
+
+            case "apreticle":   // apreticle: the seat grid's reticle set to the cockpit's attitude now (DevAutopilot)
+                return DevAutopilot.Reticle();
+
+            case "apstate":   // apstate <id>: the aero autopilot and flight state of a server grid (DevAutopilot)
+                return GridGen.OnServerThread(() => DevAutopilot.State((long)D(a[1])));
+
+            case "apblock":   // apblock on|off [n]: the server Autopilot blocks switched on / off (DevAutopilot)
+                return GridGen.OnServerThread(() => DevAutopilot.Block(a[1], a.Length > 2 ? (int)D(a[2]) : -1));
+
+            case "aerosetting":   // aerosetting NAME [VALUE]: the aero mod's setting read / set through AeroApi (DevAutopilot)
+                return DevAutopilot.Setting(a);
+
+            case "vmfind":   // vmfind TEXT [maxNodes]: paths in the top screen's view model holding TEXT (DevAutopilot)
+                return DevAutopilot.Find(session, a[1], a.Length > 2 ? (int)D(a[2]) : 30000);
+
             case "radarpanel":   // radarpanel open|select|report|power <0..1>|close: a radar's real control panel (the terminal)
                 return DevRadarPanel.Command(session, a.Length > 1 ? a[1] : "report", a.Length > 2 ? D(a[2]) : 0);
 

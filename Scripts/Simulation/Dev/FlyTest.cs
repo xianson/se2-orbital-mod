@@ -18,6 +18,8 @@ public static class FlyTest
 {
     public static double AltitudeM = 1000;
     public static float CruiseThrottle = 0.75f, FallbackSpeed = 150f;
+    /// <summary>DEV: fly at this speed instead of the cruise (m/s; 0: the cruise).</summary>
+    public static float SpeedOverride = 0f;
     public static string Status = "-";
 
     internal static void ClientTick(Keen.VRage.Core.Game.Systems.Session session)

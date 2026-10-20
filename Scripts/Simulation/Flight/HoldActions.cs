@@ -58,11 +58,21 @@ public static class HoldActions
     }
 
     static bool _hooked;
-    /// <summary>The toolbar resolves an action's model type by its full name alone: point it at this assembly.</summary>
+    static ResolveEventHandler _resolve;
+    /// <summary>The toolbar resolves an action's model type by its full name alone: point it at this assembly. Unhooked when
+    /// the game unloads this mod's project (ScriptResultsCleanup.OwnProjectUnloading, 2026-10-19): the first handler that
+    /// answers wins, so a stale copy's (world A's, still loaded) would answer for the next world's copy.</summary>
     public static void Hook()
     {
         if (_hooked) return; _hooked = true;
-        AppDomain.CurrentDomain.TypeResolve += (s, e) =>
-            e.Name == typeof(OrbitalHoldDetailModel).FullName ? typeof(OrbitalHoldDetailModel).Assembly : null;
+        _resolve = (s, e) => e.Name == typeof(OrbitalHoldDetailModel).FullName ? typeof(OrbitalHoldDetailModel).Assembly : null;
+        AppDomain.CurrentDomain.TypeResolve += _resolve;
+        ScriptResultsCleanup.OwnProjectUnloading += Unhook;
+    }
+
+    static void Unhook()
+    {
+        var r = _resolve; _resolve = null;
+        if (r != null) AppDomain.CurrentDomain.TypeResolve -= r;
     }
 }

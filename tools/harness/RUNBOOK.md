@@ -116,3 +116,42 @@ saved`; `Restored N > 0`; `LegacyClaimed 0 = 0`; both logs clean; `game still ru
 **After**: the game is left running in the test world, the overrides released and the changed blocks set back (that session
 only - the test world keeps the saved values; it is a copy). Close it if the user is not about to play, and restore
 `-start:`.
+
+## world switch - a second world load in the same game process (by hand + the log audit)
+
+The fix: `Reload/ScriptResultsCleanup*.cs` in both mods (each takes its own compiled entry out of the game's script results
+when the game unloads its project; without it the second load fails `Loading Failed ... An item with the same key has
+already been added. Key: Simulation`). No harness verb loads a world in-process, so the loads are by hand; the verdict is
+the log audit. Under 5 minutes; nobody else using the game.
+
+**Before**: both mods deployed from the fix branches, `tools/test_fast.sh` green in each; two worlds with both mods
+(A = Concordia Research Facility 7, B = any other, e.g. an `Orbital Test ...` copy); the dev overrides released.
+
+**Run** (one game process throughout - never restart between steps):
+1. Launch; load world **A** from the main menu (not `-start:`, so the menu path is the one tested). Wait for the HUD.
+2. Escape -> Exit to main menu. Load world **B**. It must load (no "Loading Failed" dialog).
+3. Escape -> Exit to main menu. Load world **A** again. It must load.
+4. In A: Escape -> Load (quick load of the same world, the path that worked before): it must load too.
+5. Fly a few seconds in A (aero forces, the Orbital map opens): the reloaded copies run.
+
+**Verdict** (no game needed): `bash tools/harness/test_integrate.sh --audit-log` (the newest log; or pass it). PASS:
+
+```
+== world switch audit: ...
+  Aerodynamics Mod: 3 push(es) / 3 watching, 2 unload(s) / 2 removed
+  Orbital Mod: 3 push(es) / 3 watching, 2 unload(s) / 2 removed
+  world switch audit: every load watched, every unload cleaned, no duplicate-key failure
+```
+
+(A mod pushed with the engine at start - the dev launch's `-globalProjectDirs` - shows `1 push(es) / 1 watching, 0
+unload(s)`: a world change never unloads it, nothing to clean.) Also by eye in the log: no `Key: Simulation`, no
+`world switch: off:` / `failed:` / `nothing removed`; each `[Project Manager] Unloading Project <mod>` followed by
+`[<mod>.Simulation] world switch: removed ...`. Live: `aeroget AeroMod.ScriptResultsCleanup.Status` /
+`OrbitalMod.ScriptResultsCleanup.Status`.
+
+| a FAIL | means |
+|---|---|
+| `N push(es) / 0 watching` | that mod's build predates the fix, or `Ensure` never ran (its injector's PostProcess) |
+| `off: <why>` | the game's fields moved (a game update): the fix is inert, the old failure is back - re-check the names in Tests/ReloadTests |
+| `unload(s) > removed` | the unload event fired without our project in it, or the handler failed (its line says why) |
+| the duplicate-key line | a mod without the fix in the load order (each mod cleans only its own entry), or the fix did not run |

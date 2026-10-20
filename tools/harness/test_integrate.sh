@@ -6,7 +6,8 @@
 # usage: test_integrate.sh               the run. REFUSES while a game is running (it may be the user's): KILL_GAME=1 closes it
 #                                        - only when nobody is playing. NOLAUNCH=1: the game already running, no launch.
 #        test_integrate.sh --release     only release every dev override in the running game (after a killed run)
-#        test_integrate.sh --audit-log [LOG]   the world-reset audit (one reset per world change) on a game log, the newest
+#        test_integrate.sh --audit-log [LOG]   the world-reset audit (one reset per world change) and the world-switch audit
+#                                        (each mod's script entry cleaned on unload, no 'Key: Simulation' failure) on a game log, the newest
 #                                        by default - no game needed: run it on the user's own log after they changed worlds
 # env: STRENGTH (1.5) ALT km (6) V m/s (300) WARP (10) WARPSECS (6) DEADLINE s (285)
 # The launch is the Steam one (launch.sh): the game's LAST world and the Steam launch options' mods. It must be the SSTO's
@@ -77,7 +78,8 @@ mark() { MARK=$(wc -l < "$L"); }
 
 case "$1" in
     --release) release; exit 0 ;;
-    --audit-log) f="${2:-$(LOGF)}"; echo "== world reset audit: $f"; worldreset_audit "$f"; exit $? ;;
+    --audit-log) f="${2:-$(LOGF)}"; echo "== world reset audit: $f"; worldreset_audit "$f"; r=$?
+                 echo "== world switch audit: $f"; worldswitch_audit "$f" || r=1; exit $r ;;
 esac
 
 # ---- launch ------------------------------------------------------------------------------------------------------------------
@@ -128,6 +130,9 @@ else
     note "world reset: WorldReset.Count $wr in this process (not a fresh one: the audit below judges it)"
     worldreset_audit "$L" | sed 's/^/   /'
 fi
+expect "world switch: both mods watch their script entry (the reload fix armed)" "$(grep -a 'world switch:' "$L" | head -2 | cut -c60-220)" \
+    bash -c "grep -aq 'Aerodynamics Mod.Simulation\] world switch: watching' '$L' && grep -aq 'Orbital Mod.Simulation\] world switch: watching' '$L'"
+skip "world switch: world A -> menu -> world B loads (each mod's entry removed)" "no harness verb loads a world in-process; by hand (RUNBOOK 'world switch'), then 'test_integrate.sh --audit-log'"
 skip "world reset: one '[ORBIT] world reset:' per quit-and-load" "no harness verb loads a world in-process (input injection does not reach the menus); after the user's next world change run 'test_integrate.sh --audit-log'"
 
 # ---- B: the SSTO, seated and flying; perf in level flight -------------------------------------------------------------------

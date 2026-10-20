@@ -92,5 +92,36 @@ worldreset_audit() {
       }' "$1"
 }
 
+# worldswitch_audit FILE: the world-switch fix (Reload/ScriptResultsCleanup, 2026-10-19) in a game log. Per mod (Aerodynamics
+# Mod, Orbital Mod; a mod never pushed is not judged): every "[Project Manager] Pushing Project <mod>" has its
+# "[<mod>.Simulation] world switch: watching" line, every "Unloading Project <mod>" its "world switch: removed" line before
+# the next push; no "off:" / "failed:" / "nothing removed" / "an unload hook threw" line; and NO "An item with the same key
+# has already been added" (Keen's 'Key: Simulation' load failure) anywhere. Exit 0 when all hold; a line per mod, the verdict.
+# (A mod pushed with the engine at start - e.g. by -globalProjectDirs - is never unloaded by a world change: 0 unloads is fine.)
+worldswitch_audit() {
+    awk '
+      function mod(s) { if (s ~ /Aerodynamics Mod/) return "Aerodynamics Mod"; if (s ~ /Orbital Mod/) return "Orbital Mod"; return "" }
+      /\[Project Manager\] Pushing Project (Aerodynamics Mod|Orbital Mod) / { m = mod($0); push[m]++; if (wait[m]) { miss[m]++; wait[m] = 0 } next }
+      /\[Project Manager\] Unloading Project (Aerodynamics Mod|Orbital Mod) / { m = mod($0); unl[m]++; wait[m] = 1; next }
+      /\.Simulation\] world switch: watching/ { watch[mod($0)]++; next }
+      /\.Simulation\] world switch: removed/ { m = mod($0); if (wait[m]) { rem[m]++; wait[m] = 0 } else stray[m]++; next }
+      /\.Simulation\] world switch: (off:|failed:|nothing removed|an unload hook threw)/ { m = mod($0); badl[m]++; if (!first[m]) first[m] = NR ": " substr($0, index($0, "world switch:")); next }
+      /An item with the same key has already been added/ { dup++; if (!dupat) dupat = NR; next }
+      END {
+          bad = 0; n = split("Aerodynamics Mod|Orbital Mod", ms, "|")
+          for (i = 1; i <= n; i++) {
+              m = ms[i]; if (!push[m]) { printf "  %s: never pushed (not judged)\n", m; continue }
+              w = wait[m] ? 1 : 0   # (an unload at the end of the log with no line yet: missing)
+              ok = (watch[m] == push[m]) && (rem[m] == unl[m]) && !miss[m] && !w && !badl[m]
+              printf "  %s: %d push(es) / %d watching, %d unload(s) / %d removed%s%s\n", m, push[m], watch[m]+0, unl[m]+0, rem[m]+0, \
+                     badl[m] ? ", " badl[m] " problem line(s), first " first[m] : "", ok ? "" : "  <- WRONG"
+              if (!ok) bad++
+          }
+          if (dup) { printf "  the game'"'"'s duplicate-key load failure: %d line(s), first at log line %d\n", dup, dupat; bad++ }
+          printf "  world switch audit: %s\n", bad ? bad " wrong" : "every load watched, every unload cleaned, no duplicate-key failure"
+          exit bad ? 1 : 0
+      }' "$1"
+}
+
 # launch(): the game started once - launch.sh
 source "$(dirname "${BASH_SOURCE[0]}")/launch.sh"

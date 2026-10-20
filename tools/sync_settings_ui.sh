@@ -11,7 +11,10 @@ cd "$(dirname "$0")/.."
 check=0; [ "$1" = "--check" ] && { check=1; shift; }
 AERO_ROOT="${1:?usage: tools/sync_settings_ui.sh [--check] <path to the Aerodynamics Mod checkout>}"
 [ -d "$AERO_ROOT/Scripts/Simulation" ] || { echo "not an Aerodynamics Mod checkout: $AERO_ROOT"; exit 2; }
-SHARED="Scripts/Simulation/Ui/AvaloniaReflect.cs Scripts/Simulation/Ui/SettingsModel.cs Scripts/Simulation/Ui/SettingsTab.cs Tests/SettingsUiTests/Program.cs"
+SHARED="Scripts/Simulation/Ui/AvaloniaReflect.cs Scripts/Simulation/Ui/SettingsModel.cs Scripts/Simulation/Ui/SettingsTab.cs Tests/SettingsUiTests/Program.cs
+        Scripts/Simulation/Reload/ScriptResultsCleanup.cs Scripts/Simulation/Reload/ScriptResultsCleanup.Engine.cs Tests/ReloadTests/Program.cs"
+# (2026-10-19: also the world-switch fix, Reload/ - each mod takes its own entry out of the game's script results on unload;
+#  its caller, Injection/*Injector.cs, and its test project file stay each mod's own)
 ADAPTER="Scripts/Simulation/Ui/SettingsTab.Mod.cs"
 # the aero copy of a shared file (the one rewrite)
 aero() { sed -e 's/^namespace OrbitalMod;/namespace AeroMod;/' -e 's/^using OrbitalMod;/using AeroMod;/' "$1"; }

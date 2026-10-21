@@ -288,18 +288,28 @@ public static class GridGen
         for (int i = _adopt.Count - 1; i >= 0; i--)
         {
             var p = _adopt[i];
-            Entity found = null;
-            foreach (var e in server.GetEntitiesOfType<CubeGridComponent>())
+            // (the grid as the harness's grid list has it - registered, its blocks on it: in game, 2026-10-20, the first entity by
+            //  that name had 1 of 21 blocks and was not the grid that stayed - the staged spawn's own; adopted, every later read
+            //  of it said 0 blocks and its hinge was never found. So: the registered server grid by that name near the spot, with
+            //  the most blocks, once it holds them all - or, at the deadline, whatever it holds.)
+            Entity found = null; int most = 0;
+            foreach (var g in GridMembers.All())
             {
-                if (_specOf.ContainsKey(e)) continue;
-                string n;
-                try { n = e.TryGet<CubeGridComponent>()?.DisplayName.EvaluateText(); } catch { continue; }
-                if (n != p.Name || (e.Data.GetWorldTransform().Position - p.At).LengthSquared() > 100.0 * 100.0) continue;
-                found = e; break;
+                if (!g.IsServer || g.Entity == null || _specOf.ContainsKey(g.Entity) || g.DisplayName != p.Name) continue;
+                var e = g.Entity;
+                int nk;
+                try
+                {
+                    if ((e.Data.GetWorldTransform().Position - p.At).LengthSquared() > 150.0 * 150.0) continue;
+                    nk = e.TryGet<HierarchyComponent>()?.Children?.Count ?? 0;
+                }
+                catch { continue; }
+                if (nk > most) { most = nk; found = e; }
             }
-            if (found == null)
+            bool late = now > p.Until;
+            if (found == null || most < p.Blocks && !late)
             {
-                if (now > p.Until) { Status = $"'{p.Name}': never appeared (15 s after its spawn)"; _adopt.RemoveAt(i); }
+                if (late) { Status = $"'{p.Name}': never appeared (15 s after its spawn)"; _adopt.RemoveAt(i); }
                 continue;
             }
             _adopt.RemoveAt(i);

@@ -122,12 +122,13 @@ public static class DevAutopilot
         return content != null && content.GetType().Name == "ControlPanelViewModel" ? content : null;
     }
 
-    static bool Offers(object entityVm, string modelType)
+    static bool Offers(object entityVm, string modelType, bool orDerived = false)
     {
         var model = PlanetRenderBridge.GetMember(entityVm, "Model");
         if (!(PlanetRenderBridge.GetMember(model, "DetailViewTypes") is IEnumerable types)) return false;
         foreach (var t in types)
-            if (PlanetRenderBridge.GetMember(t, "Type") is Type tt && tt.Name == modelType) return true;
+            if (PlanetRenderBridge.GetMember(t, "Type") is Type tt)
+                for (var b = tt; b != null; b = orDerived ? b.BaseType : null) if (b.Name == modelType) return true;
         return false;
     }
 
@@ -170,7 +171,10 @@ public static class DevAutopilot
         var blocksOf = PlanetRenderBridge.GetMember(p, "Blocks") ?? PlanetRenderBridge.GetMember(PlanetRenderBridge.GetMember(p, "Tree"), "Blocks");
         if (!(blocksOf is IEnumerable blocks)) return "panel has no Blocks";
         object pick = null;
-        foreach (var b in blocks) if (Offers(b, modelType)) { pick = b; break; }
+        // (the server's model is a subclass - ToolbarBlockDetailModelServer: its base type matched too; else a seat / cockpit by name)
+        foreach (var b in blocks) if (Offers(b, modelType, true)) { pick = b; break; }
+        if (pick == null && modelType.StartsWith("Toolbar"))
+            foreach (var b in blocks) { string n = Name(b); if (n.Contains("Seat") || n.Contains("Cockpit")) { pick = b; break; } }
         if (pick == null) return "no block offering " + modelType;
         var selection = PlanetRenderBridge.GetMember(p, "BlockTerminalSelection") as IList;
         if (selection == null) return "panel has no BlockTerminalSelection";

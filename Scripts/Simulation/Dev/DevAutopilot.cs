@@ -202,7 +202,9 @@ public static class DevAutopilot
         if (tvm == null) return "no toolbar in the panel (select the seat first: appanel seat)";
         if (!(PlanetRenderBridge.GetMember(tvm, "ToolbarTileViewModels") is IList tiles) || tiles.Count == 0) return "the toolbar has no slots";
         object ap = null;
-        if (PlanetRenderBridge.GetMember(p, "Blocks") is IEnumerable blocks) foreach (var b in blocks) if (Offers(b, "AeroAutopilotBlockDetailModel")) { ap = b; break; }
+        // (the panel's block list: Blocks, else Tree.Blocks - as Select reads it; in game 2026-10-20 Blocks alone found none)
+        if ((PlanetRenderBridge.GetMember(p, "Blocks") ?? PlanetRenderBridge.GetMember(PlanetRenderBridge.GetMember(p, "Tree"), "Blocks")) is IEnumerable blocks)
+            foreach (var b in blocks) if (Offers(b, "AeroAutopilotBlockDetailModel")) { ap = b; break; }
         if (ap == null) return "no Autopilot block in the panel";
         System.Reflection.MethodInfo edit = null;
         foreach (var m in tb.GetType().GetMethods(Inst))

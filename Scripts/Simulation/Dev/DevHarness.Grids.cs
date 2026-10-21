@@ -351,7 +351,7 @@ public static partial class DevHarness
                 ServerFrames.GridDamp.Enqueue((long.Parse(a[1]), On(a[2])));
                 return "grid dampeners queued (server, next tick)";
 
-            case "gridup":   // gridup <gridId> <m>: move a grid straight up (against its gravity, from the aero mod) by m
+            case "gridup":   // gridup <gridId> <m> [group]: move a grid straight up (against its gravity, from the aero mod) by m (group: its jointed grids with it - a hinge's head)
             {
                 var g = GridMembers.Get((long)D(a[1]));
                 if (g?.Entity == null) return "no grid";
@@ -366,7 +366,7 @@ public static partial class DevHarness
                     if (gr != "ok") return gr;
                     if (down.LengthSquared() < 0.25f) return "no gravity here";
                     var d = -(Vector3D)Vector3.Normalize(down) * D(a[2]);
-                    ServerFrames.GridMove.Enqueue((uid, d, false));
+                    ServerFrames.GridMove.Enqueue((uid, d, a.Length > 3 && a[3] == "group"));
                     return $"grid {uid} up by {D(a[2])} m (gravity {down})";
                 });
             }

@@ -314,6 +314,32 @@ static class Program
         // ── 4. the harness ──
         DevScan(trees.Where(kv => Rel(kv.Key).StartsWith("Dev/") || Rel(kv.Key) == "Render/SpecCam.cs").ToDictionary(kv => kv.Key, kv => kv.Value), Rel);
 
+        // ── 4b. THE MOD'S OWN SPAWNS (2026-10-21: WarmBerths spawned its placeholders from inside the server's tick - the pattern that
+        //    killed the server in the harness, 2026-10-20): every SpawnBundleAsync / AddBlockToGrid / RequestSpawnTop anywhere in
+        //    the mod is an argument of a BetweenTicks call (Server/MainLoop.cs, GridGen.BetweenTicks); no synchronous spawn but
+        //    the asteroid volumes' (the procedural generator's own spawner and entity - a volume, no grid, no blocks, no inventory) ──
+        int modSpawns = 0;
+        foreach (var (f, root) in trees)
+            foreach (var inv in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
+            {
+                string t = Regex.Replace(inv.Expression.ToString(), @"\s+", "") + "(", cn = CalleeName(inv);
+                int line = inv.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
+                bool between = inv.Ancestors().OfType<ArgumentSyntax>().Any(arg => arg.Parent?.Parent is InvocationExpressionSyntax bi && CalleeName(bi) == "BetweenTicks");
+                if (cn == "SpawnBundleAsync" || cn == "AddBlockToGrid" || cn == "RequestSpawnTop")
+                {
+                    modSpawns++;
+                    Check(between, $"{Rel(f)}:{line}: {MethodKey(inv)} calls {cn} outside BetweenTicks (Server/MainLoop.cs: between the server's ticks)");
+                }
+                if (SyncSpawn.IsMatch(t + (t.EndsWith("BuildOne(") ? ")" : "")))
+                    Check(Rel(f) == "Asteroids/AsteroidFrames.Rocks.cs" && MethodKey(inv) == "AsteroidFrames.Materialize" && t == "spawner.SpawnEntity(",
+                        $"{Rel(f)}:{line}: {MethodKey(inv)} spawns synchronously ({t}) - stage it (SpawnBundleAsync) between the server's ticks");
+            }
+        Check(modSpawns >= 7, $"the mod's spawns and block adds found ({modSpawns}: WarmBerths, GridGen x5, DevTestShip, DevStress)");
+        var park = Method("Server/WarmBerths.cs", "Park");
+        Check(park != null && Regex.IsMatch(park.ToString(), @"MainLoop\.BetweenTicks\(\(\) => \{ if \(ReferenceEquals\(_session, server\)\) spawner\.SpawnBundleAsync\(args\); \}"),
+            "WarmBerths.Park: the placeholder spawned between the server's ticks, only while its session is still the world's");
+        Check(Regex.IsMatch(Method("Dev/GridGen.cs", "BetweenTicks")?.ToString() ?? "", @"MainLoop\.BetweenTicks\("), "GridGen.BetweenTicks: the harness's through the mod's one way (MainLoop)");
+
         // ── 5. the harness never WAITS for the server thread: it runs in the client's frame, and the in-process server's next
         //    tick starts only after that frame (GameAppComponent.GameUpdate: Server.Tick, Client.Tick, Server.AfterTick) - a
         //    wait there is a deadlock until its timeout (2026-10-15: findgrids' 3 s wait, "server tick gap 3025 ms" after each).

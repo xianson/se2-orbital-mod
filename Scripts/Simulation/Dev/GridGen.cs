@@ -89,12 +89,7 @@ public static class GridGen
     /// <summary>Work for the engine's main loop BETWEEN the server's ticks (VRageCore.UpdateQueue: the server idle, the main thread
     /// the server scene's own - where the game's own server stories resume): every spawn and every block added. False: no queue.</summary>
     internal static bool BetweenTicks(Action work)
-    {
-        var q = Keen.VRage.Core.VRageCore.Instance?.UpdateQueue;
-        if (q == null) return false;
-        q.Enqueue(() => { try { work(); } catch (Exception e) { Status = "between ticks: " + (e.InnerException ?? e).Message; Log.Default?.Warning("[ORBIT-DEV] gen between ticks: " + e); } });
-        return true;
-    }
+        => MainLoop.BetweenTicks(() => { try { work(); } catch (Exception e) { Status = "between ticks: " + (e.InnerException ?? e).Message; throw; } }, "[DEV] gen between ticks");   // (Server/MainLoop.cs: the mod's one way)
 
     /// <summary>Harness: <paramref name="work"/> queued for the server thread (ServerAsks.Pending); or why not.</summary>
     internal static string OnServerThread(Func<string> work) => ServerTicking ? RunOnServer(work) : "not run: the server thread is not ticking (paused, loading, or no planet beacon)";

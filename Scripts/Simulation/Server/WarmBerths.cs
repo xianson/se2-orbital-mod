@@ -145,14 +145,20 @@ public static class WarmBerths
         gb.AddBlock(Vector3I.Zero, new IntegerOrientation(Base6Directions.Direction.Forward, Base6Directions.Direction.Up), pd);
         // Spawned STAGED and async, as the game spawns encounters (and DevStress clones grids): GridBuilder.BuildOne's
         // synchronous spawn built the grid before its blocks' data existed - "Data not found" in the physics engine and in
-        // the grid's anchoring test, a half-made body and two crashes. Found by its name next tick (Adopt).
+        // the grid's anchoring test, a half-made body and two crashes. Found by its name a tick or more later (Adopt).
+        // BETWEEN the server's ticks (2026-10-21; Server/MainLoop.cs): this tick is the server's own job, and a spawn from inside it
+        // killed the server in the harness (a block's inventory not there yet in the grid's first commit - 2026-10-20). A world
+        // left before the queue runs: not spawned (the session asked is no longer ours). One not come in 30 s is asked again.
         _pending[slot] = Wall();
         SpawnGuard.Refresh();   // (its slot closed to encounters first: the placeholder triggers them as it spawns)
         try
         {
             var bundle = new Keen.VRage.Core.Game.Systems.EntityBundle();
             bundle.Add(gb.CompileObjectBuilder(), null, true);
-            server.Get<Keen.VRage.Core.Game.Systems.IEntitySpawner>().SpawnBundleAsync(new Keen.VRage.Core.Game.Systems.GameEntitySerializer.BundleInitArgs { Bundle = bundle });
+            var spawner = server.Get<Keen.VRage.Core.Game.Systems.IEntitySpawner>();
+            var args = new Keen.VRage.Core.Game.Systems.GameEntitySerializer.BundleInitArgs { Bundle = bundle };
+            if (!MainLoop.BetweenTicks(() => { if (ReferenceEquals(_session, server)) spawner.SpawnBundleAsync(args); }, "warm berths: a placeholder's spawn"))
+            { _pending.Remove(slot); Stop("no engine update queue (VRageCore.UpdateQueue) to spawn a placeholder on"); return false; }
         }
         catch (System.Exception ex) { _pending.Remove(slot); Stop("spawning a placeholder threw: " + ex.Message); return false; }
         return true;

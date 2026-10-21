@@ -457,7 +457,8 @@ public static class GridGen
     static bool HingeAngle(Hinge h, out float a)
     {
         a = 0f;
-        return h.Entity != null && h.Entity.Data.TryGet<HingeComponent.HingeData>(out var d) && (a = d.CurrentAngle) == a;
+        // (a hinge whose grid went - removed, or a spawn's head never made - has no Data: an NRE every tick in game 2026-10-21)
+        return h.Entity != null && Num.Alive(h.Entity) && h.Entity.Data.TryGet<HingeComponent.HingeData>(out var d) && (a = d.CurrentAngle) == a;
     }
 
     static string HingeLine(int i)

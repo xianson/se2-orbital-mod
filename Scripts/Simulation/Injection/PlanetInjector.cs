@@ -23,6 +23,7 @@ public class PlanetInjector : SimpleDefinitionPostProcessor<PrefabDefinition>
     public override void PostProcess(PrefabDefinition definition)
     {
         ScriptResultsCleanup.Ensure();   // (the world-switch fix: runs on every world load, before any entity - Reload/)
+        HoldActions.Hook();   // (the toolbar's mod panel buttons: their model types found by name - planet or no planet; Flight/HoldActions.cs)
         InjectPlanetComponents.Please(definition);
     }
 }

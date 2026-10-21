@@ -57,22 +57,42 @@ public static class HoldActions
         AttitudeHold.Set(m != AttitudeHold.Mode.Off && AttitudeHold.Current == m ? AttitudeHold.Mode.Off : m);   // (a mode set is selected too)
     }
 
-    static bool _hooked;
+    static int _hooked;
     static ResolveEventHandler _resolve;
-    /// <summary>The toolbar resolves an action's model type by its full name alone: point it at this assembly. Unhooked when
-    /// the game unloads this mod's project (ScriptResultsCleanup.OwnProjectUnloading, 2026-10-19): the first handler that
-    /// answers wins, so a stale copy's (world A's, still loaded) would answer for the next world's copy.</summary>
+    /// <summary>The AppDomain slot naming the copy that answers (the newest hooked).</summary>
+    public const string Slot = "OrbitalMod.HoldActions.TypeOwner";
+    static readonly System.Reflection.Assembly Own = typeof(OrbitalHoldDetailModel).Assembly;
+    [ThreadStatic] static bool _inside;
+    /// <summary>The toolbar resolves an action's model type by its full name alone (BlockToolbarServerComponent.TryGetDetailModelType:
+    /// Type.GetType(name) - a mod type never found): point it at this assembly for any name in this mod's namespace it has (every
+    /// panel model of ours - the hold actions', the radar's - 2026-10-21; before only the hold model's name). Unhooked when the game
+    /// unloads this mod's project (ScriptResultsCleanup.OwnProjectUnloading, 2026-10-19). NEWEST COPY WINS (2026-10-21): the first
+    /// handler that answers wins and a stale copy (world A's) stays loaded - each copy writes itself into one AppDomain slot when it
+    /// hooks and answers only while it is the slot's (the Aerodynamics Mod's Blocks/ToolbarTypeResolve.cs is the same rule).</summary>
     public static void Hook()
     {
-        if (_hooked) return; _hooked = true;
-        _resolve = (s, e) => e.Name == typeof(OrbitalHoldDetailModel).FullName ? typeof(OrbitalHoldDetailModel).Assembly : null;
+        if (System.Threading.Interlocked.Exchange(ref _hooked, 1) != 0) return;   // (once per load of this assembly: the load's post-processor, else the planets' tick)
+        _resolve = OnTypeResolve;
+        AppDomain.CurrentDomain.SetData(Slot, Own);
         AppDomain.CurrentDomain.TypeResolve += _resolve;
         ScriptResultsCleanup.OwnProjectUnloading += Unhook;
+    }
+
+    static System.Reflection.Assembly OnTypeResolve(object sender, ResolveEventArgs e)
+    {
+        string n = e?.Name;
+        if (n == null || !n.StartsWith("OrbitalMod.", StringComparison.Ordinal) || _inside) return null;
+        _inside = true;
+        try { return ReferenceEquals(AppDomain.CurrentDomain.GetData(Slot), Own) && Own.GetType(n, false) != null ? Own : null; }
+        catch { return null; }   // (never a throw into the game's type lookup)
+        finally { _inside = false; }
     }
 
     static void Unhook()
     {
         var r = _resolve; _resolve = null;
-        if (r != null) AppDomain.CurrentDomain.TypeResolve -= r;
+        if (r == null) return;
+        AppDomain.CurrentDomain.TypeResolve -= r;
+        if (ReferenceEquals(AppDomain.CurrentDomain.GetData(Slot), Own)) AppDomain.CurrentDomain.SetData(Slot, null);
     }
 }

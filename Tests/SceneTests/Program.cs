@@ -18,10 +18,10 @@
 //    OnServerThread / RunOnServer call, in a method only the server thread runs (its entry points listed below; a method
 //    every caller of which is such a place counts as one), in a `gen` verb GridGen.Command sends there, or in a loop that
 //    keeps to the caller's own scene first. (2026-10-15: the harness's leftover cross-scene reads - findgrids, exitcheck,
-//    seat, thrust, cam grid, ... - the DataGuard class.) Spawning too, since 2026-10-20: staged and async on the server
-//    thread (IEntitySpawner.SpawnBundleAsync); no synchronous spawn (GridBuilder.BuildOne, IEntitySpawner.SpawnEntity /
-//    SpawnBundle) anywhere in the harness - from the client's frame it raced the server's tick and crashed the game, inside
-//    the server's job it failed ("Data not found").
+//    seat, thrust, cam grid, ... - the DataGuard class.) SPAWNS (2026-10-20): staged and async (SpawnBundleAsync) BETWEEN
+//    the server's ticks (GridGen.BetweenTicks: the engine's main loop queue); no synchronous spawn (GridBuilder.BuildOne,
+//    IEntitySpawner.SpawnEntity / SpawnBundle) anywhere in the harness - from the client's frame job it raced the server's
+//    tick and crashed the game, inside the server's job even the async spawn killed the server (an inventory's mass).
 // 6. THE CLIENT'S SESSION TICK (2026-10-19): the client's session-level work (the settings files' poll, SawClient, the
 //    Options screen's Mods tab) is called from OrbitalClientHost.Frame only - the render camera's job (injected for the game's
 //    CameraComponent), planet or no planet; the planets' FrameHost.Tick only as its fallback. (It ran from the client
@@ -209,7 +209,7 @@ static class Program
             Check(Ok(node), $"{rel(f)}:{line}: {MethodKey(node)} reads '{what}' (a server entity) off the server thread");
         }
         Check(hits.Count >= 40, $"harness: server-entity reads found ({hits.Count})");
-        // (spawns: staged and async on the server thread only - GridGen.Spawn / Measure, DevTestShip, DevStress)
+        // (spawns: staged and async, between the server's ticks only - GridGen.Spawn / Measure, DevTestShip, DevStress)
         int asyncSpawns = 0;
         foreach (var (f, root) in trees)
         {
@@ -221,11 +221,22 @@ static class Program
                 if (t.EndsWith(".SpawnBundleAsync("))
                 {
                     asyncSpawns++;
-                    Check(Ok(inv), $"{rel(f)}:{line}: {MethodKey(inv)} spawns (SpawnBundleAsync) off the server thread");
+                    bool between = inv.Ancestors().OfType<ArgumentSyntax>().Any(arg => arg.Parent?.Parent is InvocationExpressionSyntax bi && CalleeName(bi) == "BetweenTicks");
+                    Check(between, $"{rel(f)}:{line}: {MethodKey(inv)} spawns (SpawnBundleAsync) outside GridGen.BetweenTicks");
                 }
             }
         }
         Check(asyncSpawns >= 4, $"harness: the staged spawns found ({asyncSpawns}: GridGen.Spawn / Measure, DevTestShip, DevStress)");
+        // (and the blocks added to a grid, the hinge heads asked for: between ticks too)
+        foreach (var (f, root) in trees)
+            foreach (var inv in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
+            {
+                string cn = CalleeName(inv);
+                if (cn != "AddBlockToGrid" && cn != "RequestSpawnTop") continue;
+                int line = inv.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
+                Check(inv.Ancestors().OfType<ArgumentSyntax>().Any(arg => arg.Parent?.Parent is InvocationExpressionSyntax bi && CalleeName(bi) == "BetweenTicks"),
+                    $"{rel(f)}:{line}: {MethodKey(inv)} calls {cn} outside GridGen.BetweenTicks");
+            }
         Check(onServer >= 25, $"harness: reads inside OnServerThread / RunOnServer found ({onServer})");
     }
 

@@ -146,8 +146,8 @@ A spec (a text file of blocks - GridGen.cs's header) in `%TEMP%\OrbitalMod\gen\`
 `gen whole` - `WHOLE` when every spec block is on the grid, nothing split off and each hinge head carries its blocks, else
 `NOT WHOLE` with the count and the `<name>_Split` pieces (blocks that do not meet on mount faces: the spec's fault).
 `gen owner [ID]` - each spawned grid's (or world grid ID's - one from a save) owner, its hinge heads' grids' and their blocks' ("you" for the asking player; the aero
-Enemy switch's check). `gen status`, `gen clear`, `findgrids <name>` for its id. Spawns run on the server thread, staged and async: the grid is
-there a tick or two after the answer ("spawning ... (async)"; `gen status` then says "spawned ... grid <id>").
+Enemy switch's check). `gen status`, `gen clear`, `findgrids <name>` for its id. Spawns run between the server's ticks (the engine's main loop queue), staged and
+async: the grid is there a tick or two after the answer ("spawning ... (async)"; `gen status` then says "spawned ... grid <id>").
 
 The toolbar's action list for the Autopilot block (DevAutopilot): seated, `appanel open`, `appanel seat` (the seat's toolbar
 in the panel), `appanel actions` (opens the game's action list on slot 1 for the Autopilot block; again: its action names
@@ -157,7 +157,7 @@ Specs kept in this repo (`tools/harness/ships/`; copy one into the gen folder to
 
 | spec | what | built by |
 |---|---|---|
-| `APTEST.txt` | the autopilot test ship: seat, Autopilot (Large), battery, gyro, two atmospheric thrusters each way, a hinge with an armour cube and an interior turret on its head (the Enemy switch's subgrid) - 21 + 3 blocks, 19 t | `build_aptest.py` (checks overlaps, mount-face joins, exhaust lanes) |
+| `APTEST.txt` | the autopilot test ship: seat, Autopilot (Large), battery, gyro, two atmospheric thrusters each way, a hinge with an interior turret on its head (the Enemy switch's subgrid) - 21 + 2 blocks, 18.2 t | `build_aptest.py` (the cells each block takes as measured in game; checks overlaps, mount-face joins, exhaust lanes) |
 
 ## Dev keys (`key <name>`: `MapInput.DevKeys`, consumed where the real key is read)
 

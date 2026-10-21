@@ -105,8 +105,9 @@ public static class DevStress
             Keen.VRage.Core.Game.Systems.EntityBundleFunctions.TransformBundle(bundle, new WorldTransform(offset, Quaternion.Identity));
             // (staged and async, as the game spawns encounters: the synchronous SpawnBundle builds the grid before its
             //  blocks' own data exists - "Data not found" in an inventory's mass - on every grid tried)
-            spawner.SpawnBundleAsync(new Keen.VRage.Core.Game.Systems.GameEntitySerializer.BundleInitArgs { Bundle = bundle });
-            made++;
+            // (2026-10-20: between the server's ticks - GridGen.BetweenTicks; inside the server's job a spawn could kill the server)
+            var b = bundle;
+            if (GridGen.BetweenTicks(() => spawner.SpawnBundleAsync(new Keen.VRage.Core.Game.Systems.GameEntitySerializer.BundleInitArgs { Bundle = b }))) made++;
         }
         Status = $"cloned grid {c.id} x{made} in {(System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000 / System.Diagnostics.Stopwatch.Frequency} ms";
     }

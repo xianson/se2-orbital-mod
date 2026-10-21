@@ -36,15 +36,19 @@ namespace OrbitalMod;
 /// owner, and its blocks'; gen owner ID: a world grid's) | gen status | gen clear | gen measure FILE
 /// (each Guid line: a lone block 30 m apart) | gen report (their mass and cell bounds -> %TEMP%\OrbitalMod\gen\catalog.txt)
 ///
-/// THE SPAWN (2026-10-20): on the SERVER thread, STAGED and async (IEntitySpawner.SpawnBundleAsync - as DevTestShip,
-/// WarmBerths and the game's encounters), every block's owner set in its builder; the grid is found by its name and place a
-/// tick or more later (Adopt), then its hinges get their heads (HingeComponent.RequestSpawnTop - the game's own path, on the
-/// server thread as its terminal action runs it) and their flap blocks (GridBuilder.AddBlockToGrid, the server thread). It
-/// used to be GridBuilder.BuildOne (a synchronous SpawnEntity) from the harness's CLIENT frame, with the heads and flaps from
-/// the client tick: a race with the server's tick on its entity storage - DevTestShip's 2026-10-19 crashes ("Concurrent
-/// access (write) GetOrAddArchetype", a native crash in HavokSessionComponent.OnRigidBodyAdded), and a hinge ship that took the
-/// game down in the harness. A grid that comes out in pieces is a SPEC whose blocks do not meet on mount faces (the game splits
-/// a grid by connectivity - H25L's "H25L_Split", 2026-10-20): `gen whole` says so.
+/// THE SPAWN (2026-10-20): BETWEEN the server's ticks (BetweenTicks: the engine's main loop queue, VRageCore.UpdateQueue -
+/// it runs after GameAppComponent.GameUpdate's Server.AfterTick, the server thread idle and the main thread the server
+/// scene's own; the game's server-side stories resume there too: the in-process server thread's synchronization context IS the
+/// main thread's, InProcessServerThread.RunSession), staged and async (IEntitySpawner.SpawnBundleAsync), every block's owner
+/// set in its builder; the grid is found by its name and place a tick or more later (Adopt, the server thread). Its hinge
+/// heads come from the game itself (a topped block spawns its top as its bundle is added) - asked for between ticks only if
+/// none came; the flap blocks are added between ticks (GridBuilder.AddBlockToGrid).
+/// Where it ran before, and why not: GridBuilder.BuildOne (a synchronous spawn) from the harness's CLIENT frame job - it runs
+/// while the server ticks in parallel: "Concurrent access (write) GetOrAddArchetype", a native Havok crash (DevTestShip,
+/// 2026-10-19); then SpawnBundleAsync inside the server's own job (ServerTick): 2 of 4 spawns of APTEST killed the server in
+/// the grid's first block commit (IndexOutOfRangeException in InventoryComponent.DynamicMass - a block's inventory not there
+/// yet, 2026-10-20). A grid that comes out in pieces is a SPEC whose blocks do not meet on mount faces (the game splits a grid
+/// by connectivity - H25L's "H25L_Split"): `gen whole` says so.
 /// </summary>
 public static class GridGen
 {
@@ -82,6 +86,16 @@ public static class GridGen
     static long _serverTickAt;
     /// <summary>The server's job ran ServerTick within the last second (RunOnServer will be answered).</summary>
     internal static bool ServerTicking => System.Diagnostics.Stopwatch.GetTimestamp() - System.Threading.Volatile.Read(ref _serverTickAt) < System.Diagnostics.Stopwatch.Frequency;
+    /// <summary>Work for the engine's main loop BETWEEN the server's ticks (VRageCore.UpdateQueue: the server idle, the main thread
+    /// the server scene's own - where the game's own server stories resume): every spawn and every block added. False: no queue.</summary>
+    internal static bool BetweenTicks(Action work)
+    {
+        var q = Keen.VRage.Core.VRageCore.Instance?.UpdateQueue;
+        if (q == null) return false;
+        q.Enqueue(() => { try { work(); } catch (Exception e) { Status = "between ticks: " + (e.InnerException ?? e).Message; Log.Default?.Warning("[ORBIT-DEV] gen between ticks: " + e); } });
+        return true;
+    }
+
     /// <summary>Harness: <paramref name="work"/> queued for the server thread (ServerAsks.Pending); or why not.</summary>
     internal static string OnServerThread(Func<string> work) => ServerTicking ? RunOnServer(work) : "not run: the server thread is not ticking (paused, loading, or no planet beacon)";
 
@@ -267,7 +281,8 @@ public static class GridGen
         }
         var bundle = new Keen.VRage.Core.Game.Systems.EntityBundle();
         bundle.Add(gb.CompileObjectBuilder(), null, true);
-        spawner.SpawnBundleAsync(new Keen.VRage.Core.Game.Systems.GameEntitySerializer.BundleInitArgs { Bundle = bundle });
+        if (!BetweenTicks(() => spawner.SpawnBundleAsync(new Keen.VRage.Core.Game.Systems.GameEntitySerializer.BundleInitArgs { Bundle = bundle })))
+            return "no engine update queue (VRageCore.UpdateQueue): not spawned";
         // (the hinges: the grid's children in the order added - missing prefabs shift it, so none with hinges)
         _adopt.Add(new Pending
         {
@@ -459,8 +474,8 @@ public static class GridGen
         return $"#{i} {(h.Done ? "flap" : "...")}{lim}{(h.Why != "" ? " " + h.Why : "")} angle {ang} vel {hc?.Velocity:F3} working {hc?.Entity?.TryGet<FunctionalBlockComponent>()?.Working}{(float.IsNaN(h.Target) ? " free" : $" target {h.Target * 180f / MathF.PI:F1}°")}{st}";
     }
 
-    /// <summary>Server tick: hinge heads spawned once their grid is adopted, flaps grown once the head is connected (the server
-    /// thread, as the game's own terminal action and block placer run them).</summary>
+    /// <summary>Server tick: each adopted hinge's head waited for (asked for between ticks if the game spawned none), then its
+    /// flap blocks added between ticks.</summary>
     static void Tick()
     {
         if (_hinges.Count == 0) return;
@@ -471,17 +486,20 @@ public static class GridGen
                 if (h.Done || h.Entity == null) continue;
                 var hc = h.Entity.TryGet<HingeComponent>();
                 if (hc == null) { h.Why = "hinge gone"; h.Done = true; continue; }
-                if (!h.Spawned)
-                {
-                    hc.RequestSpawnTop(); h.Spawned = true; continue;
-                }
                 var head = hc.ConnectedEntity;
-                if (head == null) { if (++h.Wait > 600) { h.Why = "no head after 10 s"; h.Done = true; } continue; }
+                // (the game spawns a topped block's top itself as its bundle is added; asked for, between ticks, only when
+                //  none came in 2 s)
+                if (head == null && !h.Spawned && ++h.Wait > 120) { h.Spawned = true; var hcc = hc; BetweenTicks(() => hcc.RequestSpawnTop()); }
+                if (head == null) { if (h.Wait++ > 720) { h.Why = "no head after 12 s"; h.Done = true; } continue; }
                 var grid = GridOf(head);
-                if (grid == null) { if (++h.Wait > 600) { h.Why = "head's grid not found"; h.Done = true; } continue; }
-                foreach (var (p, at, o) in h.Flap)
-                    if (DefinitionManager.Instance.TryGetDefinition(p, out PrefabDefinition pd) && pd != null)
-                        GridBuilder.AddBlockToGrid(grid, at, o, pd.Get());
+                if (grid == null) { if (++h.Wait > 720) { h.Why = "head's grid not found"; h.Done = true; } continue; }
+                var flap = new List<(Guid p, Vector3I at, IntegerOrientation o)>(h.Flap); var g = grid;
+                BetweenTicks(() =>
+                {
+                    foreach (var (p, at, o) in flap)
+                        if (DefinitionManager.Instance.TryGetDefinition(p, out PrefabDefinition pd) && pd != null)
+                            GridBuilder.AddBlockToGrid(g, at, o, pd.Get());
+                });
                 h.Done = true;
                 // (held at its neutral - 90, the flap trailing, when the limits hold it, else their middle: a new head hangs
                 //  at 0; the limits are set only once it is inside them - set now, the game widens them to include 0)
@@ -670,8 +688,7 @@ public static class GridGen
             gb.AddBlock(Vector3I.Zero, IntegerOrientation.Identity, pd);
             var bundle = new Keen.VRage.Core.Game.Systems.EntityBundle();
             bundle.Add(gb.CompileObjectBuilder(), null, true);
-            try { spawner.SpawnBundleAsync(new Keen.VRage.Core.Game.Systems.GameEntitySerializer.BundleInitArgs { Bundle = bundle }); }
-            catch { bad++; continue; }
+            if (!BetweenTicks(() => spawner.SpawnBundleAsync(new Keen.VRage.Core.Game.Systems.GameEntitySerializer.BundleInitArgs { Bundle = bundle }))) { bad++; continue; }
             _adopt.Add(new Pending
             {
                 Name = name, At = at, Hinges = new List<Hinge>(), Blocks = 1, Measure = g,
@@ -704,7 +721,7 @@ public static class GridGen
     }
 
     /// <summary>gen add ID FILE: the FILE's "B PREFAB X Y Z FWD UP" blocks added to an existing grid (as the flaps:
-    /// GridBuilder.AddBlockToGrid), on the server thread. Reports how many the grid gained.</summary>
+    /// GridBuilder.AddBlockToGrid, between ticks). Reports how many were asked; `gen dump ID` then shows them.</summary>
     static string AddTo(long id, string file)
     {
         var e = WorldGrid(id); if (e == null) return "no grid " + id;
@@ -715,10 +732,10 @@ public static class GridGen
             if (t.Length < 7 || t[0] != "B") continue;
             tried++;
             if (!Guid.TryParse(t[1], out var g) || !DefinitionManager.Instance.TryGetDefinition(g, out PrefabDefinition pd) || pd == null) { bad++; continue; }
-            try { GridBuilder.AddBlockToGrid(e, Cell(t[2], t[3], t[4]), Orient(t[5], t[6]), pd.Get()); } catch (Exception x) { bad++; Status = "add: " + x.Message; }
+            var at = Cell(t[2], t[3], t[4]); var o = Orient(t[5], t[6]); var ob = pd.Get();
+            if (!BetweenTicks(() => GridBuilder.AddBlockToGrid(e, at, o, ob))) bad++;
         }
-        int after = e.TryGet<HierarchyComponent>()?.Children?.Count ?? 0;
-        return Status = $"grid {id}: {tried} block(s) asked, {bad} failed, children {before} -> {after}";
+        return Status = $"grid {id}: {tried} block(s) asked (added between ticks), {bad} failed; it had {before} blocks";
     }
 
     static string Report()

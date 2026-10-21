@@ -31,6 +31,8 @@ public static class DevTestShip
     /// <summary>Spawn it 60 m ahead of the camera. Server side (the spawner), owned by the local player.
     /// 2026-10-19 (final-check): spawned ON THE SERVER THREAD (GridGen.OnServerThread), STAGED and async
     /// (IEntitySpawner.SpawnBundleAsync, as WarmBerths / DevStress / the game's encounters), the owner set in the builders.
+    /// 2026-10-20: the spawn itself between the server's ticks (GridGen.BetweenTicks - inside the server's job a spawn could
+    /// kill the server in the grid's first block commit, an inventory's mass).
     /// Before, it spawned synchronously from the harness's client frame job: it raced the server's tick ("Concurrent access
     /// (write) GetOrAddArchetype", then a native crash in HkWorld.SetBodyInfo / HavokSessionComponent.OnRigidBodyAdded - the
     /// game died at `testship` in two runs out of two); a synchronous SpawnEntity on the server thread instead was fatal at
@@ -78,7 +80,8 @@ public static class DevTestShip
             {
                 var bundle = new Keen.VRage.Core.Game.Systems.EntityBundle();
                 bundle.Add(gb.CompileObjectBuilder(), null, true);
-                spawner.SpawnBundleAsync(new Keen.VRage.Core.Game.Systems.GameEntitySerializer.BundleInitArgs { Bundle = bundle });
+                if (!GridGen.BetweenTicks(() => spawner.SpawnBundleAsync(new Keen.VRage.Core.Game.Systems.GameEntitySerializer.BundleInitArgs { Bundle = bundle })))
+                { why += $" {name}: no engine update queue;"; continue; }
             }
             catch (Exception ex) { why += $" {name} spawn failed: {(ex.InnerException ?? ex).Message};"; continue; }
             if (name == "radar") RadarAt = at.Position;

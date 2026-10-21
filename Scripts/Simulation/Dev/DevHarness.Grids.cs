@@ -351,6 +351,21 @@ public static partial class DevHarness
                 ServerFrames.GridDamp.Enqueue((long.Parse(a[1]), On(a[2])));
                 return "grid dampeners queued (server, next tick)";
 
+            case "gridstatic":   // gridstatic <gridId> on|off (DEV, 2026-10-21: the aero mod's midair impact deck - the game turns a static grid with no
+                                 //  voxel under it dynamic ~12 s after its spawn (ConvertGridToDynamicWhenNotAnchoredComponent); made static again, stopped)
+            {
+                long sid = long.Parse(a[1]); bool on = On(a[2]);
+                return GridGen.OnServerThread(() =>
+                {
+                    var g = GridMembers.Get(sid);
+                    if (g?.Entity == null || !g.IsServer) return "no server grid " + sid;
+                    var gp = g.Entity.TryGet<Keen.Game2.Simulation.WorldObjects.CubeGrids.Physicss.GridPhysicsComponent>();
+                    if (gp == null) return "no GridPhysicsComponent";
+                    gp.SetGridMotion(on); GridMembers.ForgetMotion(g);
+                    return $"grid {sid} {(on ? "static" : "dynamic")}";
+                });
+            }
+
             case "gridup":   // gridup <gridId> <m> [group]: move a grid straight up (against its gravity, from the aero mod) by m (group: its jointed grids with it - a hinge's head)
             {
                 var g = GridMembers.Get((long)D(a[1]));

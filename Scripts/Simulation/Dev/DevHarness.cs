@@ -230,6 +230,21 @@ public static partial class DevHarness
                 return $"-> {ServerPlanetBeacon.Fmt(pos)}";
             }
 
+            case "tplevel":   // tplevel x y z (DEV, 2026-10-21): to that point, LEVEL - its up away from the nearest planet's centre, facing
+                              //  level along the world X (or Z) laid on that horizon (`look` builds its frame on the world's +Y: upside
+                              //  down where the planet's up is -Y - the aero mod's midair deck spawned upside down from it)
+            {
+                var pos = new Vector3D(D(a[1]), D(a[2]), D(a[3]));
+                PlanetBeacon nb = null; double nd = double.MaxValue;
+                foreach (var pb in Planets()) { double dd = (pb.Center - pos).Length(); if (dd < nd) { nd = dd; nb = pb; } }
+                if (nb == null) return "no planet";
+                Vector3 up = (Vector3)Vector3D.Normalize(pos - nb.Center);
+                Vector3 ax = MathF.Abs(up.X) < 0.9f ? Vector3.UnitX : Vector3.UnitZ;
+                Vector3 f = Vector3.Normalize(ax - up * Vector3.Dot(ax, up));
+                Teleport(session, pos, null, Quaternion.CreateFromForwardUp(f, up));
+                return $"-> {ServerPlanetBeacon.Fmt(pos)}, level (up {up.X:F3} {up.Y:F3} {up.Z:F3})";
+            }
+
             case "look":
             {
                 var target = new Vector3D(D(a[1]), D(a[2]), D(a[3]));

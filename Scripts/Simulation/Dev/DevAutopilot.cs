@@ -53,8 +53,12 @@ public static class DevAutopilot
                 {
                     var top = GameUi.TopScreenObject(session);
                     if (top == null || top.GetType().Name != "BlockActionDetailsScreenViewModel") return "no action list on top (" + (top?.GetType().Name ?? "none") + ")";
-                    var cmd = PlanetRenderBridge.GetMember(top, "CancelCommand");   // (an ICommand: its Execute by reflection)
-                    var exec = cmd?.GetType().GetMethod("Execute", new[] { typeof(object) });
+                    var cmd = PlanetRenderBridge.GetMember(top, "CancelCommand") ?? top.GetType().GetProperty("CancelCommand")?.GetValue(top);
+                    // (an ICommand - ReactiveCommand implements Execute explicitly: found through its interfaces)
+                    System.Reflection.MethodInfo exec = null;
+                    if (cmd != null)
+                        foreach (var it in cmd.GetType().GetInterfaces())
+                            if (it.Name == "ICommand") { exec = it.GetMethod("Execute", new[] { typeof(object) }); if (exec != null) break; }
                     if (exec == null) return "no CancelCommand";
                     UiThread.Post(() => { try { exec.Invoke(cmd, new object[] { null }); Status = "action list closed"; } catch (Exception e) { Status = "close: " + (e.InnerException ?? e).Message; } });
                     return "closing the action list";
@@ -191,9 +195,20 @@ public static class DevAutopilot
         {
             if (!(PlanetRenderBridge.GetMember(top, "Actions") is IEnumerable acts)) return "action list: no Actions";
             var names = new System.Collections.Generic.List<string>();
-            foreach (var x in acts) names.Add(PlanetRenderBridge.GetMember(x, "Name")?.ToString() ?? "(null)");
+            var why = new System.Collections.Generic.List<string>();
+            foreach (var x in acts)
+            {
+                string n = PlanetRenderBridge.GetMember(x, "Name")?.ToString() ?? "(null)";
+                names.Add(n);
+                if (!string.IsNullOrWhiteSpace(n) || why.Count >= 3) continue;
+                // (a blank one: why - the action's type, its model type, method, validity and label key)
+                var act = x.GetType().GetProperty("Action")?.GetValue(x);
+                object M(string m) { try { return act?.GetType().GetProperty(m)?.GetValue(act); } catch (Exception e) { return "!" + (e.InnerException ?? e).GetType().Name; } }
+                object lab = M("Label");
+                why.Add($"{act?.GetType().Name} model={(M("DetailModel") as Type)?.FullName ?? M("DetailModel")?.ToString() ?? "null"} method={M("MethodName")} resolved={(M("Method") != null)} valid={M("Valid")} label={(lab == null ? "null" : lab.GetType().GetField("TextId")?.GetValue(lab)?.ToString() ?? lab.ToString())}");
+            }
             int blank = names.FindAll(n => string.IsNullOrWhiteSpace(n) || n == "(null)").Count;
-            return $"action list: {names.Count} actions, {blank} blank: " + string.Join(" | ", names);
+            return $"action list: {names.Count} actions, {blank} blank: " + string.Join(" | ", names) + (why.Count > 0 ? " || blank ones: " + string.Join(" ; ", why) : "");
         }
         var p = ControlPanel(session);
         if (p == null) return "no control panel on top (" + (top?.GetType().Name ?? "none") + ")";

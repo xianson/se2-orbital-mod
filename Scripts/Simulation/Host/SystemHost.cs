@@ -293,7 +293,7 @@ public static class SystemHost
         // Another world loaded in this process (statics outlive it): none of the planets the system was built from is there
         // any more - built again from the new world's (it kept the old system, its frames and its sites).
         if (Built && Gone()) { Log.Default?.Info("[ORBIT] a new world: the system is built again from its planets"); Built = false; _lastCount = 0; }
-        if (Built) return true;
+        if (Built) { Rescale(gravityMultiplier > 0 ? gravityMultiplier : 1.0); return true; }
         lock (_lock)
         {
             if (Built) return true;
@@ -309,8 +309,38 @@ public static class SystemHost
         }
     }
 
+    /// <summary>The world gravity multiplier the bodies' mu were last set for (Build, Rescale).</summary>
+    static double _builtMult = 1.0;
+
+    /// <summary>
+    /// THE WORLD GRAVITY MULTIPLIER CHANGED MID-GAME (2026-10-23: the aero mod's World.GravityMultiplier setting applies it live):
+    /// every planet's and moon's mu follows it (x new / old) so the trajectories the frames and the map predict match the
+    /// gravity the engine now applies. Nothing else moves: the star's mu has no multiplier (the planets' orbits are the same),
+    /// the moons ride baked element sets (their positions do not jump), and the spheres of influence stay as built - they are
+    /// also the planets' gravity reach in the world (GravityRequest), which is not re-requested. A cheap compare per call.
+    /// </summary>
+    static void Rescale(double mult)
+    {
+        if (mult == _builtMult || !(mult > 0) || double.IsInfinity(mult)) return;
+        lock (_lock)
+        {
+            if (!Built || mult == _builtMult) return;
+            var reg = Registry; double k = mult / _builtMult; int n = 0;
+            if (reg != null)
+                foreach (var name in BeaconOf.Keys)
+                {
+                    var node = reg.Find(name);
+                    if (node == null || node.Parent == null) continue;   // (the root, the star: no multiplier in its mu)
+                    node.Mu *= k; n++;
+                }
+            Log.Default?.Info($"[ORBIT] world gravity multiplier {_builtMult} -> {mult}: {n} bodies' mu x{k:G4} (orbits, moons and spheres of influence unchanged)");
+            _builtMult = mult;
+        }
+    }
+
     private static void Build(List<PlanetBeacon> beacons, double mult)
     {
+        _builtMult = mult;
         // Stable order: by name, so every build (and every client) agrees.
         // Stable order: the known planets first (Verdure inside Kemik), then by name, so every build agrees.
         int Rank(PlanetBeacon p) { int i = Array.IndexOf(PlanetOrder, DevHarness.PlanetName(p)); return i < 0 ? PlanetOrder.Length : i; }

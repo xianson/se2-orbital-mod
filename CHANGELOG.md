@@ -6,6 +6,8 @@ written but has not been run).
 
 ## Unreleased
 
+- **World gravity multiplier changed mid-game** (the Aerodynamics Mod's setting): the planets' and moons' gravity in the
+  orbit predictions follows it at once; orbits, moons and spheres of influence stay as built.
 - **Fixed: the Orbital Mod in a world with no planet** (space only, the Empty World): its section on Options > Mods never
   appeared (the menu ran from the planets), and its world settings were never saved (they were kept only on the planets).
   The menu now runs from the camera; the players' character and spectator carry the world settings too (older saves

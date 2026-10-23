@@ -45,7 +45,7 @@ grep -q 'Func<Keen.VRage.DCS.Components.Entity, ValueTuple<Vector3, float>>' "$f
 grep -q 'Func<Entity, ValueTuple<Vector3, float>>' "$EH" || bad "orbital's source delegate is no longer Func<Entity, (Vector3, float)>"
 
 # 2. every AeroMod member named in a GetMethod/GetField string here exists in the aero source (dev code included)
-NAMES="RegisterEntrySource HasEntrySource RequestQuickLaunch TryGetFlow WingTips EntryStrength TryGetFlight TryGetForces TryGetLift TryGetGroundHeight PredictHullForces RequestForceTable TryGetEntry TryGetAtmosphere TryGetAtmosphereAt GetFxConsistency TryGetStructure SetFocusGrid TryGetStall TryGetLoac NoteMoved Build GetGravityDirection TryDesign GetTopSpeed GetTopSpeedAt GetThrustAlong TryGetCenterOfMass GetMass GetDesignPressures GetControlRatio GetWavePeak GetStructureEventSequence ReadStructureEvents"
+NAMES="RegisterEntrySource HasEntrySource RequestQuickLaunch TryGetFlow WingTips EntryStrength TryGetFlight TryGetForces TryGetLift TryGetGroundHeight PredictHullForces RequestForceTable TryGetEntry TryGetAtmosphere TryGetAtmosphereAt GetFxConsistency TryGetStructure SetFocusGrid TryGetStall TryGetLoac TryGetPitchMargin NoteMoved Build GetGravityDirection TryDesign GetTopSpeed GetTopSpeedAt GetThrustAlong TryGetCenterOfMass GetMass GetDesignPressures GetControlRatio GetWavePeak GetStructureEventSequence ReadStructureEvents"
 for f in $(grep -rl '"AeroMod\.' Scripts --include=*.cs); do
   for m in $(grep -o 'GetMethod("[A-Za-z]*"' "$f" | sed 's/GetMethod("//; s/"//' | sort -u); do
     case " $NAMES " in *" $m "*) ;; *) continue ;; esac
@@ -94,6 +94,7 @@ want aero SetFocusGrid "Entity" BuildHints
 want aero TryGetStructure "Entity, out float, out float, out float" BuildHints
 want aero TryGetStall "Entity, out int, out float, out float, out float" BuildHints
 want aero TryGetLoac "Entity, out int, out float" BuildHints
+want aero TryGetPitchMargin "Entity, out int, out float, out float, out float, out float" BuildHints
 want aero TryDesign "Entity, Vector3, float, out Vector3, out Vector3, out Vector3, out float, out float, out float" BuildHints
 want aero GetTopSpeed "Entity, Vector3" BuildHints
 want aero GetTopSpeedAt "Entity, Vector3, float" "BuildHints / FlyTest"

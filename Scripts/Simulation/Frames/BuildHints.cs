@@ -41,13 +41,13 @@ public static class BuildHints
     /// <summary>DEV: show the hints for this grid without building (0: off) - the harness cannot hold a block.</summary>
     public static long DevGridId;
 
-    static MethodInfo _design, _top, _topAt, _thrust, _com, _mass, _pressures, _control, _flight, _forces, _structure, _focus, _stall, _loac; static int _boundGen = -1;
+    static MethodInfo _design, _top, _topAt, _thrust, _com, _mass, _pressures, _control, _flight, _forces, _structure, _focus, _stall, _loac, _pitch; static int _boundGen = -1;
     /// <summary>Bind aero's API (Api/AeroLink: the last loaded copy) - again whenever that copy changes (a hot reload).</summary>
     static void Resolve()
     {
         int gen = AeroLink.Generation;
         if (gen == _boundGen) return; _boundGen = gen;
-        _design = _top = _topAt = _thrust = _com = _mass = _pressures = _control = _flight = _forces = _structure = _focus = _stall = _loac = null; _flightFn = null;
+        _design = _top = _topAt = _thrust = _com = _mass = _pressures = _control = _flight = _forces = _structure = _focus = _stall = _loac = _pitch = null; _flightFn = null;
         var t = AeroLink.Find("AeroMod.AeroApi");
         if (t != null)
         {
@@ -62,6 +62,7 @@ public static class BuildHints
             _flight = M("TryGetFlight", E, oV, oF, oF, oF, oF); _forces = M("TryGetForces", E, oV, oV, oF, oF, oF);
             _structure = M("TryGetStructure", E, oF, oF, oF); _focus = M("SetFocusGrid", E); _stall = M("TryGetStall", E, oI, oF, oF, oF);
             _loac = M("TryGetLoac", E, oI, oF);
+            _pitch = M("TryGetPitchMargin", E, oI, oF, oF, oF, oF);   // (aero 15: null before it - no pitch margin shown)
             // (asked every frame seated: bound as a typed delegate - by Invoke it was an argument array and five boxed outs a
             //  frame, most of this system's garbage, 2026-10-14; a signature that does not match leaves the Invoke)
             try { _flightFn = _flight != null ? (FlightFn)Delegate.CreateDelegate(typeof(FlightFn), _flight, false) : null; } catch { _flightFn = null; }
@@ -311,7 +312,7 @@ public static class BuildHints
     /// <summary>The boxes (DrawPanel's while building; DrawFlight's right pair in the air).</summary>
     static readonly List<Vector2> _boxPts = new List<Vector2>(6);
     static void DrawBoxes(float u, bool left, string top, ColorSRGB topCol, string tw, string stabLabel, int st, string margin, string ld,
-        string l1Icon = "speed", string l1Label = "TOP", string l2Icon = "thrust", string l2Label = "T/W", ColorSRGB? l2Col = null)
+        string l1Icon = "speed", string l1Label = "TOP", string l2Icon = "thrust", string l2Label = "T/W", ColorSRGB? l2Col = null, ColorSRGB? marginCol = null)
     {
         var scr = MapPipeline.ScreenSize;
         float cx = scr.X * 0.5f, cy = scr.Y * 0.5f, H = scr.Y;
@@ -391,7 +392,7 @@ public static class BuildHints
             Box(false, below, l2Icon, l2Label, tw, l2Col ?? white);
         }
         // right, by ALT: the stability, L/D
-        Box(true, aboveR, "balance", stabLabel, StateWord(st), StateColor(st, 1f), margin, StateColor(st, 1f));
+        Box(true, aboveR, "balance", stabLabel, StateWord(st), StateColor(st, 1f), margin, marginCol ?? StateColor(st, 1f));
         Box(true, belowR, "wing", "L/D", ld, white);
     }
 
@@ -419,6 +420,13 @@ public static class BuildHints
     /// </summary>
     public static float FlightMinSpeed = 20f, FlightMinDensity = 0.01f; public static double FlightEvery = 0.25;
     static double _flAt; static Entity _flGrid; static int _flState = -9; static string _flMargin, _flLd = "-", _flLabel = "M0";
+    /// <summary>THE PITCH UPSET MARGIN (2026-10-23, the user: no forewarning of losing pitch control at high Mach - aero's
+    /// TryGetPitchMargin): seated in air, the stability box's corner is the largest pitch upset the ship can still turn back
+    /// ("P 4°", white / amber under the limit now / red lost; "P>30°" past PitchShowMax, stable in pitch "P ok") in place of
+    /// the centre of pressure's margin; PITCH LIMIT M2.6 (the limit only ahead, at that Mach), PITCH LIMIT (now) or PITCH LOST under LOSS OF
+    /// CONTROL's line.</summary>
+    public static float PitchShowMax = 30f;
+    static int _flPitch; static string _flPitchText, _flPitchWarn;
     // the structure gauges (STRUCT: the worst joint's share of its yield; HEAT: the hottest skin, amber softening, red burning)
     static string _flStruct, _flSkinText; static float _flUtil, _flSkin, _flHeat; static double _focusAt; static int _flStall, _flLoac;   // (_flSkinText: the HEAT box's text, made when read - not every frame)
 
@@ -485,6 +493,19 @@ public static class BuildHints
             // loss of attitude control (aero: Loac)
             _flLoac = 0;
             if (_loac != null) { var la = new object[] { grid, null, null }; if ((bool)_loac.Invoke(null, la)) _flLoac = (int)la[1]; }
+            // the pitch upset margin (aero: EvaluatePitchMargin)
+            _flPitch = 0; _flPitchText = _flPitchWarn = null;
+            if (_pitch != null)
+            {
+                var pa = new object[] { grid, null, null, null, null, null };
+                if ((bool)_pitch.Invoke(null, pa))
+                {
+                    _flPitch = (int)pa[1]; float pNow = (float)pa[2], machAhead = (float)pa[4];
+                    _flPitchText = float.IsPositiveInfinity(pNow) ? "P ok" : pNow > PitchShowMax ? $"P>{PitchShowMax:0}°" : $"P {pNow:0.#}°";
+                    // (1: the limit only ahead - when it comes, at that Mach; 2 under it now; 3 lost)
+                    _flPitchWarn = _flPitch == 3 ? "PITCH LOST" : _flPitch == 2 ? "PITCH LIMIT" : _flPitch == 1 ? $"PITCH LIMIT M{machAhead:0.0}" : null;
+                }
+            }
             // the structure and the hull's heat (aero: StructureServer)
             _flStruct = null;
             if (_structure != null)
@@ -497,13 +518,16 @@ public static class BuildHints
         var warn = HudPanel.Warn; var whiteC = new ColorSRGB(1f, 1f, 1f, 1f); var red = new ColorSRGB(1f, 0.25f, 0.2f, 1f);
         try
         {
+            string corner = _flPitchText ?? _flMargin;
+            ColorSRGB? cornerCol = _flPitchText == null ? null : _flPitch == 3 ? red : _flPitch == 2 ? warn : whiteC;
             if (_flStruct != null)
-                DrawBoxes(MapPipeline.UiScale(MapPipeline.ScreenSize.Y), true, _flStruct, _flUtil >= 1f ? red : _flUtil >= 0.8f ? warn : whiteC, _flSkinText, _flLabel, _flState, _flMargin, _flLd,
-                    "wing", "STRUCT", "thrust", "HEAT", _flHeat >= 1f ? red : _flHeat > 0f ? warn : whiteC);
-            else DrawBoxes(MapPipeline.UiScale(MapPipeline.ScreenSize.Y), false, null, default, null, _flLabel, _flState, _flMargin, _flLd);
+                DrawBoxes(MapPipeline.UiScale(MapPipeline.ScreenSize.Y), true, _flStruct, _flUtil >= 1f ? red : _flUtil >= 0.8f ? warn : whiteC, _flSkinText, _flLabel, _flState, corner, _flLd,
+                    "wing", "STRUCT", "thrust", "HEAT", _flHeat >= 1f ? red : _flHeat > 0f ? warn : whiteC, cornerCol);
+            else DrawBoxes(MapPipeline.UiScale(MapPipeline.ScreenSize.Y), false, null, default, null, _flLabel, _flState, corner, _flLd, marginCol: cornerCol);
             if (_flStall > 0) DrawStall(MapPipeline.UiScale(MapPipeline.ScreenSize.Y), _flStall == 2);
             if (_flLoac == 2) DrawWarning(MapPipeline.UiScale(MapPipeline.ScreenSize.Y), "LOSS OF CONTROL", 0.36f, 0.8f, new ColorSRGB(1f, 0.15f, 0.1f, 1f));
             else if (_flLoac == 1) DrawWarning(MapPipeline.UiScale(MapPipeline.ScreenSize.Y), "CONTROL LIMIT", 0.36f, 0.6f, HudPanel.Warn);
+            if (_flPitchWarn != null) DrawWarning(MapPipeline.UiScale(MapPipeline.ScreenSize.Y), _flPitchWarn, 0.40f, _flPitch == 3 ? 0.8f : 0.6f, _flPitch == 3 ? new ColorSRGB(1f, 0.15f, 0.1f, 1f) : HudPanel.Warn);
         }
         finally { MapPipeline.UiEnd(); }
     }

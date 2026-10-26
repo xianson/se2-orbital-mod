@@ -5,6 +5,7 @@ using Keen.VRage.DCS.Annotations;
 using Keen.VRage.Library.UI.PropertyInspector;
 
 #pragma warning disable CS0649, CS8632, CS1591, CS1573, CS1570, CS1574, CS0419, CS1734
+using Keen.Game2.Simulation.WorldObjects.CubeBlocks.Toolbar;
 namespace OrbitalMod;
 
 /// <summary>
@@ -30,14 +31,14 @@ public partial class OrbitalHoldDetailModel : BlockDetailModel
 {
     [Component] private CockpitComponent _cockpit;
 
-    [Button(null)] [Label("Hold prograde")] public void HoldPrograde() => HoldActions.Request(AttitudeHold.Mode.Prograde);
-    [Button(null)] [Label("Hold retrograde")] public void HoldRetrograde() => HoldActions.Request(AttitudeHold.Mode.Retrograde);
-    [Button(null)] [Label("Hold normal")] public void HoldNormal() => HoldActions.Request(AttitudeHold.Mode.Normal);
-    [Button(null)] [Label("Hold anti-normal")] public void HoldAntiNormal() => HoldActions.Request(AttitudeHold.Mode.AntiNormal);
-    [Button(null)] [Label("Hold radial out")] public void HoldRadialOut() => HoldActions.Request(AttitudeHold.Mode.RadialOut);
-    [Button(null)] [Label("Hold radial in")] public void HoldRadialIn() => HoldActions.Request(AttitudeHold.Mode.RadialIn);
-    [Button(null)] [Label("Hold level")] public void HoldLevel() => HoldActions.Request(AttitudeHold.Mode.Level);
-    [Button(null)] [Label("Hold off")] public void HoldOff() => HoldActions.Request(AttitudeHold.Mode.Off);
+    [Button(null)] [ActionIcon("ActionIconButton")] [Label("Hold prograde")] public void HoldPrograde() => HoldActions.Request(AttitudeHold.Mode.Prograde);
+    [Button(null)] [ActionIcon("ActionIconButton")] [Label("Hold retrograde")] public void HoldRetrograde() => HoldActions.Request(AttitudeHold.Mode.Retrograde);
+    [Button(null)] [ActionIcon("ActionIconButton")] [Label("Hold normal")] public void HoldNormal() => HoldActions.Request(AttitudeHold.Mode.Normal);
+    [Button(null)] [ActionIcon("ActionIconButton")] [Label("Hold anti-normal")] public void HoldAntiNormal() => HoldActions.Request(AttitudeHold.Mode.AntiNormal);
+    [Button(null)] [ActionIcon("ActionIconButton")] [Label("Hold radial out")] public void HoldRadialOut() => HoldActions.Request(AttitudeHold.Mode.RadialOut);
+    [Button(null)] [ActionIcon("ActionIconButton")] [Label("Hold radial in")] public void HoldRadialIn() => HoldActions.Request(AttitudeHold.Mode.RadialIn);
+    [Button(null)] [ActionIcon("ActionIconButton")] [Label("Hold level")] public void HoldLevel() => HoldActions.Request(AttitudeHold.Mode.Level);
+    [Button(null)] [ActionIcon("ActionIconButton")] [Label("Hold off")] public void HoldOff() => HoldActions.Request(AttitudeHold.Mode.Off);
 }
 
 public static class HoldActions

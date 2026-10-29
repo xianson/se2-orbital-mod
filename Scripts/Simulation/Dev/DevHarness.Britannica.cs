@@ -106,8 +106,14 @@ public static partial class DevHarness
                     var eob = (Keen.VRage.DCS.ObjectBuilders.EntityObjectBuilder)process.MakeGenericMethod(cfg).Invoke(null, new object[] { ss.Scene, spawner, prefab, fill });
                     Keen.VRage.DCS.ObjectBuilders.EntityObjectBuilderFunctions.OB<Keen.VRage.Core.Game.Components.WorldTransformComponent, Keen.VRage.Core.Game.Components.WorldTransformComponentObjectBuilder>(eob).Transform = new WorldTransform(pos, Quaternion.Identity);
                     if (prefabId == BritannicaIslandsTest.ServerPrefab) eob.DebugName = "Britannica";
-                    var e = ss.Get<Keen.VRage.Core.Game.Systems.IEntitySpawner>().SpawnEntity(eob);
-                    return e == null ? "the planet did not spawn" : $"{eob.DebugName} spawned at {ServerPlanetBeacon.Fmt(pos)}, R {radius / 1000.0:F0} km, seed {seed}";
+                    // (staged and async between the server's ticks, as every harness spawn: a synchronous SpawnEntity inside the server's
+                    //  job killed the server - GridGen.cs)
+                    var spawnerSys = ss.Get<Keen.VRage.Core.Game.Systems.IEntitySpawner>();
+                    var bundle = new Keen.VRage.Core.Game.Systems.EntityBundle();
+                    bundle.Add(eob, null, true);
+                    if (!GridGen.BetweenTicks(() => spawnerSys.SpawnBundleAsync(new Keen.VRage.Core.Game.Systems.GameEntitySerializer.BundleInitArgs { Bundle = bundle })))
+                        return "the planet did not spawn: no engine update queue";
+                    return $"{eob.DebugName} spawning (async) at {ServerPlanetBeacon.Fmt(pos)}, R {radius / 1000.0:F0} km, seed {seed}";
                 });
             }
             case "bodies":

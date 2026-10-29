@@ -351,10 +351,11 @@ public static partial class DevHarness
                     case "lock": return SpecCam.GridLock(session, (long)D(a[2]), camera);   // cam lock <id>: keep the camera where it is, relative to that grid (2026-10-18)
                     case "grid": return SpecCam.Grid((long)D(a[2]), D(a[3]), a.Length > 4 ? D(a[4]) : 90, a.Length > 5 ? D(a[5]) : 15);   // cam grid <id> <distKm> [bearing from its nose] [elev]
                     case "sun": return SpecCam.Sun();
+                    case "at": return SpecCam.At(new Vector3D(D(a[2]), D(a[3]), D(a[4])), new Vector3D(D(a[5]), D(a[6]), D(a[7])), a.Length > 8 ? a[8] : null);   // cam at x y z lx ly lz [planet] (2026-10-26)
                     case "mapbody": return SpecCam.MapBody(a[2], D(a[3]), a.Length > 4 ? D(a[4]) : 0, a.Length > 5 ? D(a[5]) : 60);
                     case "map": return SpecCam.Map(D(a[2]), a.Length > 3 ? D(a[3]) : 0, a.Length > 4 ? D(a[4]) : 60);
                 }
-                return "cam off|planet|player|grid|map";
+                return "cam off|planet|player|grid|map|at";
 
             case "approach":   // approach <body> <altKm> <speed m/s> <gammaDeg below the horizon>: your frame on that state
             {

@@ -339,7 +339,8 @@ public partial class ServerPlanetBeacon
             Log.Default?.Warning($"[ORBIT-DEV] no alive character ({side})");
             return "no character";
         }
-        var ctx = chars[0].Data;
+        // (the player's own character - chars[0] is any alive character, an NPC's too: the bug srvtp had, 2026-10-26)
+        var ctx = (PlayerCache.Of(session) ?? chars[0]).Data;
         // Toggle is a structural change (DampeningData added/removed), visible next frame.
         if (req.Dampeners.HasValue && ctx.Has<DampeningData>() != req.Dampeners.Value)
             ctx.ToggleDampeners(clearRelativeDampeners: true);

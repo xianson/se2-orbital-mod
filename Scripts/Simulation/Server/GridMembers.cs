@@ -449,6 +449,7 @@ public static class GridMembers
                 while (en.MoveNext()) if (en.Current != null && !set.Contains(en.Current)) set.Add(en.Current);
                 en.Dispose();
             }
+            AddPhysicsJoined(g, set);
             // As fast travel: anything static in it (a base it is joined to) and it does not move at all.
             foreach (var e in set)
             {
@@ -458,6 +459,39 @@ public static class GridMembers
             return true;
         }
         catch (Exception e) { why = "connection search failed: " + e.Message; set.Clear(); return false; }
+    }
+
+    /// <summary>
+    /// Every body joined to the set by a raw physics constraint, transitively (IPhysics.GetDirectlyConnectedBodies) - the ones the
+    /// game's connection search does not know: a mod's own joints (IPhysics.AllocateConstraint - the Mech Legs mod's wrist joint on a
+    /// mech arm's hand, the joints holding a released limb's segments together). Left out, a jointed pair was moved apart: a released
+    /// arm's forearm stowed into one orbit frame, its upper arm into another and its hand left behind, still pinned to them - Havok's
+    /// "Body was not migrated properly, a migrated constraint is pointing..." and the game froze and crashed (2026-10-29 13:57).
+    /// </summary>
+    static void AddPhysicsJoined(OrbitalGridComponent g, List<Entity> set)
+    {
+        var physics = g.Session?.Get<Keen.VRage.Physics.IPhysics>();
+        var scene = g.Entity?.Scene;
+        if (physics == null || scene == null) return;
+        using (var buf = new Keen.VRage.Library.Memory.Buffer<Keen.VRage.DCS.Accessors.DEntity>(Keen.VRage.Library.Memory.Allocator.Pool, "OrbitalMoveSetJoints"))
+        {
+            for (int k = 0; k < set.Count && set.Count < 512; k++)   // (the set grows as it is walked: every body found is walked in its turn)
+            {
+                var e = set[k];
+                if (!Alive(e) || !physics.HasBody(e.DEntity)) continue;
+                buf.Clear();
+                physics.GetDirectlyConnectedBodies(e.DEntity, buf);
+                var en = ((Keen.VRage.Library.Memory.BufferReference<Keen.VRage.DCS.Accessors.DEntity>)buf).GetEnumerator();
+                while (en.MoveNext())
+                {
+                    var de = en.Current;
+                    if (!scene.IsEntityAlive(de)) continue;
+                    var o = Entity.TryGetFromDataEntity(new Keen.VRage.DCS.Accessors.DEntityContext(scene, de));
+                    if (o != null && !set.Contains(o)) set.Add(o);
+                }
+                en.Dispose();
+            }
+        }
     }
 
     /// <summary>Writes refused for a non-finite value (a sign of bad orbital state upstream).</summary>

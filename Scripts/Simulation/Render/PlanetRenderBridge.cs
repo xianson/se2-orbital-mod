@@ -284,6 +284,7 @@ public static partial class PlanetRenderBridge
     /// <summary>A render root (RenderContracts.CreateRootEntity), or null.</summary>
     internal static object CreateRootEntity(string name, WorldTransform at)
     {
+        if (!Drawable(at)) { WarnOnce("root-nan-create-" + name, $"render root '{name}' created at a non-finite transform - at identity instead"); at = new WorldTransform(GridMembers.Finite(at.Position) ? at.Position : Vector3D.Zero, Quaternion.Identity); }
         if (!ResolveRender()) return null;
         return _createRoot.Invoke(_contracts, new object[] { name, at, true });
     }
@@ -315,9 +316,15 @@ public static partial class PlanetRenderBridge
         return true;
     }
 
+    /// <summary>A transform the renderer can take: a finite position and a valid, normalized rotation. The engine does
+    /// not check - a NaN root transform crashed the render on opening the map (2026-10-26, Britannica: DistanceTagManager
+    /// "Function does not accept floating point Not-a-Number values", after RootEntityRenderComponent's invalid quaternion).</summary>
+    internal static bool Drawable(in WorldTransform at) => GridMembers.Finite(at.Position) && at.Orientation.IsValidAndRotationIsNormalized();
+
     internal static void UpdateRootTransform(object root, WorldTransform at)
     {
         if (root == null) return;
+        if (!Drawable(at)) { WarnOnce("root-nan", $"a render root's transform was not finite / not a rotation ({at.Position}, {at.Orientation}) - not sent"); return; }
         _rootUpdateTransform ??= root.GetType().GetMethod("UpdateTransform");
         _rootUpdateTransform?.Invoke(root, new object[] { at });
     }

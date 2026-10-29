@@ -1,4 +1,5 @@
 # bake_globes.py [--size 4096] [--normal-size 2048] [planet folder ...]   (default: every planet with an overlay)
+#                [--overlay <folder> <colour cubemap .dds> <normal cubemap .dds>]   (that planet from a mod's overlay)
 #
 # The proxy globe's textures (PlanetMesh), from the planet's OWN overlay cubemaps - the maps the real planet draws with
 # from orbit (PlanetOverlayDefinition.OverlayColorMetal / OverlayNormalAO, sampled by direction in
@@ -257,13 +258,15 @@ def bake(folder, cm, nao, size, nsize):
           f" ({fixed} 3-colour block(s) re-encoded)")
 
 def main(argv):
-    size, nsize, want = 4096, 2048, []
+    size, nsize, want, given = 4096, 2048, [], {}
     i = 0
     while i < len(argv):
         if argv[i] == "--size": size = int(argv[i + 1]); i += 2
         elif argv[i] == "--normal-size": nsize = int(argv[i + 1]); i += 2
+        # (a planet whose overlay a mod replaces: its compiled cubemaps, colour then normal - PlanetTools' export_overlay)
+        elif argv[i] == "--overlay": given[argv[i + 1]] = (argv[i + 2], argv[i + 3]); want.append(argv[i + 1]); i += 4
         else: want.append(argv[i]); i += 1
-    found = overlays()
+    found = dict(overlays(), **given)
     if not want or want == ["all"]: want = sorted(found)
     for folder in want:
         if folder not in found: print(f"{folder}: no overlay cubemap (have: {', '.join(sorted(found))})"); continue

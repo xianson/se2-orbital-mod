@@ -13,7 +13,8 @@ namespace OrbitalMod;
 /// </summary>
 public static class SpecCam
 {
-    public enum Target { None, Fixed, Planet, Player, Map, Point, Sun, MapBody, Grid, GridLock }
+    public enum Target { None, Fixed, Planet, Player, Map, Point, Sun, MapBody, Grid, GridLock, At }
+    private static Vector3D _atPos;   // (cam at: a fixed world point)
     private static Vector3D _lockPos; private static Quaternion _lockRot;   // (cam lock: the camera in the grid's own frame)
     private static Target _target;
     private static string _planet;
@@ -54,6 +55,13 @@ public static class SpecCam
     /// <summary>Orbit a fixed point (the orbital map diorama); re-issued every tick by its owner.</summary>
     public static void Orbit(Vector3D point, double dist, double bearingDeg, double elevDeg)
     { _target = Target.Point; _fixedLook = point; _dist = dist; _bearing = bearingDeg; _elev = elevDeg; }
+
+    /// <summary>cam at (2026-10-26, Britannica shots): stand at a point and look at another. With a planet named, both are
+    /// offsets from its displayed centre and the view is level on its horizon (up away from its centre); without one they
+    /// are world points, up world +Y. `tp` moves the character, not the render camera - in a seated or third-person view
+    /// the shot stayed where the camera was.</summary>
+    public static string At(Vector3D pos, Vector3D look, string planet)
+    { _target = Target.At; _atPos = pos; _fixedLook = look; _planet = planet; return $"spectator: at a point, {(look - pos).Length() / 1000:F1} km from its target"; }
 
     /// <summary>From the player, look straight at where the model says the sun is.</summary>
     public static string Sun() { _target = Target.Sun; return "spectator: looking at the model sun"; }
@@ -116,6 +124,19 @@ public static class SpecCam
                 var lw = gl.Data.GetWorldTransform();
                 var lwt = new WorldTransform(lw.Position + Vector3D.Transform(_lockPos, lw.Orientation), Quaternion.Normalize(lw.Orientation * _lockRot));
                 Current = lwt; cam.SetTransformOverride(lwt); Status = $"GridLock {_grid}"; return;
+            }
+            case Target.At:
+            {
+                // (with a planet both points are offsets from its DISPLAYED centre: the Orbital Mod moves the planets, and
+                //  world points taken from a status line missed Kemik by far - 2026-10-26)
+                Vector3D? pc = _planet != null ? planetPos(_planet) : null;
+                if (_planet != null && !pc.HasValue) { Status = "no planet " + _planet; return; }
+                Vector3D apos = _atPos + (pc ?? Vector3D.Zero), alook = _fixedLook + (pc ?? Vector3D.Zero);
+                Vector3 aup = pc.HasValue ? (Vector3)Vector3D.Normalize(apos - pc.Value) : Vector3.UnitY;
+                Vector3 afwd = (Vector3)Vector3D.Normalize(alook - apos);
+                if (MathF.Abs(Vector3.Dot(afwd, aup)) > 0.98f) aup = MathF.Abs(afwd.Y) > 0.98f ? Vector3.UnitZ : Vector3.UnitY;
+                var awt = new WorldTransform(apos, Quaternion.CreateFromForwardUp(afwd, aup));
+                Current = awt; cam.SetTransformOverride(awt); Status = "At " + (_planet ?? ""); return;
             }
             case Target.Point: look = _fixedLook; break;
             case Target.MapBody:

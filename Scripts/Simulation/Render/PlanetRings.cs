@@ -133,6 +133,23 @@ public static class PlanetRings
     /// sector is drawn flat. So the ring is laid on its planet's equator: the entity is turned, about the
     /// planet's centre, from the game's normal onto the spin axis. Out: the ring's new orientation.
     /// </summary>
+    /// <summary>The shortest rotation taking unit a onto unit b. Quaternion.CreateFromTwoVectors returns NaN for opposite
+    /// vectors - a ring whose normal pointed exactly against the map's up (Britannica, spawned with an identity
+    /// orientation) sent a NaN transform to the renderer and crashed it on opening the map (2026-10-26): half a turn about
+    /// any axis square to a, then.</summary>
+    internal static Quaternion Between(Vector3 a, Vector3 b)
+    {
+        float d = Vector3.Dot(a, b);
+        if (d > 0.999999f) return Quaternion.Identity;
+        if (d < -0.999999f)
+        {
+            Vector3 ax = Vector3.Cross(a, Math.Abs(a.X) < 0.9f ? Vector3.UnitX : Vector3.UnitY);
+            return Quaternion.CreateFromAxisAngle(Vector3.Normalize(ax), MathF.PI);
+        }
+        var q = Quaternion.CreateFromTwoVectors(a, b);
+        return q.IsValidAndRotationIsNormalized() ? q : Quaternion.Normalize(q);
+    }
+
     static Quaternion Equatorial(Entity e, Quaternion orient)
     {
         try
@@ -141,7 +158,7 @@ public static class PlanetRings
             Vector3 n = Vector3.Normalize(Vector3.Transform(Vector3.UnitY, orient));
             Vector3 axis = Vector3.UnitZ;   // (every planet's spin axis in the model's canonical plane)
             if (Vector3.Dot(n, axis) > 0.99999f) return orient;
-            Quaternion turned = Quaternion.Normalize(Quaternion.Concatenate(orient, Quaternion.CreateFromTwoVectors(n, axis)));
+            Quaternion turned = Quaternion.Normalize(Quaternion.Concatenate(orient, Between(n, axis)));
             var wt = e.Data.GetWorldTransform();
             e.Data.Set(new WorldTransform(wt.Position, turned));
             if (OrbitalLog.Setup) Log.Default?.Info($"[ORBIT] ring laid on its planet's equator: normal {n} -> {axis}");
@@ -206,7 +223,7 @@ public static class PlanetRings
                 if (!Near(r, cell)) continue;
                 double k = globeRadius / planetRadius;
                 Vector3 n0 = Vector3.Normalize(Vector3.Transform(Vector3.UnitY, r.GameOrientation));
-                Quaternion orient = Quaternion.Normalize(Quaternion.Concatenate(r.GameOrientation, Quaternion.CreateFromTwoVectors(n0, (Vector3)Vector3D.Normalize(up))));
+                Quaternion orient = Quaternion.Normalize(Quaternion.Concatenate(r.GameOrientation, Between(n0, (Vector3)Vector3D.Normalize(up))));
                 MapRingMesh.Place(r.Name, r.BaseMat, r.Inner, r.Outer, globe, orient, k);
             }
     }

@@ -70,6 +70,7 @@ public static partial class PlanetRenderBridge
     {
         if (p == null) return;
         if (!GridMembers.Finite(center) || double.IsNaN(radius) || double.IsInfinity(radius) || radius <= 0) return;   // never a NaN transform or scale to the renderer
+        if (orient.HasValue && !orient.Value.IsValidAndRotationIsNormalized()) orient = null;   // (nor a NaN turn: drawn unturned)
         try
         {
             _rootUpdateTransform ??= p.Root.GetType().GetMethod("UpdateTransform");

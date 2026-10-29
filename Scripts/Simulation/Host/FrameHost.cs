@@ -301,6 +301,7 @@ public static partial class FrameHost
         //  every frame)
         var ta = new TickArgs(session, camera, t);
         Guard("MapInput.Poll", static a => MapInput.Poll(), ta);
+        Guard("OceanRefresh", static a => OceanRefresh.Tick(a.Session), ta);   // (a planet's ocean drawn: Render/OceanRefresh.cs)
         Guard("DevFlight.ClientTick", static a => DevFlight.ClientTick(a.Session), ta);
         Guard("ApplyTargetTurns", static a => ApplyTargetTurns(a.Session), ta);
         Guard("QuietCrossingShake", static a => QuietCrossingShake(a.Session), ta);

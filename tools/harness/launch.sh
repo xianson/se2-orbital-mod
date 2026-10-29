@@ -5,10 +5,13 @@
 # SpaceEngineers2 process with its tree: the game starts as a small launcher whose child (same name, same start second) is
 # the game itself - counting processes instead of instances killed the real game (2026-10-12).
 launch() {
+  . "$(dirname "${BASH_SOURCE[0]}")/game_owner.sh"; owner_check || return 3
   powershell -NoProfile -Command "Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Stop-Process -Force"
   for i in $(seq 1 30); do [ -z "$(powershell -NoProfile -Command "(Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue).Id")" ] && break; sleep 1; done
   sleep 2
+  python "${AERO_TOOLS:-$(dirname "${BASH_SOURCE[0]}")/../../../Aerodynamics Mod/tools/shared}/build_mod_content.py" --apply-pending | grep -v "^$"   # (see relaunch.sh)
   powershell -NoProfile -Command "Start-Process 'steam://rungameid/1133870'"
+  owner_write "steam launch"
   ( for i in $(seq 1 45); do sleep 2
       powershell -NoProfile -Command "\$all = @(Get-CimInstance Win32_Process -Filter \"name='SpaceEngineers2.exe'\"); \$ids = \$all | ForEach-Object { \$_.ProcessId }; \$top = @(\$all | Where-Object { \$ids -notcontains \$_.ParentProcessId } | Sort-Object CreationDate); if (\$top.Count -gt 1) { \$top | Select-Object -Skip 1 | ForEach-Object { taskkill /T /F /PID \$_.ProcessId | Out-Null }; 'closed a second game instance' }"
     done ) &

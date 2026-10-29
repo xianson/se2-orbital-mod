@@ -33,6 +33,7 @@ public static class MapInput
     /// <summary>Once per frame, before anything reads the buttons.</summary>
     public static void Poll()
     {
+        UserInput.Poll();   // (DEV: the user's last in-game input, for the shared slot broker - Dev/UserInput.cs)
         double now = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
         if ((_mouse == null || _keyboard == null) && now - _lastLookup > 2.0)
         {

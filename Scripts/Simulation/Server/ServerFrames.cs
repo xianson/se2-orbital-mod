@@ -304,6 +304,7 @@ public static partial class ServerFrames
         { long _s0 = Sw(); HavokAudit.Tick(session); Sec("havokaudit", _s0); }   // (Havok's cluster bookkeeping checked: once a second, soon after a teleport)
    // no encounters on a planet's border (before they materialize); reads frames
         { long _s0 = Sw(); AsteroidBridge.Tick(session); Sec("asteroidbridge", _s0); }   // no procedural asteroids, ever (encounters and our own system place them)
+        { long _s0 = Sw(); BritannicaCutTest.Tick(session); Sec("britannicacut", _s0); }   // TEST: the Britannica undercut on Kemik (Simulation/Test)
         // Physics runs on game time (it slows and pauses with the game), so the tidal velocity
         // changes must use game-time dt too; the wall-clock dt above only gates once-per-frame.
         try

@@ -33,11 +33,14 @@ public static class PlayerCache
 
     /// <summary>A new world (WorldReset): the last world's sessions and characters let go (kept by session, every world's
     /// stayed in memory - 2026-10-15).</summary>
-    internal static void ResetWorld() { lock (_by) { _by.Clear(); _hasLocalId = false; } }
+    internal static void ResetWorld() { lock (_by) { _by.Clear(); _hasLocalId = false; _hasLocalPos = false; } }
 
     // The local player's identity, from the client session (its players component): what its character on the SERVER is owned by.
     static Keen.Game2.Simulation.GameSystems.Ownership.IdentityId _localId;
     static bool _hasLocalId;
+    // (where the client's controlled character last was: picks the player's own character among several it owns on the server)
+    static Vector3D _localPos;
+    static bool _hasLocalPos;
 
     /// <summary>A session without a local player (the server's): the local player's character there - the alive character
     /// owned by the client's local identity. 2026-10-15: it was the first alive character, on a listen host with remote
@@ -50,11 +53,17 @@ public static class PlayerCache
         Entity found = null;
         if (session.TryFillAliveCharacters(_buf))
         {
+            // (several owned characters - an old body left behind and the one the player controls, 2026-10-26: srvtp moved
+            //  the old body, the player stayed put): the owned one nearest the client's controlled character)
+            double best = double.MaxValue;
             if (_hasLocalId)
                 foreach (var c in _buf)
                 {
                     var own = c.TryGet<Keen.Game2.Simulation.GameSystems.Ownership.OwnershipComponent>();
-                    if (own != null && own.Owner.Equals(_localId)) { found = c; break; }
+                    if (own == null || !own.Owner.Equals(_localId)) continue;
+                    double dd = _hasLocalPos ? (c.Data.GetWorldTransform().Position - _localPos).LengthSquared() : 0;
+                    if (found == null || dd < best) { found = c; best = dd; }
+                    if (!_hasLocalPos) break;
                 }
             if (found == null && _buf.Count == 1) found = _buf[0];
         }
@@ -74,7 +83,11 @@ public static class PlayerCache
             foreach (var (c, _) in pc.ControlledEntities)
             {
                 var ent = c?.Entity;
-                if (ent != null && ent.TryGet<Keen.Game2.Simulation.WorldObjects.Characters.CharacterComponent>() != null && Alive(ent)) return ent;
+                if (ent != null && ent.TryGet<Keen.Game2.Simulation.WorldObjects.Characters.CharacterComponent>() != null && Alive(ent))
+                {
+                    _localPos = ent.Data.GetWorldTransform().Position; _hasLocalPos = true;
+                    return ent;
+                }
             }
         }
         catch { }

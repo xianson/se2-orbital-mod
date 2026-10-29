@@ -18,5 +18,6 @@ public static class OrbKey {
 "@
 $p = Get-Process SpaceEngineers2 -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
 if ($p) { [OrbKey]::SetForegroundWindow($p.MainWindowHandle) | Out-Null; Start-Sleep -Milliseconds 300 }
+$st = Join-Path $env:LOCALAPPDATA "OrbitalModBuild\injected.stamp"; New-Item -ItemType Directory -Force (Split-Path $st) | Out-Null; Set-Content $st (Get-Date -Format o)   # (harness input, not the user's: slot.py ignores input this close to the stamp)
 [OrbKey]::Press([uint16]$Scan, $false); Start-Sleep -Milliseconds $HoldMs; [OrbKey]::Press([uint16]$Scan, $true)
 "pressed scan 0x{0:X2} (window: {1})" -f $Scan, ($(if ($p) { $p.MainWindowHandle } else { 'none' }))

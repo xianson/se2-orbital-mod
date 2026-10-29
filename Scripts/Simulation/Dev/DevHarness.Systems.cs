@@ -229,7 +229,7 @@ public static partial class DevHarness
             }
 
             default:
-                return "unknown command";
+                return ExecuteBritannica(session, camera, line, a, verb);   // (the last group: DevHarness.Britannica.cs)
         }
     }
 }

@@ -61,6 +61,7 @@ public static class OrbitalClientHost
             OrbitalSettings.Poll();   // (the settings files, every ~2 s)
             SettingsTab.Tick(session);   // (the Options screen's Mods tab, Ui/SettingsTab.cs: a timestamp compare; 4 Hz a UI-thread check)
             ModTexts.Tick(session, ModTextsProbe);   // (the mod's en-US texts into the game's table, once a session - Ui/ModTexts.cs)
+            BritannicaCutTest.ClientTick(session);   // (TEST: the Britannica cut's client half - Test/BritannicaCutTest.cs; only in its own test launch)
         }
         catch (Exception e)
         {

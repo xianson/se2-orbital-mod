@@ -46,6 +46,7 @@ public static class WorldReset
     {
         Count++; Last = why;
         Log.Default?.Info($"[ORBIT] world reset: {why}");
+        if (unloading) Step("ocean unload guard", OceanRefresh.GuardAtUnload);   // (before the ocean's tiles go: Render/OceanRefresh.cs)
         OceanRefresh.Reset();   // (the next world's sessions refresh their oceans again)
         // the system: none until the next world's planets settle, so the server stops stepping this one's frames (it gates on
         // Built; only the client's EnsureBuilt reset it, ~2 s into the next world); the universe clock and warp from zero (a

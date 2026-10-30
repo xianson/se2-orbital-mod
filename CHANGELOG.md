@@ -4,6 +4,12 @@ What changed for players and for modders. Claims come from the commits (hashes o
 nothing here was flown in game for this release (the one-run in-game check, `tools/harness/test_integrate.sh`, is
 written but has not been run).
 
+## Unreleased
+
+- **Fixed: the game crashed leaving a world with a planet ocean** (exit to the main menu, or loading another world): the game's
+  water renderer counted the ocean's tiles wrongly and threw while they unloaded. Only planets with an ocean are affected - none
+  of the vanilla planets has one. Checked in game: three loads of the same world in one game process, no crash.
+
 ## 1.0.4 (2026-10-30) - works on SE2 4.0.0.3165
 
 - **Fixed: the mod's settings tab (Options > Mods) never appeared on SE2 4.0.0.3159 and later** - the game now pauses

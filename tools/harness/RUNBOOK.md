@@ -121,8 +121,16 @@ only - the test world keeps the saved values; it is a copy). Close it if the use
 
 The fix: `Reload/ScriptResultsCleanup*.cs` in both mods (each takes its own compiled entry out of the game's script results
 when the game unloads its project; without it the second load fails `Loading Failed ... An item with the same key has
-already been added. Key: Simulation`). No harness verb loads a world in-process, so the loads are by hand; the verdict is
-the log audit. Under 5 minutes; nobody else using the game.
+already been added. Key: Simulation`). The verdict is the log audit. Under 5 minutes; nobody else using the game.
+
+**The dev loop (2026-10-30): edit scripts, `worldreload <save>`, no game restart.** `worldload` of a world with the SAME mods
+keeps them loaded (the game swaps its world data only when the mod list changes): the old compiled code keeps running.
+`worldreload` clears `GameDataLoaderComponent._activeProjects` and loads, so the game unloads every mod and compiles each again
+from disk. Measured on Concordia Research Facility 7: a fresh launch 73 s; a worldreload ~45 s. Launch WITHOUT the mod in
+`-projectPaths` (the world's mod list loads it): a mod pushed with the engine at start is never unloaded, so never recompiled.
+In game: a code marker edited on disk between reloads came back in the log (DevWorldSwitch.CodeMarker A -> B); audit
+`3 push(es) / 3 watching, 2 unload(s) / 2 removed` for both mods. A world with the Mech Legs Mod needs its own copy of the
+world-switch fix first.
 
 **Before**: both mods deployed from the fix branches, `tools/test_fast.sh` green in each; two worlds with both mods
 (A = Concordia Research Facility 7, B = any other, e.g. an `Orbital Test ...` copy); the dev overrides released.

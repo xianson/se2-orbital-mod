@@ -4,7 +4,11 @@ What changed for players and for modders. Claims come from the commits (hashes o
 nothing here was flown in game for this release (the one-run in-game check, `tools/harness/test_integrate.sh`, is
 written but has not been run).
 
-## Unreleased
+## 1.0.4 (2026-10-30) - works on SE2 4.0.0.3165
+
+- **Fixed: the mod's settings tab (Options > Mods) never appeared on SE2 4.0.0.3159 and later** - the game now pauses
+  the session while Options is open, which stopped the check that adds the tab. A UI-thread timer drives it now.
+
 
 - **World gravity multiplier changed mid-game** (the Aerodynamics Mod's setting): the planets' and moons' gravity in the
   orbit predictions follows it at once; orbits, moons and spheres of influence stay as built.

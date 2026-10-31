@@ -57,8 +57,6 @@ public static partial class Maneuvers
             HudPanel.BeginLabels();
             if (!MapPipeline.HudPoint(camera.Position + dirW * 1e4, out var s, out bool edge)) return;
             Icon("P", s, PlanColor, true, u);
-            string when = start > t ? "in " + Clock(start - t) : "now";
-            string dur = IsFinite(burn) ? (burn < 60 ? $"  ·  {Math.Max(1, burn):F0} s burn" : $"  ·  {Clock(burn)} burn") : "";
             HudPanel.LabelAt(s + new Vector2(16f * u, 0), $"{left:F1} m/s", PlanColor, u);
         }
         finally { MapPipeline.UiEnd(); }

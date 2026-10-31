@@ -3,7 +3,7 @@
 | File | What |
 |---|---|
 | `OrbitDisplay.cs` | Computes the in-flight orbit (state vector, elements, the relative plot about a frame's anchor). |
-| `OrbitHud.cs` | Shows it: the orbit card, the orbit disc and the relative plot by the speedometer. |
+| `OrbitHud.cs` | Shows it: the orbit disc and the relative plot by the speedometer. Their words go in fixed slots off the drawings (under the disc; the plot's top edge; under the plot), worded and placed by `Core/MapUi/HudText.cs` (one time format, two sizes; tested in `Tests/MapUiTests`); drawn with a soft halo (`MapPipeline.ScreenTextSoft`), no plates. |
 | `OrbitInfo.cs` | Orbital elements as panels (the map's target panel and hover card use them too). |
 | `HudPanel.cs` | Shared panel, tag and label drawing (HUD and map). |
 | `FrameMarkers.cs` | GPS markers across frames; opens the HUD draw batch (`BeginHud`); ticks `Contacts` and `ContactsTab`. |

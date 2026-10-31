@@ -113,7 +113,7 @@ public static partial class Maneuvers
     /// <summary>How long what is left of the next burn takes at full thrust (s); NaN when unknown (no thrust measured).</summary>
     public static double BurnSeconds => Accel > 1e-3 && BurnLeft > 0 ? BurnLeft / Accel : double.NaN;
 
-    /// <summary>The next burn's "when", for the card: "in 2:30", "now", "late 1:20" (past its start and not flown), or
+    /// <summary>The next burn's "when", for the HUD: "in 2m 30s", "now", "late 1m 20s" (past its start and not flown), or
     /// "stopped: no thrust" / "paused" (the auto-burn's reason). Null: no burn. Made anew only when its words change.</summary>
     public static string BurnTag
     {
@@ -132,9 +132,7 @@ public static partial class Maneuvers
             int key = reason != null ? -1 : BurnIn > 0.5 ? (int)Math.Ceiling(BurnIn) : !double.IsNaN(late) ? -2 - (int)late : 0;
             if (key == _tagKey && ReferenceEquals(reason, _tagReason) && _tag != null) return _tag;
             _tagKey = key; _tagReason = reason;
-            _tag = reason != null ? (reason == "paused" ? "paused" : "stopped: " + reason)
-                 : BurnIn > 0.5 ? "in " + Clock(BurnIn)
-                 : !double.IsNaN(late) ? "late " + Clock(late) : "now";
+            _tag = SEAerospace.MapUi.HudText.BurnWhen(BurnIn, late, reason);   // ("in 2m 43s", "now", "late 40s": the HUD's one time format)
             return _tag;
         }
     }

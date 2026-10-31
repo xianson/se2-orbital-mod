@@ -740,10 +740,10 @@ public static class EntryHost
         if (braking) return _tag = $"ENTRY braking {decel / 9.81:F1} g  ·  heat {Reentry.Share(HeatOf(f.Id), false):P0}";
         if (air.HasValue)
         {
-            string at = air.Value.t - now <= 10 ? "now" : Maneuvers.Clock(air.Value.t - now);
+            string at = SEAerospace.MapUi.HudText.In(air.Value.t - now) ?? "now";   // (the HUD's one time format - 2026-10-31)
             return _tag = $"NO AIR {at}  ·  {air.Value.speed:N0} > {Cap:N0} m/s";
         }
-        string when = p.EnterTime - now <= 10 ? "now" : Maneuvers.Clock(p.EnterTime - now);
+        string when = SEAerospace.MapUi.HudText.In(p.EnterTime - now) ?? "now";
         double share = Reentry.Share(p.PeakHeat, false);
         string to = p.HasAfter && p.DragShed > 0 && p.DragShed >= p.Shed * 0.5 ? $"aerobrake −{p.Dv:N0} m/s"
                   : double.IsNaN(p.SpeedAtBottom) ? $"aerobrake −{p.Dv:N0} m/s" : $"{p.ArrivalSpeed:N0} → {p.SpeedAtBottom:N0} m/s";

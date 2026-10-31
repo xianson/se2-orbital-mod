@@ -113,7 +113,7 @@ public static partial class Maneuvers
         double v = RelSpeed(ca);
         string vs = double.IsNaN(v) ? "" : $"  ·  {v:N0} m/s";
         if (r > 0) return ca.d <= r ? $"impact in {Clock(ca.t - t)}" : $"closest {HudPanel.Km(ca.d - r)} up in {Clock(ca.t - t)}{vs}";
-        return ca.d <= RendezvousRange ? $"rendezvous {HudPanel.Km(ca.d)} in {Clock(ca.t - t)}{vs}" : $"closest {HudPanel.Km(ca.d)} in {Clock(ca.t - t)}{vs}";
+        return $"closest {HudPanel.Km(ca.d)} in {Clock(ca.t - t)}{vs}";
     }
 
     /// <summary>The target's closest approach, as values (the map's target panel).</summary>

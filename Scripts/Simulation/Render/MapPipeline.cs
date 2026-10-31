@@ -393,6 +393,29 @@ public static partial class MapPipeline
         catch (Exception e) { TextFailed(e); }
     }
 
+    /// <summary>
+    /// Left-aligned text with a soft dark halo instead of a backplate (the orbit HUD's text, 2026-10-31: the grey per-line plates
+    /// dropped): the string drawn in faint black at eight offsets round it (halo px), then the usual drop shadow, then the text.
+    /// The batch has no blur or outline for text (DrawString takes a font, place, colour, scale), so the halo is built from offsets.
+    /// </summary>
+    public static void ScreenTextSoft(Vector2 at, string text, ColorSRGB color, float scale, float halo)
+    {
+        if (string.IsNullOrEmpty(text) || TextOff || _batch == null || _drawString == null || _font == null) return;
+        scale *= TextScale;
+        try
+        {
+            var soft = new ColorSRGB(0f, 0f, 0f, 0.32f * (color.A / 255f));
+            for (int i = 0; i < 8; i++)
+            {
+                double a = Math.PI * 2 * i / 8;
+                DrawStringArgs(at + new Vector2((float)Math.Cos(a) * halo, (float)Math.Sin(a) * halo), soft, text, scale);
+            }
+            DrawStringArgs(at + new Vector2(1.5f, 1.5f), new ColorSRGB(0f, 0f, 0f, 0.8f * (color.A / 255f)), text, scale);
+            DrawStringArgs(at, color, text, scale);
+        }
+        catch (Exception e) { TextFailed(e); }
+    }
+
     /// <summary>A small filled dot on screen (concentric rings).</summary>
     public static void ScreenDot(Vector2 c, float r, ColorSRGB color)
     {

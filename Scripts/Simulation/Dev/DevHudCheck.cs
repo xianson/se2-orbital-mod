@@ -114,6 +114,7 @@ public static class DevHudCheck
         bool holding = FrameHost.HoldingStation;   // (holding station: your orbit shown, no drift plot - by design)
         Line(r != null, $"an orbit card ({(r == null ? "none" : r.Body)}{(walking ? ", hidden: walking" : "")}{(holding ? ", holding station" : "")})");
         if (r != null && !walking && !MapView.Visible) Line(OrbitHud.CardOpen, $"the card is up on screen ({OrbitHud.CardWhy})");
+        if (r != null && !walking && !MapView.Visible) Line(OrbitHud.TextDump != "-" && !OrbitHud.TextDump.Contains("Rendezvous") && !SEAerospace.MapUi.HudText.HasClock(OrbitHud.TextDump), $"the HUD's words (one time format, no 'Rendezvous'): {OrbitHud.TextDump}");
         if (r != null)
         {
             Line(Math.Abs(r.Speed - tSpeed) <= 1.0 + 0.002 * tSpeed, $"its speed {r.Speed:F1} m/s, the truth {tSpeed:F1} (the frame's own {fc.Velocity.Length():F1})");

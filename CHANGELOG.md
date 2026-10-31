@@ -6,6 +6,14 @@ written but has not been run).
 
 ## Unreleased
 
+- **Orbit and rendezvous HUD: cleaner text** (the drawings unchanged). No text on the disc or inside the plot: the orbit's
+  words sit under the disc (the next apsis, then the other and the period; a circular orbit is one line; the inclination only
+  when not ~0), the target's name and distance on the plot's top edge, closing / closest under the plot. One closest
+  approach, the same everywhere, always called "closest". One time format (`2m 43s`, `57m`, `1h 57m`) - at an apsis it says
+  `now`, not a whole period. Two text sizes, a soft shadow in place of the grey plates. "ahead" / "behind" in the plot's
+  corners; its grid size always shows. A target off screen gets a magenta arrow at the screen's edge; the target's label in
+  the world is bigger.
+
 - **Fixed: the game crashed leaving a world with a planet ocean** (exit to the main menu, or loading another world): the game's
   water renderer counted the ocean's tiles wrongly and threw while they unloaded. Only planets with an ocean are affected - none
   of the vanilla planets has one. Checked in game: three loads of the same world in one game process, no crash.

@@ -69,10 +69,22 @@ Rendezvous tab, a planet or moon target shows its transfer windows (the porkchop
 cheapest - circled - to red at four times it; black: no transfer for that pair); **click a window** and its first burn is
 made as a maneuver (your plan replaced; `Ctrl` + `Z` brings it back) and the map shows it to fine-tune. Notices (a target set, a
 warp stop, a burn done or stopped, contacts) come as a toast in flight, titled by what they are about, and as a line over
-the map's warp bar. The orbit card under the speed box shows your orbit (period and inclination over it), the next
-burn, your target ("Kemik 14,353 km, receding" / "closest 3.1 km in 4:12"), re-entry and the hold; with a target near you
-its relative plot is drawn beside your orbit's disc. When the game's own "Press P to ..." box would cover those lines, they
-move above the disc.
+the map's warp bar.
+
+The orbit disc left of the speed box shows your orbit from above. Its text sits under it, never on it:
+- the next apsis: `Ap 600 km in 57m` (`now` when you are there); then the other and the period: `Pe 300 km in 1h 37m · period 3h 15m`;
+- a circular orbit: one line, `300 km circular · period 1h 56m`;
+- the inclination only when not ~0: `· incl 12.3°`;
+- a planned burn: `Burn 40 m/s in 2m 43s · 3s` (orange); `hold prograde` while the attitude hold is on (seated only).
+
+With a target near you, its relative plot sits left of the disc:
+- the target's name and distance on its top edge;
+- `ahead` / `behind` in its top corners, the grid size bottom right;
+- under it: `closing 18 m/s` (or `opening`, `holding`), then `closest 2.0 km in 1h 31m` - the closest approach, the one the magenta ring on the disc marks.
+
+Off screen, a magenta arrow at the screen's edge points to the target, with its name and distance. Times read `2m 43s`
+under 10 min, `57m` under an hour, `1h 57m` after. When the game's own "Press P to ..." box would cover the disc's text,
+it moves above the disc.
 
 **Quick launch** (`Ctrl` + `T` seated, creative worlds) is part of the **Aerodynamics Mod** now (its settings: Settings >
 Mods > Aerodynamics, Quick launch and Controls). With both mods loaded, this mod moves the ship for it and keeps it under

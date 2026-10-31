@@ -1,13 +1,14 @@
 using Keen.VRage.Core;
 using SEAerospace.Orbital;
 using static OrbitalMod.Num;
+using HudText = SEAerospace.MapUi.HudText;
 
 #pragma warning disable CS0649, CS8632, CS1591, CS1573, CS1570, CS1574, CS0419, CS1734
 namespace OrbitalMod;
 
 /// <summary>
-/// The in-flight orbit readout: what OrbitDisplay computes, shown as a HUD panel (right side) with
-/// Pe / Ap tags on the drawn orbit. Replaces the old 3D debug text.
+/// The in-flight orbit display: what OrbitDisplay computes, as the orbit disc beside the game's SPD box and, with a target or
+/// a ridden anchor, the relative plot beside it. Their words sit in fixed slots off the drawings (SEAerospace.MapUi.HudText).
 /// </summary>
 public static class OrbitHud
 {
@@ -80,37 +81,27 @@ public static class OrbitHud
     static readonly ColorSRGB Orbit = new ColorSRGB(0.35f, 0.88f, 1.00f, 1f);   // your orbit: cyan, as on the map
 
     private static GameUi.Card _card;
-    private static string _lastTitle, _lastContent;
-    private static (string title, string content)? _fallback;
 
-    /// <summary>
-    /// THE ORBIT READOUT (2026-10-11, the user: "kill the orbit gui in the top right - make it into cleanly presented orb
-    /// element info next to the orbit plot and the rel plot"): no card any more; the elements in a HudPanel.Stats block
-    /// hugging the plot's left side, level with its middle - altitude and speed, Pe and Ap with how long until each,
-    /// period, inclination - and under them what the card also carried: the mode, the next burn, the target, the ring,
-    /// the attitude hold, reentry, transmitting. Also drawn with no plot (a burn alone, over the map's absence).
-    /// </summary>
+    /// <summary>The words with no plot drawn (a burn with no orbit shown): the disc's block alone, where the disc would be.</summary>
     static void DrawInfo(float u)
     {
         _infoShown = false;
-        if (_info == null) return;
-        var scr = MapPipeline.ScreenSize;
-        float R = scr.Y * 0.085f;
-        var c = new Vector2(scr.X * 0.5f - scr.Y * 0.43f - R, scr.Y * 0.493f);   // (the plot's centre: DrawDisc / DrawRelative)
-        HudPanel.Stats(new Vector2(c.X - R - 16f * u, c.Y), true, true, _info.Value.title, _info.Value.rows, _info.Value.lines, u);
+        if (!_hasText || _discLines.Count == 0) return;
+        // (no plot - a burn with no orbit shown: the disc's block alone, centred where the disc would be; the same words and sizes,
+        //  no panel - 2026-10-31 HUD text)
+        DiscPlace(out var c, out _);
+        float H = HudText.Height(_discLines, LineH(true, u), LineH(false, u));
+        DrawBlock(_discLines, c.X, c.Y - H * 0.5f, true, u);
         _infoShown = true;
     }
-    static (string title, List<HudPanel.Stat> rows, List<string> lines)? _info;
+    static bool _hasText;
     static bool _infoShown;
     /// <summary>The orbit readout is on screen (harness: hudcheck), and why not when it is not.</summary>
     public static bool CardOpen => _infoShown;
     public static string CardWhy = "-";
     private static double _nextUpdate;
 
-    /// <summary>
-    /// The readout lives in the game's own notification card (updated in place, twice a second at most),
-    /// and the apsides are tagged on the drawn orbit.
-    /// </summary>
+    /// <summary>The orbit disc and the relative plot, their words remade twice a second (BuildText).</summary>
     public static void Draw(Keen.VRage.Core.Game.Systems.Session session)
     {
         GameNotes.Tick(session);   // (the game's HUD notifications: where they are, hidden over the map - audit C1)
@@ -124,85 +115,22 @@ public static class OrbitHud
         // (in a planet's frame, an apoapsis inside its air - flying about, a hop, coming down: no orbit display at all)
         EntryHidden = LowArc(r);
         bool show = OrbitalConfig.ShowOrbit && ((r != null && !EntryHidden) || burn != null) && !MapView.Visible && !covered;
-        _fallback = null;
         if (_card != null) { GameUi.CloseCard(_card); _card = null; }   // (the old card: never shown again)
         if (!show)
         {
             CardWhy = !OrbitalConfig.ShowOrbit ? "orbit display off" : MapView.Visible ? "map open" : covered ? "a screen is open" : Walking ? "walking" : EntryHidden ? "apoapsis inside the air" : "no orbit";
-            _info = null; _infoShown = false;
+            _hasText = false; _infoShown = false; TextDump = "-";
             return;
         }
         if (now >= _nextUpdate)
         {
             _nextUpdate = now + 0.5;
-            string title = r != null ? $"ORBIT  ·  {SystemHost.DisplayName(r.Body).ToUpperInvariant()}" : "MANEUVER";
-            var rows = new List<HudPanel.Stat>();
-            var lines = new List<string>();
-            if (r != null)
-            {
-                // Each apsis with how long until you are there (the one you reach first is the one to act on).
-                // (just there, or just past it: "now", not a whole revolution away)
-                string In(double s) => double.IsNaN(s) || s < 0 ? null : s < 10 || (r.Period > 0 && r.Period - s < 10) ? "now" : $"in {Maneuvers.Clock(s)}";
-                rows.Add(new HudPanel.Stat("ALT", HudPanel.Km(r.Alt), $"{r.Speed:N0} m/s"));
-                rows.Add(r.Pe < 0 ? new HudPanel.Stat("PE", "impact", null, HudPanel.Warn) : new HudPanel.Stat("PE", HudPanel.Km(r.Pe), In(r.PeIn)));
-                rows.Add(r.Escape ? new HudPanel.Stat("AP", "escape") : new HudPanel.Stat("AP", HudPanel.Km(r.Ap), In(r.ApIn)));
-                if (!r.Escape)
-                {
-                    rows.Add(new HudPanel.Stat("PERIOD", Maneuvers.Clock(r.Period)));
-                    rows.Add(new HudPanel.Stat("INC", $"{r.IncDeg:F1}°"));
-                }
-                if (!string.IsNullOrEmpty(r.Mode)) lines.Add(r.Mode);
-            }
-            // SHORT TAGS (2026-10-12, the user: the lines under the plot were "a full sentence instead of a helpful gui"): a
-            // word and its numbers each - the next burn, the target's approach, reentry, the attitude hold; the mode, the
-            // ring crossings and transmitting are left to the map
-            double now2 = SystemHost.Now;
-            // the burn: what is left, how long it takes at full thrust, and when (fx-flight's BurnTag: "in 2:30", "now", "late 0:40",
-            // "stopped: no thrust" - UI audit U2: the length and start were computed and never drawn)
-            if (burn != null)
-            {
-                double bs = Maneuvers.BurnSeconds;
-                string len = !IsFinite(bs) ? "" : bs < 60 ? $"  ·  {Math.Max(1, bs):F0} s burn" : $"  ·  {Maneuvers.Clock(bs)} burn";
-                lines.Add($"BURN  {Maneuvers.BurnLeft:F1} m/s{len}  ·  {Maneuvers.BurnTag ?? "now"}");
-            }
-            var ap = Maneuvers.TargetApproach(now2);
-            if (Maneuvers.Target != null)
-            {
-                string nm = Targets.Name(Maneuvers.Target);
-                if (nm != null && nm.Length > 18) nm = nm.Substring(0, 17) + "…";
-                // PLAIN WORDS (2026-10-18, UI audit C4: "◆ Kemik · 14,353 km · -0:00" - a negative zero, no direction): how far it
-                // is now and whether you close or recede, then the closest approach still ahead, if any.
-                if (ap.Tracking) lines.Add($"TARGET  {nm}  ·  tracking {ap.TrackingText}");
-                else if (ap.Here) lines.Add($"TARGET  {nm}  ·  you are there");
-                else
-                {
-                    TargetRange(now2, out double rng, out double rdot);
-                    SEAerospace.MapUi.Words.TargetLines(nm, rng, rdot, ap.Ok, ap.At - now2, ap.Body ? ap.Alt : ap.Dist, ap.Body, ap.Impact, ap.Rendezvous, out var tl1, out var tl2);
-                    lines.Add("TARGET  " + tl1 + (ap.Ok || !double.IsNaN(rng) ? "" : "  ·  no approach"));
-                    if (tl2 != null) lines.Add(tl2);
-                }
-            }
-            // re-entry: fx-flight's card tag (braking now; the next pass on your orbit or your PLAN, "ENTRY 2:46 · 1,669 → 990
-            // m/s · heat 82%"; an airless border over the cap) - else, skimming above the air, how low it must go (UI audit U3)
-            string et = EntryHost.CardTag(now2);
-            if (et != null) lines.Add(et);
-            else if (EntryHost.AirGapLine(now2) is string gap) lines.Add(gap);
-            if (AttitudeHold.Current != AttitudeHold.Mode.Off) lines.Add($"HOLD  {AttitudeHold.Label(AttitudeHold.Current)}");
-            if (Contacts.LoudLine is string loud) lines.Add(loud);   // (you are heard: a radar of yours transmits - fx-detect)
-            _info = (title, rows, lines);
-            // (the plot's own words, made here twice a second - drawn every frame they were new strings every frame)
-            _capHeader = r != null && !r.Escape ? SEAerospace.MapUi.Words.PeriodIncl(r.Period, r.IncDeg) : null;
-            _capPe = r != null ? "Pe " + (r.Pe < 0 ? "impact" : HudPanel.Km(r.Pe) + ApsisIn(r, r.PeIn)) : null;
-            _capAp = r != null && !r.Escape ? "Ap " + HudPanel.Km(r.Ap) + ApsisIn(r, r.ApIn) : null;
-            _relTitle = r != null && r.AnchorName != null ? (r.RelIsTarget ? "Relative to " : "Around ") + r.AnchorName : null;
-            _relDown = r != null ? "toward " + SystemHost.DisplayName(r.Body) : null;
-            _lastTitle = title; _lastContent = string.Join("\n", lines);
+            BuildText(r, burn);   // (the words, made here twice a second - drawn every frame they were new strings every frame)
             CardWhy = "shown beside the plot";
         }
-        // Pe / Ap tags on the drawn orbit (world HUD annotations, like the game's markers).
         if (r == null || MapView.Visible)
         {
-            if (_info != null && FrameMarkers.BeginHud(session)) { try { DrawInfo(MapPipeline.UiScale(MapPipeline.ScreenSize.Y)); } finally { MapPipeline.UiEnd(); } }
+            if (_hasText && FrameMarkers.BeginHud(session)) { try { DrawInfo(MapPipeline.UiScale(MapPipeline.ScreenSize.Y)); } finally { MapPipeline.UiEnd(); } }
             return;
         }
         if (!FrameMarkers.BeginHud(session)) return;
@@ -234,7 +162,7 @@ public static class OrbitHud
                     // screen), in its place as before
                     bool relPlot = plot == SEAerospace.Frames.RendezvousPlot.Plot.Target || plot == SEAerospace.Frames.RendezvousPlot.Plot.Anchor;
                     _relBeside = relPlot && RelRoom(u);
-                    if (!relPlot) DrawDisc(r, u);
+                    if (!relPlot) { _oopReach = double.NaN; DrawDisc(r, u); }
                     else if (_relBeside && DrawDisc(r, u)) DrawRelative(r, u, true);
                     else { _relBeside = false; DrawRelative(r, u, false); }
                 }
@@ -243,8 +171,140 @@ public static class OrbitHud
         finally { MapPipeline.UiEnd(); }
     }
 
-    static string _capHeader, _capPe, _capAp, _capAlt, _relTitle, _relDown;
-    static double _capAltAt;
+    // ── THE HUD'S WORDS (2026-10-31, the user's approved text cleanup: SEAerospace.MapUi.HudText says what and where) ──
+    // No text on the drawings; three slots: one block centred under the disc (the orbit, or the burn), the relative plot's
+    // title on its top edge (the target's name left, its distance right), one block left-aligned under the plot (closing /
+    // opening / holding, then the closest approach). One time format, two sizes, a soft halo in place of the per-line plates.
+    static readonly List<HudText.Line> _discLines = new List<HudText.Line>(8), _plotLines = new List<HudText.Line>(6);
+    static readonly List<string> _extra = new List<string>(6);
+    static string _plotName, _plotDist; static int _plotNameRole;
+    /// <summary>The words on screen now, one " | " between lines (harness: hudcheck).</summary>
+    public static string TextDump = "-";
+    /// <summary>The out-of-plane strip's reach (m) when the plot drew it last frame, else NaN (its words go in the plot's block).</summary>
+    static double _oopReach = double.NaN;
+
+    static void BuildText(Readout r, string burn)
+    {
+        double t = SystemHost.Now;
+        string orbitBig = null, orbitSmall = null;
+        if (r != null)
+        {
+            double rp = r.Pe + r.BodyRadius, ra = r.Ap + r.BodyRadius;
+            double ecc = r.Escape ? 1 : ra + rp > 0 ? Math.Abs(ra - rp) / (ra + rp) : 0;
+            HudText.Orbit(r.Pe, r.Ap, r.PeIn, r.ApIn, r.Period, ecc, r.IncDeg, r.Escape, out orbitBig, out orbitSmall);
+        }
+        // the burn: what is left, when (Maneuvers.BurnTag: "in 2m 43s", "now", "late 40s", "stopped: no thrust"), how long at full thrust
+        string burnText = burn != null ? HudText.Burn(Maneuvers.BurnLeft, Maneuvers.BurnTag, Maneuvers.BurnSeconds) : null;
+        // (the hold works seated only - AttitudeHold lets go on foot, "left the seat": the harness's "hold prograde" on foot
+        //  answered "holding Prograde" and was let go the next tick, so no line - P3)
+        string hold = AttitudeHold.Current != AttitudeHold.Mode.Off ? "hold " + AttitudeHold.Label(AttitudeHold.Current).ToLowerInvariant() : null;
+        _extra.Clear();
+        // what was written on the disc (the next patch event, the next ring rock) is a line here now
+        if (r != null && r.EventRel.HasValue && r.EventLabel != null) _extra.Add($"{r.EventLabel} {HudText.In(r.EventIn) ?? ""}".TrimEnd());
+        if (r?.Rocks != null && r.Rocks.Count > 0) { var k = r.Rocks[0]; _extra.Add($"{k.label} {HudText.Km(k.dist)} {HudText.In(k.inT) ?? ""}".TrimEnd()); }
+        // re-entry: fx-flight's card tag, else, skimming above the air, how low it must go (UI audit U3)
+        string et = EntryHost.CardTag(t);
+        if (et != null) _extra.Add(et);
+        else if (EntryHost.AirGapLine(t) is string gap) _extra.Add(gap);
+        if (Contacts.LoudLine is string loud) _extra.Add(loud);   // (you are heard: a radar of yours transmits - fx-detect)
+        HudText.DiscBlock(orbitBig, orbitSmall, burnText, hold, _extra, _discLines);
+        BuildTarget(r, t);
+        _hasText = true;
+        var sb = new System.Text.StringBuilder();
+        foreach (var l in _discLines) sb.Append(l.Text).Append(" | ");
+        if (_plotName != null) sb.Append("[plot] ").Append(_plotName).Append(" / ").Append(_plotDist ?? "-").Append(" | ");
+        foreach (var l in _plotLines) sb.Append(l.Text).Append(" | ");
+        TextDump = sb.Length > 0 ? sb.ToString(0, sb.Length - 3) : "-";
+    }
+
+    /// <summary>
+    /// The target's (or the ridden anchor's) words: the plot's title (name, distance) and its block (how the range changes, the
+    /// closest approach - ONE value, Maneuvers' closest approach on your path, the one the disc's magenta ring marks: the plot
+    /// worked its own out of its sampled revolution and the two disagreed, P6). A target with no relative plot (a planet or
+    /// moon): its lines join the disc's block.
+    /// </summary>
+    static void BuildTarget(Readout r, double t)
+    {
+        _plotName = _plotDist = null; _plotLines.Clear(); _plotNameRole = HudText.White;
+        bool plot = r?.Relative != null && r.Relative.Count > 0;
+        string key = Maneuvers.Target;
+        string name = null, dist = null, rate = null, closest = null;
+        if (plot && !r.RelIsTarget)
+        {
+            // riding an anchor's frame: the plot's own numbers (there is no target to ask Maneuvers about)
+            name = r.AnchorName;
+            double rng = Math.Sqrt(r.RelNow.along * r.RelNow.along + r.RelNow.radial * r.RelNow.radial + r.RelNowCross * r.RelNowCross);
+            double rng2 = Math.Sqrt(r.RelNow.along * r.RelNow.along + r.RelNow.radial * r.RelNow.radial);
+            double rdot = rng2 > 1 ? (r.RelNow.along * r.RelVel.along + r.RelNow.radial * r.RelVel.radial) / rng2 : 0;
+            dist = HudText.Km(rng);
+            rate = r.Holding ? "holding station" : HudText.Rate(rdot);
+            if (!r.Holding && r.Relative.Count > 2)
+            {
+                int ci = 0; double cmin = double.MaxValue;
+                for (int i = 0; i < r.Relative.Count; i++) { var q = r.Relative[i]; double dd = q.along * q.along + q.radial * q.radial; if (dd < cmin) { cmin = dd; ci = i; } }
+                closest = ci > 0 ? HudText.Closest(true, r.RelPeriod * ci / Math.Max(1, r.RelSamples - 1), Math.Sqrt(cmin), rng2, false, false) : null;
+            }
+        }
+        else if (key != null)
+        {
+            name = Targets.Name(key);
+            var ap = Maneuvers.TargetApproach(t);
+            if (ap.Tracking) rate = "tracking " + ap.TrackingText;
+            else if (ap.Here) rate = "you are there";
+            else
+            {
+                TargetRange(t, out double rng, out double rdot);
+                if (!double.IsNaN(rng)) dist = HudText.Km(rng);
+                rate = HudText.Rate(rdot);
+                closest = HudText.Closest(ap.Ok, ap.At - t, ap.Body ? ap.Alt : ap.Dist, rng, ap.Body, ap.Impact);
+                if (closest != null && ap.Estimate) closest += " · estimate";
+            }
+            _plotNameRole = HudText.TargetRole;
+        }
+        if (name == null) return;
+        if (name.Length > 18) name = name.Substring(0, 17) + "…";
+        if (plot)
+        {
+            _plotName = name; _plotDist = dist;
+            if (rate != null) _plotLines.Add(new HudText.Line(rate, false, HudText.White));
+            if (closest != null) _plotLines.Add(new HudText.Line(closest, false, HudText.Dim));
+            if (r.RelLeaves && r.Relative.Count > 1)
+                _plotLines.Add(new HudText.Line("leaves frame " + (HudText.In(r.RelPeriod * (r.Relative.Count - 1) / Math.Max(1, r.RelSamples - 1)) ?? ""), false, HudText.Dim));
+            if (!double.IsNaN(_oopReach)) _plotLines.Add(new HudText.Line("out of plane ±" + HudText.Km(_oopReach), false, HudText.Dim));
+        }
+        else
+        {
+            // no plot (a body target): the target's lines under the orbit's, in the disc's block
+            _discLines.Add(new HudText.Line(dist != null ? $"{name}  {dist}" : name, false, HudText.TargetRole));
+            string s = rate != null && closest != null ? rate + " · " + closest : rate ?? closest;
+            if (s != null) _discLines.Add(new HudText.Line(s, false, HudText.Dim));
+        }
+    }
+
+    static readonly ColorSRGB BurnCol = new ColorSRGB(1f, 0.64f, 0.24f, 1f), TgtCol = new ColorSRGB(0.95f, 0.45f, 0.85f, 1f);   // (the plan's orange, the map's target magenta)
+    static ColorSRGB RoleColor(int role) => role == HudText.BurnRole ? BurnCol : role == HudText.TargetRole ? TgtCol : role == HudText.Dim ? CapDim : CapWhite;
+    /// <summary>A line's height (px): a big line's or a small one's, with its leading.</summary>
+    static float LineH(bool big, float u) => MapPipeline.MeasureText("0", (big ? HudText.Primary : HudText.Secondary) * u).Y * 1.12f;
+    /// <summary>HUD text: a soft dark halo round it, no plate (MapPipeline.ScreenTextSoft).</summary>
+    static void T(Vector2 at, string text, ColorSRGB col, float scale, float u) => MapPipeline.ScreenTextSoft(at, text, col, scale, 1.4f * u);
+    static float BlockWidth(List<HudText.Line> lines, float u)
+    {
+        float w = 0;
+        foreach (var l in lines) w = Math.Max(w, MapPipeline.MeasureText(l.Text, (l.Big ? HudText.Primary : HudText.Secondary) * u).X);
+        return w;
+    }
+    /// <summary>A block of lines from its top (y): centred on x, or left-aligned at x. Returns the y under it.</summary>
+    static float DrawBlock(List<HudText.Line> lines, float x, float y, bool centred, float u)
+    {
+        foreach (var l in lines)
+        {
+            float s = (l.Big ? HudText.Primary : HudText.Secondary) * u;
+            float px = centred ? x - MapPipeline.MeasureText(l.Text, s).X * 0.5f : x;
+            T(new Vector2(px, y), l.Text, RoleColor(l.Role), s, u);
+            y += LineH(l.Big, u);
+        }
+        return y;
+    }
 
     /// <summary>How far your target is now (m; a body's: to its surface) and how fast that changes (m/s, + receding): your
     /// orbit now and the target about the same body. NaN when either is unknown.</summary>
@@ -387,9 +447,7 @@ public static class OrbitHud
     static bool DrawDisc(Readout r, float u)
     {
         if (r.RelPath == null || r.RelPath.Length < 2 || r.Nor.LengthSquared() < 0.5) return false;
-        var scr = MapPipeline.ScreenSize;
         DiscPlace(out var c, out float R);
-        var gs = HudGeom.Spd;
         Vector3D n = r.Nor;
         Vector3D fwd = (QuaternionD)MapPipeline.CameraOrientation * Vector3D.Forward;
         Vector3D up = fwd - n * Vector3D.Dot(fwd, n);
@@ -435,42 +493,18 @@ public static class OrbitHud
         var path = _orbitPts; path.Clear();   // (reused: drawn here, every frame)
         foreach (var q in r.RelPath) if (IsFinite(q)) path.Add(P(q));
         MapPipeline.ScreenPath(path, r.PathClosed, Orbit, 1.6f * u);
-        // Pe / Ap.
-        var apsisPlaced = default(SEAerospace.MapUi.Rect);   // (the first label drawn: the second keeps off it)
-        void Apsis(Vector3D q, string label)
-        {
-            var s = P(q);
-            MapPipeline.ScreenDisc(s, 2.2f * u, Orbit);
-            // (out from the disc's centre past the apsis, aligned away from the orbit: above the point both labels sat on
-            //  the orbit and on each other - 2026-10-12)
-            var d = s - c; float dl = d.Length();
-            var dir = dl > 1e-3f ? d / dl : new Vector2(0, -1);
-            if (label == null) return;
-            var sz = MapPipeline.MeasureText(label, 0.42f * u);
-            var at = s + dir * 8f * u;
-            float x = dir.X < -0.3f ? at.X - sz.X : dir.X > 0.3f ? at.X : at.X - sz.X * 0.5f;
-            float y = dir.Y < -0.3f ? at.Y - sz.Y : dir.Y > 0.3f ? at.Y : at.Y - sz.Y * 0.5f;
-            // (kept off the game's SPD box on the right - "Pe 84 km · 13:22" ran under it, UI audit C3 - and on the screen)
-            //  and, with the relative plot beside it on the left, off that plot: "Ap 300 km · 1h 17m" ran onto its "316 km away"
-            //  (2026-10-19, fix-finish) - it stays right of the gap between the two)
-            float minX = _relBeside ? RelBesideCentre(c, R, u).X + R + 6f * u : 4f * u;
-            x = SEAerospace.MapUi.CardLayout.ClampX(x, sz.X, minX, gs != null && gs[3] > 4f ? gs[0] - 4f * u : scr.X - 4f * u);
-            // (and off the other apsis label: pushed right off the relative plot, "Ap 300 km · 1h 17m" landed on "Pe 280 km ·
-            //  37:52" - 2026-10-19, final-check - so it goes above or below it)
-            float px = 4f * u, py = 1f * u;
-            y = SEAerospace.MapUi.CardLayout.ClearOf(new SEAerospace.MapUi.Rect(x - px, y - py, x + sz.X + px, y + sz.Y + py), apsisPlaced, 2f * u) + py;
-            apsisPlaced = new SEAerospace.MapUi.Rect(x - px, y - py, x + sz.X + px, y + sz.Y + py);
-            Plated(new Vector2(x, y), label, Orbit, 0.42f * u, u);
-        }
-        if (r.Pe > -r.BodyRadius) Apsis(r.PeRel, _capPe);
-        if (r.ApRel.HasValue && !r.Escape) Apsis(r.ApRel.Value, _capAp);
+        // Pe / Ap: their markers only - the values are in the block under the disc (2026-10-31 HUD text: "Ap 300 km · 57:44" and
+        // "Pe 300 km · 1h 55m" on the rim of a circular orbit, P1)
+        void Apsis(Vector3D q) => MapPipeline.ScreenDisc(P(q), 2.2f * u, Orbit);
+        if (r.Pe > -r.BodyRadius) Apsis(r.PeRel);
+        if (r.ApRel.HasValue && !r.Escape) Apsis(r.ApRel.Value);
         // The next patch event: where you leave the sphere, or enter a moon's.
         if (r.EventRel.HasValue)
         {
             var es = P(r.EventRel.Value);
             var ec = new ColorSRGB(0.85f, 0.55f, 1f, 1f);
             if (!MapPipeline.ScreenIcon("ring", es, 5f * u, ec)) MapPipeline.ScreenCircle(es, 4f * u, ec, 1.6f * u);
-            MapPipeline.TextScreen(es + new Vector2(0, 10f * u), $"{r.EventLabel} · {Maneuvers.Clock(r.EventIn)}", ec, 0.4f * u);
+            // (its words: a line of the block under the disc)
         }
         // The rendezvous with your target: marked as the escape / entry is, the target then a ring, joined.
         if (r.RvRel.HasValue)
@@ -484,9 +518,9 @@ public static class OrbitHud
                 MapPipeline.ScreenDashed(rs, ts, HudPanel.Alpha(rc, 0.6f), 1f * u);
             }
             if (!MapPipeline.ScreenIcon("ring", rs, 5f * u, rc)) MapPipeline.ScreenCircle(rs, 4f * u, rc, 1.6f * u);
-            MapPipeline.TextScreen(rs + new Vector2(0, 10f * u), $"{r.RvLabel} · {HudPanel.Km(r.RvDist)} · {Maneuvers.Clock(r.RvIn)}", rc, 0.4f * u);
+            // (no label: the closest approach is told once, under the relative plot - P7, P9, P10)
         }
-        // Ring rocks you will meet: each marked as the rendezvous is, the next one named.
+        // Ring rocks you will meet: each marked as the rendezvous is (the next one's words: a line of the block under the disc).
         if (r.Rocks != null)
         {
             var kc = Maneuvers.RockColor;
@@ -495,7 +529,6 @@ public static class OrbitHud
                 var ks = P(r.Rocks[i].rel);
                 MapPipeline.ScreenCircle(ks, 3.5f * u, kc, 1.4f * u);
                 MapPipeline.ScreenDisc(ks, 1.2f * u, kc);
-                if (i == 0) MapPipeline.TextScreen(ks + new Vector2(0, 10f * u), $"{r.Rocks[i].label} · {HudPanel.Km(r.Rocks[i].dist)} · {Maneuvers.Clock(r.Rocks[i].inT)}", kc, 0.4f * u);
             }
         }
         // You: a dot, a prograde tick, and your view as a wedge (straight up: heading-up).
@@ -512,71 +545,37 @@ public static class OrbitHud
         float ty = (float)(-tilt / (Math.PI / 2)) * R * 0.8f;
         MapPipeline.ScreenLine(c + new Vector2(-R - 6f * u, -R * 0.8f), c + new Vector2(-R - 6f * u, R * 0.8f), HudPanel.Alpha(new ColorSRGB(1f, 1f, 1f, 1f), 0.3f), 1f * u);
         MapPipeline.ScreenLine(c + new Vector2(-R - 10f * u, ty), c + new Vector2(-R - 2f * u, ty), NorCol, 2f * u);
-        PlotCaptions(c, R, r, u, true);
+        DiscText(c, R, u);
         return true;
     }
 
-    /// <summary>An apsis' countdown for its label on the plot: " · now" just there, " · 2:13" until it.</summary>
-    static string ApsisIn(Readout r, double s) => double.IsNaN(s) || s < 0 ? "" : s < 10 || (r.Period > 0 && r.Period - s < 10) ? " · now" : $" · {Maneuvers.Clock(s)}";
-
-    /// <summary>
-    /// THE ORBIT ON ITS PLOT (2026-10-11, the user: "the orbit info thing might be superseded by the plot - add info to the
-    /// plot itself"): the apsides carry their altitudes and countdowns on the orbit (DrawDisc); over the panel the period
-    /// and inclination; under it your altitude and speed, then what the old card also said - the mode, the next burn, the
-    /// target, the ring, the hold, reentry, transmitting - one short line each, centred. Both plots (the disc and the
-    /// relative one). The side block (DrawInfo) only when no plot is drawn.
-    /// </summary>
     static readonly ColorSRGB CapDim = new ColorSRGB(0.72f, 0.8f, 0.9f, 0.9f), CapWhite = new ColorSRGB(0.95f, 0.97f, 1f, 1f);
-    /// <summary>A text's backplate (2026-10-18, UI audit C3: white text on a white hull in third person, lost in sun glare).</summary>
-    static readonly ColorSRGB Plate = new ColorSRGB(0.01f, 0.02f, 0.03f, 0.5f);
     static readonly List<SEAerospace.MapUi.Rect> _avoid = new List<SEAerospace.MapUi.Rect>(2);
 
-    /// <summary>Text on a dark backplate (its top-left at).</summary>
-    static void Plated(Vector2 at, string text, ColorSRGB col, float scale, float u)
-    {
-        if (string.IsNullOrEmpty(text)) return;
-        var sz = MapPipeline.MeasureText(text, scale);
-        MapPipeline.ScreenRect(at - new Vector2(4f * u, 1f * u), at + sz + new Vector2(4f * u, 1f * u), Plate);
-        MapPipeline.ScreenText(at, text, col, scale);
-    }
-    static void Centred(float cx, float y, string text, ColorSRGB col, float scale, float u)
-    {
-        if (string.IsNullOrEmpty(text)) return;
-        Plated(new Vector2(cx - MapPipeline.MeasureText(text, scale).X * 0.5f, y), text, col, scale, u);
-    }
-
     /// <summary>
-    /// The plot's captions: over it, "period 1h 22m · incl 0.0°" (labelled - UI audit C3); under it your altitude and speed,
-    /// then the card's lines (burn, target, entry, hold), each on a backplate. When the game's own HUD notification ("Press P
-    /// to Park/Lock/Connect", GameNotes) would sit on those lines, they go above the plot instead (UI audit C1).
+    /// Slot (a): the block centred under the disc - the orbit's next apsis (big) and the other with the period (small), or the
+    /// burn (big, orange) with the hold; then the extra lines (a patch event, a ring rock, entry, transmitting). Kept right of the
+    /// relative plot beside it. When the game's own HUD notification ("Press P to Park/Lock/Connect", GameNotes) would sit on it,
+    /// it goes above the disc instead (UI audit C1).
     /// </summary>
-    static void PlotCaptions(Vector2 c, float R, Readout r, float u, bool top)
+    static void DiscText(Vector2 c, float R, float u)
     {
-        float hs = MapPipeline.MeasureText("0", 0.42f * u).Y;
-        float headerY = c.Y - R - 6f * u - hs;
-        if (top && !r.Escape) Centred(c.X, headerY, _capHeader, CapDim, 0.42f * u, u);
-        double w = Wall();
-        if (_capAlt == null || w - _capAltAt > 0.1) { _capAlt = $"{HudPanel.Km(r.Alt)}  ·  {r.Speed:N0} m/s"; _capAltAt = w; }   // (ten times a second)
-        float altH = MapPipeline.MeasureText("0", 0.46f * u).Y * 1.15f, lineH = MapPipeline.MeasureText("0", 0.4f * u).Y * 1.15f;
-        var lines = _info?.lines;
-        float wide = MapPipeline.MeasureText(_capAlt, 0.46f * u).X;
-        if (lines != null) for (int i = 0; i < lines.Count; i++) wide = Math.Max(wide, MapPipeline.MeasureText(lines[i], 0.4f * u).X);
-        float H = altH + (lines?.Count ?? 0) * lineH;
+        var lines = _discLines;
+        CaptionsBelow = true;
+        if (lines.Count == 0) return;
+        float H = HudText.Height(lines, LineH(true, u), LineH(false, u)), wide = BlockWidth(lines, u);
+        float cx = c.X;
+        if (_relBeside)
+        {
+            float minX = RelBesideCentre(c, R, u).X + R + 8f * u;   // (the plot's right edge)
+            if (cx - wide * 0.5f < minX) cx = minX + wide * 0.5f;
+        }
         _avoid.Clear();
         var nr = GameNotes.Rect;
         if (nr != null) _avoid.Add(SEAerospace.MapUi.Rect.FromXywh(nr));
-        if (_relBeside)
-        {
-            // (above, the lines must not run onto the relative plot's title beside: it counts as taken)
-            var rc = RelBesideCentre(c, R, u);
-            _avoid.Add(new SEAerospace.MapUi.Rect(rc.X - R, rc.Y - R - 3f * hs, rc.X + R, rc.Y + R));
-        }
-        float bottomOfAbove = (top && !r.Escape ? headerY : c.Y - R) - 4f * u;
-        bool below = SEAerospace.MapUi.CardLayout.Below(c.X - wide * 0.5f - 4f * u, c.X + wide * 0.5f + 4f * u, c.Y + R + 6f * u, bottomOfAbove, H, _avoid);
-        float y = below ? c.Y + R + 6f * u : bottomOfAbove - H;
-        Centred(c.X, y, _capAlt, CapWhite, 0.46f * u, u);
-        y += altH;
-        if (lines != null) for (int i = 0; i < lines.Count; i++) { Centred(c.X, y, lines[i], CapDim, 0.4f * u, u); y += lineH; }
+        float top = c.Y + R + 6f * u, aboveBottom = c.Y - R - 6f * u;
+        bool below = SEAerospace.MapUi.CardLayout.Below(cx - wide * 0.5f - 4f * u, cx + wide * 0.5f + 4f * u, top, aboveBottom, H, _avoid);
+        DrawBlock(lines, cx, below ? top : aboveBottom - H, true, u);
         CaptionsBelow = below;
     }
     /// <summary>The card's lines are under the plot (false: moved above it, clear of the game's notification).</summary>
@@ -588,23 +587,14 @@ public static class OrbitHud
     /// to the right, toward the planet (+R) down. Your next revolution dashed, where you are now, and
     /// the frame's boundary (past it you split off on your own orbit).
     /// </summary>
-    // the relative plot's words, remade four times a second (drawn every frame they were new strings every frame)
-    static readonly string[] _rt = new string[8];
-    static readonly double[] _rtAt = new double[8];
-    static string RelText(int slot, double v, double v2 = 0)
+    // the scale label, remade four times a second (drawn every frame it was a new string every frame)
+    static string _gridText; static double _gridAt, _gridFor = double.NaN;
+    static string GridText(double step)
     {
         double w = Wall();
-        if (_rt[slot] != null && w - _rtAt[slot] < 0.25) return _rt[slot];
-        _rtAt[slot] = w;
-        return _rt[slot] = slot switch
-        {
-            0 => "grid " + HudPanel.Km(v),
-            1 or 2 or 3 => "in " + Maneuvers.Clock(v),
-            4 => HudPanel.Km(v) + " away",
-            5 => $"closest {HudPanel.Km(v)} in {Maneuvers.Clock(v2)}",
-            6 => v < 0 ? $"closing {-v:0.0} m/s" : $"opening {v:0.0} m/s",
-            _ => "±" + HudPanel.Km(v),
-        };
+        if (_gridText != null && step == _gridFor && w - _gridAt < 0.25) return _gridText;
+        _gridAt = w; _gridFor = step;
+        return _gridText = "grid " + HudText.Km(step);
     }
 
     static void DrawRelative(Readout r, float u, bool beside)
@@ -670,30 +660,6 @@ public static class OrbitHud
             MapPipeline.ScreenLine(new Vector2(bx0, by0), new Vector2(bx1, by0), dim, 1.2f * u);
             MapPipeline.ScreenLine(new Vector2(bx0, by0 - 3f * u), new Vector2(bx0, by0 + 3f * u), dim, 1.2f * u);
             MapPipeline.ScreenLine(new Vector2(bx1, by0 - 3f * u), new Vector2(bx1, by0 + 3f * u), dim, 1.2f * u);
-            MapPipeline.TextScreen(new Vector2(0.5f * (bx0 + bx1), by0 - 8f * u), RelText(0, step), dim, 0.36f * u);
-        }
-        // the axes in words (UI audit C4: "+R / -V" said nothing): behind to the right, ahead to the left, the body down
-        if (origin.Y > a0.Y + 8f * u && origin.Y < a1.Y - 8f * u) { MapPipeline.TextScreen(new Vector2(a1.X - 22f * u, origin.Y - 8f * u), "behind", dim, 0.36f * u); MapPipeline.TextScreen(new Vector2(a0.X + 20f * u, origin.Y - 8f * u), "ahead", dim, 0.36f * u); }
-        if (origin.X > a0.X + 8f * u && origin.X < a1.X - 8f * u && _relDown != null) MapPipeline.TextScreen(new Vector2(origin.X, a1.Y - 20f * u), _relDown, dim, 0.36f * u);
-        // its title over the panel: what it is relative to. Beside the disc, clear of the disc's own header ("period 1h 18m ·
-        // incl 12.0°", centred over the disc): a long name ran into it (2026-10-19, fix-finish) - then its right end stops short
-        // of that header, or, with no room for that on the screen, it goes a line up.
-        if (_relTitle != null)
-        {
-            float ts = 0.42f * u, th = MapPipeline.MeasureText("0", ts).Y, tw = MapPipeline.MeasureText(_relTitle, ts).X;
-            float ty = c.Y - R - 6f * u - th, tx = c.X - tw * 0.5f;
-            if (beside && _capHeader != null && !r.Escape)
-            {
-                DiscPlace(out var dc, out _);
-                float headerLeft = dc.X - MapPipeline.MeasureText(_capHeader, ts).X * 0.5f - 4f * u;
-                float limit = headerLeft - 10f * u;
-                if (tx + tw + 4f * u > limit)
-                {
-                    if (limit - tw - 4f * u >= 8f * u) tx = limit - tw - 4f * u;
-                    else ty -= th + 6f * u;
-                }
-            }
-            Plated(new Vector2(tx, ty), _relTitle, CapDim, ts, u);
         }
         // The frame's boundary round the anchor (past it you leave on your own orbit).
         {
@@ -717,7 +683,6 @@ public static class OrbitHud
             int i = full * qd / 4;
             if (i > n) break;   // (cut short where it leaves the frame)
             MapPipeline.ScreenDisc(path[i], 2.2f * u, Orbit);
-            if (r.RelPeriod * qd / 4 >= 1) MapPipeline.TextScreen(path[i] + new Vector2(0, -8f * u), RelText(qd, r.RelPeriod * qd / 4), HudPanel.Alpha(Orbit, 0.8f), 0.36f * u);   // ("in 0:30": time from now - it read "+0:00")
         }
         if (n >= 2)
         {
@@ -735,13 +700,9 @@ public static class OrbitHud
         {
             var ex = path[path.Count - 1];
             MapPipeline.ScreenCircle(ex, 4f * u, orange, 1.6f * u);
-            MapPipeline.TextScreen(ex + new Vector2(0, 9f * u), "leaves frame", orange, 0.34f * u);
         }
-        // ON THE PLOT, not in a line under it (the user, 2026-10-10): the range as a measured span from the anchor to you, the
-        // closing / opening rate on your velocity arrow, the anchor's name by its square, the closest approach marked on the path.
-        double rng = Math.Sqrt(r.RelNow.along * r.RelNow.along + r.RelNow.radial * r.RelNow.radial);
-        double rdot = rng > 1 ? (r.RelNow.along * r.RelVel.along + r.RelNow.radial * r.RelVel.radial) / rng : 0;
-        double vrel = Math.Sqrt(r.RelVel.along * r.RelVel.along + r.RelVel.radial * r.RelVel.radial);
+        // The range as a measured span from the anchor to you, your velocity arrow, the closest approach marked on the path - their
+        // words are in the block under the plot (2026-10-31 HUD text: no text on the drawing).
         var me = P(r.RelNow);
         // the range span: anchor to you, end ticks, its length at the middle
         if (In(me) && In(origin) && (me - origin).Length() > 18f * u)
@@ -751,8 +712,6 @@ public static class OrbitHud
             MapPipeline.ScreenLine(origin + d * 6f * u, me - d * 6f * u, sc, 1f * u);
             MapPipeline.ScreenLine(origin + d * 6f * u - nrm * 3f * u, origin + d * 6f * u + nrm * 3f * u, sc, 1f * u);
             MapPipeline.ScreenLine(me - d * 6f * u - nrm * 3f * u, me - d * 6f * u + nrm * 3f * u, sc, 1f * u);
-            var mid0 = 0.5f * (origin + me) + nrm * 8f * u;
-            MapPipeline.TextScreen(mid0, RelText(4, rng), HudPanel.Alpha(white, 0.8f), 0.36f * u);
         }
         // the closest approach on the predicted revolution (marked where it happens: its distance and when)
         if (!r.Holding && r.Relative.Count > 2)
@@ -763,24 +722,20 @@ public static class OrbitHud
             if (ci > 0 && In(cs))
             {
                 MapPipeline.ScreenCircle(cs, 4.5f * u, Orbit, 1.3f * u);
-                double tca = r.RelPeriod * ci / Math.Max(1, r.RelSamples - 1);
-                MapPipeline.TextScreen(cs + new Vector2(0, 11f * u), RelText(5, Math.Sqrt(cmin), tca), HudPanel.Alpha(Orbit, 0.9f), 0.36f * u);
             }
         }
         // The anchor (a square, its name by it) and you (a dot, your relative velocity with its rate on it).
         MapPipeline.ScreenFill(new List<Vector2> { origin + new Vector2(-3.5f * u, -3.5f * u), origin + new Vector2(3.5f * u, -3.5f * u), origin + new Vector2(3.5f * u, 3.5f * u), origin + new Vector2(-3.5f * u, 3.5f * u) }, orange);
-        if (In(origin) && !string.IsNullOrEmpty(r.AnchorName)) MapPipeline.TextScreen(origin + new Vector2(0, -10f * u), r.AnchorName, orange, 0.34f * u);
         var vr = new Vector2((float)-r.RelVel.along, (float)-r.RelVel.radial);
         if (vr.LengthSquared() > 1e-6f)
         {
             var tip = me + Vector2.Normalize(vr) * 14f * u;
             MapPipeline.ScreenLine(me, tip, white, 1.6f * u);
-            MapPipeline.TextScreen(tip + Vector2.Normalize(vr) * 10f * u, r.Holding ? "holding" : RelText(6, rdot), white, 0.36f * u);
         }
-        else if (r.Holding) MapPipeline.TextScreen(me + new Vector2(0, -10f * u), "holding", white, 0.36f * u);
         MapPipeline.ScreenDisc(me, 3.4f * u, white);
-        _ = vrel;
-        // Out of plane: a strip under the plot (same along-track axis), only when there is real motion out of it.
+        // Out of plane: a strip under the plot (same along-track axis), only when there is real motion out of it (its words - "out
+        // of plane ±2.0 km" - in the block under it).
+        float stripBottom = float.NaN; double oopShownReach = double.NaN;
         if (r.RelCross != null && r.RelCross.Count >= 2)
         {
             double oop = Math.Abs(r.RelNowCross);
@@ -795,13 +750,12 @@ public static class OrbitHud
                 double oopShown = _oopScale.Update(oop, Wall());   // (held and eased as the plot's: it refit every frame)
                 double kc = (sh * 0.5 - 6 * u) / oopShown;
                 MapPipeline.ScreenLine(new Vector2(a0.X, midY), new Vector2(a1.X, midY), dim, 1f * u);   // the anchor's plane
-                MapPipeline.TextScreen(new Vector2(c.X + R - 30f * u, top + 8f * u), "out of plane", dim, 0.34f * u);
+                stripBottom = top + sh; oopShownReach = oop;
                 {
                     // the out-of-plane reach as a measured span at the left edge: from the plane to the furthest point
                     float sx = a0.X + 6f * u, sy = midY - (float)(oop * kc);
                     MapPipeline.ScreenLine(new Vector2(sx, midY), new Vector2(sx, sy), dim, 1f * u);
                     MapPipeline.ScreenLine(new Vector2(sx - 3f * u, sy), new Vector2(sx + 3f * u, sy), dim, 1f * u);
-                    MapPipeline.TextScreen(new Vector2(sx + 22f * u, 0.5f * (midY + sy)), RelText(7, oop), dim, 0.36f * u);
                 }
                 var sp = new List<Vector2>(r.Relative.Count);
                 for (int i = 0; i < r.Relative.Count && i < r.RelCross.Count; i++)
@@ -812,8 +766,27 @@ public static class OrbitHud
                 MapPipeline.ScreenDisc(new Vector2(P(r.RelNow).X, midY - (float)(r.RelNowCross * kc)), 3f * u, white);
             }
         }
-        // (the readout line that was here - name, range, closing rate, relative speed - is on the plot now, above)
-        if (!beside) PlotCaptions(c, R, r, u, false);   // (under it: your altitude and speed, the burn, the target...; beside the disc, the disc has them)
+        _oopReach = oopShownReach;
+        // THE PLOT'S WORDS (2026-10-31 HUD text), in their slots (HudText.Plot): the name (left, magenta for a target) and its
+        // distance (right) on the box's top edge - "Relative to X" was a title on its own (b); "ahead" and "behind" in the box's
+        // top corners, off the axis and the target (P13); the scale label bottom-right inside the box, always drawn (it was a
+        // collision-tested label and lost to the others: P8); the block under the box (c). Nothing else inside the box (P5).
+        {
+            float ss = HudText.Secondary * u, ps = HudText.Primary * u;
+            string grid = GridText(step);
+            var slots = HudText.Plot(new SEAerospace.MapUi.Rect(c.X - R, c.Y - R, c.X + R, c.Y + R),
+                _plotName != null ? MapPipeline.MeasureText(_plotName, ps) : Vector2.Zero, _plotDist != null ? MapPipeline.MeasureText(_plotDist, ss) : Vector2.Zero,
+                MapPipeline.MeasureText("ahead", ss), MapPipeline.MeasureText("behind", ss), MapPipeline.MeasureText(grid, ss),
+                5f * u, 17f * u, 4f * u, stripBottom);
+            if (_plotName != null) T(slots.Name, _plotName, RoleColor(_plotNameRole), ps, u);
+            if (_plotDist != null) T(slots.Distance, _plotDist, CapWhite, ss, u);
+            T(slots.Ahead, "ahead", CapDim, ss, u);
+            T(slots.Behind, "behind", CapDim, ss, u);
+            T(slots.Scale, grid, CapDim, ss, u);
+            float y = DrawBlock(_plotLines, slots.Block.X, slots.Block.Y, false, u);
+            // (no room beside the disc: the plot in its place, the disc's block under the plot's)
+            if (!beside) DrawBlock(_discLines, slots.Block.X, y + 4f * u, false, u);
+        }
     }
 
     /// <summary>

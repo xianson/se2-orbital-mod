@@ -29,6 +29,12 @@ namespace MapUiTest
             EjectionBurnLeavesAlongVinf();
             EjectionNearestTime();
             TextFloor();
+            HudTimeFormat();
+            HudOrbitBlock();
+            HudBurnAndTarget();
+            HudDiscBlock();
+            HudPlotSlots();
+            HudEdgeArrow();
             Console.WriteLine($"=== {_passed} passed, {_failed} failed ===");
             return _failed == 0 ? 0 : 1;
         }
@@ -56,7 +62,7 @@ namespace MapUiTest
             Check(l2 == "closest 3.1 km in 4:12", "line 2: " + l2);
             // a rendezvous
             Words.TargetLines("Rock", 9000, -3, true, 60, 850, false, false, true, out _, out l2);
-            Check(l2 == "rendezvous 850 m in 1:00", "rendezvous: " + l2);
+            Check(l2 == "closest 850 m in 1:00", "within the merge range it is still closest: " + l2);
             // a body: its altitude, and an impact
             Words.TargetLines("Verdure", 2e6, -100, true, 3900, 84_000, true, false, false, out _, out l2);
             Check(l2 == "closest 84 km up in 1h 05m", "body: " + l2);
@@ -232,6 +238,127 @@ namespace MapUiTest
             Check(ang < 0.02, "angle then: " + ang);
             Check(double.IsNaN(Ejection.NearestTime(pos, 10, 10, new Vector3D(0, 1, 0), 10, out _)), "an empty span: NaN");
         }
+
+        // ── the HUD text cleanup (2026-10-31): one time format, the orbit block, the burn and target words, the slots ──
+        static void HudTimeFormat()
+        {
+            Check(HudText.Span(163) == "2m 43s", "Span(163): " + HudText.Span(163));
+            Check(HudText.Span(43) == "43s", "Span(43): " + HudText.Span(43));
+            Check(HudText.Span(599.4) == "9m 59s", "Span(599.4): " + HudText.Span(599.4));
+            Check(HudText.Span(57 * 60 + 10) == "57m", "Span(57m10s): " + HudText.Span(57 * 60 + 10));
+            Check(HudText.Span(3600 + 57 * 60) == "1h 57m", "Span(1h57m): " + HudText.Span(3600 + 57 * 60));
+            Check(HudText.Span(3 * 86400 + 5 * 3600) == "3d 5h", "Span(3d5h): " + HudText.Span(3 * 86400 + 5 * 3600));
+            Check(HudText.Span(double.NaN) == "-", "Span(NaN)");
+            Check(!HudText.Span(252).Contains(":"), "never mm:ss");
+            Check(HudText.HasClock("Ap 300 km · 57:44") && HudText.HasClock("in 1:05") && !HudText.HasClock("Burn 40 m/s in 2m 43s · 3s") && !HudText.HasClock("a: 12"), "HasClock spots mm:ss only");
+            Check(HudText.In(2) == "now" && HudText.In(0) == "now" && HudText.In(-1) == "now", "In: now within a few seconds");
+            Check(HudText.In(163) == "in 2m 43s", "In(163): " + HudText.In(163));
+            Check(HudText.In(double.NaN) == null && HudText.In(-60) == null, "In: unknown or past is null");
+        }
+
+        static void HudOrbitBlock()
+        {
+            // circular: one small line
+            HudText.Orbit(300_000, 300_400, 3300, 6900, 6960, 0.0001, 0.0, false, out var big, out var small);
+            Check(big == null, "circular: no big line: " + big);
+            Check(small == "300 km circular · period 1h 56m", "circular small: " + small);
+            // elliptic: the next apsis big, the other and the period small
+            HudText.Orbit(300_000, 600_000, 5820, 3420, 11_700, 0.04, 0.0, false, out big, out small);
+            Check(big == "Ap 600 km in 57m", "elliptic big: " + big);
+            Check(small == "Pe 300 km in 1h 37m · period 3h 15m", "elliptic small: " + small);
+            // P2: just past the apoapsis its countdown is a whole period: "now", and it stays the big line
+            HudText.Orbit(300_000, 600_000, 5840, 11_690, 11_700, 0.04, 0.0, false, out big, out small);
+            Check(big == "Ap 600 km now", "at the apoapsis (just past): " + big);
+            Check(small == "Pe 300 km in 1h 37m · period 3h 15m", "at the apoapsis, small: " + small);
+            HudText.Orbit(300_000, 600_000, 5860, 2, 11_700, 0.04, 0.0, false, out big, out _);
+            Check(big == "Ap 600 km now", "at the apoapsis (just before): " + big);
+            // the inclination only when not ~0
+            HudText.Orbit(300_000, 600_000, 5820, 3420, 11_700, 0.04, 12.34, false, out _, out small);
+            Check(small.EndsWith(" · incl 12.3°"), "inclination appended: " + small);
+            HudText.Orbit(300_000, 300_000, 1, 2, 6960, 0, 0.01, false, out _, out small);
+            Check(!small.Contains("incl"), "~0 inclination left out: " + small);
+            // an impact periapsis
+            HudText.Orbit(-20_000, 300_000, 600, 4000, 5000, 0.2, 0, false, out big, out _);
+            Check(big == "Pe impact in 10m", "impact: " + big);
+            // escape
+            HudText.Orbit(300_000, double.NaN, 120, double.NaN, double.NaN, 1.2, 0, true, out big, out small);
+            Check(big == "Pe 300 km in 2m 0s" && small == "escape", "escape: " + big + " / " + small);
+            HudText.Orbit(300_000, 600_000, 5820, 3420, 11_700, 0.04, 0, false, out big, out small);
+            Check(!(big + small).Contains(":"), "no mm:ss in the orbit block");
+        }
+
+        static void HudBurnAndTarget()
+        {
+            string b = HudText.Burn(40, HudText.BurnWhen(163, double.NaN, null), 3.2);
+            Check(b == "Burn 40 m/s in 2m 43s · 3s", "burn: " + b);
+            b = HudText.Burn(4.25, "now", double.NaN);
+            Check(b == "Burn 4.3 m/s now" || b == "Burn 4.2 m/s now", "burn now, no thrust known: " + b);
+            Check(HudText.BurnWhen(0, 40, null) == "late 40s", "late");
+            Check(HudText.BurnWhen(100, double.NaN, "no thrust") == "stopped: no thrust", "stopped");
+            Check(HudText.Rate(-18.2) == "closing 18 m/s", "closing: " + HudText.Rate(-18.2));
+            Check(HudText.Rate(0.4) == "opening 0.4 m/s", "opening: " + HudText.Rate(0.4));
+            Check(HudText.Rate(0.01) == "holding" && HudText.Rate(-0.02) == "holding", "holding");
+            Check(HudText.Rate(double.NaN) == null, "rate unknown");
+            string c = HudText.Closest(true, 5460, 2000, 15_000, false, false);
+            Check(c == "closest 2.0 km in 1h 31m", "closest: " + c);
+            Check(HudText.Closest(true, 600, 16_000, 15_000, false, false) == null, "no nearer pass ahead: none");
+            Check(HudText.Closest(true, 720, 0, 2e6, true, true) == "impact in 12m", "impact");
+            c = HudText.Closest(true, 3900, 84_000, 2e6, true, false);
+            Check(c == "closest 84 km up in 1h 5m", "body: " + c);
+            Check(HudText.Closest(false, 600, 100, 1000, false, false) == null && HudText.Closest(true, 0.5, 100, 1000, false, false) == null, "none ahead");
+            // the word is "closest" everywhere (P6 / P7)
+            Words.TargetLines("Rock", 9000, -3, true, 60, 850, false, false, true, out _, out var l2);
+            Check(l2 != null && l2.StartsWith("closest"), "TargetLines says closest, not rendezvous: " + l2);
+        }
+
+        static void HudDiscBlock()
+        {
+            var l = HudText.DiscBlock("Ap 600 km in 1h 36m", "Pe 300 km in 3m · period 3h 15m", "Burn 40 m/s in 2m 43s · 3s", "hold prograde", null);
+            Check(l.Count == 2 && l[0].Big && l[0].Role == HudText.BurnRole, "burn: one big orange line");
+            Check(l[1].Text == "hold prograde · Ap 600 km in 1h 36m" && !l[1].Big, "burn: the hold and the next apsis small: " + l[1].Text);
+            l = HudText.DiscBlock(null, "300 km circular · period 1h 56m", null, null, null);
+            Check(l.Count == 1 && !l[0].Big, "circular, nothing else: one small line");
+            l = HudText.DiscBlock("Ap 600 km now", "Pe 300 km in 1h 37m · period 3h 15m", null, "hold prograde", new[] { "Escape in 2h 13m", null });
+            Check(l.Count == 4 && l[0].Big && !l[1].Big && l[2].Text == "hold prograde" && l[3].Text == "Escape in 2h 13m", "elliptic + hold + an extra line");
+            foreach (var x in l) Check(!x.Text.Contains(":"), "no mm:ss: " + x.Text);
+            Near(HudText.Height(l, 20, 16), 20 + 16 * 3, 1e-6, "block height: big + 3 small");
+        }
+
+        static void HudPlotSlots()
+        {
+            var box = new Rect(40, 120, 380, 460);
+            var s = HudText.Plot(box, new Vector2(80, 22), new Vector2(50, 18), new Vector2(40, 16), new Vector2(46, 16), new Vector2(60, 16), 6, 6, 4, float.NaN);
+            Check(Math.Abs(s.Name.X - 40) < 1e-3 && s.Name.Y + 22 <= 120, "the name: left, above the box's top edge");
+            Check(Math.Abs(s.Distance.X + 50 - 380) < 1e-3 && s.Distance.Y + 18 <= 120, "the distance: right-aligned above the top edge");
+            // P13: the axis words in the box's top corners, inside it
+            Check(s.Ahead.X >= 40 && s.Ahead.Y >= 120 && s.Ahead.Y + 16 < 200, "ahead: top-left corner, inside");
+            Check(s.Behind.X + 46 <= 380 && s.Behind.Y >= 120 && s.Behind.X > 300, "behind: top-right corner, inside");
+            // P8 / P5: the scale label inside the box, bottom-right
+            Check(s.Scale.X >= 40 && s.Scale.X + 60 <= 380 && s.Scale.Y >= 120 && s.Scale.Y + 16 <= 460, "the scale label inside the box");
+            Check(s.Block.X == 40 && s.Block.Y >= 460, "the target block: left-aligned under the box");
+            s = HudText.Plot(box, new Vector2(80, 22), new Vector2(50, 18), new Vector2(40, 16), new Vector2(46, 16), new Vector2(60, 16), 6, 6, 4, 560);
+            Check(s.Block.Y >= 560, "under the out-of-plane strip when it is drawn");
+            // a tiny box: kept in order
+            var tiny = new Rect(0, 0, 60, 60);
+            s = HudText.Plot(tiny, new Vector2(80, 22), new Vector2(50, 18), new Vector2(40, 16), new Vector2(46, 16), new Vector2(90, 16), 6, 6, 4, float.NaN);
+            Check(s.Scale.X >= 0 && s.Behind.X >= s.Ahead.X + 40, "a tiny box: ahead and behind never overlap");
+            Check(s.Distance.X >= s.Name.X + 80, "a long name pushes the distance right, never under it");
+        }
+
+        static void HudEdgeArrow()
+        {
+            var size = new Vector2(1920, 1080);
+            Check(HudText.EdgePoint(size, new Vector2(-1, -0.2f), 30, out var at, out var u), "a direction");
+            Near(at.X, 30, 1e-3, "left edge (inset)");
+            Check(at.Y < 540 && at.Y > 30, "up a little");
+            Check(HudText.EdgePoint(size, new Vector2(0, 5), 30, out at, out _) && Math.Abs(at.Y - 1050) < 1e-3 && Math.Abs(at.X - 960) < 1e-3, "straight down: bottom middle");
+            Check(!HudText.EdgePoint(size, new Vector2(0, 0), 30, out _, out _), "no direction: none");
+            HudText.EdgePoint(size, new Vector2(-1, -1), 30, out at, out u);
+            var lab = HudText.EdgeLabel(size, at, u, new Vector2(120, 20), 14);
+            Check(lab.X >= 2 && lab.Y >= 2 && lab.X + 120 <= 1918 && lab.Y + 20 <= 1078, "the label stays on the screen");
+            Check(lab.X > at.X && lab.Y > at.Y, "the label sits inward of a top-left arrow");
+        }
+
 
         static void TextFloor()
         {

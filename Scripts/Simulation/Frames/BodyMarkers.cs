@@ -204,8 +204,13 @@ public static class BodyMarkers
                 MapPipeline.ScreenLine(k, k - new Vector2(sx * a, 0), TargetColor, 2f * u);
                 MapPipeline.ScreenLine(k, k - new Vector2(0, sy * a), TargetColor, 2f * u);
             }
-            MapPipeline.TextScreen(ts + new Vector2(0, r + 12f * u), TargetText(), TargetColor, (0.45f) * MapPipeline.MapText);
+            // (the HUD's primary size with its soft halo: it was 0.45 x MapText, ~9 px at 1080p - P11, 2026-10-31)
+            string tt = TargetText();
+            float sc = SEAerospace.MapUi.HudText.Primary * u;
+            var tsz = MapPipeline.MeasureText(tt, sc);
+            MapPipeline.ScreenTextSoft(ts + new Vector2(-tsz.X * 0.5f, r + 6f * u), tt, TargetColor, sc, 1.4f * u);
         }
+        else if (_tgtOn) TargetEdgeArrow(size, u);
         TargetKey(session, size);
     }
 
@@ -225,6 +230,26 @@ public static class BodyMarkers
         return _tgtText;
     }
     static readonly ColorSRGB TargetColor = new ColorSRGB(0.95f, 0.45f, 0.85f, 1f);
+
+    static readonly List<Vector2> _arrow = new List<Vector2>(3);
+    /// <summary>
+    /// The target off the screen (or behind you): a magenta arrow at the screen's edge pointing the way to it, its name and distance
+    /// beside it, inward (P12, 2026-10-31: a target behind had no indicator anywhere; only the plot said where it was). The way is
+    /// the HUD's own (MapPipeline.HudPoint: behind the camera, mirrored), the place on the edge HudText.EdgePoint's.
+    /// </summary>
+    static void TargetEdgeArrow(Vector2 size, float u)
+    {
+        if (!MapPipeline.HudPoint(_tgtWorld, out var s, out _)) return;
+        if (!SEAerospace.MapUi.HudText.EdgePoint(size, s - size * 0.5f, 26f * u, out var at, out var d)) return;
+        var n = new Vector2(-d.Y, d.X);
+        _arrow.Clear();
+        _arrow.Add(at); _arrow.Add(at - d * 16f * u + n * 9f * u); _arrow.Add(at - d * 16f * u - n * 9f * u);
+        MapPipeline.ScreenFill(_arrow, TargetColor);
+        string tt = TargetText();
+        float sc = SEAerospace.MapUi.HudText.Secondary * u;
+        var lab = SEAerospace.MapUi.HudText.EdgeLabel(size, at, d, MapPipeline.MeasureText(tt, sc), 24f * u);
+        MapPipeline.ScreenTextSoft(lab, tt, TargetColor, sc, 1.4f * u);
+    }
 
     /// <summary>N in flight: target the marked body or contact nearest the crosshair (within ~12% of the screen); on the
     /// target itself, clear it.</summary>

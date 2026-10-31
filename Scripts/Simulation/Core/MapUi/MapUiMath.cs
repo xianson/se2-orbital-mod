@@ -56,7 +56,7 @@ namespace SEAerospace.MapUi
             if (!caOk || double.IsNaN(caIn) || caIn < 1) return;
             if (impact) { line2 = $"impact in {Clock(caIn)}"; return; }
             if (!double.IsNaN(rangeNow) && caDist >= rangeNow * 0.999 && !body) return;   // (no nearer pass ahead: the first line says it)
-            line2 = body ? $"closest {Km(caDist)} up in {Clock(caIn)}" : rendezvous ? $"rendezvous {Km(caDist)} in {Clock(caIn)}" : $"closest {Km(caDist)} in {Clock(caIn)}";
+            line2 = body ? $"closest {Km(caDist)} up in {Clock(caIn)}" : $"closest {Km(caDist)} in {Clock(caIn)}";   // ("closest" everywhere, never "rendezvous" - 2026-10-31 HUD text)
         }
 
         /// <summary>The orbit card's header: "period 1h 22m · incl 0.0°" (audit C3: "1h 22m · 0.0°" said nothing).</summary>

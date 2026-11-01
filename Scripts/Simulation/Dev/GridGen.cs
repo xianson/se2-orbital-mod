@@ -64,7 +64,7 @@ public static class GridGen
     public static string Status = "none";
     static readonly System.Globalization.CultureInfo CI = System.Globalization.CultureInfo.InvariantCulture;
 
-    static string Dir => Path.Combine(Path.GetTempPath(), "OrbitalMod", "gen");
+    static string Dir => Path.Combine(OrbitalConfig.HarnessDir, "gen");
 
     // ── the SERVER thread owns the server's entities: every spawn, hinge command and read runs there (the harness runs on
     //    the client thread; a hinge's SetVelocity from it raced the server's entity storage and crashed the game) ──

@@ -104,7 +104,7 @@ public static partial class DevHarness
 
         try
         {
-            _dir ??= Path.Combine(Path.GetTempPath(), "OrbitalMod");
+            _dir ??= OrbitalConfig.HarnessDir;   // (%TEMP%\OrbitalMod, or ORBITAL_HARNESS_DIR: OrbitalConfig)
             Directory.CreateDirectory(_dir);
             string cmdPath = Path.Combine(_dir, "cmd.txt");
             // (the next file only once the last one's lines are all answered: they run in order)

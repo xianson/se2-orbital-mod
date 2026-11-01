@@ -4,7 +4,8 @@
 #   --shot   desktop capture via the OrbitalShotSE2 scheduled task (needs the display awake)
 #   --eshot  ENGINE screenshot via the harness `shot` command (works with the display asleep);
 #            the PNG lands in the game's temp folder and its path is printed.
-SP="$(dirname "$0")"; D=/c/Users/slob/AppData/Local/Temp/OrbitalMod; mkdir -p "$D"
+SP="$(dirname "$0")"; D=/c/Users/slob/AppData/Local/Temp/OrbitalMod; [ -n "${ORBITAL_HARNESS_DIR:-}" ] && D=$(cygpath -u "$ORBITAL_HARNESS_DIR");   # (a test instance's own folder: OrbitalConfig.HarnessDir)
+  mkdir -p "$D"
 shot=0; settle=4
 if [ "$1" = "--shot" ] || [ "$1" = "--eshot" ]; then [ "$1" = "--shot" ] && shot=1 || shot=2; shift; if [[ "$1" =~ ^[0-9]+$ ]]; then settle=$1; shift; fi; fi
 send() { printf '%s\n' "$@" > "$D/cmd.txt"; for i in $(seq 1 120); do [ -f "$D/cmd.txt" ] || return 0; sleep 0.5; done; echo "WARN: command not consumed after 60 s (game frozen or harness off)"; }

@@ -75,8 +75,19 @@ public static class OrbitalConfig
     private static bool? _dev;
     private static bool DevFlagPresent()
     {
-        try { return System.IO.File.Exists(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "OrbitalMod", "dev.flag")); }
+        try { return System.IO.File.Exists(System.IO.Path.Combine(HarnessDir, "dev.flag")); }
         catch { return false; }
+    }
+    /// <summary>DEV: the harness's folder (cmd.txt, status.txt, gen/, dev.flag) - %TEMP%\OrbitalMod, or, for a test instance
+    /// launched beside another game, the folder its launcher put in the ORBITAL_HARNESS_DIR environment variable (2026-10-31:
+    /// two games polled the one cmd.txt - either could take the other's commands). Read once.</summary>
+    public static string HarnessDir => _harnessDir ??= HarnessDirOf(System.Environment.GetEnvironmentVariable("ORBITAL_HARNESS_DIR"));
+    private static string _harnessDir;
+    /// <summary>The folder for an ORBITAL_HARNESS_DIR value: the value when it is a full path, else %TEMP%\OrbitalMod.</summary>
+    public static string HarnessDirOf(string env)
+    {
+        try { if (!string.IsNullOrWhiteSpace(env) && System.IO.Path.IsPathRooted(env.Trim())) return env.Trim(); } catch { }
+        return System.IO.Path.Combine(System.IO.Path.GetTempPath(), "OrbitalMod");
     }
     public static double DebugDistance = 300;
     public static double DebugAngularDiameterDeg = 12;

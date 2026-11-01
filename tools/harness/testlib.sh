@@ -6,7 +6,7 @@
 SP="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # (LOGDIR, ST, ORB: overridable - the offline dry runs point them at canned files and a mock harness)
 LOGDIR=${LOGDIR:-/c/Users/slob/AppData/Roaming/SpaceEngineers2/Temp/Logs}
-ST=${ST:-/c/Users/slob/AppData/Local/Temp/OrbitalMod/status.txt}
+ST=${ST:-$([ -n "${ORBITAL_HARNESS_DIR:-}" ] && cygpath -u "$ORBITAL_HARNESS_DIR" || echo /c/Users/slob/AppData/Local/Temp/OrbitalMod)/status.txt}   # (ORBITAL_HARNESS_DIR: a test instance's own folder)
 ORB=${ORB:-$SP/orb.sh}
 pass=0; fail=0; skipped=0; results=()
 

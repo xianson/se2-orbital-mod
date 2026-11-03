@@ -398,6 +398,15 @@ public static partial class DevHarness
                 return "camera toggle queued (input phase)";
             }
 
+            case "cammode":   // cammode <n>: the observed entity's camera mode (seated: 0 third person, 1 first person) - the V key without input
+            {
+                var cs = session.SessionComponents.TryGet<Keen.Game2.Client.GameSystems.PlayerControl.ClientPlayersSessionComponent>()?.LocalPlayerController?.CameraSystem;
+                var e = cs?.ObservedEntity;
+                if (e == null) return "cammode: nothing observed";
+                bool ok = cs.TrySetCameraModeForEntity(e, (int)D(a[1]), default);
+                return $"cammode {a[1]}: {ok}, mode now {cs.ActiveCameraModeIndex}";
+            }
+
             case "camdiag":   // orientations the third-person camera starts from: character, controller, render camera
             {
                 string Q(Quaternion q) => $"({q.X:F4},{q.Y:F4},{q.Z:F4},{q.W:F4}) |q|={Math.Sqrt(q.X * q.X + q.Y * q.Y + q.Z * q.Z + q.W * q.W):F6} valid={q.IsValidAndRotationIsNormalized()}";

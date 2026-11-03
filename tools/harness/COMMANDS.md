@@ -293,3 +293,15 @@ game text `GameCoreScene UnloadAllScenes GameServer` (the world-reset audit), st
   alternative still matches `ARRIVE frame`).
 - combo.sh and globeshot.sh send `status` - not a verb (`unknown command`); it only pokes the harness so status.txt is
   rewritten. Harmless.
+
+## Energy stores and conveyors (`power`, `storemode`, `cellin`, `convey`; Dev/DevPower.cs)
+
+Added 2026-11-02 for the Mech Legs Hanging Cockpit's built-in battery; server thread, by grid id (`findgrids`):
+`power <grid>` - each store, ordered by its place in the grid: `[i] at (x,y,z) cells|plain <resource> stored S / C flow F mode M`
+and a cell-backed store's slots (`k=<item guid> x1 fill R` or `k=empty`); `storemode <grid> <i> auto|charge|discharge`;
+`cellout <grid> <i>` - its slots emptied; `cellin <grid> <i> [fill] [item guid]` - one item (default the vanilla power cell, fill 0.3) into store i's empty slot, `took 1`
+or `took 0` (refused: the slot's whitelist); `convey <grid>` - each inventory of the grid (its block, items, `registered` in the conveyor network) and the conveyor
+group(s) its block is in (`0:G0(2 blocks)`): two inventories in one group are joined by conveyors, ports included.
+A test grid off the ground (static spawn, no voxel under it) turns dynamic ~12 s in and falls: catch it with `gridstatic <id> on`
+the moment `findgrids` drops `(static)`. Mind the spec's cells: two blocks overlapping in a spec crashed the game (BlockOctree, 2026-11-02).
+In creative a store charges but never drains: `creative off` for a discharge test (not saved unless the world is).

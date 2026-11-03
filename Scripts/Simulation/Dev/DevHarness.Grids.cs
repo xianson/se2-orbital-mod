@@ -272,6 +272,21 @@ public static partial class DevHarness
             case "seatid":   // seatid <gridId>: the character into that grid's cockpit
                 return DevFlight.SeatId(session, (long)D(a[1])) + " | " + DevFlight.Status;
 
+            case "power":   // power <gridId>: the grid's energy stores - stored / capacity, flow, mode, cell slots (DevPower)
+                return DevPower.Power((long)D(a[1]));
+
+            case "storemode":   // storemode <gridId> <i> auto|charge|discharge: store i's mode
+                return DevPower.Mode((long)D(a[1]), (int)D(a[2]), a[3]);
+
+            case "cellin":   // cellin <gridId> <i> [fill] [item guid]: an item (the vanilla power cell) into store i's empty cell slot
+                return DevPower.CellIn((long)D(a[1]), (int)D(a[2]), a.Length > 3 ? D(a[3]) : 0.3, a.Length > 4 ? a[4] : null);
+
+            case "cellout":   // cellout <gridId> <i>: store i's cell slots emptied
+                return DevPower.CellOut((long)D(a[1]), (int)D(a[2]));
+
+            case "convey":   // convey <gridId>: the grid's inventories and which of them each reaches through the conveyors
+                return DevPower.Convey((long)D(a[1]));
+
             case "unseat":   // unseat: the character out of its seat
                 return DevFlight.Unseat(session);
 

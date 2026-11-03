@@ -4,7 +4,7 @@ What changed for players and for modders. Claims come from the commits (hashes o
 nothing here was flown in game for this release (the one-run in-game check, `tools/harness/test_integrate.sh`, is
 written but has not been run).
 
-## Unreleased
+## 1.0.5 (2026-11-03) - works on SE2 4.0.0.3165
 
 - **Orbit and rendezvous HUD: cleaner text** (the drawings unchanged). No text on the disc or inside the plot: the orbit's
   words sit under the disc (the next apsis, then the other and the period; a circular orbit is one line; the inclination only
